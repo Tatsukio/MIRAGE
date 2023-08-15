@@ -1,5 +1,4 @@
 # MIRAGE
-MIRAGE main files
 Requirements: vs, nsis
 Build order:
 1. Move MUI_EXTRAPAGES.nsh to NSIS\Include
