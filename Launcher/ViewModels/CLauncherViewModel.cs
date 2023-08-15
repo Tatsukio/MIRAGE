@@ -238,7 +238,27 @@ namespace MIRAGE_Launcher.ViewModel
             return true;
         }
 
-        public ObservableCollection<LangInfo> LangCollection { get; } = new ObservableCollection<LangInfo>();
+        private ObservableCollection<LangInfo> _langCollection = new ObservableCollection<LangInfo>();
+        public ObservableCollection<LangInfo> LangCollection
+        {
+            get => _langCollection;
+            set
+            {
+                Set(ref _langCollection, value);
+            }
+        }
+
+        private ObservableCollection<LangInfo> UpdatedLangCollection(string langID)
+        {
+            ObservableCollection<LangInfo> updatedLangCollection = new ObservableCollection<LangInfo>(LangCollection);
+
+            for (int i = 0; i < updatedLangCollection.Count; i++)
+            {
+                updatedLangCollection[i].FullName = (updatedLangCollection[i].LangID == langID ? CurrentLangText : "") + updatedLangCollection[i].LangID.ToUpper();
+            }
+
+            return updatedLangCollection;
+        }
 
         public class LangInfo
         {
@@ -253,9 +273,14 @@ namespace MIRAGE_Launcher.ViewModel
             get => _selectedLang;
             set
             {
+                if (_selectedLang == value)
+                    return;
+
+
                 _selectedLang = value;
                 LoadDB();
                 value.FullName = (value.FullName != null ? CurrentLangText : "Locale not found: ") + value.LangID.ToUpper();
+                LangCollection = UpdatedLangCollection(value.LangID);
                 CCfgEditor.SetS("Root/Global/Language " + value.LangID);
             }
         }
