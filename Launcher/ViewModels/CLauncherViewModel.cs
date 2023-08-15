@@ -604,7 +604,7 @@ namespace MIRAGE_Launcher.ViewModel
         private bool OpenUpdatePageCmdEnabled(object p) => true;
         private void OnOpenUpdatePageCmd(object p)
         {
-            Process.Start("https://para-welt.com/mirage/?version=15");
+            Process.Start("https://www.moddb.com/mods/paraworld-mirage");
         }
 
         public ICommand OpenModdbCmd { get; }
