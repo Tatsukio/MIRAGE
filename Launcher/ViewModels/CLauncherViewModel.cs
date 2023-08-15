@@ -734,16 +734,16 @@ namespace MIRAGE_Launcher.ViewModel
                 using (WebClient versionPage = new WebClient())
                 {
                     versionPage.Proxy = new WebProxy();
-                    //string FullSiteVersion = versionPage.DownloadString("https://para-welt.com/mirage/version.txt");
-                    //string siteVersionFull = versionPage.DownloadString("https://raw.githubusercontent.com/Tatsukio/MIRAGE-Launcher/master/Resources/updateinfo.txt");
-                    //versioncheck	MIRAGE 2.6.2	14	0
+
+                    //"versioncheck	MIRAGE 2.6.5	19	0	UI tweaks for fullhd resolution;4k monitors support;Multi-Defender maps;Epoch 6 (with Scorpion and Avatar);Phantom-mode;New animals and textures;And much, much more!"
                     string siteVersionFull = versionPage.DownloadString(latestVersionURL);
-                    //MessageBox.Show(siteVersionFull, null, MessageBoxButton.OK, MessageBoxImage.Error);
+                    
                     string[] siteVersion = siteVersionFull.Split(new char[] { '\t' }, StringSplitOptions.RemoveEmptyEntries);
 
                     if (siteVersion[0] == "versioncheck" && siteVersion != null)
                     {
                         string[] siteModVersion = siteVersion[1].Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                        
                         Version mirageSiteVersion = new Version(siteModVersion[1]);
                         switch (mirageVersion.CompareTo(mirageSiteVersion))
                         {
@@ -755,8 +755,7 @@ namespace MIRAGE_Launcher.ViewModel
                                 break;
                             case -1:
                                 UpdateLogText = "● " + siteVersion[4].Replace(";", "\n● ");
-                                //MessageBox.Show(UpdateLogText, null, MessageBoxButton.OK, MessageBoxImage.Error);
-                                _showUpdateWindow = true;
+                                ShowUpdateWindow = true;
                                 break;
                         }
                     }
