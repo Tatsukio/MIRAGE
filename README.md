@@ -9,3 +9,4 @@ Build order:
 5. Compile MIRAGE/PWKiller/PWKiller.sln
 6. Run MIRAGE/MIRAGE.nsi
 7. Wait for the new .exe
+
