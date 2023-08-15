@@ -1,0 +1,530 @@
+class CMirageAIMgr
+	//CMirageAIMgr.Get().
+	//CMirageAIMgr.Get().xxxx
+	//CMirageAIMgr.Debug("");
+	//CMirageAIMgr.Debug("xxxxxx: '"+xxxxxx+"'");
+	//CMirageAIMgr.Debug("xxxxxx: '"+(xxxxxx).ToString()+"'");
+	//CMirageAIMgr.Debug("xxxxxx: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+	
+	static var ^CMirageAIMgr ms_pxMrgAIInstance;
+	var bool m_bAllowSupplySystemChecked;
+	export var bool m_bAllowSupplySystem;
+	var bool m_bResourcesUnlimitedChecked;
+	export var bool m_bResourcesUnlimited;
+	var bool m_bWarpTeleportChecked;
+	export var bool m_bWarpTeleport;
+	var bool m_bTransportHealingChecked;
+	export var bool m_bTransportHealing;
+	var bool m_bDiploLockedChecked;
+	export var bool m_bDiploLocked;
+	var bool m_bHeroPoolChecked;
+	export var bool m_bHeroPool;
+	var bool m_bFreeSpecialsChecked;
+	export var bool m_bFreeSpecials;
+	var bool m_bEpochSixChecked;
+	export var bool m_bEpochSix;
+	var bool m_bTitanSlotsChecked;
+	export var bool m_bTitanSlots;
+	var bool m_bFlyingEnabledChecked;
+	export var bool m_bFlyingEnabled;
+	var bool m_bRemoveTitansChecked;
+	export var bool m_bRemoveTitans;
+	var bool m_bBuildWallsChecked;
+	export var bool m_bBuildWalls;
+	var bool m_bLevelingAllowedChecked;
+	export var bool m_bLevelingAllowed;
+	export var bool m_bInited;
+	var string m_sURSPath;
+	
+	var CAiObjWrap m_xPoolMixer;
+	
+	var CPropDB m_xLevelInfoDB;
+	var ^CPropDB.CNode m_pxSupply;
+	
+	export proc bool Inited()
+		var bool bResult=true;
+		if(!AllowSupplySystem())then bResult=false; endif;
+		if(!ResourcesUnlimited())then bResult=false; endif;
+		if(!WarpTeleport())then bResult=false; endif;
+		if(!TransportHealing())then bResult=false; endif;
+		if(!DiploLocked())then bResult=false; endif;
+		if(!HeroPool())then bResult=false; endif;
+		if(!FreeSpecials())then bResult=false; endif;
+		if(!EpochSix())then bResult=false; endif;
+		if(!TitanSlots())then bResult=false; endif;
+		if(!FlyingEnabled())then bResult=false; endif;
+		if(!RemoveTitans())then bResult=false; endif;
+		if(!BuildWalls())then bResult=false; endif;
+		return bResult;
+	endproc;
+	
+	export static proc ref CMirageAIMgr Get()
+		if(ms_pxMrgAIInstance==null)then
+			ms_pxMrgAIInstance=new CMirageAIMgr();
+		endif;
+		if(ms_pxMrgAIInstance!=null&&ms_pxMrgAIInstance^.m_bInited==false)then
+			var ^CAiBrain pxBrain;
+			var int i=0;
+			for(i=0)cond(i<8)iter(i++)do
+				pxBrain=CAiWrap.GetBrain(i);
+				if(pxBrain!=null)then break; endif;
+			endfor;
+			if(pxBrain==null)then return ms_pxMrgAIInstance^; endif;
+			var ^CAiSensor pxSensor=^(pxBrain^.GetSensor());
+			if(pxSensor==null)then return ms_pxMrgAIInstance^; endif;
+			var string sGenericData=pxSensor^.GetGenericData().ToString();
+			var string sURSRelPath=pxSensor^.GetUrsRelPath();
+//			CMirageAIMgr.Debug("data: "+sGenericData);
+			if(sGenericData==""||sURSRelPath=="")then return ms_pxMrgAIInstance^; endif;
+			var CPropDB xTestDB;
+			if(!xTestDB.FromString(sGenericData))then return ms_pxMrgAIInstance^; endif;
+			ms_pxMrgAIInstance^.Init(sGenericData,sURSRelPath);
+			ms_pxMrgAIInstance^.m_bInited=true;
+		endif;
+		return ms_pxMrgAIInstance^;
+	endproc;
+	
+	///ShutStatic
+	export static proc void ShutStatic()
+		delete ms_pxMrgAIInstance;
+	endproc;
+	
+	export static proc void Kill()
+		if(ms_pxMrgAIInstance!=null)then
+			delete ms_pxMrgAIInstance;
+			ms_pxMrgAIInstance=null;
+		endif;
+	endproc;
+	
+	export proc bool Purify()
+		m_bAllowSupplySystemChecked=false;
+		m_bResourcesUnlimitedChecked=false;
+		m_bWarpTeleportChecked=false;
+		m_bTransportHealingChecked=false;
+		m_bDiploLockedChecked=false;
+		m_bHeroPoolChecked=false;
+		m_bFreeSpecialsChecked=false;
+		m_bEpochSixChecked=false;
+		m_bTitanSlotsChecked=false;
+		m_bFlyingEnabledChecked=false;
+		m_bRemoveTitansChecked=false;
+		m_bBuildWallsChecked=false;
+		m_bLevelingAllowedChecked=false;
+		return true;
+	endproc;
+	
+	constructor()
+		m_xPoolMixer.FromInt(-1);
+		m_bAllowSupplySystemChecked=false;
+		m_bResourcesUnlimitedChecked=false;
+		m_bWarpTeleportChecked=false;
+		m_bTransportHealingChecked=false;
+		m_bDiploLockedChecked=false;
+		m_bHeroPoolChecked=false;
+		m_bFreeSpecialsChecked=false;
+		m_bEpochSixChecked=false;
+		m_bTitanSlotsChecked=false;
+		m_bFlyingEnabledChecked=false;
+		m_bRemoveTitansChecked=false;
+		m_bBuildWallsChecked=false;
+		m_bLevelingAllowedChecked=false;
+	endconstructor;
+	
+	destructor()
+		m_xPoolMixer.FromInt(-1);
+	enddestructor;
+	
+	export proc void Init(string p_sLIS,string p_sURSRelPath)
+		m_sURSPath=p_sURSRelPath;
+		m_xLevelInfoDB.FromString(p_sLIS);
+		var ^CPropDB pxSupplies=new CPropDB;
+		if(pxSupplies^.Load(p_sURSRelPath+"/Data/Base/Scripts/Server/settings/unit_supplies.txt"))then
+			m_pxSupply=^((pxSupplies^).GetRoot());
+		else
+			m_pxSupply=null;
+		endif;
+//		m_xLevelInfoDB.Save("C:/Program Files/Sunflowers/ParaWorld/bin/LevelInfoDumpAI.txt");
+	endproc;
+	
+	export proc string GetURSPath()
+		return m_sURSPath;
+	endproc;
+	
+	export proc int GetSupply(string p_sCllsNm)
+		if(m_pxSupply==null)then return 0; endif;
+		var int iSuppCount=m_pxSupply^.GetValueI(p_sCllsNm, 0);
+		return iSuppCount;
+	endproc;
+	
+	export proc bool AllowSupplySystem()
+		if(!m_bAllowSupplySystemChecked)then
+			m_bAllowSupplySystem=false;
+			var int iAllowSupplySystem=0;
+			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
+			if(pxCSNode==null)then return false; endif;
+			var ^CPropDB.CNode pxAllowSupplySystem=^(pxCSNode^.Get("UseSupply"));
+			if(pxAllowSupplySystem==null)then
+				if(!m_xPoolMixer.IsValid())then
+					InitMixer();
+				endif;
+				if(m_xPoolMixer.IsValid())then
+					m_bAllowSupplySystem = m_xPoolMixer.GetAttribValueInt("supply_system")==1;
+					m_bAllowSupplySystemChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
+				else
+					return false;
+				endif;
+			else
+				iAllowSupplySystem=pxCSNode^.GetValueI("UseSupply");
+				m_bAllowSupplySystem=iAllowSupplySystem==1;
+				m_bAllowSupplySystemChecked=true;
+			endif;
+			return m_bAllowSupplySystem;
+		else
+			return m_bAllowSupplySystem;
+		endif;
+	endproc;
+	
+	export proc bool DiploLocked()
+		if(!m_bDiploLockedChecked)then
+			m_bDiploLocked=false;
+			var int iDiploLocked=0;
+			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
+			if(pxCSNode==null)then return false; endif;
+			var ^CPropDB.CNode pxDiploLocked=^(pxCSNode^.Get("DiploLocked"));
+			if(pxDiploLocked==null)then
+//				if(!m_xPoolMixer.IsValid())then
+//					InitMixer();
+//				endif;
+//				if(m_xPoolMixer.IsValid())then
+//					m_bDiploLocked = m_xPoolMixer.GetAttribValueInt("tbasket_healing")==1;
+//					m_bDiploLockedChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
+//				else
+					return false;
+//				endif;
+			else
+				iDiploLocked=pxCSNode^.GetValueI("DiploLocked");
+				m_bDiploLocked=iDiploLocked==1;
+				m_bDiploLockedChecked=true;
+			endif;
+			return m_bDiploLocked;
+		else
+			return m_bDiploLocked;
+		endif;
+	endproc;
+	
+	export proc bool ResourcesUnlimited()
+		if(!m_bResourcesUnlimitedChecked)then
+			m_bResourcesUnlimited=false;
+			var int iResourcesUnlimited=0;
+			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
+			if(pxCSNode==null)then return false; endif;
+			var ^CPropDB.CNode pxResourcesUnlimited=^(pxCSNode^.Get("ResourcesUnlimited"));
+			if(pxResourcesUnlimited==null)then
+				if(!m_xPoolMixer.IsValid())then
+					InitMixer();
+				endif;
+				if(m_xPoolMixer.IsValid())then
+					m_bResourcesUnlimited = m_xPoolMixer.GetAttribValueInt("unlimited_storage")==1;
+					m_bResourcesUnlimitedChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
+				else
+					return false;
+				endif;
+			else
+				iResourcesUnlimited=pxCSNode^.GetValueI("ResourcesUnlimited");
+				m_bResourcesUnlimited=iResourcesUnlimited==1;
+				m_bResourcesUnlimitedChecked=true;
+			endif;
+			return m_bResourcesUnlimited;
+		else
+			return m_bResourcesUnlimited;
+		endif;
+	endproc;
+	
+	export proc bool WarpTeleport()
+		if(!m_bWarpTeleportChecked)then
+			m_bWarpTeleport=false;
+			var int iWarpTeleport=0;
+			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
+			if(pxCSNode==null)then return false; endif;
+			var ^CPropDB.CNode pxWarpTeleport=^(pxCSNode^.Get("WarpTeleport"));
+			if(pxWarpTeleport==null)then
+				return false;
+			else
+				iWarpTeleport=pxCSNode^.GetValueI("WarpTeleport");
+				m_bWarpTeleport=iWarpTeleport==1;
+				m_bWarpTeleportChecked=true;
+			endif;
+			return m_bWarpTeleport;
+		else
+			return m_bWarpTeleport;
+		endif;
+	endproc;
+	
+	export proc bool TransportHealing()
+		if(!m_bTransportHealingChecked)then
+			m_bTransportHealing=false;
+			var int iTransportHealing=0;
+			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
+			if(pxCSNode==null)then return false; endif;
+			var ^CPropDB.CNode pxTransportHealing=^(pxCSNode^.Get("TransportHealingFactor"));
+			if(pxTransportHealing==null)then
+				if(!m_xPoolMixer.IsValid())then
+					InitMixer();
+				endif;
+				if(m_xPoolMixer.IsValid())then
+					m_bTransportHealing = m_xPoolMixer.GetAttribValueInt("tbasket_healing")==1;
+					m_bTransportHealingChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
+				else
+					return false;
+				endif;
+			else
+				iTransportHealing=pxCSNode^.GetValueI("TransportHealingFactor");
+				m_bTransportHealing=iTransportHealing>=50;
+				m_bTransportHealingChecked=true;
+			endif;
+			return m_bTransportHealing;
+		else
+			return m_bTransportHealing;
+		endif;
+	endproc;
+	
+	export proc bool HeroPool()
+		if(!m_bHeroPoolChecked)then
+			m_bHeroPool=false;
+			var int iHeroPool=0;
+			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
+			if(pxCSNode==null)then return false; endif;
+			var ^CPropDB.CNode pxHeroPool=^(pxCSNode^.Get("HeroPool"));
+			if(pxHeroPool==null)then
+				if(!m_xPoolMixer.IsValid())then
+					InitMixer();
+				endif;
+				if(m_xPoolMixer.IsValid())then
+					m_bHeroPool = m_xPoolMixer.GetAttribValueInt("hero_pool")==1;
+					m_bHeroPoolChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
+				else
+					return false;
+				endif;
+			else
+				iHeroPool=pxCSNode^.GetValueI("HeroPool");
+				m_bHeroPool=iHeroPool==1;
+				m_bHeroPoolChecked=true;
+			endif;
+			return m_bHeroPool;
+		else
+			return m_bHeroPool;
+		endif;
+	endproc;
+	
+	export proc bool FreeSpecials()
+		if(!m_bFreeSpecialsChecked)then
+			m_bFreeSpecials=false;
+			var int iFreeSpecials=0;
+			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
+			if(pxCSNode==null)then return false; endif;
+			var ^CPropDB.CNode pxFreeSpecials=^(pxCSNode^.Get("FreeSpecials"));
+			if(pxFreeSpecials==null)then
+				if(!m_xPoolMixer.IsValid())then
+					InitMixer();
+				endif;
+				if(m_xPoolMixer.IsValid())then
+					m_bFreeSpecials = m_xPoolMixer.GetAttribValueInt("free_specials")==1;
+					m_bFreeSpecialsChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
+				else
+					return false;
+				endif;
+			else
+				iFreeSpecials=pxCSNode^.GetValueI("FreeSpecials");
+				m_bFreeSpecials=iFreeSpecials==1;
+				m_bFreeSpecialsChecked=true;
+			endif;
+			return m_bFreeSpecials;
+		else
+			return m_bFreeSpecials;
+		endif;
+	endproc;
+	
+	export proc bool EpochSix()
+		if(!m_bEpochSixChecked)then
+			m_bEpochSix=false;
+			var int iEpochSix=0;
+			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
+			if(pxCSNode==null)then return false; endif;
+			var ^CPropDB.CNode pxEpochSix=^(pxCSNode^.Get("EpochSix"));
+			if(pxEpochSix==null)then
+				if(!m_xPoolMixer.IsValid())then
+					InitMixer();
+				endif;
+				if(m_xPoolMixer.IsValid())then
+					m_bEpochSix = m_xPoolMixer.GetAttribValueInt("epoch_six")==1;
+					m_bEpochSixChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
+				else
+					return false;
+				endif;
+			else
+				iEpochSix=pxCSNode^.GetValueI("EpochSix");
+				m_bEpochSix=iEpochSix==1;
+				m_bEpochSixChecked=true;
+			endif;
+			return m_bEpochSix;
+		else
+			return m_bEpochSix;
+		endif;
+	endproc;
+	
+	export proc bool TitanSlots()
+		if(!m_bTitanSlotsChecked)then
+			m_bTitanSlots=false;
+			var int iTitanSlots=0;
+			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
+			if(pxCSNode==null)then return false; endif;
+			var ^CPropDB.CNode pxTitanSlots=^(pxCSNode^.Get("TitanSlots"));
+			if(pxTitanSlots==null)then
+				if(!m_xPoolMixer.IsValid())then
+					InitMixer();
+				endif;
+				if(m_xPoolMixer.IsValid())then
+					m_bTitanSlots = m_xPoolMixer.GetAttribValueInt("titan_slots")==1;
+					m_bTitanSlotsChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
+				else
+					return false;
+				endif;
+			else
+				iTitanSlots=pxCSNode^.GetValueI("TitanSlots");
+				m_bTitanSlots=iTitanSlots==1;
+				m_bTitanSlotsChecked=true;
+			endif;
+			return m_bTitanSlots;
+		else
+			return m_bTitanSlots;
+		endif;
+	endproc;
+	
+	export proc bool FlyingEnabled()
+		if(!m_bFlyingEnabledChecked)then
+			m_bFlyingEnabled=false;
+			var int iFlyingEnabled=0;
+			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
+			if(pxCSNode==null)then return false; endif;
+			var ^CPropDB.CNode pxFlyingEnabled=^(pxCSNode^.Get("FlyingEnabled"));
+			if(pxFlyingEnabled==null)then
+				if(!m_xPoolMixer.IsValid())then
+					InitMixer();
+				endif;
+				if(m_xPoolMixer.IsValid())then
+					m_bFlyingEnabled = m_xPoolMixer.GetAttribValueInt("flying_enabled")==1;
+					m_bFlyingEnabledChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
+				else
+					return false;
+				endif;
+			else
+				iFlyingEnabled=pxCSNode^.GetValueI("FlyingEnabled");
+				m_bFlyingEnabled=iFlyingEnabled==1;
+				m_bFlyingEnabledChecked=true;
+			endif;
+			return m_bFlyingEnabled;
+		else
+			return m_bFlyingEnabled;
+		endif;
+	endproc;
+	
+	export proc bool RemoveTitans()
+		if(!m_bRemoveTitansChecked)then
+			m_bRemoveTitans=false;
+			var int iRemoveTitans=0;
+			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
+			if(pxCSNode==null)then return false; endif;
+			var ^CPropDB.CNode pxRemoveTitans=^(pxCSNode^.Get("RemoveTitans"));
+			if(pxRemoveTitans==null)then
+				if(!m_xPoolMixer.IsValid())then
+					InitMixer();
+				endif;
+				if(m_xPoolMixer.IsValid())then
+					m_bRemoveTitans = m_xPoolMixer.GetAttribValueInt("titans_disabled")==1;
+					m_bRemoveTitansChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
+				else
+					return false;
+				endif;
+			else
+				iRemoveTitans=pxCSNode^.GetValueI("RemoveTitans");
+				m_bRemoveTitans=iRemoveTitans==1;
+				m_bRemoveTitansChecked=true;
+			endif;
+			return m_bRemoveTitans;
+		else
+			return m_bRemoveTitans;
+		endif;
+	endproc;
+	
+	export proc bool BuildWalls()
+		if(!m_bBuildWallsChecked)then
+			m_bBuildWalls=false;
+			var int iBuildWalls=0;
+			var ^CPropDB.CNode pxAINode=m_xLevelInfoDB.FindNode("AIOptions",false);
+			if(pxAINode==null)then return false; endif;
+			var ^CPropDB.CNode pxBuildWalls=^(pxAINode^.Get("walls"));
+			if(pxBuildWalls==null)then
+				return false;
+			else
+				iBuildWalls=pxAINode^.GetValueI("walls");
+				m_bBuildWalls=iBuildWalls==1;
+				m_bBuildWallsChecked=true;
+			endif;
+			return m_bBuildWalls;
+		else
+			return m_bBuildWalls;
+		endif;
+	endproc;
+	
+	export proc bool LevelingAllowed()
+		if(!m_bLevelingAllowedChecked)then
+			m_bLevelingAllowed=false;
+			var int iLevelingAllowed=0;
+			if(!m_xPoolMixer.IsValid())then
+				InitMixer();
+			endif;
+			if(m_xPoolMixer.IsValid())then
+				m_bLevelingAllowed = m_xPoolMixer.GetAttribValueInt("leveling_allowed")==1;
+				m_bLevelingAllowedChecked=m_bLevelingAllowed==true;
+			else
+				return false;
+			endif;
+			return m_bLevelingAllowed;
+		else
+			return m_bLevelingAllowed;
+		endif;
+	endproc;
+	
+	proc bool InitMixer()
+		var CAiObjQuery xMixerQuery;
+		var CAiObjWrapList xMixers;
+		xMixers.Clear();
+		xMixerQuery.SetOwner(-1);
+		xMixerQuery.SetClass("pool_mixer");
+		xMixerQuery.Execute(xMixers);
+		xMixers.Validate();
+		var int i, iC=xMixers.NumEntries();
+		if(iC<=0)then return false; endif;
+		m_xPoolMixer = xMixers[0];
+		return true;
+	endproc;
+	
+	export static proc bool Debug(string p_sText)
+		return Debug(p_sText,true);
+	endproc;
+	
+	export static proc bool Debug(string p_sText, bool p_bTime)
+		var string sFile = "ai_log.txt";
+		if(!Filesystem.FileExists(sFile))then return false; endif;
+		var Filesystem.CFile xFile;
+		xFile.OpenAppend(sFile);
+		var string sPrefix;
+		if(p_bTime)then
+			sPrefix=CTime.CurrentTime().ToString()+": ";
+		endif;
+		xFile.PrintLn(sPrefix+p_sText);
+		xFile.Close();
+		return true;
+	endproc;
+	
+endclass;

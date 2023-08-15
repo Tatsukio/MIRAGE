@@ -1,0 +1,809 @@
+class CWalkToPos inherit CTask
+	
+	var CObjHndl	m_xOwner;
+	var vec3			m_vPos;
+	var int				m_iSpeed;
+	var bool			m_bUsePathfinder;
+	var bool			m_bHeightAdaption;
+	var bool			m_bOnWall;
+	var bool			m_bWaitForModeChange; // waits until the switch from attack to walk mode is completed
+	var bool			m_bCanceled;
+	var bool			m_bSucceeded;
+	var int				m_iRetryCount;
+	var bool			m_bUseMaterial;
+	var bool			m_bUseMoveAction;
+	var string		m_sMoveActionAnim;
+	var CObjHndl	m_xTarget;
+	var string		m_sState;
+	
+	var CGameObj.CAdvanceActionParams m_xAdvanceParams;
+	
+	var array ^CGate m_apxCheckedGates;
+	const real GATE_CHECK_RADIUS = 10.0f;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Wa2P";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,5);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xOwner.DoKArc(pxArc^);
+		(pxArc^) << m_vPos;
+		(pxArc^) << m_iSpeed;
+		(pxArc^) << m_bUsePathfinder;
+		(pxArc^) << m_bHeightAdaption;
+		(pxArc^) << m_bOnWall;
+		(pxArc^) << m_bWaitForModeChange;
+		(pxArc^) << m_bCanceled;
+		(pxArc^) << m_iRetryCount;
+		(pxArc^) << m_bUseMaterial;
+		(pxArc^) << m_bUseMoveAction;
+		(pxArc^) << m_sMoveActionAnim;
+		(pxArc^) << m_bSucceeded;
+		m_xTarget.DoKArc(pxArc^);
+		(pxArc^) << m_xAdvanceParams.m_bStopOnLostTarget;
+		(pxArc^) << m_xAdvanceParams.m_fMaxRange;
+		(pxArc^) << m_xAdvanceParams.m_fMinDistance;
+		(pxArc^) << m_xAdvanceParams.m_fProjectileFallOff;
+		(pxArc^) << m_xAdvanceParams.m_iPrefSpeed;
+		(pxArc^) << m_xAdvanceParams.m_sFirstStrike;
+		(pxArc^) << m_xAdvanceParams.m_vGoalOffset;
+		(pxArc^) << m_xAdvanceParams.m_vRootPos;
+		(pxArc^) << m_xAdvanceParams.m_xWalkSet;
+		(pxArc^) << m_sState;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Wa2P")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xOwner.DoKArc(pxArc^);
+			(pxArc^) << m_vPos;
+			(pxArc^) << m_iSpeed;
+			(pxArc^) << m_bUsePathfinder;
+			(pxArc^) << m_bHeightAdaption;
+			(pxArc^) << m_bOnWall;
+			(pxArc^) << m_bWaitForModeChange;
+			(pxArc^) << m_bCanceled;
+			(pxArc^) << m_iRetryCount;
+			m_bUseMaterial=true;
+			if(p_pxReaderNode^.GetVersion()>=2) then
+				(pxArc^) << m_bUseMaterial;
+				(pxArc^) << m_bUseMoveAction;
+				(pxArc^) << m_sMoveActionAnim;
+			endif;
+			if(p_pxReaderNode^.GetVersion()>=3)then
+				(pxArc^) << m_bSucceeded;
+			endif;
+			if(p_pxReaderNode^.GetVersion()>=4)then
+				m_xTarget.DoKArc(pxArc^);
+				(pxArc^) << m_xAdvanceParams.m_bStopOnLostTarget;
+				(pxArc^) << m_xAdvanceParams.m_fMaxRange;
+				(pxArc^) << m_xAdvanceParams.m_fMinDistance;
+				(pxArc^) << m_xAdvanceParams.m_fProjectileFallOff;
+				(pxArc^) << m_xAdvanceParams.m_iPrefSpeed;
+				(pxArc^) << m_xAdvanceParams.m_sFirstStrike;
+				(pxArc^) << m_xAdvanceParams.m_vGoalOffset;
+				(pxArc^) << m_xAdvanceParams.m_vRootPos;
+				(pxArc^) << m_xAdvanceParams.m_xWalkSet;
+			endif;
+			if(p_pxReaderNode^.GetVersion()>=5)then
+				(pxArc^) << m_sState;
+			endif;
+			//KLog.LogWarn("CHP","Wa2P");
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export constructor()
+		SetName("Walk2Pos");
+		SetCivil(false);
+	endconstructor;
+	
+	export proc vec3 GetTargetPos()
+		return m_vPos;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xOwner, vec3 p_vPos, int p_iSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, bool p_bOnWall)
+		if(!p_xOwner.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xOwner=p_xOwner;
+		m_vPos=p_vPos;
+		m_iSpeed=p_iSpeed;
+		m_bUsePathfinder=p_bUsePathfinder;
+		m_bHeightAdaption = p_bHeightAdaption;
+		m_bOnWall=p_bOnWall;
+		m_bUseMaterial=true;
+		return true;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xOwner, vec3 p_vPos, int p_iSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, bool p_bOnWall, bool p_bUseMaterial)
+		if(!p_xOwner.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xOwner=p_xOwner;
+		m_vPos=p_vPos;
+		m_iSpeed=p_iSpeed;
+		m_bUsePathfinder=p_bUsePathfinder;
+		m_bHeightAdaption = p_bHeightAdaption;
+		m_bOnWall=p_bOnWall;
+		m_bUseMaterial = p_bUseMaterial;
+		return true;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xOwner, CObjHndl p_xTarget, ref CGameObj.CAdvanceActionParams p_rxParams)
+		if(!p_xOwner.IsValid()||!p_xTarget.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xOwner=p_xOwner;
+		m_xTarget=p_xTarget;
+		m_xAdvanceParams.m_bStopOnLostTarget=p_rxParams.m_bStopOnLostTarget;
+		m_xAdvanceParams.m_fMaxRange=p_rxParams.m_fMaxRange;
+		m_xAdvanceParams.m_fMinDistance=p_rxParams.m_fMinDistance;
+		m_xAdvanceParams.m_fProjectileFallOff=p_rxParams.m_fProjectileFallOff;
+		m_xAdvanceParams.m_iPrefSpeed=p_rxParams.m_iPrefSpeed;
+		m_xAdvanceParams.m_sFirstStrike=p_rxParams.m_sFirstStrike;
+		m_xAdvanceParams.m_vGoalOffset=p_rxParams.m_vGoalOffset;
+		m_xAdvanceParams.m_vRootPos=p_rxParams.m_vRootPos;
+		m_xAdvanceParams.m_xWalkSet=p_rxParams.m_xWalkSet;
+		return true;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xOwner, vec3 p_vPos, int p_iSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, bool p_bOnWall, bool p_bUseMaterial, bool p_bMoveAction, string p_sAnim)
+		if(!p_xOwner.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xOwner=p_xOwner;
+		m_vPos=p_vPos;
+		m_iSpeed=p_iSpeed;
+		m_bUsePathfinder=p_bUsePathfinder;
+		m_bHeightAdaption = p_bHeightAdaption;
+		m_bOnWall=p_bOnWall;
+		m_bUseMaterial = p_bUseMaterial;
+		m_bUseMoveAction = p_bMoveAction;
+		m_sMoveActionAnim = p_sAnim;
+		return true;
+	endproc;
+	
+	export proc bool OnActionEnd(bool p_bBroken)
+		return super.OnActionEnd(p_bBroken);
+	endproc;
+	
+	export proc void SetUseMoveAction(bool p_bUse, string p_sAnim)
+		m_bUseMoveAction = p_bUse;
+		m_sMoveActionAnim = p_sAnim;
+	endproc;
+
+	export proc void InvokeWalkAction()
+		var ^CGameObj pxObj=m_xOwner.GetObj();
+		if(pxObj==null)then return; endif;
+		begin UpdateSpeed;
+			var ^CFightingObj pxFight=cast<CFightingObj>(pxObj);
+			if(pxFight!=null)then
+				m_iSpeed=Math.Min(m_iSpeed,pxFight^.GetMaxSpeed());
+			endif;
+		end UpdateSpeed;
+		if(m_bUseMoveAction) then
+			if(!m_sMoveActionAnim.IsEmpty()) then
+				pxObj^.MoveAnimAction(m_vPos,m_iSpeed.ToReal(),0.0,m_sMoveActionAnim);
+			else
+				pxObj^.MoveAction(m_vPos, m_iSpeed.ToReal(),0.0);
+			endif;
+			return;
+		endif;
+		if(!m_xTarget.IsValid() && m_xAdvanceParams.m_vGoalOffset=={0.0,0.0,0.0})then
+			if(pxObj^.GetOnWall() || m_bOnWall)then
+				var CFourCC xWalkSet;
+				pxObj^.WallWalkAction(m_vPos,!m_bOnWall,m_iSpeed,m_bUsePathfinder,m_bHeightAdaption,xWalkSet,false);
+			else
+				// HACK for da Flyin' Trad0r
+				if(cast<CFlyingTraderObj>(pxObj)!=null) then
+					if((pxObj^.GetPos()-m_vPos).Abs2()<1.0f) then EndTask(); return; endif;
+				endif;
+				// ENDHACK
+				var CFourCC xWalkSet;
+				pxObj^.WalkAction(m_vPos,m_iSpeed,m_bUsePathfinder,m_bHeightAdaption, null, xWalkSet, m_bUseMaterial);
+	//				pxObj^.GroupWalkAction(m_vPos);
+			endif;
+			m_bCanceled=false; //we can get action broken from prevous tasks!!!
+		else
+			pxObj^.AdvanceAction(m_xTarget,m_xAdvanceParams);
+			m_bCanceled=false;
+		endif;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnEnter(p_pxFrom,p_pxTo);
+		if((p_pxFrom!=GetParent()) && (p_pxTo!=this))then return; endif;
+		if(m_sState=="EndTask")then
+			return;
+		endif;
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xOwner.GetObj());
+		if(pxFightingObj==null) then return; endif;
+		pxFightingObj^.SetTaskDescription(pxFightingObj^.GetStandardDescription());
+		if(pxFightingObj^.m_xGropWalkMembersTmp.NumEntries()>0) then
+			CSrvWrap.GetObjMgr()^.HandleGPCmd("Execute_Q_Walk",m_xOwner.AsInt().ToString(),pxFightingObj^.m_xGropWalkMembersTmp,m_vPos);
+			//InvokeWalkAction will be called inside HandleGamePlayCommmand/Execute_Q_Walk
+		else
+			InvokeWalkAction();
+		endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		if(m_xOwner.GetObj()!=null && (m_xOwner.GetObj()^.GetType()=="ANML" || m_xOwner.GetObj()^.GetType()=="VHCL"))then
+			var ^CGameObj pxO = m_xOwner.GetObj();
+			if(pxO!=null) then
+				m_vPos=pxO^.GetCurWalkTarget();
+				var ^CFightingObj pxFO = cast<CFightingObj>(pxO);
+				if(pxFO!=null && !pxFO^.IsAbleToWalk()) then
+					EndTask();
+					return;
+				endif;
+				if (m_bWaitForModeChange && pxO^.IsPerformingAction()) then
+					return;
+				endif;
+				var vec3 vPosCur=pxO^.GetPos();
+				if ((m_vPos-vPosCur).Abs2S() > 4.0f) then
+					// prevent killing the server-performace, with unlimited PF retries
+					// wild animals will get stuck in this retry-loop else!!!!
+					// NEVER make automatic retries unless you know how to limit them
+					// e.g. see Gate-Retry below
+					if(m_iRetryCount>0||pxO^.GetOwner()<0) then
+						EndTask();
+						return;
+					endif;
+					m_iRetryCount++;
+					InvokeWalkAction();
+					return;
+				endif;
+			endif;
+		endif;
+		var ^CGameObj pxO = m_xOwner.GetObj();
+		if(pxO!=null) then
+			if (!pxO^.GetOnWall()&&((m_vPos - pxO^.GetPos()).Abs2S() > 4.0f)) then
+				//check for open doors RT#2534
+				var CObjQuery xQ;
+				xQ.SetType("BLDG",false);
+				xQ.RegionCircle(pxO^.GetPos(), GATE_CHECK_RADIUS);
+				var CObjList xL;
+				xQ.Execute(xL);
+				var bool bOpenGateFound;
+				var int i;
+				for(i=0) cond(i<xL.NumEntries()) iter(i++) do
+					var ^CGate pxGate=cast<CGate>(xL[i].GetObj());
+					if(pxGate!=null&&pxGate^.IsOpen()) then
+						//don't check a gate twice, this could deadlock the task
+						if(m_apxCheckedGates.FindEntry(pxGate)==-1) then
+							m_apxCheckedGates.AddEntry(pxGate);
+							bOpenGateFound=true;
+						endif;
+					endif;
+				endfor;
+				if(bOpenGateFound) then
+					InvokeWalkAction();
+					return;
+				endif;
+			endif;
+			if(m_bCanceled) then
+				m_bCanceled=false;
+				if(/*!pxO^.GetOnWall() && */((m_vPos - m_xOwner.GetObj()^.GetPos()).Abs2() >= 5.0f)) then
+					InvokeWalkAction();
+					return;
+				endif;
+			endif;
+			if(m_bSucceeded)then
+				var ^CFightingObj pxFighter=cast<CFightingObj>(pxO);
+				if(pxFighter!=null)then
+					pxFighter^.UpdateAggressionPos(pxFighter^.GetPos());
+				endif;
+			endif;
+		endif;
+		EndTask();
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+	
+	export proc bool Break()
+		var ^CFightingObj pxOwner=cast<CFightingObj>(m_xOwner.GetObj());
+		if(pxOwner==null) then return true; endif; //old savegames!
+		pxOwner^.TerminateAction();
+		m_vPos={0.0,0.0,0.0};
+		pxOwner^.UpdateWalkTargetAttribs();
+		return true;
+	endproc;
+
+	export proc void EndTask()
+		var ^CFightingObj pxOwner=cast<CFightingObj>(m_xOwner.GetObj());
+		if(pxOwner==null) then return; endif; //old savegames!
+		m_vPos={0.0,0.0,0.0};
+		pxOwner^.UpdateWalkTargetAttribs();
+		super.EndTask();
+	endproc;
+
+	export proc void ActionCanceled()
+		var ^CFightingObj pxObj=cast<CFightingObj>(m_xOwner.GetObj());
+		m_bCanceled = true;
+	endproc;
+
+	export proc void ActionSucceeded()
+		m_bSucceeded = true;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+endclass;
+
+class CWalkToObj inherit CTask
+
+	var CObjHndl	m_xOwner;
+	var CObjHndl	m_xTarget;
+	var bool			m_bOnWall;
+	var bool			m_bCanceled;
+	var bool			m_bSucceeded;
+	var int				m_iRetryCount;
+	var string		m_sState;
+
+	var array ^CGate m_apxCheckedGates;
+	const real  GATE_CHECK_RADIUS = 10.0f;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Wa2O";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xOwner.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		(pxArc^) << m_bCanceled;
+		(pxArc^) << m_bSucceeded;
+		(pxArc^) << m_iRetryCount;
+		(pxArc^) << m_sState;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Wa2P")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xOwner.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			(pxArc^) << m_bCanceled;
+			(pxArc^) << m_bSucceeded;
+			(pxArc^) << m_iRetryCount;
+			if(p_pxReaderNode^.GetVersion()>=2)then
+				(pxArc^) << m_sState;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export constructor()
+		SetName("Walk2Obj");
+		SetCivil(false);
+	endconstructor;
+	
+	export proc bool Init(CObjHndl p_xOwner, CObjHndl p_xTarget)
+		if(!p_xOwner.IsValid()||!p_xTarget.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xOwner=p_xOwner;
+		m_xTarget=p_xTarget;
+		return true;
+	endproc;
+	
+	proc bool InvokeWalkAction()
+		var ^CFightingObj pxObj=cast<CFightingObj>(m_xOwner.GetObj());
+		if(pxObj==null)then return false; endif;
+		var ^CGameObj pxTarget=m_xTarget.GetObj();
+		if(pxTarget==null)then return false; endif;
+		var vec3 vPos=pxTarget^.GetPos();
+		CSrvWrap.GetObjMgr()^.GetFreePos(vPos, pxObj, pxTarget^.GetPos());
+		if(pxObj^.GetOnWall())then
+			var CFourCC xWalkSet;
+			pxObj^.WallWalkAction(vPos,!pxObj^.GetOnWall(),pxObj^.GetMaxSpeed(),true,true,xWalkSet,false);
+		else
+			var CFourCC xWalkSet;
+			pxObj^.WalkAction(vPos,pxObj^.GetMaxSpeed(),true,true, null,xWalkSet,true);
+		endif;
+/*
+		var CGameObj.CAdvanceActionParams xAWAP;
+		xAWAP.m_fMinDistance=0.0;
+		xAWAP.m_iPrefSpeed=pxObj^.GetMaxSpeed();
+		xAWAP.m_bStopOnLostTarget=!IsUserCommand();
+
+		if(pxObj^.GetOnWall())then
+			pxObj^.AdvanceWallAction(pxTarget^.GetHandle(),xAWAP,!pxTarget^.GetOnWall(),IsUserCommand());
+		else
+			pxObj^.AdvanceAction(pxTarget^.GetHandle(),xAWAP);
+		endif;
+*/		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if((p_pxFrom!=GetParent()) && (p_pxTo!=this))then return; endif;
+		if(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+		if(m_xOwner.IsValid())then
+			var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xOwner.GetObj());
+			if(pxFightingObj!=null)then
+				pxFightingObj^.SetTaskDescription(pxFightingObj^.GetStandardDescription());
+			endif;
+		endif;
+		if(!InvokeWalkAction())then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CGameObj pxO = m_xOwner.GetObj();
+		if(pxO!=null) then
+			if(m_bCanceled) then
+				m_bCanceled=false;
+				if(!InvokeWalkAction())then
+					EndTask();
+					return;
+				endif;
+				return;
+			endif;
+			if(m_bSucceeded)then
+				var ^CFightingObj pxFighter=cast<CFightingObj>(pxO);
+				if(pxFighter!=null)then
+					pxFighter^.UpdateAggressionPos(pxFighter^.GetPos());
+				endif;
+			endif;
+		endif;
+		EndTask();
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+	
+	export proc bool Break()
+		var ^CGameObj pxOwner=m_xOwner.GetObj();
+		if(pxOwner==null) then return true; endif; //old savegames!
+		pxOwner^.TerminateAction();
+		return true;
+	endproc;
+	
+	export proc void ActionCanceled()
+		m_bCanceled = true;
+	endproc;
+	
+	export proc void ActionSucceeded()
+		m_bSucceeded = true;
+	endproc;
+	
+	export proc void Skip()
+	endproc;
+	
+endclass;
+
+class CJumpOffWall inherit CTask
+
+	var CObjHndl	m_xOwner;
+	var vec3			m_vJumpDest;
+	var vec3			m_vDest;
+	var Quat			m_qEndRot;
+	var string		m_sState;
+	
+	export constructor()
+		SetName("JumpOffWall");
+		SetCivil(false);
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="JoWa";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xOwner.DoKArc(pxArc^);
+		(pxArc^) << m_vJumpDest;
+		(pxArc^) << m_vDest;
+		(pxArc^) << m_qEndRot;
+		(pxArc^) << m_sState;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="JoWa")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xOwner.DoKArc(pxArc^);
+			(pxArc^) << m_vJumpDest;
+			(pxArc^) << m_vDest;
+			(pxArc^) << m_qEndRot;
+			(pxArc^) << m_sState;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xOwner, vec3 p_vDest)
+		if(!p_xOwner.IsValid())then
+			m_sState="end";
+			return false;
+		endif;
+		m_xOwner=p_xOwner;
+		var ^CGameObj pxActor=m_xOwner.GetObj();
+		if(pxActor==null)then return false; endif;
+		m_vDest=p_vDest;
+		var vec3 vDir=p_vDest-pxActor^.GetPos();
+		vDir.Normalize();
+		vDir*=5.0f;
+		m_vJumpDest=pxActor^.GetPos()+vDir;
+		m_vJumpDest.SetZ(CSrvWrap.GetScapeMgr().GetHeight(m_vJumpDest.GetX(), m_vJumpDest.GetY()));
+		CSrvWrap.GetObjMgr()^.GetFreePos(m_vJumpDest,pxActor,m_vJumpDest);
+		m_qEndRot.FromDir(m_vDest-pxActor^.GetPos());
+		m_sState="rotate";
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CGameObj pxActor=m_xOwner.GetObj();
+		if(pxActor==null)then EndTask(); return; endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CGameObj pxActor=m_xOwner.GetObj();
+		if(pxActor==null)then EndTask(); return; endif;
+		if(m_sState=="rotate")then
+			pxActor^.RotateAction(m_qEndRot);
+			m_sState="jump";
+		elseif(m_sState=="jump")then
+			pxActor^.RemoveFromWall();
+			pxActor^.JumpAction("jump_wall",m_vJumpDest,m_qEndRot,0.0,20.0);
+			m_sState="wait4walk";
+		elseif(m_sState=="wait4walk")then
+			if(pxActor^.IsPerformingAction())then return; endif;
+			m_sState="walk";
+		elseif(m_sState=="walk")then
+			var ^CFightingObj pxF=cast<CFightingObj>(pxActor);
+			if(pxF!=null)then
+				pxActor^.WalkAction(m_vDest,pxF^.GetDefaultSpeed(),true,true);
+			endif;
+			m_sState="end";
+		else
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	export proc bool Break()
+		return m_sState!="wait4walk";
+	endproc;
+	
+	export proc void EndTask()
+		UpdateAggressionPos(m_xOwner);
+		super.EndTask();
+	endproc;
+	
+endclass;
+
+class CNotify inherit CTask
+
+	var CObjHndl	m_xOwner;
+	var string		m_sNotifyDest;
+
+	export constructor()
+		SetName("Notify");
+		SetCivil(true);
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Ntfy";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xOwner.DoKArc(pxArc^);
+		(pxArc^) << m_sNotifyDest;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Ntfy")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xOwner.DoKArc(pxArc^);
+			(pxArc^) << m_sNotifyDest;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xOwner, string p_sNotifyDest)
+		if(!p_xOwner.IsValid())then
+			return false;
+		endif;
+		m_xOwner=p_xOwner;
+		m_sNotifyDest=p_sNotifyDest;
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sNotifyDest.Find("LastWaypoint")>=0) then
+			CWaypointSubscriptionMgr.Get().ObjReachedLastWaypoint(m_xOwner);
+			EndTask();
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+	endproc;
+
+	export proc bool Break()
+		return false;
+	endproc;
+
+endclass;
+
+class CFollowEnemy inherit CTask
+
+	var CObjHndl	m_xActor;
+	var CObjHndl	m_xEnemy;
+	var vec3			m_vDestPos;
+	var bool			m_bAggroWalk;
+	var string		m_sState;
+
+	export constructor()
+		SetName("FollowEn");
+		SetCivil(false);
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="FOEN";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xActor.DoKArc(pxArc^);
+		m_xEnemy.DoKArc(pxArc^);
+		pxArc^ << m_vDestPos;
+		pxArc^ << m_bAggroWalk;
+		pxArc^ << m_sState;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="FOEN")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xActor.DoKArc(pxArc^);
+			m_xEnemy.DoKArc(pxArc^);
+			pxArc^ << m_vDestPos;
+			pxArc^ << m_bAggroWalk;
+			if(p_pxReaderNode^.GetVersion()>=2)then
+				(pxArc^) << m_sState;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xActor, CObjHndl p_xEnemy, vec3 p_vAggroPos, bool p_bUserCmd, bool p_bAggroWalk)
+		if(!p_xActor.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xActor = p_xActor;
+		m_xEnemy = p_xEnemy;
+		m_bUserCommand = p_bUserCmd;
+		m_bAggroWalk = p_bAggroWalk;
+		m_vDestPos = p_vAggroPos;
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CFightingObj pxActor = cast<CFightingObj>(m_xActor.GetObj());
+		if(pxActor==null||m_sState=="EndTask")then
+			EndTask();
+			return; 
+		endif;
+		pxActor^.SetTaskDescription("");
+		var bool bPos=false;
+		var bool bValidEnemy=false;
+		var real fAlarmRng = pxActor^.GetAlarmRange()*2.0;
+		var bool bFarFromDest = (m_vDestPos-pxActor^.GetPos()).Abs2S()>2.0;
+		var ^CFightingObj pxEnemy = cast<CFightingObj>(m_xEnemy.GetObj());
+		if(pxEnemy!=null)then
+			bPos = (m_vDestPos-pxEnemy^.GetPos()).Abs2()- pxActor^.GetAttackRange() > fAlarmRng;
+			bValidEnemy = true;
+		endif;
+		if(m_xEnemy.IsValid())then
+			var real fAttackRange = pxActor^.GetAttackRange()-2.0f;
+			if(fAttackRange<1.0)then
+				fAttackRange = pxActor^.GetRadius() + 0.1;
+			endif;
+			if(!m_bUserCommand)then
+				if(m_bAggroWalk)then
+					pxActor^.TerminateAction();
+					var CGameObj.CAdvanceActionParams xAWAP;
+					xAWAP.m_fMinDistance=fAttackRange;
+					xAWAP.m_iPrefSpeed=pxActor^.GetMaxSpeed();
+					if(pxActor^.GetOnWall())then
+						pxActor^.AdvanceWallAction(pxEnemy^.GetHandle(),xAWAP,!pxEnemy^.GetOnWall(),!m_bUserCommand);
+					else
+						pxActor^.AdvanceAction(pxEnemy^.GetHandle(),xAWAP);
+					endif;
+				elseif(pxActor^.GetAggressionState()>0)then
+					if(bPos && !m_bAggroWalk)then
+						if(bFarFromDest)then
+							if(pxActor^.GetOnWall())then
+								pxActor^.WallWalkAction(m_vDestPos,true,pxActor^.GetDefaultSpeed(),false);
+							else
+								pxActor^.WalkAction(m_vDestPos,pxActor^.GetDefaultSpeed(),true);
+							endif;
+						endif;
+					else
+						var real fDist=(pxEnemy^.GetPos()-pxActor^.GetPos()).Abs();
+						if(fDist>fAlarmRng-2.0f) then
+							return;
+						endif;
+						pxActor^.TerminateAction();
+						var CGameObj.CAdvanceActionParams xAWAP;
+						xAWAP.m_fMinDistance=fAttackRange;
+						xAWAP.m_iPrefSpeed=pxActor^.GetMaxSpeed();
+						xAWAP.m_xWalkSet=pxActor^.GetWalkSet();
+						xAWAP.m_fMaxRange=fAlarmRng;
+						xAWAP.m_vRootPos=m_vDestPos;
+						if(pxActor^.GetOnWall())then
+							pxActor^.AdvanceWallAction(pxEnemy^.GetHandle(),xAWAP,!pxEnemy^.GetOnWall(), !m_bUserCommand);
+						else
+							pxActor^.AdvanceAction(pxEnemy^.GetHandle(),xAWAP);
+						endif;
+					endif;
+				elseif(bFarFromDest)then
+					if(pxActor^.GetOnWall())then
+						pxActor^.WallWalkAction(m_vDestPos,true,pxActor^.GetDefaultSpeed(),false);
+					else
+						pxActor^.WalkAction(m_vDestPos,pxActor^.GetDefaultSpeed(),true);
+					endif;
+				endif;
+			else
+				pxActor^.TerminateAction();
+				var CGameObj.CAdvanceActionParams xAWAP;
+				xAWAP.m_fMinDistance=fAttackRange;
+				xAWAP.m_iPrefSpeed=pxActor^.GetMaxSpeed();
+				xAWAP.m_sFirstStrike=pxActor^.GetFirstStrikeAnim();
+				if(pxActor^.GetOnWall() || pxEnemy^.GetOnWall())then
+					if(!pxActor^.GetOnWall() && pxEnemy^.GetOnWall() && !pxActor^.GetProjectile().IsEmpty())then
+						pxActor^.AdvanceAction(pxEnemy^.GetHandle(),xAWAP);
+					else
+						pxActor^.AdvanceWallAction(pxEnemy^.GetHandle(),xAWAP,!pxEnemy^.GetOnWall(),m_bUserCommand);
+					endif;
+				else
+					pxActor^.AdvanceAction(pxEnemy^.GetHandle(),xAWAP);
+				endif;
+			endif;
+		else
+			if(bFarFromDest)then
+				if(pxActor^.GetOnWall())then
+					pxActor^.WallWalkAction(m_vDestPos,true,pxActor^.GetDefaultSpeed(),false);
+				else
+					pxActor^.WalkAction(m_vDestPos,pxActor^.GetDefaultSpeed(),true);
+				endif;
+			elseif(m_bAggroWalk)then
+				m_bAggroWalk = false;
+			endif;
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		EndTask();
+	endproc;
+
+	export proc bool Break()
+		var ^CFightingObj pxFO = cast<CFightingObj>(m_xActor.GetObj());
+		if(pxFO!=null) then
+			pxFO^.TerminateAction();
+		endif;
+		return false;
+	endproc;
+
+endclass;

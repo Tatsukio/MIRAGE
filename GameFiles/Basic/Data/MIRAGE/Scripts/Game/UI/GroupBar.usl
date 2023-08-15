@@ -1,0 +1,247 @@
+class CGroupButton inherit CButton
+
+	var int m_iBTN_WIDTH;
+	var int m_iBTN_HEIGHT;
+
+	var bool m_bAssigned;
+	var int  m_iGroupIdx;
+	var bool m_bSelected;
+	
+	var ^CStaticCtrl m_pxText;
+	
+	export constructor(int p_iGroupIdx)
+		m_iBTN_WIDTH = 20 * CGameInst.ms_iUIScaleFactor;
+		m_iBTN_HEIGHT = 26 * CGameInst.ms_iUIScaleFactor;
+		m_iGroupIdx = p_iGroupIdx;
+		m_bAssigned = false;
+		
+		m_xOnClick = OnLeftClick;
+		m_xOnRightClick = OnRightClick;
+		m_xOnDoubleClick = OnDoubleClick;
+		
+		SetSize(m_iBTN_WIDTH, m_iBTN_HEIGHT);
+		SetFrame(false);
+		
+		m_pxText = new CStaticCtrl();
+		m_pxText^.SetSize(m_iBTN_WIDTH, m_iBTN_HEIGHT);
+		AddChild(m_pxText);
+	endconstructor;
+	
+	export destructor()
+		m_pxText^.Destroy();
+	enddestructor;
+	
+	export proc bool GetSelected()
+		return m_bSelected;
+	endproc;
+	
+	export proc void SetSelected(bool p_bSel)
+		m_bSelected=p_bSel;
+		UpdateBitmaps();
+	endproc;
+	
+	proc bool OnLeftClick()
+		if(m_bSelected || !m_bAssigned) then return true; endif;
+		
+		var ^CGroupBar pxGB = cast<CGroupBar>(GetParentWindow());
+		if(pxGB!=null) then
+			pxGB^.DeselectGroup();
+			pxGB^.SetSelectedGroup(m_iGroupIdx);
+		endif;
+		var ^CObjSelection pxSel = ^(CClientWrap.GetSelection());
+		pxSel^.Clear();
+		pxSel^.Include(CGroupMgr.Get().GetGroupList(m_iGroupIdx));
+		SetSelected(true);
+		return false;
+	endproc;
+	
+	proc bool OnRightClick()
+		CGroupMgr.Get().UpdateGroup(m_iGroupIdx, ^(CGameWrap.GetSelection()));
+		return false;
+	endproc;
+	
+	proc bool OnDoubleClick()
+		//KLog.LogSpam("MaZi", "AAA");
+		if(m_bAssigned) then
+			var ^CObjSelection pxSelection = ^(CClientWrap.GetSelection());
+			if(pxSelection^.NumEntries()>0)then
+				CMultiCameraController.Get().SetCameraTarget(pxSelection^.GetPos(),true);
+				CMultiCameraController.Get().SnapOnGround();
+			else
+				var vec3 vEye=CGroupMgr.Get().GetViewMarkerEye(m_iGroupIdx);
+				var vec3 vLookAt=CGroupMgr.Get().GetViewMarkerLookat(m_iGroupIdx);
+				if(vEye!={0.0,0.0,0.0} && vLookAt!={0.0,0.0,0.0})then
+					CMultiCameraController.Get().SetEyeAndLookat(vEye,vLookAt,true);
+				endif;
+			endif;
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	proc void UpdateBitmaps()
+		var string sImgPath = CClientWrap.GetUrsRelPath()+"/data/base/ui/hud/";
+		if(m_bSelected) then
+			SetBitmap(sImgPath+"groupbutton_down.tga", sImgPath+"groupbutton_down.tga", sImgPath+"groupbutton_down.tga", sImgPath+"groupbutton.tga");
+		else
+			SetBitmap(sImgPath+"groupbutton.tga", sImgPath+"groupbutton_down.tga", sImgPath+"groupbutton_hover.tga", sImgPath+"groupbutton.tga");
+		endif;
+	endproc;
+	
+	export proc void SetAssigned(bool p_bAssigned)
+		m_bAssigned = p_bAssigned;
+		if(m_bAssigned) then
+			m_pxText^.SetText(m_iGroupIdx.ToString());
+		else
+			m_pxText^.SetText("");
+		endif;
+		var ^CGroupBar pxGB = cast<CGroupBar>(GetParentWindow());
+		if(pxGB!=null) then
+			pxGB^.UpdateVisibility(true);
+		endif;
+	endproc;
+	
+	export proc bool GetAssigned()
+		return m_bAssigned;
+	endproc;
+	
+	export proc void OnUpdate()
+		if(CGroupMgr.Get().GetGroupList(m_iGroupIdx).NumEntries()>0) then
+			SetAssigned(true);
+		else
+			SetAssigned(false);
+		endif;
+	endproc;
+endclass;
+
+
+class CGroupBar inherit CWindow
+
+	const int MODE_FREAKY = 0;		// standardmode ... freaky 'ShowFirstUnused after last used(or so)'-Stuff ;)
+	const int MODE_NORMAL = 1;		// my personal fav ... show all unused
+	
+	const int MODE_DEFAULT = 1;
+
+	var int m_iBTN_WIDTH;
+	var int m_iBTN_HEIGHT;
+	var array ^CGroupButton m_apxButtons;
+	static var int			ms_iMode;
+	var ^CInGameScreen		m_pxIGScr;
+	var int 				m_iSelectedGroup;
+	var bool 				m_bValid;
+	
+	export static proc void SetMode(int p_iMode)
+		ms_iMode=p_iMode;
+	endproc;
+	
+	export constructor(^CInGameScreen p_pxIGScr)
+		m_iBTN_WIDTH = 20 * CGameInst.ms_iUIScaleFactor;
+		m_iBTN_HEIGHT = 26 * CGameInst.ms_iUIScaleFactor;
+		m_iSelectedGroup=-1;
+		m_bValid=false;
+		ms_iMode = MODE_DEFAULT;
+		if (!CSettings.Get("Game/GUIOptions/HUD/GroupBar",ms_iMode)) then
+			CSettings.Set("Game/GUIOptions/HUD/GroupBar",ms_iMode);
+		endif;
+		m_pxIGScr = p_pxIGScr;
+		SetPos(11 * CGameInst.ms_iUIScaleFactor, 0);
+		SetSize(m_iBTN_WIDTH * 10 * CGameInst.ms_iUIScaleFactor, m_iBTN_HEIGHT);
+		SetVisible(true);
+		var string sImgPath = CClientWrap.GetUrsRelPath()+"/data/base/ui/hud/";
+		m_apxButtons=10;
+		var int i,iC=10;
+		for(i=0) cond(i<iC) iter(++i) do
+			m_apxButtons[i] = new CGroupButton(i);
+			AddChild(m_apxButtons[i]);
+			
+			if(i!=0) then
+				m_apxButtons[i]^.SetPos(m_iBTN_WIDTH * (i-1), 0);
+			else
+				m_apxButtons[i]^.SetPos(m_iBTN_WIDTH * 9, 0);
+			endif;
+			
+			m_apxButtons[i]^.SetBitmap(sImgPath+"groupbutton.tga", sImgPath+"groupbutton_down.tga", sImgPath+"groupbutton_hover.tga", sImgPath+"groupbutton.tga");
+			CGroupMgr.Get().SetGroupButton(i, m_apxButtons[i]);
+			m_apxButtons[i]^.OnUpdate();
+		endfor;
+		m_bValid=true;
+		UpdateVisibility(true);
+	endconstructor;
+	
+	export destructor()
+		var int i, iC = 10;
+		for(i=0) cond(i<iC) iter(++i) do
+			m_apxButtons[i]^.Destroy();
+		endfor;
+	enddestructor;
+	
+	export proc void SetSelectedGroup(int p_iGroup)
+		m_iSelectedGroup = p_iGroup;
+	endproc;
+	
+	export proc ^CGroupButton GetGroupButton(int p_iID)
+		return m_apxButtons[p_iID];
+	endproc;
+	
+	export proc void UpdateVisibility(bool p_bClear)
+		if(!m_bValid) then return; endif;
+		if(p_bClear) then
+			var int i, iC = 10;
+			for(i=0) cond(i<iC) iter(++i) do 
+				if(!m_apxButtons[i]^.GetAssigned()) then
+					m_apxButtons[i]^.SetVisible(false); 
+					//m_apxButtons[i]^.SetDisabled(true);
+				else
+					m_apxButtons[i]^.SetVisible(true);
+					//m_apxButtons[i]^.SetDisabled(false);
+				endif;
+			endfor;
+		endif;
+	
+		var bool bEmptyFound=false;
+		var int i;
+		for(i=9) cond(i>=0) iter(--i) do
+			if(ms_iMode==MODE_FREAKY) then
+				if(m_apxButtons[i]^.GetAssigned() && bEmptyFound) then break; endif;
+				if(!m_apxButtons[i]^.GetAssigned()) then bEmptyFound=true; endif;
+			elseif(ms_iMode==MODE_NORMAL) then
+				m_apxButtons[i]^.SetVisible(true);
+			endif;
+		endfor;
+		
+		if(ms_iMode==MODE_FREAKY && bEmptyFound) then
+			if(i==-1 && !m_apxButtons[9]^.GetAssigned()) then 
+				i=0; 
+			elseif(m_apxButtons[9]^.GetAssigned()) then
+				m_apxButtons[0]^.SetVisible(true);
+				//m_apxButtons[0]^.SetDisabled(true);
+				return;
+			endif;
+			for(i=i+1) cond(i<10) iter(++i) do
+				if(!m_apxButtons[i]^.GetAssigned()) then 
+					m_apxButtons[i]^.SetVisible(true);
+					//m_apxButtons[i]^.SetDisabled(true);
+					break;
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	export proc void DeselectGroup()
+		var int i, iC = 10;
+		for(i=0) cond(i<iC) iter(++i) do
+			if(m_apxButtons[i]^.GetSelected()) then
+				m_apxButtons[i]^.SetSelected(false);
+			endif;
+		endfor;
+	endproc;	
+	
+	export proc void OnChangeSelection()
+		if(m_iSelectedGroup>=0) then
+			if(!CClientWrap.GetSelection().IsEqual(CGroupMgr.Get().GetGroupList(m_iSelectedGroup)))then
+				DeselectGroup();
+				m_iSelectedGroup = -1;
+			endif;
+		endif;
+	endproc;
+endclass;

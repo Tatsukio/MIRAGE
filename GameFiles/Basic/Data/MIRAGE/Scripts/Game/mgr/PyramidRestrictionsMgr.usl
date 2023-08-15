@@ -1,0 +1,225 @@
+class CPyramidRestrictionsMgr
+
+	static var ^CPyramidRestrictionsMgr		ms_pxInst;
+	static var ^CLevelInfoClient					ms_pxLevelInfo;
+	var array int													m_aiLevelMax;
+	var array int													m_aiLevelMin;
+	var int																m_iPopulationMax;
+	var int																m_iPopulationMin;
+	var bool															m_bAjeBlockedSlot;	//if tribe=="Aje" then block one slot in lvl 0 for the resource collector
+
+	var array string											m_asAvailableHeroes;
+
+	var array string											m_asNeededHeroes;
+	var array int													m_aiNeededHeroesMinLevel;
+	var array int													m_aiNeededHeroesMaxLevel;
+
+	var array string											m_asAvailableItems;
+
+	var array string											m_asNeededItems;
+	var CPropDB 													m_xNPCList;
+
+	var ^CTribeViewLayoutMgr							m_pxTribeView;
+	
+	var array ^CTribeViewLayoutMgr.CSingleLevelLayoutInfo m_apxLevels;
+
+	constructor()
+		m_pxTribeView = new CTribeViewLayoutMgr;
+		var int i, iC = 5;
+		for(i=0)cond(i<iC)iter(i++)do
+			m_apxLevels.AddEntry(^(m_pxTribeView^.GetSingleLevelLayoutInfo(i)));
+		endfor;
+		m_xNPCList.Load(CClientWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/NPCList.txt");
+		m_bAjeBlockedSlot=false;
+	endconstructor;
+	
+	destructor()
+		delete m_pxTribeView;
+	enddestructor;
+	
+	export static proc ref CPyramidRestrictionsMgr GetPreview()
+		if(ms_pxInst==null)then
+			ms_pxInst = new CPyramidRestrictionsMgr;
+		endif;
+		ms_pxLevelInfo = ^(CGameWrap.GetClient().GetLevelPreview());
+		ms_pxInst^.Update();
+		return(ms_pxInst^);
+	endproc;
+	
+	export static proc ref CPyramidRestrictionsMgr Get()
+		if(ms_pxInst==null)then
+			ms_pxInst = new CPyramidRestrictionsMgr;
+		endif;
+		ms_pxLevelInfo = ^(CGameWrap.GetClient().GetLevelInfo());
+		ms_pxInst^.Update();
+		return(ms_pxInst^);
+	endproc;
+	
+	export proc void DumpDB(string p_sPath)
+		var ^CPropDB pxGenericDB=^(ms_pxLevelInfo^.GetGenericData());
+		pxGenericDB^.Save(p_sPath);
+	endproc;
+	
+	export proc ref int GetMaxSlots(int p_iLevel)
+		return m_aiLevelMax[p_iLevel];
+	endproc;
+
+	export proc ref int GetMaxSlots()
+		return m_iPopulationMax;
+	endproc;
+
+	export proc void SetAjeBlockedSlot(bool p_bAjeBlockedSlot)
+		if(m_bAjeBlockedSlot!=p_bAjeBlockedSlot)then
+			m_bAjeBlockedSlot=p_bAjeBlockedSlot;
+			Update();
+		endif;
+	endproc;
+
+	export proc void GetAvailableHeroes(ref array string po_rasHeroes)
+		po_rasHeroes = m_asAvailableHeroes;
+	endproc;
+
+	export proc void GetNeededHeroes(ref array string po_rasHeroes, ref array int po_raiMinLevels, ref array int po_raiMaxLevels)
+		po_rasHeroes = m_asNeededHeroes;
+		po_raiMinLevels = m_aiNeededHeroesMinLevel;
+		po_raiMaxLevels = m_aiNeededHeroesMaxLevel;
+	endproc;
+
+	export proc void GetAvailableItems(ref array string po_rasItems)
+		po_rasItems = m_asAvailableItems;
+	endproc;
+
+	export proc void GetNeededItems(ref array string po_rasItems)
+		po_rasItems = m_asNeededItems;
+	endproc;
+
+	export proc void Update()
+		m_aiLevelMax = 0;
+		m_aiLevelMin = 0;
+		m_asAvailableHeroes = 0;
+		m_asNeededHeroes = 0;
+		m_aiNeededHeroesMinLevel = 0;
+		m_aiNeededHeroesMaxLevel = 0;
+		var int i, iC = m_apxLevels.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_aiLevelMax.AddEntry(m_apxLevels[i]^.m_iSlotCount);
+			m_aiLevelMin.AddEntry(0);
+		endfor;
+		var bool bWasDecreased=false;
+		if(m_bAjeBlockedSlot)then
+			m_aiLevelMax[0]--;
+			bWasDecreased=true;
+		endif;
+		m_iPopulationMax = m_pxTribeView^.TotalSlotCount();
+		m_iPopulationMin = 0;
+		iC = m_xNPCList.GetRoot().NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_asAvailableHeroes.AddEntry(m_xNPCList.GetRoot()[i].Name());
+		endfor;
+		if(ms_pxLevelInfo==null)then return; endif;
+		var ^CPropDB pxGenericDB=^(ms_pxLevelInfo^.GetGenericData());
+		var ^CPropDB.CNode pxRestrictions=^((pxGenericDB^)["PlayerSettings/Player_"+CGameWrap.GetClientID().ToString()+"/Restrictions"]);
+		if(pxRestrictions==null)then return; endif;
+		var ^CPropDB.CNode pxChars = pxRestrictions^.Get("Chars");
+		if(pxChars!=null)then
+			var int i, iC = pxChars^.NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxLevel = ^((pxChars^)[i]);
+				if(pxLevel==null)then continue; endif;
+				if(pxLevel^.Name().Find("Level")!=-1)then
+					var int iLevel = pxLevel^.Name().Right(1).ToInt()-1;
+					if(iLevel==0)then
+						bWasDecreased=false;
+					endif;
+					m_aiLevelMax[iLevel] = pxLevel^.GetValueI("Max", m_aiLevelMax[iLevel]);
+					m_aiLevelMin[iLevel] = pxLevel^.GetValueI("Min", m_aiLevelMin[iLevel]);
+				elseif(pxLevel^.Name()=="Population")then
+					m_iPopulationMax = pxLevel^.GetValueI("Max", m_iPopulationMax);
+					m_iPopulationMin = pxLevel^.GetValueI("Min", m_iPopulationMin);
+				elseif(pxLevel^.Name()=="Heroes")then
+					m_asAvailableHeroes = 0;
+					var int j, iJ = pxLevel^.NumSubs();
+					for(j=0)cond(j<iJ)iter(j++)do
+						var ^CPropDB.CNode pxHero = ^((pxLevel^)[j]);
+						if(pxHero==null)then continue; endif;
+						m_asAvailableHeroes.AddEntry(pxHero^.Name());
+						if(pxHero^.GetValueI("NeedForStart",0)!=0)then
+							m_asNeededHeroes.AddEntry(pxHero^.Name());
+							m_aiNeededHeroesMinLevel.AddEntry(pxHero^.GetValueI("LevelMin",0)-1);
+							m_aiNeededHeroesMaxLevel.AddEntry(pxHero^.GetValueI("LevelMax",0)-1);
+						endif;
+					endfor;
+				endif;
+			endfor;
+		endif;
+		if(m_bAjeBlockedSlot && !bWasDecreased)then
+			m_aiLevelMax[0]--;
+		endif;
+		var ^CPropDB.CNode pxItems = pxRestrictions^.Get("Items");
+		if(pxItems!=null)then
+			var int i, iC = pxItems^.NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxItem = ^((pxChars^)[i]);
+				if(pxItem==null)then continue; endif;
+				m_asAvailableItems.AddEntry(pxItem^.Name());
+				if(pxItem^.GetValueI("NeedForStart")!=0)then
+					m_asNeededItems.AddEntry(pxItem^.Name());
+				endif;
+			endfor;
+		endif;
+	endproc;
+
+	export static proc void Kill()
+		delete ms_pxInst;
+		ms_pxInst = null;
+	endproc;
+	
+	export proc bool CheckResources(string p_sTTPath, ^CAttribs p_pxAttribs, CTechTree p_xTechTree, string p_sTribe, ref bool p_rbUnavailable)
+		if (p_pxAttribs==null) then return false; endif;
+		var ^CTechTree.CNode pxAction = p_xTechTree.FindNode(p_sTTPath);
+		if(pxAction==null)then return false; endif;
+		if(!pxAction^.IsVisible()||pxAction^.GetSubValueI("visibility", 0)!=1||pxAction^.GetSubValueI("disabled", 0)==1)then p_rbUnavailable=true; return false; endif;
+		var ^CTechTree.CNode pxConditions = pxAction^.GetSub("conditions");
+		if(pxConditions==null)then return false; endif;
+		var ^CTechTree.CNode pxResCosts = pxConditions^.GetSub("rescosts");
+		if(pxResCosts==null)then return false; endif;
+		var bool bCheckResources = true;
+		var int i, iC = pxResCosts^.NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sName = pxResCosts^.GetSub(i)^.GetName();
+			var int iValue = pxResCosts^.GetSubValueI(sName);
+			if(p_pxAttribs^.GetValueInt(sName) < iValue)then
+				bCheckResources = false;
+			endif;
+		endfor;
+		
+		var bool bBuildingPrerequisitesMet = true;
+		var ^CTechTree.CNode pxBuildings = pxConditions^.GetSub("buildobjects");
+		if(pxBuildings!=null)then
+			iC = pxBuildings^.NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				var string sKey = pxBuildings^.GetSub(i)^.GetName();
+				var string sInvention = pxBuildings^.GetSub(i)^.GetValue();
+				if(p_xTechTree.GetValueI("Objects/"+p_sTribe+"/BuildObjects/"+sInvention+"/build",0)!=1)then
+					bBuildingPrerequisitesMet = false;
+				endif;
+			endfor;
+		endif;
+		
+		var bool bLimitReached = false;
+		if(CMirageClnMgr.Get().CheckBldgMaxCapacity())then
+			var string sResult,sTribe=p_sTribe;
+			if(p_sTTPath.Find("Build/BLDG")!=-1||p_sTTPath.Find("Upgrades")!=-1)then
+				sResult=p_sTTPath.Mid(p_sTTPath.FindRev('/')+1);
+				sResult=pxAction^.GetSubValue("product",sResult);
+				sTribe=pxAction^.GetSubValue("product_tribe",sTribe);
+				if(p_xTechTree.GetValueI("Objects/"+sTribe+"/BuildingCount/"+sResult+"/max_reached",0)==1)then
+					bLimitReached = true;
+				endif;
+			endif;
+		endif;
+		
+		return (bCheckResources && bBuildingPrerequisitesMet && !bLimitReached);
+	endproc;
+
+endclass;

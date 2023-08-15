@@ -1,0 +1,616 @@
+class CPlaceController inherit CInputController
+
+	var bool			m_bActive;
+	var string		m_sGfxClass;
+	var string		m_sClass;
+	var string		m_sTTPath;
+	var string		m_sAction;
+	var string		m_sTribe;
+	var bool			m_bWall;
+	var bool			m_bGate;
+	var bool			m_bTower;
+	var bool			m_bRallyPoint;
+	var bool			m_bCoastal;
+
+	var bool			m_bRotateBegin;
+	var bool			m_bPlaceBegin;
+	var real			m_fGhostRot;
+	var int				m_iBuildingRotSteps;
+
+	var bool			m_bValid;
+
+	var vec3			m_vPlacement;
+	var point			m_xMousePlacement;
+	var int				m_iResNumPossible;
+
+	var int				m_iNumTilesHold;
+	var CWallMap.CWall	m_xWall;
+
+	export constructor()
+		m_bActive=false;
+		m_bValid=false;
+
+		m_bWall=false;
+		m_bGate=false;
+		m_bTower=false;
+		m_bCoastal=false;
+		m_bRallyPoint=false;
+		m_vPlacement={0.0,0.0,0.0};
+		m_fGhostRot=0.0;
+
+		m_bRotateBegin = false;
+		m_bPlaceBegin = false;
+		
+		if(!CSettings.Get("Game/GUIOptions/BuildingRotation/Steps",m_iBuildingRotSteps)) then
+			m_iBuildingRotSteps=16;
+			CSettings.Set("Game/GUIOptions/BuildingRotation/Steps",m_iBuildingRotSteps);
+		else
+			m_iBuildingRotSteps=Math.Clamp(m_iBuildingRotSteps,0,360); // 64 before
+		endif;
+		m_iNumTilesHold=0;
+	endconstructor;
+	
+	export proc void Reset()
+		m_bWall=false;
+		m_bGate=false;
+		m_bTower=false;
+		m_bCoastal=false;
+		m_bRallyPoint=false;
+		m_vPlacement={0.0,0.0,0.0};
+		m_fGhostRot=0.0;
+		m_bRotateBegin = false;
+		m_bPlaceBegin = false;
+		if(!CSettings.Get("Game/GUIOptions/BuildingRotation/Steps",m_iBuildingRotSteps)) then
+			m_iBuildingRotSteps=16;
+			CSettings.Set("Game/GUIOptions/BuildingRotation/Steps",m_iBuildingRotSteps);
+		else
+			m_iBuildingRotSteps=Math.Clamp(m_iBuildingRotSteps,0,360); // 64 before
+		endif;
+		m_bActive=false;
+		CClientWrap.GetObjMgr().DeleteGhost();
+		ClearWall();
+		CClientWrap.GetObjMgr().GetObjPlaceChecker()^.EnableGridRendering(false);
+		CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap()^.EnableGridRendering(false);
+	endproc;
+	
+	export proc void ClearWall()
+		m_iNumTilesHold=0;
+		m_xWall.Clear();
+	endproc;
+
+	export proc void Render()
+		if(!m_bActive || m_bValid)then return; endif;
+		if(!m_bWall)then
+			if(!m_bRotateBegin)then
+				CheckPlacebility();
+			endif;
+		else
+			AddWall();
+		endif;
+		m_bValid=true;
+	endproc;
+
+	export proc void SetResNumPossible(int p_iResNumPossible)
+		m_iResNumPossible=p_iResNumPossible;
+	endproc;
+	
+	export proc string GetTTPath()
+		return m_sTTPath;
+	endproc;
+	
+	export proc void SetClass(string p_sObjClass, string p_sAction)
+		var ^CPlayer pxPlayer = ^(CGameWrap.GetClient().GetPlayer());
+		if(pxPlayer==null)then
+			CGameWrap.LogError("Controller.Place","Player invalid!");
+			return;
+		endif;
+		m_fGhostRot=0.0;
+		// HACK
+		/*if(p_sObjClass.Find("hu_ladder")!=-1)then
+			CMainController.Get().SetSecondaryInputController(true);
+			CMainController.Get().GetSecInputCtrl().SetCommand("Build_Ladder");
+			CMainController.Get().GetSecInputCtrl().SetTTPath("/Actions/Hu/Build/BLDG/hu_ladder");
+			return;
+		endif;*/
+		// END HACK
+
+		var CTechTree xTechTree = pxPlayer^.GetPlayerTechTree();
+		var string sObjGfx = xTechTree.GetValueS(p_sObjClass+"/gfx","Dummy");
+		var string sObjGhost = xTechTree.GetValueS(p_sObjClass+"/ghost","");
+
+		if(sObjGfx=="Dummy")then
+			CGameWrap.LogError("Controller.Place","Invalid Gfx: "+p_sObjClass);
+			return;
+		endif;
+
+		m_bActive = true;
+		m_bValid = false;
+		m_sGfxClass = sObjGfx;
+
+		m_bWall=(xTechTree.GetValueI(p_sObjClass+"/wall",0) != 0);
+		m_bGate= (xTechTree.GetValueI(p_sObjClass+"/gate",0) != 0);
+		
+/*		if(m_bGate)then
+			m_bWall=true;
+		endif;
+*/
+		m_bCoastal = (xTechTree.GetValueI(p_sObjClass+"/coastal",0) != 0);
+		if(p_sObjClass.Find("rally_point")>=0) then m_bCoastal=false; endif;
+
+		m_sClass = p_sObjClass.Mid(p_sObjClass.FindRev('/')+1);
+		var string sChunk = p_sObjClass;
+		if(sChunk.GetAt(0)=='/')then
+			sChunk.Delete(0,1);
+		endif;
+		sChunk = sChunk.Mid(sChunk.Find('/')+1);
+		m_sTribe = sChunk.Left(sChunk.Find('/'));
+		if(m_sTribe != "Aje" && m_sTribe != "Hu" && m_sTribe != "Ninigi" && m_sTribe != "SEAS" && m_sTribe != "Special")then
+			m_sTribe = pxPlayer^.GetPlayerSlot()^.GetTribe();
+		endif;
+		m_sTTPath=p_sObjClass;
+		m_sAction = p_sAction;
+		var bitset dwWC=CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap()^.GetWallClass(m_sClass);
+		m_bTower=dwWC==CWallMapCln.WC_Tower;
+
+		//KLog.LogSpam("MaZi", "Class: "+m_sClass+" Action: "+m_sAction);
+
+		if(/*m_bWall || */m_bGate)then
+			m_sGfxClass = m_sClass;
+		endif;
+		if(p_sObjClass.Find("rally_point")>=0) then
+			m_bRallyPoint=true;
+		else
+			m_bRallyPoint=false;
+		endif;
+
+		m_vPlacement = GetPickpoint();
+		if(m_bWall)then
+			// wall specific
+			m_bPlaceBegin=false;
+			CClientWrap.GetObjMgr().GetObjPlaceChecker()^.EnableGridRendering(false);
+			CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap()^.EnableGridRendering(true);
+		else
+			var string sBuilding=p_sAction.Right(p_sAction.GetLength()-(p_sAction.FindRev('/')+1));
+			if(m_sGfxClass!=sBuilding && m_sGfxClass.Find("rally_point")<0 && sObjGhost.IsEmpty())then
+				m_sGfxClass=sBuilding;
+			endif;
+			CClientWrap.GetObjMgr().CreateGhost(m_sGfxClass);
+			CClientWrap.GetObjMgr().GetObjPlaceChecker()^.EnableGridRendering(!m_bRallyPoint);
+			var ^CGhost pxGhost=CClientWrap.GetObjMgr().GetGhost();
+			if(pxGhost!=null)then
+				
+				// Hack
+				if(m_sGfxClass=="ninigi_rocket_ramp") then
+					//Henry: to improve ghost objects ;)
+					var CFourCC xLink = "RE_1";
+					var int iLinkID = pxGhost^.GetLinkID(xLink);
+					pxGhost^.LinkGfx(iLinkID, "ninigi_rb_top");
+				elseif(m_sGfxClass=="seas_great_cannon")then
+					var CFourCC xLink = "we";
+					var int iLinkID = pxGhost^.GetLinkID(xLink);
+					pxGhost^.LinkGfx(iLinkID, "seas_hq_big_cannon_cannon");
+				elseif(m_sGfxClass=="seas_mg_nest")then
+					var CFourCC xLink = "we";
+					var int iLinkID = pxGhost^.GetLinkID(xLink);
+					pxGhost^.LinkGfx(iLinkID, "seas_hq_machinegun_nest_top");
+				elseif(m_sGfxClass=="seas_small_cannon")then
+					var CFourCC xLink = "we";
+					var int iLinkID = pxGhost^.GetLinkID(xLink);
+					pxGhost^.LinkGfx(iLinkID, "seas_hq_defense_turret_top");
+				elseif(m_sGfxClass=="seas_shore_cannon")then
+					var CFourCC xLink = "we";
+					var int iLinkID = pxGhost^.GetLinkID(xLink);
+					pxGhost^.LinkGfx(iLinkID, "seas_shore_cannon");
+				elseif(m_sGfxClass.Find("_launchpad_zeppelin")!=-1)then
+					pxGhost^.SetConstructLevel(2);
+				endif;
+				// Endhack
+				
+				var ^CAttribs pxPlA = pxPlayer^.GetAttribs();
+				//Henry: fix for seas headquarters
+				if(pxPlA!=null && (m_sGfxClass.Find("fireplace")>=0 || m_sGfxClass.Find("resource_collector")>=0) || m_sGfxClass.Find("headquarters")>=0) then
+					pxGhost^.SetAge(pxPlA^.GetValueInt("age"));
+				endif;
+				var real fTmp;
+				if(!CSettings.Get("Game/GUIOptions/BuildingRotation/Value",fTmp))then
+					CSettings.Set("Game/GUIOptions/BuildingRotation/Value",0.0f);
+					fTmp=0.0f;
+				endif;
+				fTmp-=CMultiCameraController.Get().GetGameCameraModule()^.m_fAngle;
+				m_fGhostRot=fTmp;
+				MoveGhost();
+				ApplyGhostRot();
+			endif;
+		endif;
+		CWindowMgr.Get().BringWindowToTop(CClientWrap.GetDesktop(),true);
+	endproc;
+
+	export proc bool HandleCatchedMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+		if(p_dwType==CInputController.MT_MouseMove)then
+			HandleMsg(p_dwType, p_dwFlags, p_iKey, p_iX, p_iY);
+		endif;
+		return false;
+	endproc;
+
+	export proc bool HandleMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+		if(p_dwType==CInputController.MT_Tick)then return false;
+		elseif(p_dwType==CInputController.MT_MouseWheel)then return false;
+		elseif(p_dwType==CInputController.MT_MouseMBtnDown)then return false;
+		elseif(p_dwType==CInputController.MT_MouseMBtnUp)then return false;
+		elseif(p_dwType==CInputController.MT_MouseMBtnDoubleClick)then return false;
+		endif;
+
+		var bool bCtrl = ((p_dwFlags&Msg.KM_CONTROL)!=0d);
+		var bool bShift = ((p_dwFlags&Msg.KM_SHIFT)!=0d);
+		var bool bAlt = ((p_dwFlags&Msg.KM_ALT)!=0d);
+		
+		if(m_bTower) then
+			//Henry: to allow rotation of towers before placement
+			if(bShift) then bShift=true; bCtrl=true; endif;
+		endif;
+
+		if(m_bRotateBegin && !bShift)then
+			m_bRotateBegin=false;
+		endif;
+
+		if(m_bActive)then
+			if(p_dwType==CInputController.MT_MouseLBtnDown && !m_bPlaceBegin)then
+				m_vPlacement = GetPickpoint();
+				m_bPlaceBegin=true;
+			elseif(p_dwType==CInputController.MT_MouseRBtnUp)then
+				SetActive(false);
+				return true;
+			endif;
+			if(!m_bWall)then
+				if(p_dwType==CInputController.MT_MouseMove)then
+					if(!bShift)then
+						m_xMousePlacement.SetX(p_iX);
+						m_xMousePlacement.SetY(p_iY);
+						MoveGhost();
+					else
+						RotateGhost(p_iX,p_iY);
+						m_bRotateBegin=true;
+						CWindowMgr.Get().SetMousePosNoMMove(m_xMousePlacement);
+					endif;
+				elseif(p_dwType==CInputController.MT_MouseLBtnUp) then
+					m_vPlacement = GetPickpoint();
+					var bool bPlaced=PlaceGhost(bCtrl);
+					var bool bActive=!bPlaced || bCtrl;
+					if(!bActive||!m_bGate) then
+						SetActive(bActive);
+					endif;
+					m_bPlaceBegin=false;
+					return true;
+				endif;
+			else
+				if(!m_bPlaceBegin)then
+					m_vPlacement = GetPickpoint();
+				endif;
+				if(p_dwType==CInputController.MT_MouseLBtnUp) then
+					if(!bShift)then
+						PlaceWall(bCtrl);
+						//SetActive(bShift||bCtrl);
+						if(!bCtrl) then SetActive(false); endif;
+						m_vPlacement = GetPickpoint();
+						m_bValid = false;
+						m_bPlaceBegin=false;
+					else
+						m_vPlacement = GetPickpoint();
+						m_iNumTilesHold=m_xWall.NumTiles();
+					endif;
+					return true;
+				endif;
+			endif;
+			m_bValid=false;
+		endif;
+
+		var bool bReturn = m_bActive||m_bPlaceBegin;
+
+		if(m_bPlaceBegin && p_dwType==CInputController.MT_MouseLBtnUp)then
+			m_bPlaceBegin=false;
+		endif;
+
+		return bReturn;
+	endproc;
+
+	export proc bool GetActive()
+		return m_bActive;
+	endproc;
+
+	export proc void SetActive(bool p_bStatus)
+		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
+		if(!p_bStatus || (pxGhost==null))then
+			var CClntHndl xInvalid;
+			m_bActive = false;
+			m_bWall=false;
+			m_bCoastal=false;
+			m_bPlaceBegin=false;
+			CClientWrap.GetObjMgr().DeleteGhost();
+			m_iNumTilesHold=0;
+			ClearWall();
+			CClientWrap.GetObjMgr().GetObjPlaceChecker()^.EnableGridRendering(false);
+			CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap()^.EnableGridRendering(false);
+		else
+//			m_bActive = true;
+			m_vPlacement={0.0,0.0,0.0};
+//			m_bPlaceBegin = false;
+		endif;
+		m_bValid=false;
+		m_bRotateBegin = false;
+//		m_bPlaceBegin=false;
+		if(!p_bStatus)then
+			if(!CMainController.Get().RallyUpdate())then
+				CMainController.Get().WalkTargetUpdate();
+			endif;
+		endif;
+	endproc;
+
+	export proc void RotateGhost(int p_iX, int p_iY)
+		if (m_bCoastal || m_bGate) then return; endif;
+		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
+		if(pxGhost==null)then return; endif;
+		var int iDiffX = (p_iX - m_xMousePlacement.GetX())%360;
+		m_fGhostRot+=(iDiffX.ToReal()/360.0)*Math.Pi()*2.0;
+		ApplyGhostRot();
+	endproc;
+	
+	export proc void ApplyGhostRot()
+		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
+		if(pxGhost==null)then return; endif;
+		var real fRotStep=(2.0f*Math.Pi())/m_iBuildingRotSteps.ToReal(); //-> 16 steps = 22.5°
+		var real fGR=m_fGhostRot;
+		fGR/=fRotStep;
+		fGR=(fGR+0.5f).ToInt().ToReal();
+		fGR*=fRotStep;
+		var vec3 vRotation;
+		vRotation.SetZ(fGR);
+		pxGhost^.SetRotation(vRotation);
+	endproc;
+
+	export proc void MoveGhost()
+		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
+		if(pxGhost==null)then return; endif;
+		if(m_bGate)then
+			CClientWrap.GetObjMgr().CreateGhost(m_sGfxClass);
+			pxGhost=CClientWrap.GetObjMgr().GetGhost();
+			if(pxGhost==null)then return; endif;
+		endif;
+		var vec3 vPickpoint = GetPickpoint();
+		if(vPickpoint!={0.0,0.0,0.0})then
+			if (m_bCoastal) then
+				var vec3 vNewPos;
+				var Quat qNewRot;
+				if (CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(pxGhost^.GetGhostClass(), vPickpoint, vNewPos, qNewRot) ) then
+					pxGhost^.SetPos(vNewPos);
+					pxGhost^.SetRot(qNewRot);
+					pxGhost^.SetColor({{0,255,0,255}});
+				else
+					pxGhost^.SetPos(vNewPos);
+					if (vNewPos!=vPickpoint) then
+						pxGhost^.SetRot(qNewRot);
+					endif;
+					pxGhost^.SetColor({{255,0,0,255}});
+				endif;
+			else
+				//Ghost position tuning
+				if(m_sGfxClass=="seas_wall_gate")then
+					pxGhost^.SetPos(vPickpoint+{0.0,0.0,-1.0});
+				elseif(m_sGfxClass=="seas_fortress")then
+					pxGhost^.SetPos(vPickpoint+{0.0,0.0,3.99});
+				elseif(m_sGfxClass=="aje_sensor_tower")then
+					pxGhost^.SetPos(vPickpoint+{0.0,0.0,-11.0});
+				elseif(m_sGfxClass=="hu_mud_pit")then
+					pxGhost^.SetPos(vPickpoint+{0.0,0.0,0.5});
+				elseif(m_sGfxClass=="seas_shore_cannon")then
+					pxGhost^.SetPos(vPickpoint+{0.0,0.0,-7.05});
+				else
+					pxGhost^.SetPos(vPickpoint);
+				endif;
+				if(m_bRallyPoint) then pxGhost^.SetColor({{0,255,0,255}}); endif;
+			endif;
+		endif;
+		m_vPlacement=vPickpoint;
+	endproc;
+
+	proc void CheckPlacebility()
+		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
+		if(pxGhost==null)then return; endif;
+		pxGhost^.SetColored(true);
+		if(m_bGate)then
+			ClearWall();
+			var ^CWallMapCln pxWM=CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap();
+			var bool bFound=pxWM^.CalcWall(-1,m_sClass,m_vPlacement,m_vPlacement,m_xWall);
+			if(bFound)then
+				pxWM^.PreviewWall(m_xWall,m_sGfxClass,{{0,255,0,255}});
+			else
+				pxGhost^.SetColor({{255,0,0,255}});
+			endif;
+		elseif(m_bCoastal)then
+		else
+			//Henry: allowing bigger buildings be placed on smaller terrain
+			if((CClientWrap.GetObjMgr().GetObjPlaceChecker()^.Check(UseSmallerGfx(pxGhost),pxGhost^.GetPos(),pxGhost^.GetRotation())) || m_bRallyPoint)then
+				pxGhost^.SetColor({{0,255,0,255}});
+			else
+				pxGhost^.SetColor({{255,0,0,255}});
+			endif;
+		endif;
+	endproc;
+
+	export proc void AddWall()
+		var ^CPlayer pxPlayer = ^(CGameWrap.GetClient().GetPlayer());
+		var CTechTree xTechTree = pxPlayer^.GetPlayerTechTree();
+		var vec3 vPickpoint = GetPickpoint();
+		if(vPickpoint=={0.0,0.0,0.0})then return; endif;
+		var string sObjClass = m_sGfxClass;
+		var ^CWallMapCln pxWM=CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap();
+		var bool bFound=pxWM^.CalcWall(-1,m_sClass,m_vPlacement,vPickpoint,m_xWall,m_iNumTilesHold);
+		/// todo: check resources for all tiles present
+		pxWM^.EnableGridRendering(bFound);
+		if(bFound)then
+			var ^CGhost pxGhost=pxWM^.PreviewWall(m_xWall,m_sGfxClass,{{0,255,0,255}},m_iResNumPossible,{{255,255,0,255}});
+			pxWM^.ShowPlacement(m_xWall,vPickpoint);
+			if(pxGhost!=null) then
+				if(m_sGfxClass=="aje_tesla_tower") then
+					var CFourCC xLink = "we";
+					var int iLinkID = pxGhost^.GetLinkID(xLink);
+					pxGhost^.LinkGfx(iLinkID, "aje_tesla_tower_canon");
+				elseif(m_sGfxClass=="hu_large_tower_upgrade")then
+					var CFourCC xLink = "we";
+					var int iLinkID = pxGhost^.GetLinkID(xLink);
+					pxGhost^.LinkGfx(iLinkID, "Hu_Large_Tower_Upgrade_Balista");
+				//addition by Henry to improve towers ghost objects by adding the turret
+				elseif(m_sGfxClass=="seas_turret_tower")then
+					var CFourCC xLink = "we";
+					var int iLinkID = pxGhost^.GetLinkID(xLink);
+					pxGhost^.LinkGfx(iLinkID, "seas_turret");
+				elseif(m_sGfxClass=="ninigi_small_tower")then
+					var CFourCC xLink = "we";
+					if(xTechTree.GetValueB("/Objects/Ninigi/InventObjects/tower_sordes_upgrade/invented",false))then
+						var int iLinkID = pxGhost^.GetLinkID(xLink);
+						pxGhost^.LinkGfx(iLinkID, "ninigi_small_tower_upgrade");
+					endif;
+					//HACK by Henry to enable telescope towers ghost to play animation
+				/*elseif(m_sGfxClass=="ninigi_telescope_tower")then
+					pxGhost^.SetAnim("idle",3,0);*/
+				endif;
+			endif;
+		endif;
+	endproc;
+
+	export proc void PlaceWall(bool p_bQueued)
+		var ^CObjList pxSel = ^(CClientWrap.GetSelection());
+		CEvt_PlaceWall.Send(m_xWall,pxSel^,p_bQueued);
+		ClearWall();
+	endproc;
+
+	export proc bool PlaceGhost(bool p_bQueued)
+		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
+		var ^CObjList pxSel = ^(CClientWrap.GetSelection());
+		if(pxGhost==null)then return false; endif;
+		if(m_bRallyPoint)then
+			m_bRallyPoint = false;
+			var CClntHndl xInvalid;
+			var CClntHndl xHitObj=CClientWrap.GetObjMgr().GetHitObj();
+			if(CClientWrap.GetForestMgr().HitTree(m_vPlacement) && CGameWrap.IsPosFOWVisible(m_vPlacement))then
+			elseif(xHitObj.IsValid())then
+				var ^CObj pxHitObj=xHitObj.GetObj();
+				if(pxHitObj!=null)then
+					pxHitObj=pxHitObj^.GetGroupedParentObj();
+				endif;
+				if(pxHitObj!=null)then
+					if(pxHitObj^.GetType()=="TREE"||pxHitObj^.GetType()=="WOOD"||pxHitObj^.GetType()=="FOOD"||pxHitObj^.GetType()=="FRUI"||pxHitObj^.GetType()=="STON")then
+						xInvalid=xHitObj;
+					elseif(!pxHitObj^.IsEnemy())then
+						xInvalid=xHitObj;
+					endif;
+				endif;
+			endif;
+			var int i,iC=pxSel^.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				CEvt_GamePlayCommand.Send(pxSel^[i], "SetRallyPoint", xInvalid, m_vPlacement, m_vPlacement.ToString());
+			endfor;
+			
+			//KLog.LogSpam("uisound","PlaceGhost "+m_sClass+" "+m_sAction);
+			CGameInputController.ms_xUISoundMgr.PlayRallypointFeedbackSound(m_vPlacement);
+			return true;
+		endif;
+
+		if(m_vPlacement!={0.0,0.0,0.0})then
+			if(m_bGate)then
+				// HACK
+/* Henry: no need for that anymore
+				if(m_sClass.Find("hu_ladder")!=-1)then
+					var ^CWallMapCln pxWM=CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap();
+					var ^CObj pxWall=pxWM^.GetWall(m_xWall);
+					if(pxWall!=null) then
+						var CObjList xList=CClientWrap.GetSelection();
+						xList.Validate();
+						CEvt_GamePlayCommand.Send(xList,"Action",pxWall^.GetHandle(),m_vPlacement,"/Actions/Hu/Build/BLDG/hu_ladder");
+						return true;
+					endif;
+					return false;
+				endif;
+*/
+				var ^CObjList pxSel = ^(CClientWrap.GetSelection());
+				CEvt_PlaceWall.Send(m_xWall,pxSel^,p_bQueued);
+				ClearWall();
+//					CClientWrap.GetObjMgr().DeleteGhost();
+				return true;
+			elseif(m_bCoastal)then
+
+				var vec3 vNewPos;
+				var Quat qNewRot;
+				var vec3 vPickpoint = GetPickpoint();
+
+				if (CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(pxGhost^.GetGhostClass(), vPickpoint, vNewPos, qNewRot)) then
+					pxGhost^.SetPos(vNewPos);
+					pxGhost^.SetRot(qNewRot);
+					CEvt_PlaceObj.Send(m_sClass+";"+m_sTribe+";"+m_sAction,m_vPlacement,pxGhost^.GetRotation(),pxSel^,p_bQueued);
+					return true;
+				else
+					pxGhost^.SetPos(vPickpoint);
+					pxGhost^.SetColor({{255,0,0,255}});
+					CFeedback.Print(CLocalizer.Get().Translate("_PlaceController_Object"));
+					CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("ui_click_error","",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+					CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("voice_click_error","",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+					return false;
+				endif;
+			else
+				if(!CClientWrap.GetObjMgr().GetObjPlaceChecker()^.Check(UseSmallerGfx(pxGhost),m_vPlacement,pxGhost^.GetRotation()))then
+					CFeedback.Print(CLocalizer.Get().Translate("_PlaceController_Object"));
+					CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("ui_click_error","",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+					CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("voice_click_error","",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+					return false;
+				endif;
+				CEvt_PlaceObj.Send(m_sClass+";"+m_sTribe+";"+m_sAction,m_vPlacement,pxGhost^.GetRotation(),pxSel^,p_bQueued);
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+
+	proc vec3 GetPickpoint()
+		var vec3 vPos=CClientWrap.GetScapeMgr().GetPickPoint();
+		if(m_bCoastal)then
+			vPos.SetZ(Math.Max(vPos.GetZ(),CClientWrap.GetScapeMgr().GetSeaLevel()));
+		endif;
+		return vPos;
+	endproc;
+
+//Henry: the fake buildings names need to be identical at the same procedure in ServerApp.usl
+	export proc string UseSmallerGfx(^CGhost p_pxGhost) //Henry: HACK for buildings get the placemanager think they are smaller ^^
+		var string sGfx = "dummy";
+		if(p_pxGhost!=null)then
+			sGfx = p_pxGhost^.GetGhostClass();
+		endif;
+		if(sGfx=="seas_big_tent")then
+			sGfx = "ninigi_engineer";
+		elseif(sGfx=="seas_small_tent")then
+			sGfx = "hu_weapons_smith";
+		elseif(sGfx=="seas_mine")then
+			sGfx = "hu_weapons_smith";
+		elseif(sGfx=="seas_barracks")then
+			sGfx = "hu_arena";
+		elseif(sGfx=="seas_fortress")then
+			sGfx = "ninigi_temple";
+		elseif(sGfx=="seas_garage")then
+			sGfx = "hu_arena";
+		elseif(sGfx=="seas_great_cannon")then
+			sGfx = "hu_arena";
+		elseif(sGfx=="seas_final_boss")then
+			sGfx = "hu_weapons_smith";
+		elseif(sGfx=="seas_laboratory")then
+			sGfx = "hu_arena";
+		elseif(sGfx=="seas_steelwork")then
+			sGfx = "ninigi_dojo";
+		elseif(sGfx=="aje_amazon_temple")then
+			sGfx = "aje_temple";
+		elseif(sGfx=="hu_mine")then
+			sGfx = "hu_weapons_smith";
+		elseif(sGfx=="aje_small_farm"||sGfx=="aje_huge_farm")then
+			sGfx = "aje_medium_farm";
+		endif;
+		return sGfx;
+	endproc;
+
+endclass;

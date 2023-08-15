@@ -1,0 +1,264 @@
+class CViewTCVariables inherit CEnhancedFrameWindow
+
+	class CVarInfo
+		export var string	m_sName;
+		export var string	m_sValue;
+		export var string 	m_sType;
+				
+		export constructor()
+			m_sName = "New_Var_"+Random.GetInt().ToString();
+			m_sType = "string";
+			m_sValue = "";
+		endconstructor;
+		
+		export constructor(CViewTCVariables.CVarInfo p_xRhs)
+			m_sName = p_xRhs.m_sName;
+			m_sValue = p_xRhs.m_sValue;
+			m_sType = p_xRhs.m_sType;
+		endconstructor;
+		
+		export proc void Set(string p_sName, string p_sType, string p_sValue)
+			m_sName = p_sName;
+			m_sValue = p_sValue;
+			m_sType = p_sType;
+		endproc;		
+	endclass;
+
+	class CVarData inherit CItemData
+		export var ^CVarInfo m_pxVar;
+		
+		export constructor(^CViewTCVariables.CVarInfo p_pxV)
+			m_pxVar = p_pxV;
+		endconstructor;
+	endclass;
+
+	var ^CList 			m_pxList;
+	var ^CButton 		m_pxAdd;
+	var ^CButton 		m_pxRem;
+	
+	var ^CEdit			m_pxName;
+	var ^CDropList		m_pxType;
+	var ^CEdit			m_pxValue;
+	
+	var ^CVarInfo		m_pxCurVar;
+	var bool			m_bHideInternal;
+
+	export constructor()
+		if(!InitFromResource("Trigger/ViewTCVariables","TCVariables"))then
+			KLog.LogError("UI.ViewTriggerCreate", "InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxList 	= cast<CList>(GetControl("List_Vars"));
+		m_pxAdd		= cast<CButton>(GetControl("Btn_Add"));
+		m_pxRem		= cast<CButton>(GetControl("Btn_Rem"));
+		
+		m_pxName	= cast<CEdit>(GetControl("GBox_Vars/Edit_Name"));
+		m_pxType	= cast<CDropList>(GetControl("GBox_Vars/Drop_Type"));
+		m_pxValue	= cast<CEdit>(GetControl("GBox_Vars/Edit_Value"));
+		
+		m_pxList^.m_xOnSelect = OnSelectVar;
+		m_pxAdd^.m_xOnClick = OnAddVar;
+		m_pxRem^.m_xOnClick = OnRemVar;
+		
+		m_pxName^.m_xOnUpdate = OnChangeName;
+		m_pxType^.m_xOnChange = OnChangeType;
+		m_pxValue^.m_xOnUpdate = OnChangeValue;
+		
+		m_pxType^.AddItem("string");
+		m_pxType^.AddItem("int");
+		m_pxType^.AddItem("float");
+		m_pxType^.AddItem("bool");
+		
+		m_bHideInternal=false;
+		LoadVars();
+	endconstructor;
+	
+	destructor()
+	enddestructor;
+	
+	proc bool OnAddVar()
+		var ^CVarInfo pxV = new CVarInfo();
+		var int iNew = m_pxList^.AddItem(GetVarName(pxV), new CVarData(pxV));
+		m_pxList^.Select(iNew);
+		return true;
+	endproc;
+	
+	proc bool OnRemVar()
+		var int iSel = m_pxList^.GetSelectedItem();
+		if(iSel>=0) then
+			m_pxList^.m_xOnSelect.Clear();
+			var ^CVarData pxVD = cast<CVarData>(m_pxList^.GetItemData(iSel));
+			if(pxVD!=null) then
+				delete pxVD^.m_pxVar;
+				delete pxVD;
+				m_pxList^.DeleteItem(iSel);
+			endif;
+			m_pxList^.m_xOnSelect = OnSelectVar;
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	proc bool OnSelectVar()
+		var int iSel=m_pxList^.GetSelectedItem();
+		if(iSel>=0) then
+			var ^CVarData pxVD = cast<CVarData>(m_pxList^.GetItemData(iSel));
+			if(pxVD!=null) then
+				m_pxCurVar = pxVD^.m_pxVar;
+				
+				m_pxName^.m_xOnUpdate.Clear();
+				m_pxName^.SetText(m_pxCurVar^.m_sName);
+				m_pxName^.m_xOnUpdate = OnChangeName;
+				
+				m_pxType^.m_xOnChange.Clear();
+				m_pxType^.SetText(m_pxCurVar^.m_sType);
+				m_pxType^.m_xOnChange = OnChangeType;
+				
+				m_pxValue^.m_xOnUpdate.Clear();
+				m_pxValue^.SetText(m_pxCurVar^.m_sValue);
+				m_pxValue^.m_xOnUpdate = OnChangeValue;
+			endif;
+		else
+			m_pxCurVar = null;
+			m_pxName^.SetDisabled(true);
+			m_pxType^.SetDisabled(true);
+			m_pxValue^.SetDisabled(true);
+		endif;
+		return true;
+	endproc;
+	
+	proc string GetVarName(^CViewTCVariables.CVarInfo p_pxV)
+		return p_pxV^.m_sType + " " + p_pxV^.m_sName + " = '" + p_pxV^.m_sValue + "'";
+	endproc;
+	
+	proc bool IsNameValid(string p_sName)
+		var int i, iC = m_pxList^.NumItems();
+		for(i=0) cond(i<iC) iter(++i) do
+			var ^CVarData pxVD = cast<CVarData>(m_pxList^.GetItemData(i));
+			if(pxVD==null) then continue; endif;
+			var ^CVarInfo pxVI = pxVD^.m_pxVar;
+			if(pxVI==null) then continue; endif;
+			
+			if (pxVI^.m_sName == p_sName) then return false; endif;
+		endfor;
+		return true;
+	endproc;
+	
+	proc string ValidateValue(string p_sType, string p_sValue)
+		if(p_sType == "string") then 
+			return p_sValue;
+		elseif(p_sType == "int") then
+			return p_sValue.ToInt().ToString();
+		elseif(p_sType == "float") then
+			return p_sValue.ToReal().ToString();
+		elseif(p_sType == "bool") then
+			if(p_sValue.CompareNoCase("true")==0 || p_sValue.CompareNoCase("false")==0) then
+				return p_sValue;
+			else
+				return "false";
+			endif;
+		endif;
+		return "";
+	endproc;
+	
+	proc bool OnChangeName()
+		if (m_pxCurVar==null) then return false; endif;
+		var string sName = m_pxName^.GetText();
+		if(IsNameValid(sName)) then
+			m_pxCurVar^.m_sName = sName;
+			m_pxList^.SetItemText(m_pxList^.GetSelectedItem(), GetVarName(m_pxCurVar));
+		endif;	
+		return true;
+	endproc;
+	
+	proc bool OnChangeType()
+		if (m_pxCurVar==null) then return false; endif;
+		m_pxCurVar^.m_sType = m_pxType^.GetSelectedItemAsString();
+		m_pxList^.SetItemText(m_pxList^.GetSelectedItem(), GetVarName(m_pxCurVar));
+		return true;
+	endproc;
+	
+	proc bool OnChangeValue()
+		if (m_pxCurVar==null) then return false; endif;
+		m_pxCurVar^.m_sValue = ValidateValue(m_pxCurVar^.m_sType, m_pxValue^.GetText());
+		m_pxList^.SetItemText(m_pxList^.GetSelectedItem(), GetVarName(m_pxCurVar));
+		return true;
+	endproc;
+	
+	proc void LoadVars()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxNode = pxLevelInfo^.GetGenericData().FindNode("Variables", false);
+		if(pxNode!=null)then
+					
+			var int i, iC = pxNode^.NumSubs();
+			for(i=0) cond(i<iC) iter(++i) do
+				
+				var ^CPropDB.CNode pxSub = ^(pxNode^.Get(i));
+				var ^CVarInfo pxVI = new CVarInfo();
+				
+				pxVI^.Set(pxSub^.Name(), pxSub^.GetValueS("type"), pxSub^.GetValueS("value"));
+				
+				var string sName = GetVarName(pxVI);
+				if(!m_bHideInternal || sName.Find("_Internal_")<0) then
+					m_pxList^.AddItem(GetVarName(pxVI), new CVarData(pxVI));
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	proc void StoreVars()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxNode = pxLevelInfo^.GetGenericData().FindNode("Variables", true);
+		if(pxNode!=null)then
+			var array string asVarName, asVarType, asVarVal;
+			if(m_bHideInternal) then
+				// store the internal vars before clearing ...
+				var int i, iC = pxNode^.NumSubs();
+				for(i=0) cond(i<iC) iter(++i) do
+					var ^CPropDB.CNode pxSub = ^(pxNode^.Get(i));
+					asVarName.AddEntry(pxSub^.Name());
+					asVarType.AddEntry(pxSub^.GetValueS("type",""));
+					asVarVal.AddEntry(pxSub^.GetValueS("value",""));
+				endfor;
+			endif;
+			
+			pxNode^.Clear();
+			
+			var int i, iC = m_pxList^.NumItems();
+			for(i=0) cond(i<iC) iter(++i) do
+				var ^CVarData pxVD = cast<CVarData>(m_pxList^.GetItemData(i));
+				if(pxVD==null) then continue; endif;
+				
+				var ^CVarInfo pxVI = pxVD^.m_pxVar;
+				if(pxVI==null) then continue; endif;
+				
+				pxNode^.AddValue(pxVI^.m_sName, "");
+				var ^CPropDB.CNode pxVarNode = pxNode^.Get(pxVI^.m_sName);
+				if(pxVarNode!=null) then
+					pxVarNode^.SetValue("type", pxVI^.m_sType);
+					pxVarNode^.SetValue("value", pxVI^.m_sValue);
+				endif;
+			endfor;
+			
+			if(m_bHideInternal) then
+				iC = asVarName.NumEntries();
+				for(i=0) cond(i<iC) iter(++i) do
+					pxNode^.AddValue(asVarName[i], "");
+					var ^CPropDB.CNode pxVarNode = pxNode^.Get(asVarName[i]);
+					if(pxVarNode!=null) then
+						pxVarNode^.SetValue("type", asVarType[i]);
+						pxVarNode^.SetValue("value", asVarVal[i]);
+					endif;
+				endfor;
+			endif;
+		endif;
+	endproc;
+	
+	export proc bool OnClose()
+		StoreVars();
+		super.OnClose();
+		Destroy();
+		return true;
+	endproc;
+endclass;

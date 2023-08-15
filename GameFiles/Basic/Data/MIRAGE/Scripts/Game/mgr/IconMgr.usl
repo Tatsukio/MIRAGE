@@ -1,0 +1,413 @@
+class CIconMgr inherit CWindow
+
+	static var ^CIconMgr	ms_pxInst;
+	var array ^CIconObj		m_apxIcons;
+	var bool							m_bEnabled;
+	var bool							m_bUpdateNonPlayerUnits;
+	var int								m_iUpdateTimerID;
+	var int								m_iUpdateNPInterval;
+	
+	var int								m_iTimer;
+	
+	class CIconObj inherit CWindow
+		
+		export var CClntHndl	m_xHndl;
+		export var bool				m_bIsOwn;
+		export var int				m_iLostCount;
+		var int								m_iHealth;
+		var ^CObjMgr					m_pxObjMgr;
+		var array string			m_asTiles;
+		
+		export constructor(CClntHndl p_xHndl, bool p_bIsOwn)
+			SetSize(0,0);
+			SetPos({0,0});
+			m_xHndl = p_xHndl;
+			m_bIsOwn = p_bIsOwn;
+			m_iLostCount = 0;
+			m_asTiles.AddEntry("0");
+			m_asTiles.AddEntry("1");
+			m_asTiles.AddEntry("2");
+			m_asTiles.AddEntry("3");
+			m_asTiles.AddEntry("4");
+			m_asTiles.AddEntry("5");
+			m_asTiles.AddEntry("6");
+			m_asTiles.AddEntry("7");
+			m_asTiles.AddEntry("8");
+			m_asTiles.AddEntry("9");
+			m_asTiles.AddEntry("+");
+			m_asTiles.AddEntry("-");
+			m_pxObjMgr = ^(CClientWrap.GetObjMgr());
+			var ^CObj pxObj = m_xHndl.GetObj();
+			if(pxObj!=null)then
+				var ^CAttribs pxAttr = pxObj^.GetAttribs();
+				if(pxAttr != null)then
+					m_iHealth = pxAttr^.GetValueInt("hitpoints");
+				endif;
+				CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this, m_xHndl, CSubscriptionMgr.CT_ObjAttribs, "Icon");
+				CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this, CSubscriptionMgr.CT_LostPlayerChar, "");
+			endif;
+		endconstructor;
+		
+		export destructor()
+			var ^CObj pxObj = m_xHndl.GetObj();
+			if(pxObj != null)then
+				m_pxObjMgr^.DeleteInfoIconsForObj(pxObj);
+			endif;
+			CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this, m_xHndl, CSubscriptionMgr.CT_ObjAttribs, "Icon");
+			CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this, CSubscriptionMgr.CT_LostPlayerChar, "");
+			CIconMgr.Get().KillIconObj(this);
+		enddestructor;
+		
+		proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+			if(p_rxEvt.GetClass()==CSubscriptionMgr.GetEvtClass_ObjChange())then
+				var CClntHndl xObjHandle;
+				var bitset dwTypes, dwAttribGroups;
+				if(CSubscriptionMgr.EvtGetData_ObjChange(p_rxEvt,xObjHandle,dwTypes,dwAttribGroups))then
+					if((dwTypes & CSubscriptionMgr.CT_LostPlayerChar) != 0d) then
+						if(xObjHandle == m_xHndl)then
+							Destroy();
+						endif;
+					elseif((dwTypes & CSubscriptionMgr.CT_ObjAttribs) != 0d) then
+						var int iHealth;
+						var ^CObj pxObj = m_xHndl.GetObj();
+						if(pxObj!=null)then
+							var ^CAttribs pxAttr = pxObj^.GetAttribs();
+							if(pxAttr != null)then
+								var int iDiff = pxAttr^.GetValueInt("hitpoints") - m_iHealth;
+								if(pxObj^.GetType()=="BLDG"&&pxObj^.GetConstructLevel()<4)then
+									m_iHealth += iDiff;
+									return false;
+								endif;
+								if(CIconMgr.Get().GetEnabled())then
+									if(iDiff<0)then
+										var ^CObjMgr.CInfoIcon pxIcon = m_pxObjMgr^.CreateInfoIcon();
+										var string sText = (-iDiff).ToString();
+										pxIcon^.AddIcon(11);
+										SetIconText(pxIcon, sText);
+										var vec3 vPos = pxObj^.GetPos();
+										vPos.SetZ(vPos.GetZ()+pxObj^.GetSize().GetZ());
+										pxIcon^.SetPos(vPos);
+//										pxIcon^.SetObject(pxObj);
+										if(m_bIsOwn)then
+											pxIcon^.SetColor1({{255,0,0,255}});
+											pxIcon^.SetColor2({{255,100,0,255}});
+											pxIcon^.SetColor3({{50,50,0,255}});
+										else
+											pxIcon^.SetColor1({{0,50,255,255}});
+											pxIcon^.SetColor2({{0,100,255,255}});
+											pxIcon^.SetColor3({{0,150,255,255}});
+										endif;
+									elseif(iDiff>0)then
+										var ^CObjMgr.CInfoIcon pxIcon = m_pxObjMgr^.CreateInfoIcon();
+										var string sText = iDiff.ToString();
+										pxIcon^.AddIcon(10);
+										SetIconText(pxIcon, sText);
+										var vec3 vPos = pxObj^.GetPos();
+										vPos.SetZ(vPos.GetZ()+pxObj^.GetSize().GetZ());
+										pxIcon^.SetPos(vPos);
+//										pxIcon^.SetObject(pxObj);
+										if(m_bIsOwn)then
+											pxIcon^.SetColor1({{0,255,0,255}});
+											pxIcon^.SetColor2({{0,255,100,255}});
+											pxIcon^.SetColor3({{0,0,100,255}});
+										else
+											pxIcon^.SetColor1({{255,200,0,255}});
+											pxIcon^.SetColor2({{255,255,0,255}});
+											pxIcon^.SetColor3({{166,86,0,255}});
+										endif;
+									endif;
+								endif;
+								m_iHealth += iDiff;
+							endif;
+						endif;
+					endif;
+				endif;
+			endif;
+			return true;
+		endproc;
+		
+		proc void SetIconText(^CObjMgr.CInfoIcon p_pxIcon, string p_sText)
+			var int i;
+			for(i=0)cond(i<p_sText.GetLength())iter(i++)do
+				var int iTile = m_asTiles.FindEntry(p_sText.GetAt(i).ToString());
+				if(iTile!=-1)then
+					p_pxIcon^.AddIcon(iTile);
+				endif;
+			endfor;
+			p_pxIcon^.SetTimeToLive(3.0);
+			p_pxIcon^.SetSize({0.4,0.4});
+			p_pxIcon^.SetScaleMode(1);
+			p_pxIcon^.SetHSpacing(-0.3);
+			p_pxIcon^.SetDrift({-0.3,1.0,0.3});
+		endproc;
+		
+	endclass;
+	
+	constructor()
+		SetSize(0,0);
+		SetPos({0,0});
+		var CConfig xConf;
+		m_bEnabled = xConf.GetSetB("Client/GameplayOptions/ShowIconObjects",false);
+		begin ShowNonPlayerHPChanges;
+			var string sTemp;
+			if(CSettings.Get("Game/GraphicOptions/ShowNonPlayerHPChanges",sTemp)==false)then
+				CSettings.Set("Game/GraphicOptions/ShowNonPlayerHPChanges","false");
+				sTemp = "false";
+			endif;
+			m_bUpdateNonPlayerUnits = (sTemp=="true");
+		end ShowNonPlayerHPChanges;
+		m_iUpdateTimerID = 0;
+		m_iUpdateNPInterval = 2100;
+		UpdateState();
+		CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this, CSubscriptionMgr.CT_NewPlayerChar, "");
+	endconstructor;
+
+	destructor()
+	enddestructor;
+
+	export static proc ref CIconMgr Get()
+		if(ms_pxInst==null)then
+			ms_pxInst=new CIconMgr;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+	
+	export proc void ToggleUpdateNonPlayerUnits()
+		m_bUpdateNonPlayerUnits = !m_bUpdateNonPlayerUnits;
+		var CConfig xConf;
+		xConf.SetS("Game/GraphicOptions/ShowNonPlayerHPChanges",m_bUpdateNonPlayerUnits.ToString());
+		UpdateState();
+	endproc;
+	
+	export proc void SetUpdateNonPlayerUnits(bool p_bUpdate)
+		m_bUpdateNonPlayerUnits=p_bUpdate;
+		UpdateState();
+	endproc;
+	
+	export proc bool GetUpdateNonPlayerUnits()
+		return m_bUpdateNonPlayerUnits;
+	endproc;
+	
+	export proc void SetUpdateNonPlayerInterval(int p_iInterval)
+		m_iUpdateNPInterval = p_iInterval;
+		// restart timer with new interval if it was running before
+		if(m_bUpdateNonPlayerUnits==true)then
+			SetUpdateNonPlayerUnits(false);
+			SetUpdateNonPlayerUnits(true);
+		endif;
+	endproc;
+	
+	export proc int GetUpdateNonPlayerInterval()
+		return m_iUpdateNPInterval;
+	endproc;
+	
+	export proc void SetEnabled(bool p_bEnabled)
+		m_bEnabled = p_bEnabled;
+		UpdateState();
+		if(!m_bEnabled)then
+			CClientWrap.GetObjMgr().DeleteAllInfoIcons();
+		endif;
+	endproc;
+	
+	export proc bool GetEnabled()
+		return m_bEnabled;
+	endproc;
+	
+	proc void UpdateState()
+		if((m_bEnabled==true)&&(m_bUpdateNonPlayerUnits==true))then
+			if(m_iUpdateTimerID==0)then
+				m_iUpdateTimerID = SetTimer(m_iUpdateNPInterval,true);
+			endif;
+		else
+			if(m_iUpdateTimerID!=0)then
+				UnsetTimer(m_iUpdateTimerID);
+				m_iUpdateTimerID = 0;
+			endif;
+			if(m_bUpdateNonPlayerUnits==false)then
+				// if UpdateNPUnits has been disabled, we need to remove all existing NP thingies
+				var int i,iC=m_apxIcons.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					if(m_apxIcons[i]^.m_bIsOwn==false)then
+						// remove non-owned units
+						KillIconObjByIndex(i);
+						i--;
+						iC--;
+					else
+						var ^CObj pxObj = m_apxIcons[i]^.m_xHndl.GetObj();
+						if((pxObj!=null)&&(pxObj^.GetType()=="BLDG"))then
+							// remove owned buildings
+							KillIconObjByIndex(i);
+							i--;
+							iC--;
+						endif;
+					endif;
+				endfor;
+			endif;
+		endif;
+		m_iTimer = SetTimer(m_iUpdateNPInterval, true);
+	endproc;
+	
+	proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+		if(p_rxEvt.GetClass()==CSubscriptionMgr.GetEvtClass_ObjChange())then
+			var CClntHndl xObjHandle;
+			var bitset dwTypes, dwAttribGroups;
+			if(CSubscriptionMgr.EvtGetData_ObjChange(p_rxEvt,xObjHandle,dwTypes,dwAttribGroups))then
+				if((dwTypes & CSubscriptionMgr.CT_NewPlayerChar) != 0d) then
+					CreateIconObj(xObjHandle,true); // this object belongs to one of our own units
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnTimer(int p_iID)
+		if(p_iID == m_iUpdateTimerID)then
+			if(m_bUpdateNonPlayerUnits)then
+				UpdateNonPlayerUnits();
+				return true;
+			endif;
+		elseif (p_iID==m_iTimer) then
+			UpdatePlayerNonChars();
+		endif;
+		return false;
+	endproc;
+	
+	proc void UpdatePlayerNonChars()
+		var CObjList xL = CClientWrap.GetObjMgr().GetScreenObjs();
+		var int iOwner = CGameWrap.GetClient().GetPlayer().GetID();
+		begin RemoveOld;
+			var int i, iC = m_apxIcons.NumEntries();
+			for(i=0) cond(i<iC) iter(++i) do
+				if(m_apxIcons[i]^.m_bIsOwn) then
+					if (xL.FindEntry(m_apxIcons[i]^.m_xHndl)<0) then
+						++(m_apxIcons[i]^.m_iLostCount);
+						if(m_apxIcons[i]^.m_iLostCount>75) then
+							KillIconObjByIndex(i);
+							--i; --iC;
+						endif;
+					endif;
+				endif;
+			endfor;
+		end RemoveOld;
+		
+		begin AddNew;
+			var int i, iC = xL.NumEntries();
+			for(i=0) cond(i<iC) iter(++i) do
+				var CClntHndl xHndl = xL[i];
+				var ^CObj pxO = xHndl.GetObj();
+//				if (pxO!=null && pxO^.GetOwner()==iOwner && pxO^.GetType()!="BLDG" && pxO^.GetType()!="CHTR") then
+				if (pxO!=null && pxO^.GetOwner()==iOwner) then
+					if (FindIconObj(xHndl)<0) then
+						CreateIconObj(xHndl, true); 
+					endif;
+				endif;
+			endfor;
+		end AddNew;
+		
+	endproc;
+
+	proc void UpdateNonPlayerUnits()
+		var CObjList xCharList = CClientWrap.GetObjMgr().GetScreenObjs();
+		var int iThisOwner=CGameWrap.GetClient().GetPlayer().GetID();
+		var int i,iC;
+		// -- remove lost units
+		iC=m_apxIcons.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			// only do something for units that we don't own anyway
+			if(m_apxIcons[i]^.m_bIsOwn==false)then
+				// check if unit is lost (off-screen) and remove it if so
+				if(xCharList.FindEntry(m_apxIcons[i]^.m_xHndl)==-1)then
+					m_apxIcons[i]^.m_iLostCount++;
+					if(m_apxIcons[i]^.m_iLostCount>75)then
+						KillIconObjByIndex(i);
+						i--;
+						iC--;
+					endif;
+				else
+					m_apxIcons[i]^.m_iLostCount=0;
+				endif;
+			endif;
+		endfor;
+		// -- add new units
+		iC=xCharList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CClntHndl xHndl = xCharList[i];
+			var ^CObj pxObj = xHndl.GetObj();
+			if(pxObj!=null)then
+				var CFourCC xType = pxObj^.GetType();
+				if(xType=="CHTR"||xType=="ANML"||xType=="VHCL"||xType=="BLDG"||xType=="SHIP")then
+					var int iOwner = pxObj^.GetOwner();
+					if((iOwner==-1)||(iOwner!=iThisOwner))then
+						if(FindIconObj(xHndl)==-1)then
+							CreateIconObj(xHndl,false);
+						endif;
+					else
+						// add all non-owned objects (should only be buildings)
+						if(FindIconObj(xHndl)==-1)then
+							if(xType!="BLDG")then
+								CClientWrap.LogWarning("CIconMgr","Logic Warning! Tried to add owned non-building!");
+							else
+								CreateIconObj(xHndl,true);
+							endif;
+						endif;
+					endif;
+				endif;
+			endif;
+		endfor;
+	endproc;
+	
+	proc void CreateIconObj(CClntHndl p_xHndl,bool p_bIsOwn)
+		if(p_xHndl.IsValid())then
+			var ^CObj pxObj = p_xHndl.GetObj();
+			if(pxObj!=null)then
+				var CFourCC xType = pxObj^.GetType();
+				if(xType=="CHTR"||xType=="ANML"||xType=="VHCL"||xType=="BLDG"||xType=="SHIP"||xType=="NEST")then
+					m_apxIcons.AddEntry(new CIconMgr.CIconObj(p_xHndl,p_bIsOwn));
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	export proc void KillIconObj(^CIconMgr.CIconObj p_pxIcon)
+		var int iIndex = m_apxIcons.FindEntry(p_pxIcon);
+		if(iIndex!=-1)then
+			m_apxIcons[iIndex]^.Destroy();
+			m_apxIcons.DeleteEntryUS(iIndex);
+		endif;
+	endproc;
+	
+	export proc void KillIconObjByIndex(int p_iIdx)
+		if(p_iIdx!=-1)then
+			m_apxIcons[p_iIdx]^.Destroy();
+			m_apxIcons.DeleteEntryUS(p_iIdx);
+		endif;
+	endproc;
+	
+	export proc int FindIconObj(CClntHndl p_xHndl)
+		var int i, iC = m_apxIcons.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_apxIcons[i]^.m_xHndl==p_xHndl)then
+				return i;
+			endif;
+		endfor;
+		return -1;
+	endproc;
+	
+	proc void Clear()
+		var int i, iC = m_apxIcons.NumEntries();
+		for(i=(iC-1))cond(i>=0)iter(i--)do
+			m_apxIcons[i]^.Destroy();
+		endfor;
+		m_apxIcons = 0;
+	endproc;
+	
+	export static proc void Kill()
+		if(ms_pxInst != null)then
+			ms_pxInst^.Clear();
+			ms_pxInst^.Destroy();
+			ms_pxInst = null;
+		endif;
+	endproc;
+	
+endclass;
+

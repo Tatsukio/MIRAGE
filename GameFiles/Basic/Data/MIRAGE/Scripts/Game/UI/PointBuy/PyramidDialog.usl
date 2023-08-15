@@ -1,0 +1,623 @@
+class CPyramidDialog inherit CStaticCtrlEx
+
+	export var ^CNewPyramid			m_pxTribeView;
+	var ^CStaticCtrl						m_pxPyramidLeft;
+	var array ^CIDButton				m_apxArrowButton;
+	var array ^CStaticCtrl			m_apxArrowCost;
+	var array ^CStaticCtrl			m_apxRes;
+	var array ^CIDButton				m_apxBuyRes;
+	var ^CButton								m_pxDefaultButton;
+	var ^CButton								m_pxCustomizeButton;
+	var ^CPointBuyMenu					m_pxOwner;
+	var array int								m_aiMinRessources;
+
+	var ^CShoppingTab.CShoppingInfo m_pxCurShoppingInfo;
+
+	var int											m_iResourceTimer;
+	var int											m_iResourceTmp;
+	var bool										m_bPreviewMode;
+
+	export var procref<bool>		m_xOnCustomize;
+	export var procref<bool>		m_xOnDone;
+	export var procref<bool>		m_xOnLeave;
+	
+	export constructor()
+		m_aiMinRessources=4;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	export proc void Init(^CPointBuyMenu p_pxOwner)
+		m_pxOwner=p_pxOwner;
+		m_pxTribeView = new CNewPyramid;
+		m_pxTribeView^.Init(m_pxOwner^.GetCurTribe());
+		m_pxTribeView^.SetPointBuyMode(true);
+		m_pxTribeView^.SetPos(41 * CGameInst.ms_iUIScaleFactor,0);
+		m_pxTribeView^.SmallView();
+		m_pxTribeView^.SetVisible(true);
+		m_pxTribeView^.m_pxPBOwner =p_pxOwner;
+		AddChild(m_pxTribeView);
+		var int i;
+		var ^CGame pxGame = ^(CGameWrap.GetGame());
+		var int iBlendPos=65 * CGameInst.ms_iUIScaleFactor;
+		m_pxPyramidLeft=new CStaticCtrl;
+		m_pxPyramidLeft^.SetTransparent(true);
+		m_pxPyramidLeft^.SetAlwaysOnTop(true);
+		m_pxPyramidLeft^.SetVisible(true);
+		m_pxPyramidLeft^.SetPos(9 * CGameInst.ms_iUIScaleFactor,2 * CGameInst.ms_iUIScaleFactor);
+		m_pxPyramidLeft^.SetBackground(true);
+		m_pxPyramidLeft^.SetSuitAlpha(true);
+		m_pxPyramidLeft^.SetSize(26 * CGameInst.ms_iUIScaleFactor,540 * CGameInst.ms_iUIScaleFactor);
+		m_pxPyramidLeft^.SetBitmap(CGameInst.GetBitmapMgr().GetBlendBitmap("16, layer pyramid_bg_avail, vslice pyramid_bg_noavail "+iBlendPos.ToString()+", layer pyramid_ovl_levelupable")^.GetBitmap());
+		AddChild(m_pxPyramidLeft);
+		m_apxBuyRes = 8;
+		var int iXPos=17 * CGameInst.ms_iUIScaleFactor, iYPos=547 * CGameInst.ms_iUIScaleFactor;
+		for(i=0)cond(i<8)iter(i++)do
+			var ^CIDButton pxButton=new CIDButton;
+			pxButton^.m_iID = i;
+			pxButton^.m_xOnClickID = OnBuyRes;
+			pxButton^.SetMouseAutoRepeat(true);
+			pxButton^.SetIgnoreDoubleClick(true);
+			AddChild(pxButton);
+			var ^CCardBitmap pxBmpNormal=CGameInst.GetBitmapMgr().GetBlendBitmap("-1, layer pointbuy_res"+i.ToString());
+			var ^CCardBitmap pxBmpDown=CGameInst.GetBitmapMgr().GetBlendBitmap("-1, layer pointbuy_res"+i.ToString()+"_down");
+			var ^CCardBitmap pxBmpDisable=CGameInst.GetBitmapMgr().GetBlendBitmap("-1, layer pointbuy_res"+i.ToString()+"_disable");
+			System.Assert(pxBmpNormal!=null);
+			pxButton^.SetBitmap(pxBmpNormal^.GetBitmap(),pxBmpDown^.GetBitmap(),pxBmpNormal^.GetBitmap(),pxBmpDisable^.GetBitmap());
+			var int iW=pxBmpNormal^.GetBitmap().GetBitmap()^.GetWidth();
+			var int iH=pxBmpNormal^.GetBitmap().GetBitmap()^.GetHeight();
+			pxButton^.SetSize(iW,iH);
+			pxButton^.SetPos(iXPos,iYPos);
+			pxButton^.SetToolTipText(CLocalizer.Get().Translate("_UI_AC_PointBuy_Resource_Buy_"+i.ToString()));
+			m_apxBuyRes[i]=pxButton;
+			if((i%2)==0)then
+				var ^CStaticCtrl pxRes=new CStaticCtrl;
+				//var int iXPos = 27+(i*62);
+				pxRes^.SetTransparent(true);
+				pxRes^.SetAlwaysOnTop(true);
+				pxRes^.SetVisible(true);
+				pxRes^.SetPos(iXPos+4 * CGameInst.ms_iUIScaleFactor,iYPos);
+				pxRes^.SetBackground(false);
+				pxRes^.SetSuitAlpha(false);
+				pxRes^.SetSize(60 * CGameInst.ms_iUIScaleFactor,22 * CGameInst.ms_iUIScaleFactor);
+				pxRes^.SetAlwaysOnTop(true);
+				pxRes^.EnableMsgHitTest(false);
+				AddChild(pxRes);
+				m_apxRes.AddEntry(pxRes);
+			endif;
+			iXPos+=iW;
+			if(i==5)then
+				iXPos=17 * CGameInst.ms_iUIScaleFactor;
+				iYPos+=iH;
+			endif;
+		endfor;
+		m_apxArrowButton = 5;
+		m_apxArrowCost = 5;
+		for(i=0)cond(i<5)iter(i++)do
+			var int iYPos = 25 * CGameInst.ms_iUIScaleFactor;
+			if (i==3) then iYPos=99 * CGameInst.ms_iUIScaleFactor;
+			elseif (i==2) then iYPos=177 * CGameInst.ms_iUIScaleFactor;
+			elseif (i==1) then iYPos=281 * CGameInst.ms_iUIScaleFactor;
+			elseif (i==0) then iYPos=431 * CGameInst.ms_iUIScaleFactor;
+			endif;
+			m_apxArrowButton[i] = new CIDButton;
+			m_apxArrowButton[i]^.SetPos(220 * CGameInst.ms_iUIScaleFactor,iYPos);
+			m_apxArrowButton[i]^.SetSize(54 * CGameInst.ms_iUIScaleFactor,35 * CGameInst.ms_iUIScaleFactor);
+			m_apxArrowButton[i]^.SetBackground(false);
+			m_apxArrowButton[i]^.m_iID = i;
+			m_apxArrowButton[i]^.m_xOnClickID = OnClickArrowButton;
+			m_apxArrowButton[i]^.SetBitmap("menue/controls/pointbuy_addarrow.tga","menue/controls/pointbuy_addarrow_down.tga","menue/controls/pointbuy_addarrow_hover.tga","menue/controls/pointbuy_addarrow_disabled.tga");
+			m_apxArrowButton[i]^.SetFrame(false);
+			m_apxArrowButton[i]^.SetIgnoreDoubleClick(true);
+			m_apxArrowButton[i]^.SetToolTipText(CLocalizer.Get().Translate("_UI_AC_PointBuy_Arrow_"+i.ToString()+"_TT"));
+			AddChild(m_apxArrowButton[i]);
+			m_apxArrowCost[i] = new CStaticCtrl;
+			m_apxArrowCost[i]^.SetPos(228 * CGameInst.ms_iUIScaleFactor,iYPos);
+			m_apxArrowCost[i]^.SetSize(46 * CGameInst.ms_iUIScaleFactor,35 * CGameInst.ms_iUIScaleFactor);
+			m_apxArrowCost[i]^.SetAlwaysOnTop(true);
+			m_apxArrowCost[i]^.EnableMsgHitTest(false);
+			AddChild(m_apxArrowCost[i]);
+		endfor;
+		m_pxDefaultButton=new CButton;
+		m_pxDefaultButton^.SetPos(120 * CGameInst.ms_iUIScaleFactor,587 * CGameInst.ms_iUIScaleFactor);
+		m_pxDefaultButton^.SetSize(100 * CGameInst.ms_iUIScaleFactor,18 * CGameInst.ms_iUIScaleFactor);
+		m_pxDefaultButton^.SetTextAlign(1);
+		AddChild(m_pxDefaultButton);
+		var ^CGameInfoWindow pxGameInfoWindow=p_pxOwner^.GetGameInfoWindow();
+		System.Assert(pxGameInfoWindow!=null);
+		if(pxGameInfoWindow^.GetType()==CGameInfoWindow.GIWT_SINGLEPLAYER)then
+			m_pxDefaultButton^.SetText(CLocalizer.Get().Translate("_UI_PBMenu_Button_Default"));
+			m_pxDefaultButton^.SetToolTipText(CLocalizer.Get().Translate("_UI_AC_PointBuy_Default_TT"));
+			m_pxDefaultButton^.m_xOnClick = OnDefault;
+		else
+			m_pxDefaultButton^.SetText(CLocalizer.Get().Translate("_PointBuyMenu_Clear"));
+			m_pxDefaultButton^.SetToolTipText(CLocalizer.Get().Translate("_UI_AC_PointBuy_Clear"));
+			m_pxDefaultButton^.m_xOnClick = OnClear;
+		endif;
+		m_iResourceTimer=(-1);
+	endproc;
+
+	export proc void LoadPreset(int p_iCredits,string p_sTribe,^CPropDB.CNode p_pxPreset,^CPropDB.CNode p_pxResourcePreset,bool p_bSetFixed,bool p_bIncludeBuildings)
+		//KLog.LogSpam("AnTr","CPyramidDialog::LoadPreset() p_bSetFixed: "+p_bSetFixed.ToString());
+		var int iCreditsLeft=p_iCredits;
+//		var bool bChanged = false;
+		m_pxTribeView^.Clear();
+		begin Reset_Slots;
+			var ^CTribeViewLayoutMgr pxTVLM=m_pxTribeView^.GetTribeViewPtr();
+			System.Assert(pxTVLM!=null);
+			var int i,iC=pxTVLM^.TotalSlotCount();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CTribeViewLayoutMgr.CSlotInfo pxSlotInfo=pxTVLM^.GetSlotInfo(i);
+				pxSlotInfo^.m_bUsed=false;
+				pxSlotInfo^.m_bBlocked=false;
+				pxSlotInfo^.m_bBlockedPerm=false;
+			endfor;
+		end Reset_Slots;
+		if(p_pxPreset==null)then return; endif;
+		var int i,iC=p_pxPreset^.NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPropDB.CNode pxWalk=^((p_pxPreset^)[i]);
+			if(pxWalk^.Name().IsEmpty())then continue; endif;
+			var int iSlotID=pxWalk^.Name().ToInt();
+			var string sClass=pxWalk^.Value();
+			var ^CGame pxGame = ^(CGameWrap.GetGame());
+			if(pxGame^.GetAttribInt("HeroPool")==1)then
+				var bool bFix = IsHero(sClass, p_sTribe);
+//				if(!bChanged && bFix)then
+//					bChanged = true;
+//				endif;
+			endif;
+			if(pxGame^.GetAttribInt("FlyingEnabled")==0)then
+				var bool bFix = IsFlyer(sClass, p_sTribe);
+			endif;
+			if(pxGame^.GetAttribInt("RemoveTitans")==1)then
+				var bool bFix = IsTitan(sClass, p_sTribe);
+			endif;
+			if(pxGame^.GetAttribInt("RemoveTrading")==1)then
+				var bool bFix = IsTrader(sClass, p_sTribe);
+			endif;
+			if(pxGame^.GetAttribInt("MaxEpoch")<6)then
+				var bool bFix = IsEpochSix(sClass, p_sTribe);
+			endif;
+			var int iFixedLevel=-1;
+			if(p_bSetFixed)then
+				iFixedLevel=m_pxTribeView^.GetTribeViewPtr()^.SlotIndex2Level(iSlotID);
+			endif;
+			var int iCost=CPointBuyMgr.GetCostForUnit(sClass,iSlotID,p_sTribe);
+			if(iCost<=iCreditsLeft || p_iCredits==-1)then
+				//KLog.LogSpam("AnTr","CreateCard: Slot: "+iSlotID.ToString()+", Class: '"+sClass+"', FixedLevel: "+iFixedLevel.ToString());
+				if(sClass=="Blocked")then
+					m_pxTribeView^.CreateCardInSlot(iSlotID, "Blocked",iFixedLevel);
+					var ^CPyramidCard pxCard = m_pxTribeView^.GetCard(iSlotID);
+					if(pxCard!=null)then
+						pxCard^.SetDraggable(false);
+					endif;
+				else
+					m_pxTribeView^.CreateCardInSlot(iSlotID, sClass,iFixedLevel);
+				endif;
+				iCreditsLeft-=iCost;
+			endif;
+		endfor;
+		if(p_sTribe=="Aje")then
+			//var int iCost=CPointBuyMgr.GetCostForUnit(sClass,iSlotID,p_sTribe);			
+			if(p_bIncludeBuildings)then
+				var int iFixedLevel=m_pxTribeView^.GetTribeViewPtr()^.SlotIndex2Level(24);
+				m_pxTribeView^.CreateCardInSlot(24,"aje_resource_collector",iFixedLevel);
+				var ^CPyramidCard pxCard = m_pxTribeView^.GetCard(24);
+				if(pxCard!=null)then
+					pxCard^.SetDraggable(false);
+				endif;
+			endif;
+		endif;
+		var array string asRes;
+		asRes.AddEntry("food");
+		asRes.AddEntry("wood");
+		asRes.AddEntry("stone");
+		asRes.AddEntry("iron");
+		iC=asRes.NumEntries();
+		m_aiMinRessources=iC; // MinValues for ressources
+		var bool bDisable=false;
+		for(i=0)cond(i<iC)iter(i++)do
+			var bool bSingleFix = (i == 3 && m_pxOwner^.GetGameInfoWindow()^.GetType() == CGameInfoWindow.GIWT_SINGLEPLAYER);
+			var int iResAmount=0;
+			if(p_pxResourcePreset!=null)then
+				var string sResource=asRes[i];
+				iResAmount=p_pxResourcePreset^.GetValueI(sResource,0);
+				if(!bDisable&&iResAmount==-1)then
+					bDisable=true;
+				endif;
+				if(bSingleFix)then
+					iResAmount=0;
+				endif;
+				var bool bDeny = iResAmount==-1 || (bSingleFix&&bDisable);
+				if((i*2)<7)then
+					m_apxBuyRes[i*2]^.SetDisabled(bDeny);
+					var int iUslBug=(i*2)+1;
+					m_apxBuyRes[iUslBug]^.SetDisabled(bDeny); 
+				endif;
+				if(iResAmount==-1)then
+					iResAmount=0;
+				endif;
+				if(p_iCredits!=-1)then
+					var int iMaxAmount=CPointBuyMgr.GetNumResourceUnitsForPoints(sResource,iCreditsLeft,p_sTribe);
+					if(iResAmount>iMaxAmount)then
+						iResAmount=iMaxAmount;
+					endif;
+	//				if(iResAmount<m_aiMinRessources[i])then
+	//					iResAmount = m_aiMinRessources[i];
+	//				endif;
+					iCreditsLeft-=CPointBuyMgr.GetCostForResource(sResource,iResAmount,p_sTribe);
+				endif;
+			endif;
+			m_apxRes[i]^.SetText(iResAmount.ToString());
+			m_aiMinRessources[i]=iResAmount;
+			if(m_pxOwner^.GetGameInfoWindow()^.GetType()==CGameInfoWindow.GIWT_MULTIPLAYER)then
+				m_aiMinRessources[0]=CGameInfoWindow.GIW_MP_GIFTED_FOOD;
+				m_aiMinRessources[1]=CGameInfoWindow.GIW_MP_GIFTED_WOOD;
+				m_aiMinRessources[2]=CGameInfoWindow.GIW_MP_GIFTED_STONE;
+				m_aiMinRessources[3]=CGameInfoWindow.GIW_MP_GIFTED_IRON;
+			endif;
+//			if(iResAmount<=m_aiMinRessources[i])then
+//				m_apxBuyRes[i*2]^.SetDisabled(true); // disable subtraction button; be carful if you change button array
+//			else
+//				m_apxBuyRes[i*2]^.SetDisabled(false); // enable subtraction button
+//			endif;
+		endfor;
+	endproc;
+	
+	export proc void Clear()
+		m_pxTribeView^.Clear();
+	endproc;
+	
+	export proc bool IsHero(ref string p_rsClass, string p_sTribe)
+		if(p_rsClass=="Stina_s0"||p_rsClass=="Bela_s0"||p_rsClass=="Cole_s0"||p_rsClass=="special_eusmilus"
+		||p_rsClass=="mayor_s0"||p_rsClass=="darwin_s0"||p_rsClass=="tesla_s0"||p_rsClass=="babbage_s0"
+		||p_rsClass=="hermit_s0"||p_rsClass=="lovelace_s0"||p_rsClass=="schliemann_s0"||p_rsClass=="livingstone_s0"
+		||p_rsClass=="Miyagi_s0"||p_rsClass=="Tarna_s0"||p_rsClass=="Larry_s0"||p_rsClass=="baryonyx_captain"
+		||p_rsClass=="special_mobile_suit"||p_rsClass=="robot_captain")then
+			p_sTribe.MakeLower();
+			var string sUnit = "_warrior";
+			if(p_sTribe == "aje")then
+				sUnit = "_spearman";
+			elseif(p_sTribe == "ninigi")then
+				sUnit = "_archer";
+			endif;
+			p_rsClass = p_sTribe + sUnit;
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	export proc bool IsFlyer(ref string p_rsClass, string p_sTribe)
+		if(p_rsClass=="aje_pteranodon"||p_rsClass=="hu_pteranodon"||p_rsClass=="ninigi_cargolifter"||p_rsClass=="ninigi_dirigible"||p_rsClass=="seas_helicopter_sec")then
+			p_sTribe.MakeLower();
+			var string sUnit = "_warrior";
+			if(p_sTribe == "aje")then
+				sUnit = "_spearman";
+			elseif(p_sTribe == "ninigi")then
+				sUnit = "_archer";
+			endif;
+			p_rsClass = p_sTribe + sUnit;
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	export proc bool IsTitan(ref string p_rsClass, string p_sTribe)
+		if(p_rsClass=="aje_atroxosaurus"||p_rsClass=="hu_triceratops"||p_rsClass=="ninigi_seismosaurus"||p_rsClass=="seas_rex"||p_rsClass=="hu_colossi"||p_rsClass=="ninigi_kong"||p_rsClass=="aje_catapult_rex"||p_rsClass=="seas_scorpion")then
+			p_sTribe.MakeLower();
+			var string sUnit;
+			if(p_sTribe=="aje")then
+				sUnit="_tyrannosaurus";
+			elseif(p_sTribe=="hu")then
+				sUnit="_steam_tank";
+			elseif(p_sTribe=="ninigi")then
+				sUnit="_tarbosaurus";
+			elseif(p_sTribe=="seas")then
+				sUnit="_lumberjack_minigun";
+			endif;
+			p_rsClass = p_sTribe + sUnit;
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	export proc bool IsTrader(ref string p_rsClass, string p_sTribe)
+		if(p_rsClass=="aje_trade_dino"||p_rsClass=="hu_cart"||p_rsClass=="ninigi_cart"||p_rsClass=="seas_trade_dino")then
+			p_sTribe.MakeLower();
+			var string sUnit="_warrior";
+			if(p_sTribe=="aje")then
+				sUnit="_spearman";
+			elseif(p_sTribe=="ninigi")then
+				sUnit="_archer";
+			endif;
+			p_rsClass=p_sTribe + sUnit;
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	export proc bool IsEpochSix(ref string p_rsClass, string p_sTribe)
+		if(p_rsClass=="aje_catapult_rex"||p_rsClass=="hu_colossi"||p_rsClass=="ninigi_kong"||p_rsClass=="seas_scorpion"||p_rsClass=="hu_ballista_titan")then
+			p_sTribe.MakeLower();
+			var string sUnit = "_warrior";
+			if(p_sTribe == "aje")then
+				sUnit = "_spearman";
+			elseif(p_sTribe == "ninigi")then
+				sUnit = "_archer";
+			endif;
+			p_rsClass = p_sTribe + sUnit;
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	export proc int FindFreeSlot(int p_iLevel)
+		return m_pxTribeView^.GetTribeViewPtr()^.FindFreeSlot(p_iLevel);
+	endproc;
+	
+	export proc void CreateCard(int p_iLevel, string p_sClassName)
+		m_pxTribeView^.CreateCard(p_iLevel,p_sClassName);
+	endproc;
+	
+	export proc void RemoveCard(^CPyramidCard p_pxCard)		
+		m_pxTribeView^.KillCard(p_pxCard);
+		InvalidateContent();
+	endproc;
+
+	export proc void SetCurShoppingInfo(^CShoppingTab.CShoppingInfo p_pxShoppingInfo)
+		m_pxCurShoppingInfo=p_pxShoppingInfo;
+		InvalidateContent();
+	endproc;
+	
+//	export proc void OnUpdateContentExt()
+//		OnUpdateContent();
+//	endproc;
+	
+	proc void OnUpdateContent()
+		super.OnUpdateContent();
+		//update tribe
+		m_pxTribeView^.Init(m_pxOwner^.GetCurTribe());
+		
+		//update Points
+		var int iPointsLeft = m_pxOwner^.GetCredits();
+		var int iPointsTotal = m_pxOwner^.GetCreditsTotal();
+		
+		//Update Arrow Buttons
+		var int i;
+		if(m_pxOwner==null)then
+			for(i=0)cond(i<5)iter(i++)do
+				m_apxArrowButton[i]^.SetVisible(false);
+				m_apxArrowCost[i]^.SetVisible(false);
+			endfor;
+			return;
+		endif;
+		if(m_pxCurShoppingInfo == null) then
+			for(i=0)cond(i<5)iter(i++)do
+				m_apxArrowButton[i]^.SetVisible(false);
+				m_apxArrowCost[i]^.SetVisible(false);
+			endfor;
+			return;
+		endif;
+		for(i=0)cond(i<5)iter(i++)do
+			var int iCost = m_pxCurShoppingInfo^.m_aiCostAtLevel[i];
+			if (iCost > 0) then
+				m_apxArrowButton[i]^.SetVisible(true);
+				m_apxArrowCost[i]^.SetVisible(true);
+				m_apxArrowCost[i]^.SetText(iCost.ToString());
+				var bool bValid = (iCost <= iPointsLeft);
+				if (m_pxTribeView^.GetTribeViewPtr()^.FindFreeSlot(i)==-1) then bValid=false; endif;
+				if (!m_pxOwner^.CheckRestrictions(m_pxCurShoppingInfo^.m_sClassName, i)) then bValid=false; endif;
+				m_apxArrowButton[i]^.SetDisabled(!bValid || m_bPreviewMode);
+				if (bValid && !m_bPreviewMode) then
+					m_apxArrowCost[i]^.SetTextColor({{255,255,255,255}});
+				else
+					m_apxArrowCost[i]^.SetTextColor({{128,128,128,255}});
+				endif;
+			else
+				m_apxArrowButton[i]^.SetVisible(false);
+				m_apxArrowCost[i]^.SetVisible(false);
+			endif;
+		endfor;
+		for(i=0)cond(i<m_aiMinRessources.NumEntries())iter(i++)do
+			m_apxBuyRes[i*2]^.SetDisabled(GetResource(i)<=m_aiMinRessources[i]);
+		endfor;
+	endproc;
+	
+	export proc int FindCard(string p_sClass)
+		var int i,iC=m_pxTribeView^.TotalSlotCount();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPyramidCard pxCard=m_pxTribeView^.GetCard(i);
+			if(pxCard==null)then continue; endif;
+			if(pxCard^.GetClass()==p_sClass)then
+				return i;
+			endif;
+		endfor;
+		return -1;
+	endproc;
+	
+	proc bool OnDefault()
+		m_pxOwner^.LoadDefaults();
+		return(true);
+	endproc;
+	
+	proc bool OnClear()
+		m_pxOwner^.Clear();
+		SetResource(0,CGameInfoWindow.GIW_MP_GIFTED_FOOD);
+		SetResource(1,CGameInfoWindow.GIW_MP_GIFTED_WOOD);
+		SetResource(2,CGameInfoWindow.GIW_MP_GIFTED_STONE);
+		SetResource(3,CGameInfoWindow.GIW_MP_GIFTED_IRON);
+		if(m_pxOwner^.GetCurTribe()=="Aje")then
+			var bool bIncludeBuildings=true;
+			var ^CLevelInfo pxLevelInfo=null;
+			if(m_pxOwner^.GetGameInfoWindow()^.GetType()==CGameInfoWindow.GIWT_SINGLEPLAYER)then
+				pxLevelInfo=^(CCampaignMgr.Get().GetCurLevelInfo());
+			else
+				pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+			endif;
+			if(pxLevelInfo!=null)then
+				var ^CLevelInfo.CPlayerSlot pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(m_pxOwner^.GetGameInfoWindow()^.GetPlayerSlotID()));
+				if(pxPlayerSlot!=null)then
+					var ^CPropDB pxGenericData=^(pxLevelInfo^.GetGenericData());
+					var ^CPropDB.CNode pxPlayerSettingsNode=pxGenericData^.FindNode("PlayerSettings/Player_"+pxPlayerSlot^.GetOwner().ToString(),false);
+					if(pxPlayerSettingsNode!=null)then
+						if(pxPlayerSettingsNode^.GetValueI("IncludeBuildings",1)!=1)then
+							bIncludeBuildings=false;
+						endif;
+					endif;
+				endif;
+			endif;
+			if(bIncludeBuildings)then
+				var int iFixedLevel=m_pxTribeView^.GetTribeViewPtr()^.SlotIndex2Level(24);
+				m_pxTribeView^.CreateCardInSlot(24,"aje_resource_collector",iFixedLevel);
+				var ^CPyramidCard pxCard = m_pxTribeView^.GetCard(24);
+				if(pxCard!=null)then
+					pxCard^.SetDraggable(false);
+				endif;
+			endif;
+		endif;
+//		SetResource(0,m_aiMinRessources[0]);
+//		SetResource(1,m_aiMinRessources[1]);
+//		SetResource(2,m_aiMinRessources[2]);
+//		m_apxBuyRes[0]^.SetDisabled(true);
+//		m_apxBuyRes[2]^.SetDisabled(true);
+//		m_apxBuyRes[4]^.SetDisabled(true);
+		return(true);
+	endproc;
+	
+	export proc void GeneratePointBuyResult(ref CPointBuyResult po_rxPointBuyResult)
+		var int i,iC=m_pxTribeView^.TotalSlotCount();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPyramidCard pxCard=m_pxTribeView^.GetCard(i);
+			if(pxCard==null)then continue; endif;
+			po_rxPointBuyResult.AddChar(pxCard^.GetClass(),i);
+		endfor;
+//		po_rxPointBuyResult.AddChar("tornado",52);
+		po_rxPointBuyResult.AddResource("food",GetResource(0));
+		po_rxPointBuyResult.AddResource("wood",GetResource(1));
+		po_rxPointBuyResult.AddResource("stone",GetResource(2));
+		po_rxPointBuyResult.AddResource("iron",GetResource(3));
+	endproc;
+	
+	export proc int CalcCardCosts(string p_sTribe)
+		var int iResult=0;
+		var int i,iC=m_pxTribeView^.TotalSlotCount();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPyramidCard pxCard=m_pxTribeView^.GetCard(i);
+			if(pxCard==null)then continue; endif;
+			iResult+=CPointBuyMgr.GetCostForUnit(pxCard^.GetClass(),i,p_sTribe);
+		endfor;
+		return iResult;
+	endproc;
+	
+	export proc int CalcResourceCosts(string p_sTribe)
+		var int iCosts=0;
+		iCosts+=CPointBuyMgr.GetCostForResource("food",GetResource(0),p_sTribe);
+		iCosts+=CPointBuyMgr.GetCostForResource("wood",GetResource(1),p_sTribe);
+		iCosts+=CPointBuyMgr.GetCostForResource("stone",GetResource(2),p_sTribe);
+		iCosts+=CPointBuyMgr.GetCostForResource("iron",GetResource(3),p_sTribe);
+		return iCosts;
+	endproc;
+	
+	proc bool OnClickArrowButton(int p_iButtonID)
+		var int iLevel = p_iButtonID;
+		var ^CShoppingTab.CShoppingInfo pxShoppingInfo = m_pxOwner^.GetShoppingList().GetSelection();
+		//var int iValue = pxShoppingInfo^.m_aiCostAtLevel[iLevel];
+		m_pxOwner^.OnBuyUnit(pxShoppingInfo,iLevel);		
+		return true;
+	endproc;
+	
+	proc int GetResource(int p_iResourseID)
+		return m_apxRes[p_iResourseID]^.GetText().ToInt();
+	endproc;
+	
+	proc void SetResource(int p_iResourseID,int p_iValue)		
+		m_apxRes[p_iResourseID]^.SetText(p_iValue.ToString());
+		m_pxOwner^.InvalidateContent();
+	endproc;
+	
+	proc bool OnBuyRes(int p_iID)
+		var int iResType = p_iID / 2;
+		var int iAmount = 1;
+		if (iResType==0) then iAmount=1; endif;
+		// Modify according to keystate
+		var CEvtPointer xEvt = CWindowMgr.Get().GetCurrentMessage();
+			if(xEvt.IsNotNull())then
+			if(Msg.EventKeyModShift(xEvt)&&Msg.EventKeyModControl(xEvt))then
+				iAmount *= 1000;
+			elseif(Msg.EventKeyModShift(xEvt))then
+				iAmount *= 10;
+			elseif(Msg.EventKeyModControl(xEvt))then
+				iAmount *= 100;
+			endif;
+		endif;
+		var string sResource="food";
+		if(iResType==1)then
+			sResource="wood";
+		elseif(iResType==2)then
+			sResource="stone";
+		elseif(iResType==3)then
+			sResource="iron";
+		endif;
+		var int iCosts=CPointBuyMgr.GetCostForResource(sResource,1,m_pxOwner^.GetCurTribe());
+		var int iMinValue = m_aiMinRessources[iResType]; // MinValue for current ressource
+		if ((p_iID.ToBitset() & 01b) == 0b) then//-
+			//iAmount = -iAmount;
+			var int iMaxAmount=GetResource(iResType);
+			if(iAmount>iMaxAmount)then
+				iAmount=iMaxAmount;
+			endif;
+			if(GetResource(iResType) - iAmount <= iMinValue)then
+				iAmount=GetResource(iResType) - iMinValue;
+//				m_apxBuyRes[p_iID]^.SetDisabled(true); // disable subtraction button
+			endif;
+			iAmount=-iAmount;
+		else //+
+			var int iMaxAmount=CPointBuyMgr.GetNumResourceUnitsForPoints(sResource,m_pxOwner^.GetCredits(),m_pxOwner^.GetCurTribe());
+			if(iMaxAmount<0)then iMaxAmount=0; endif;
+			if(iAmount>iMaxAmount)then
+				iAmount=iMaxAmount;
+			endif;
+			if(iAmount>0)then
+//				m_apxBuyRes[p_iID-1]^.SetDisabled(false); // enable subtraction button
+			endif;
+		endif;
+		SetResource(iResType, GetResource(iResType)+iAmount);
+		return true;
+	endproc;
+	
+	export proc void UpdateEpochs()
+		var ^CGame pxGame = ^(CGameWrap.GetGame());
+		var int iMin = pxGame^.GetAttribInt("MinEpoch"), iMax = pxGame^.GetAttribInt("MaxEpoch");
+		var array int aiBlendPos;
+		aiBlendPos=7;
+		aiBlendPos[0]=0;
+		aiBlendPos[1]=65;
+		aiBlendPos[2]=44;
+		aiBlendPos[3]=26;
+		aiBlendPos[4]=15;
+		aiBlendPos[5]=0;
+		aiBlendPos[6]=0;
+		var int iBlendPos=aiBlendPos[iMin] * CGameInst.ms_iUIScaleFactor;
+		var int iAvailPos=iBlendPos;
+		if(iMax>iMin&&iMin<5)then
+			iBlendPos=aiBlendPos[iMax] * CGameInst.ms_iUIScaleFactor;
+		endif;
+		var string sAchievedEpochs="pyramid_bg_avail_hover";
+		if(iMin==6)then
+			sAchievedEpochs="pyramid_bg_all_done";
+		endif;
+		var string sUpgradableEpochs="pyramid_bg_nextage_hover";
+		if(iMax==6)then
+			if(iMin==5)then
+				sAchievedEpochs="pyramid_bg_just_last_left";
+			endif;
+			sUpgradableEpochs="pyramid_bg_finalnext_down";
+		endif;
+//		m_pxPyramidLeft^.SetBitmap(CGameInst.GetBitmapMgr().GetBlendBitmap("16, layer pyramid_bg_avail, vslice pyramid_bg_nextage "+iAvailPos.ToString()+", vslice pyramid_bg_noavail "+iBlendPos.ToString()+", layer pyramid_ovl_levelupable")^.GetBitmap());
+//		m_pxPyramidLeft^.SetBitmap(CGameInst.GetBitmapMgr().GetBlendBitmap("16, layer pyramid_bg_avail_down, vslice pyramid_bg_nextage_down "+iAvailPos.ToString()+", vslice pyramid_bg_noavail_down "+iBlendPos.ToString()+", layer pyramid_ovl_levelupable")^.GetBitmap());
+		m_pxPyramidLeft^.SetBitmap(CGameInst.GetBitmapMgr().GetBlendBitmap("16, layer "+sAchievedEpochs+", vslice "+sUpgradableEpochs+" "+iAvailPos.ToString()+", vslice pyramid_bg_noavail_hover "+iBlendPos.ToString()+", layer pyramid_ovl_levelupable")^.GetBitmap());
+	endproc;
+	
+endclass;

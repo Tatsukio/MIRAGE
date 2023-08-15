@@ -1,0 +1,333 @@
+class CAiTaskSitOn inherit CAiTask
+
+	var ^CAiBrain m_pxBrain;
+	var ^CAiSensor m_pxSensor;
+	var CAiObjWrapList m_xArmy; ///< contains all units, with which the Task is working
+	var CAiObjWrapList m_xTransporters; ///< contains all transporters, which are loaded with easyriders
+	var array int m_aiPassengersNums; ///< contains forevery m_xTransporters entry the number of max possible passengers (size must be equal to m_xTransporters)
+	var CAiObjWrapList m_xEasyRiders; ///< contains the riders, which are sitting on something after Abort/Impossible/Completed
+	var CAiObjWrapList m_xPotentialTransporters; ///< contains all transporters, to which the potential riders are sent to
+	var CAiObjWrapList m_xPotentialRiders; ///< contains all units, which are sent to sit on another unit
+	var int m_iPlayerID;
+	var string m_sPlayerID;
+	var string m_sDifficulty;
+	var int m_iDifficulty;
+	var bool m_bTBH; // Henry: transport basket healing
+	var bool m_bATS; // Henry: additional titan slots
+//	var ^CAiModuleControlDefault m_pxCM;
+	
+	///constructor
+	export constructor()
+		m_bTBH=false;
+		m_bATS=false;
+	endconstructor;
+	
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	///Init
+	export proc void Init(^CAiGoal p_pxGoal, int p_iTimer)
+		super.Init(p_pxGoal, p_iTimer);
+		if(p_pxGoal==null)then return; endif;
+		m_pxBrain = p_pxGoal^.GetAiBrain(); 
+		if(m_pxBrain==null)then return; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return; endif;
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();	
+//		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+//		m_pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+//		if(m_pxCM!=null)then
+//			m_iDifficulty=m_pxCM^.GetDifficultyInt();
+//			m_sDifficulty=m_pxCM^.GetDifficulty();
+//		endif;
+//		SetThinkWait(m_iDifficulty+iType);
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		var int iDifficulty=1;
+		if(pxCM!=null)then
+			iDifficulty=pxCM^.GetDifficultyInt();
+		endif;
+		SetThinkWait(iDifficulty+iType);
+		m_xArmy.Clear();
+		m_xTransporters.Clear();
+		m_aiPassengersNums = 0;
+		m_xEasyRiders.Clear();
+		m_xPotentialTransporters.Clear();
+		m_xPotentialRiders.Clear();
+		m_bTBH=CMirageAIMgr.Get().TransportHealing();
+		m_bATS=CMirageAIMgr.Get().TitanSlots();
+	endproc;
+	
+	///GetRiders
+	export proc ref CAiObjWrapList GetRiders()
+		return m_xEasyRiders;
+	endproc;
+	
+	///GetTransporters
+	export proc ref CAiObjWrapList GetTransporters()
+		return m_xTransporters;
+	endproc;
+	
+	///GetArmy
+	export proc ref CAiObjWrapList GetArmy()
+		return m_xArmy;
+	endproc;
+	
+	///SetArmy
+	export proc bool SetArmy(ref CAiObjWrapList p_rxArmy)
+		m_xArmy = p_rxArmy;
+		return true;
+	endproc;	
+	
+	///EvtTimeOut
+	export proc void EvtTimeOut()
+		Abort();
+	endproc;
+	
+	///Shut
+	export proc void Shut()
+		super.Shut();
+		m_xArmy.Clear();
+		m_xTransporters.Clear();
+		m_aiPassengersNums = 0;
+		m_xEasyRiders.Clear();
+		m_xPotentialTransporters.Clear();
+		m_xPotentialRiders.Clear();
+	endproc;
+	
+	///FilterRelevantUnits
+	export proc bool FilterRelevantUnits()
+		var int i, iC = m_xArmy.Validate();
+		for(i=0)cond(i<iC)iter(++i)do
+			var bool bTransporterFound=false;
+			var bool bGunnerFound=false;
+			var int iPassengers;
+			var string sClassName;
+			var string sObjFlag;
+			sClassName=m_xArmy[i].GetClassName();
+			sObjFlag=m_xArmy[i].GetAttribValue("ObjFlag");
+			
+			if(sClassName == "hu_chariot")then
+				bTransporterFound = true;
+				iPassengers = 1;
+			elseif(sClassName == "hu_rhino_transporter")then
+				bTransporterFound = true;
+				iPassengers = 2;
+			elseif(sClassName == "hu_mammoth_lumber_upgrade")then
+				bTransporterFound = true;
+				iPassengers = 4;
+			elseif(sClassName == "hu_triceratops")then
+				bTransporterFound = true;
+				if(m_bATS)then
+					iPassengers = 6;
+				else
+					iPassengers = 4;
+				endif;
+			elseif(sClassName == "hu_ballista_titan")then
+				bTransporterFound = true;
+				iPassengers = 1;
+			elseif((sClassName == "aje_stegosaurus")&&(sObjFlag=="aje_stegosaurus_transporter"))then
+				bTransporterFound = true;
+				iPassengers = 4;
+			elseif((sClassName == "aje_brachiosaurus")&&(sObjFlag=="aje_brachiosaurus_transporter"))then
+				bTransporterFound = true;
+				iPassengers = 5;
+			elseif(sClassName == "aje_triceratops_archer")then
+				bTransporterFound = true;
+				iPassengers = 4; // Henry: 3 before
+//			//Herny: added trex titan (its now a transporter)
+			elseif(sClassName == "aje_atroxosaurus"&&m_bATS)then
+				bTransporterFound = true;
+				iPassengers = 2;
+			elseif(sClassName == "aje_catapult_rex")then
+				bTransporterFound = true;
+				iPassengers = 1;
+			elseif(sClassName == "ninigi_saltasaurus_archer")then
+				bTransporterFound = true;
+				iPassengers = 3;
+			elseif(sClassName == "ninigi_seismosaurus"&&m_bATS)then
+				bTransporterFound = true;
+				iPassengers = 2;
+			elseif(sClassName == "ninigi_styracosaurus")then
+				bTransporterFound = true;
+//				iPassengers = 4;
+				iPassengers = 3;
+			//Henry: fixed name (from archer) and passengers number (from 4)
+			elseif(sClassName == "seas_triceratops_transporter")then
+				bTransporterFound = true;
+				iPassengers = 3;
+			elseif(sClassName == "seas_polakanthus")then
+				bTransporterFound = true;
+				iPassengers = 3;
+			elseif(sClassName == "seas_rex"&&m_bATS)then
+				bTransporterFound = true;
+				iPassengers = 2;
+			elseif(sClassName == "hu_archer")then
+				bGunnerFound = true;
+			elseif(sClassName == "hu_marksman")then
+				bGunnerFound = true;
+			elseif(sClassName == "hu_spearman")then
+				bGunnerFound = true;
+			elseif(sClassName == "hu_flamethrower")then
+				bGunnerFound = true;
+			elseif(sClassName == "aje_archer")then
+				bGunnerFound = true;
+			elseif(sClassName == "aje_spearman")then
+				bGunnerFound = true;
+			elseif(sClassName == "aje_flamethrower")then
+				bGunnerFound = true;
+			elseif(sClassName == "aje_thrower")then
+				bGunnerFound = true;
+			elseif(sClassName == "ninigi_mortar")then
+				bGunnerFound = true;
+			elseif(sClassName == "ninigi_marksman")then
+				bGunnerFound = true;
+			elseif(sClassName == "ninigi_archer")then
+				bGunnerFound = true;
+			//Henry: making it little more imba...
+			elseif(sClassName == "ninigi_icespearman")then
+				bGunnerFound = true;
+			elseif(sClassName == "ninigi_spearman")then
+				bGunnerFound = true;
+			elseif(sClassName == "ninigi_flamethrower")then
+				bGunnerFound = true;
+			elseif(sClassName == "seas_gunner")then
+				bGunnerFound = true;
+			elseif(sClassName == "seas_marksman")then
+				bGunnerFound = true;
+			elseif(sClassName == "seas_rocketman")then
+				bGunnerFound = true;
+			elseif(sClassName == "seas_spearman")then
+				bGunnerFound = true;
+			elseif(sClassName == "seas_sniper")then
+				bGunnerFound = true;
+			//Henry: they should have made them attack from a transport basket at least :D
+			elseif(sClassName == "seas_flamethrower")then
+				bGunnerFound = true;
+			elseif(sClassName == "Bela_s0")then
+				bGunnerFound = true;
+			elseif(sClassName == "lovelace_s0")then
+				bGunnerFound = true;
+			elseif(sClassName == "tesla_s0")then
+				bGunnerFound = true;
+			elseif(sClassName == "hermit_s0")then
+				bGunnerFound = true;
+			elseif(sClassName == "schliemann_s0")then
+				bGunnerFound = true;
+			elseif(sClassName == "Tarna_s0")then
+				bGunnerFound = true;
+			//Henry: added healers (can heal from t. basket already)
+//			elseif(m_bTBH&&(m_iDifficulty>=7||m_sDifficulty=="Hard"))then
+			elseif(m_bTBH)then
+				if(sClassName == "aje_shaman")then
+					var ^CAiTechTree pxT=GetAiTechTree();
+					if(pxT!=null)then
+						var ^CAiNodeInstance pxNI=pxT^.GetNodeInstanceFromPartialName("InventObjects/rejuvenation");
+						if(pxNI!=null)then
+							bGunnerFound=pxNI^.GetInstanceCount()>0;
+						endif;
+					endif;
+				elseif(sClassName == "hu_druid")then
+					bGunnerFound = true;
+				elseif(sClassName == "ninigi_monk")then
+					bGunnerFound = true;
+				elseif(sClassName == "seas_medic")then
+					bGunnerFound = true;
+				endif;
+			endif;
+			if(bGunnerFound)then
+				m_xPotentialRiders.AddEntry(m_xArmy[i]);
+			elseif(bTransporterFound)then
+				m_xPotentialTransporters.AddEntry(m_xArmy[i]);
+				m_aiPassengersNums.AddEntry(iPassengers);
+			endif;
+		endfor;
+		return true;
+	endproc;
+
+
+	///BoardTransporter
+	export proc bool BoardTransporters()
+		var int i, iC = m_xPotentialTransporters.NumEntries();
+		var int iMaxPassC = m_aiPassengersNums.NumEntries();
+		var int iPass = 0;
+		var int iPassC = m_xPotentialRiders.NumEntries();
+		if(m_pxSensor==null)then return false; endif;
+		if(iC!=iMaxPassC)then
+			return false;
+		endif;
+		for(i=0)cond((i<iC)&&(iPass<iPassC))iter(++i)do
+			var int iSlot, iSlotC = m_aiPassengersNums[i];
+			var CAiObjWrapList xAddPass;
+			xAddPass.Clear();
+			for(iSlot=0)cond((iSlot<iSlotC)&&(iPass<iPassC))iter(++iSlot)do
+				xAddPass.AddEntry(m_xPotentialRiders[iPass]);
+				m_xEasyRiders.AddEntry(m_xPotentialRiders[iPass]);
+				iPass++;
+			endfor;
+			m_xTransporters.AddEntry(m_xPotentialTransporters[i]);
+			m_pxSensor^.ExecuteGamePlayCommand(xAddPass, "Action", m_xPotentialTransporters[i].GetHandle(), {0.0, 0.0, 0.0}, "/BoardTransporter");
+		endfor;
+		return true;
+	endproc;
+	
+	///Start
+	export proc bool Start()
+		super.Start();
+		FilterRelevantUnits();
+		BoardTransporters();
+		SetStarted();
+		return true;
+	endproc;
+	
+	///Think
+	export proc void Think()
+		if(!IsStartState())then return; endif;
+		begin CheckSitOn;
+			var int i, iC=m_xEasyRiders.Validate();
+			var bool bCompleted=true;
+			for(i=0)cond(i<iC)iter(++i)do
+				if(m_xEasyRiders[i].GetAttribValue("transporter_guid").IsEmpty())then
+					bCompleted = false;
+					break;
+				endif;
+			endfor;
+			if(bCompleted)then
+				ForceCompleted();
+			endif;
+		end CheckSitOn;
+	endproc;
+	
+	export proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xType="TaSO";
+		var ^CUOFWriterNode pxWalk=p_pxNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xArmy.DoKArc(pxArc^);
+		m_xTransporters.DoKArc(pxArc^);
+		m_xEasyRiders.DoKArc(pxArc^);
+		m_xPotentialTransporters.DoKArc(pxArc^);
+		m_xPotentialRiders.DoKArc(pxArc^);
+		m_aiPassengersNums.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+	
+	///Load
+	export proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="TaSO") then
+			var ^CArc pxArc=^(p_pxNode^.GetArc());
+			m_xArmy.DoKArc(pxArc^);
+			m_xTransporters.DoKArc(pxArc^);
+			m_xEasyRiders.DoKArc(pxArc^);
+			m_xPotentialTransporters.DoKArc(pxArc^);
+			m_xPotentialRiders.DoKArc(pxArc^);
+			m_aiPassengersNums.DoKArc(pxArc^);
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+	
+endclass;

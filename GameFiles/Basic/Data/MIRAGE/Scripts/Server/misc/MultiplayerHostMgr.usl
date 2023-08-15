@@ -1,0 +1,419 @@
+class CMultiPlayerHostMgr
+
+	static var ^CMultiPlayerHostMgr	ms_pxInst;
+	var array ^CPlayerInfo			m_apxPlayerInfo;
+	var int							m_iMaxPlayers;
+	var int 						m_iHostID;
+	var int							m_iNumberOfPlayers;
+	var string			 			m_sMapFileName;
+	var string						m_sServer;
+	var string						m_sGameName;
+	var int							m_iPoints;
+	var int							m_iGameType;
+	var CTimerTick					m_xTimer;
+	var array int					m_aiUpdateIndexList;
+	
+	export constructor()
+		m_iNumberOfPlayers=8;
+		var int i,iC=m_iNumberOfPlayers;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPlayerInfo pxTmp=new CPlayerInfo();
+			pxTmp^.SetIndex(i);
+			pxTmp^.m_iTeam=i;
+			pxTmp^.m_iColor=i;
+			m_apxPlayerInfo.AddEntry(pxTmp);
+		endfor;
+		InitSlots();
+		m_xTimer.m_xOnTick = OnSendUpdate;
+	endconstructor;
+
+	destructor()
+		var int i,iC=m_apxPlayerInfo.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			delete m_apxPlayerInfo[i];
+		endfor;
+	enddestructor;
+
+	export static proc ref CMultiPlayerHostMgr Get()
+		if (ms_pxInst==null)then
+			ms_pxInst=new CMultiPlayerHostMgr;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+
+	export static proc void Kill()
+		if (ms_pxInst!=null)then
+			delete ms_pxInst;
+			ms_pxInst=null;
+		endif;
+	endproc;
+
+	export proc void SendChatMsgTo(string p_sFrom, string p_sTo, string p_sString, string p_sType)
+		var int i, iC = m_apxPlayerInfo.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_apxPlayerInfo[i]^.m_sName!=p_sTo)then continue; endif;
+			CSrvWrap.SendGenericEvtToClients(01b<<i,"Chat_whisper\t"+p_sFrom+"\t"+p_sString+"\t"+p_sType);
+		endfor;
+	endproc;
+	
+	proc void OnSendUpdate()
+		var int i, iC = m_aiUpdateIndexList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_apxPlayerInfo[m_aiUpdateIndexList[i]]^.SendUpdateToClients();
+		endfor;
+		m_aiUpdateIndexList = 0;
+	endproc;
+	
+	proc bool InitSlots()
+		var CPlayerSlotID xIter;
+		var int iCounter=0;
+		for(xIter=CPlayerSlotID.First())cond(xIter<=CPlayerSlotID.Last())iter(xIter.Incr())do
+			m_apxPlayerInfo[iCounter]^.SetPlayerSlotID(xIter);
+			iCounter++;
+		endfor;
+		return(true);
+	endproc;
+	
+	
+	export proc bool StartNewGame(int p_iClientID, string p_sMapFileName,string p_sName, int p_iMaxPlayers, int p_iPoints, string p_sServer, string p_sGameName)
+		//KLog.LogWarn("Manni","StartNewGame");
+		m_iHostID=p_iClientID;
+		//KLog.LogWarn("Manni","Start: "+p_iMaxPlayers.ToString());
+		UpdateMaxPlayers(p_iMaxPlayers);
+		UpdatePoints(p_iPoints);
+		m_apxPlayerInfo[0]^.SetAvailable(1);
+		m_apxPlayerInfo[0]^.SetID(p_iClientID);
+		m_apxPlayerInfo[0]^.SetType(1);
+		m_apxPlayerInfo[0]^.SetName(p_sName);
+		m_apxPlayerInfo[0]^.SetIndex(0);
+		m_sMapFileName=p_sMapFileName;
+		var int i,iC=p_iMaxPlayers;
+		for(i=1)cond(i<iC)iter(i++)do
+			m_apxPlayerInfo[i]^.SetAvailable(1);
+			m_apxPlayerInfo[i]^.SetID(-1);
+			m_apxPlayerInfo[i]^.SetType(0);
+		endfor;
+		m_sServer = p_sServer;
+		m_sGameName = p_sGameName;
+		CSrvWrap.SendGenericEvtToClients(011111111b,"UpdateMaxPlayers\t"+m_iMaxPlayers.ToString());
+		CSrvWrap.SendGenericEvtToClients(011111111b,"UpdateHostID\t"+m_iHostID.ToString());
+		UpdateGameInfoWindow();
+		UpdateMap(m_sMapFileName);
+		UpdateClient(0);
+		return(true);
+	endproc;	
+	
+	export proc bool JoinGame(int p_iClientID, string p_sName)
+		var int iFreeSlot=GetNextFreeSlot();
+		//KLog.LogWarn("Manni","Client found free Slot: "+iFreeSlot.ToString());
+		if(iFreeSlot==(-1))then return(false);endif;
+		m_apxPlayerInfo[iFreeSlot]^.SetType(1);
+		m_apxPlayerInfo[iFreeSlot]^.SetID(p_iClientID);
+		m_apxPlayerInfo[iFreeSlot]^.SetAvailable(1);
+		m_apxPlayerInfo[iFreeSlot]^.SetName(p_sName);
+		m_apxPlayerInfo[iFreeSlot]^.SetIndex(iFreeSlot);
+		//Inform other clients
+		var int i,iC=m_apxPlayerInfo.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_apxPlayerInfo[i]^.GetAvailable()==1)then
+				m_apxPlayerInfo[i]^.SendUpdateToClients();
+			endif;
+		endfor;
+		UpdateMap(m_sMapFileName);
+		//Not good yet, too much...
+		CSrvWrap.SendGenericEvtToClients(011111111b,"UpdateMaxPlayers\t"+m_iMaxPlayers.ToString());
+		CSrvWrap.SendGenericEvtToClients(011111111b,"UpdateHostID\t"+m_iHostID.ToString());
+		UpdateGameInfoWindow();
+		return(true);
+	endproc;
+	
+	proc bool UpdateGameInfoWindow()
+		CSrvWrap.SendGenericEvtToClients(011111111b,"UpdateGameInfoWindow\t"+m_iPoints.ToString()+"\t"+m_iMaxPlayers.ToString()+"\t"+m_sServer+"\t"+m_sGameName);
+		return(true);
+	endproc;
+	
+	export proc bool UpdateMaxPlayers(int p_iMaxPlayers)
+		var int i,iC=m_apxPlayerInfo.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_apxPlayerInfo[i]^.SetAvailable(0);
+		endfor;
+		m_iMaxPlayers=p_iMaxPlayers;
+		iC=m_iMaxPlayers;
+		for(i=0)cond(i<iC)iter(i++)do
+			m_apxPlayerInfo[i]^.SetAvailable(1);
+		endfor;
+		//CSrvWrap.SendGenericEvtToClients(011111111b,"UpdateMaxPlayers\t"+p_iMaxPlayers.ToString());
+		return(true);
+	endproc;
+	
+	export proc bool UpdatePoints(int p_iPoints)
+		m_iPoints=p_iPoints;
+		CSrvWrap.SendGenericEvtToClients(011111111b,"UpdatePoints\t"+m_iPoints.ToString());
+		return(true);
+	endproc;
+	
+	export proc bool UpdateGameType(int p_iGameType)
+
+		m_iGameType=p_iGameType;
+		
+		var ^CPropDB pxGenericDB=^(CSrvWrap.GetGame().GetLevelPreview().GetGenericData());
+		var ^CPropDB.CNode pxBase = pxGenericDB^.GetRoot().Get("PlayerSettings");
+		if(pxBase!=null)then
+			var string sGameType = "Deathmatch";
+			if(m_iGameType==1)then
+				sGameType = "KingOfTheHill";
+			elseif(m_iGameType==2)then
+				sGameType = "Defender";
+			endif;
+			pxBase^.SetValue("GameType",sGameType);
+		endif;
+
+		CSrvWrap.SendGenericEvtToClients(011111111b,"UpdateGameType\t"+m_iGameType.ToString());
+		return(true);
+	endproc;
+	
+	export proc bool UpdateMap(string p_sMapFileName)
+		m_sMapFileName=p_sMapFileName;
+		//KLog.LogWarn("Manni","Sending to clients: "+p_sMapFileName);
+		CSrvWrap.SendGenericEvtToClients(011111111b,"UpdateMap\t"+m_sMapFileName);
+		return(true);
+	endproc;
+	
+	export proc void UpdateClient(int p_iIndex)
+		m_aiUpdateIndexList.Include(p_iIndex);
+		m_xTimer.SetTimer(0.1);
+	endproc;
+				
+	export proc bool UpdateReady(int p_iIndex, int p_iReady)
+		//var int iIndex=GetIndexFromID(p_iClientID);
+		m_apxPlayerInfo[p_iIndex]^.SetReady(p_iReady);
+		//KLog.LogWarn("Manni","p_iReady is: "+p_iReady.ToString());
+		if(p_iReady==0)then
+			CSrvWrap.SendGenericEvtToClients(011111111b,"StopCountDown\t");
+		endif;
+		return(true);
+	endproc;
+	
+
+	export proc bool UpdateType(int p_iIndex, int p_iType)
+		m_apxPlayerInfo[p_iIndex]^.SetType(p_iType);
+		UpdateClient(p_iIndex);
+		return(true);
+	endproc;
+
+	export proc bool UpdateDifficulty(int p_iIndex, int p_iDiff)
+		m_apxPlayerInfo[p_iIndex]^.SetDifficulty(p_iDiff);
+		UpdateClient(p_iIndex);
+		return(true);
+	endproc;
+	
+	export proc bool UpdateAiAssist(int p_iIndex, int p_iEconomy, int p_iDefense, int p_iAttack)
+		m_apxPlayerInfo[p_iIndex]^.SetAiAssist(p_iEconomy, p_iDefense, p_iAttack);
+		UpdateClient(p_iIndex);
+		return(true);
+	endproc;
+	
+	export proc bool UpdateArmy(int p_iIndex, string p_sArmy)
+		m_apxPlayerInfo[p_iIndex]^.SetArmy(p_sArmy);
+		UpdateClient(p_iIndex);
+		return(true);
+	endproc;
+	
+	export proc bool UpdateTeam(int p_iIndex, int p_iTeam)
+		//var int iIndex=GetIndexFromID(p_iClientID);
+		m_apxPlayerInfo[p_iIndex]^.SetTeam(p_iTeam);
+		UpdateClient(p_iIndex);
+		return(true);
+	endproc;
+	
+	export proc bool UpdateColor(int p_iIndex, int p_iColor)
+		//var int iIndex=GetIndexFromID(p_iClientID);
+		m_apxPlayerInfo[p_iIndex]^.SetColor(p_iColor);
+		UpdateClient(p_iIndex);
+		return(true);
+	endproc;
+	
+	proc int GetNextFreeSlot()
+		var int i,iC=m_iNumberOfPlayers;
+		for(i=0)cond(i<iC)iter(i++)do
+			//KLog.LogWarn("Manni","-----FS-----");
+			//KLog.LogWarn("Manni","Type(0): "+m_apxPlayerInfo[i]^.GetType().ToString());
+			//KLog.LogWarn("Manni","Avail(!=1): "+m_apxPlayerInfo[i]^.GetAvailable().ToString());
+			if(m_apxPlayerInfo[i]^.GetType()==0 && m_apxPlayerInfo[i]^.GetAvailable()==1)then
+				return(i);
+			endif;
+		endfor;
+		return(-1);
+	endproc;
+	
+	proc int GetIndexFromID(int p_iID)
+		var int i,iC=m_apxPlayerInfo.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_apxPlayerInfo[i]^.GetID()==p_iID)then
+				return(i);
+			endif;
+		endfor;
+		return(-1);
+	endproc;
+	
+	export proc bool CheckGameStart(int p_iClient)
+		var int i,iC=m_apxPlayerInfo.NumEntries();
+		var bool bReady=true;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_apxPlayerInfo[i]^.GetAvailable()==1)then
+				if(m_apxPlayerInfo[i]^.GetReady()==false)then
+					if(m_apxPlayerInfo[i]^.GetType()==1 || m_apxPlayerInfo[i]^.GetType()==0)then
+						bReady=false;
+					endif;
+				endif;
+			endif;
+		endfor;
+		CSrvWrap.SendGenericEvtToClients(011111111b,"ReadyForGame\t"+bReady.ToString());	
+		return(true);
+	endproc;
+	
+endclass;
+
+class CPlayerInfo
+
+	//0=Open
+	//1=Human
+	//2=AI
+	//5=Closed
+	var int				m_iType;
+	var int				m_iID;
+	var int 			m_iAvailable;
+	var int				m_iIndex;
+	var int				m_iDifficulty;
+	
+	export var string	m_sName;
+	var int				m_iPlayerID;
+	var CPlayerSlotID	m_xPlayerSlotID;
+	var int				m_iTribe;
+	export var int		m_iTeam;
+	var string			m_sArmy;
+	export var int		m_iColor;
+	var int				m_iReady;
+	
+	export constructor()
+		m_iAvailable=0;
+		m_iID=(-1);
+		m_iType=0;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	export proc bool SetPlayerSlotID(CPlayerSlotID p_xPlayerSlotID)
+		m_xPlayerSlotID=p_xPlayerSlotID;
+		//SendUpdateToClients();
+		return(true);
+	endproc;
+	
+	export proc int GetType()
+		return(m_iType);
+	endproc;
+	
+	export proc int GetIndex()
+		return(m_iIndex);
+	endproc;
+	
+	export proc bool SetIndex(int p_iIndex)
+		m_iIndex=p_iIndex;
+		return(true);
+	endproc;
+	
+	export proc bool SetID(int p_iClientID)
+		m_iID=p_iClientID;
+		SendUpdateToClients();
+		return(true);
+	endproc;
+	
+	export proc int GetID()
+		return(m_iID);
+	endproc;
+	
+	export proc int GetAvailable()
+		return(m_iAvailable);
+	endproc;
+	
+	export proc bool SetAvailable(int p_iAvailable)
+		m_iAvailable=p_iAvailable;
+		SendUpdateToClients();
+		return(true);
+	endproc;
+	
+	export proc bool SetReady(int p_iReady)
+		m_iReady=p_iReady;
+		SendUpdateToClients();
+		CMultiPlayerHostMgr.Get().CheckGameStart(m_iID);
+		return(true);
+	endproc;
+	
+	export proc bool GetReady()
+		if(m_iReady==1)then
+			return(true);
+		else
+			return(false);
+		endif;
+	endproc;
+	
+	export proc bool SetTribe(int p_iTribe)
+		if(m_iTribe!=p_iTribe)then
+			m_iTribe=p_iTribe;
+			m_sArmy="";
+		endif;
+		return(true);
+	endproc;
+	
+	export proc bool SetType(int p_iType)
+		m_iType=p_iType;
+		return(true);
+	endproc;
+	
+	export proc bool SetTeam(int p_iTeam)
+		m_iTeam=p_iTeam;
+		return(true);
+	endproc;
+	
+	export proc bool SetArmy(string p_sArmy)
+		m_sArmy=p_sArmy;
+		return(true);
+	endproc;
+	
+	export proc bool SetAiAssist(int p_iEconomy, int p_iDefense, int p_iAttack)
+		var ^CLevelInfo pxLevelInfo = CSrvWrap.GetLevelInfo(true);
+		if(pxLevelInfo==null)then return false; endif;
+		var ^CLevelInfo.CPlayerSlot pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(m_xPlayerSlotID));
+		pxPlayerSlot^.SetValue("ai_assist_economy",p_iEconomy);
+		pxPlayerSlot^.SetValue("ai_assist_defense",p_iDefense);
+		pxPlayerSlot^.SetValue("ai_assist_attack",p_iAttack);
+		return true;
+	endproc;
+	
+	export proc bool SetDifficulty(int p_iDiff)
+		m_iDifficulty=p_iDiff;
+		SendUpdateToClients();
+		return(true);
+	endproc;
+	
+	export proc bool SetColor(int p_iColor)
+		m_iColor=p_iColor;
+		return(true);
+	endproc;
+	
+	export proc bool SetName(string p_sName)
+		m_sName=p_sName;
+		return(true);
+	endproc;
+
+	export proc bool SendUpdateToClients()
+		//Temp
+		if(m_sName=="")then	m_sName="-1";endif;
+		//KLog.LogWarn("Manni","Sending update with: "+m_iDifficulty.ToString());
+		var string sData=m_iIndex.ToString()+"\t"+m_iAvailable.ToString()+"\t"+m_iID.ToString()+"\t"+m_iType.ToString()+"\t"+m_sName+"\t"+m_iReady.ToString()+"\t"+m_iTribe.ToString()+"\t"+m_iTeam.ToString()+"\t"+m_iColor.ToString()+"\t"+m_sArmy+"\t"+m_iDifficulty.ToString();
+		CSrvWrap.SendGenericEvtToClients(011111111b,"UpdateMPData\t"+sData);
+		return(true);
+	endproc;
+
+endclass;

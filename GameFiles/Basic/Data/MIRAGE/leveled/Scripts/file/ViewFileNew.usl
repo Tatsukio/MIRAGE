@@ -1,0 +1,397 @@
+class CViewFileNew inherit CEnhancedFrameWindow
+
+	export var procref <bool,CLevel,string> 	m_xOnDone;
+	export var procref <bool> 					m_xOnClear;
+	var ^CViewLevelProp 						m_pxShowLevel;
+	var string									m_sLastSetting;
+	var int										m_iLastHeight;
+	var int										m_iLastWidth;
+	var int										m_iHeightMode;
+	var int										m_iScapeHeight;
+	var ^CSpinCtrlNumber 						m_pxScale;
+
+	export constructor()
+		if(!InitFromResource("file/ViewFileNew","FileNew")) then
+			CLevelEditorWrap.LogError("UI.ViewFileNew","InitFromResource failed");
+			return;
+		endif;
+
+		SetCmd("SubmitMap", OnClickGo );
+		//SetCmd("Exit", OnClose );
+		AddAccelerator("RETURN,NONE,SubmitMap");
+		AddAccelerator("ESCAPE,NONE,Exit");
+
+		// texture setting droplist
+		var ^CGroupBox pxGBGeneral = cast<CGroupBox>(GetControl("GBox_General"));
+		pxGBGeneral^.SetText(CLocalizer.Get().Translate("_ViewFileNew_GBox_General"));
+
+		var ^CDropList pxSetting = cast<CDropList>(GetControl("GBox_General/Drop_Setting"));
+		pxSetting^.AddItem("Ashvalley");
+		pxSetting^.AddItem("Icewaste");
+		pxSetting^.AddItem("Jungle");
+		pxSetting^.AddItem("Northland");
+		pxSetting^.AddItem("Savanna");
+		pxSetting^.AddItem("Test");
+		pxSetting^.AddItem("Cave1");
+		pxSetting^.AddItem("Cave2");
+		pxSetting^.AddItem("Cave3");
+
+		// spin controls containing the size of the new level
+		var ^CGroupBox pxGBSize = cast<CGroupBox>(GetControl("GBox_Size"));
+		pxGBSize^.SetText(CLocalizer.Get().Translate("_ViewFileNew_GBox_Size"));
+		var ^CSpinCtrlNumber pxSpinHeight = cast<CSpinCtrlNumber>(GetControl("GBox_Size/Spin_Y"));
+		var ^CSpinCtrlNumber pxSpinWidth = cast<CSpinCtrlNumber>(GetControl("GBox_Size/Spin_X"));
+
+		// new preset buttons which automatically on click change numbers in 'pxSpinWidth' and 'pxSpinHeight'
+		// numbers of the button are specified in SRF-file
+		var ^CPresetButton pxBtnXS = cast<CPresetButton>(GetControl("GBox_Size/BtnXS"));
+		pxBtnXS^.m_xOnUse = OnUsePresetButton;
+		pxBtnXS^.m_xOnClick = OnSetWertXS;
+		var ^CPresetButton pxBtnS = cast<CPresetButton>(GetControl("GBox_Size/BtnS"));
+		pxBtnS^.m_xOnUse = OnUsePresetButton;
+		var ^CPresetButton pxBtnM = cast<CPresetButton>(GetControl("GBox_Size/BtnM"));
+		pxBtnM^.m_xOnUse = OnUsePresetButton;
+		var ^CPresetButton pxBtnL = cast<CPresetButton>(GetControl("GBox_Size/BtnL"));
+		pxBtnL^.m_xOnUse = OnUsePresetButton;
+		var ^CPresetButton pxBtnXL = cast<CPresetButton>(GetControl("GBox_Size/BtnXL"));
+		pxBtnXL^.m_xOnUse = OnUsePresetButton;
+		var ^CPresetButton pxBtnXXL = cast<CPresetButton>(GetControl("GBox_Size/BtnXXL"));
+		pxBtnXXL^.m_xOnUse = OnUsePresetButton;
+
+		pxBtnXS^.m_xOnClick = OnSetWertXS;
+		pxBtnS^.m_xOnClick = OnSetWertS;
+		pxBtnM^.m_xOnClick = OnSetWertM;
+		pxBtnL^.m_xOnClick = OnSetWertL;
+		pxBtnXL^.m_xOnClick = OnSetWertXL;
+		pxBtnXXL^.m_xOnClick = OnSetWertXXL;
+
+		//set scape resolution
+		var ^CGroupBox pxGBScapeRes = cast<CGroupBox>(GetControl("GBox_ScapeRes"));
+		pxGBScapeRes^.SetText(CLocalizer.Get().Translate("_ViewFileNew_GBox_ScapeRes"));
+
+		//set scape height
+		var ^CToggleButton pxScapeHeightTgBtn = cast<CToggleButton>(GetControl("GBox_ScapeRes/Btn_ScapeHeight"));
+		pxScapeHeightTgBtn^.SetText(CLocalizer.Get().Translate("_ViewFileNew_Btn_ScapeHeight"));
+		pxScapeHeightTgBtn^.m_xOnClick = OnScapeHeight;
+		var ^CSpinCtrlNumber pxSpinScapeHeight = cast<CSpinCtrlNumber>(GetControl("GBox_ScapeRes/SpCtrl_ScapeHeight"));
+		pxSpinScapeHeight^.SetValue(32.0f);
+		pxSpinScapeHeight^.SetDisabled(true);
+
+		// this button i also could have named submit button
+		var ^CButton pxGoButton = cast<CButton>(GetControl("Btn_Go"));
+		pxGoButton^.SetText(CLocalizer.Get().Translate("_ViewFileNew_Btn_Go"));
+		pxGoButton^.m_xOnClick = OnClickGo;
+
+		// cancel button
+		var ^CButton pxCancelButton = cast<CButton>(GetControl("Btn_Cancel"));
+		pxCancelButton^.SetText(CLocalizer.Get().Translate("_ViewFileNew_Btn_Cancel"));
+		pxCancelButton^.m_xOnClick = OnCancel;
+
+		// the edit field where a bitmap to use as height map can be specified
+		var ^CGroupBox pxGBImport = cast<CGroupBox>(GetControl("GBox_Import"));
+		pxGBImport^.SetText(CLocalizer.Get().Translate("_ViewFileNew_GBox_Import"));
+		var ^CEdit pxEditImport = cast<CEdit>(GetControl("GBox_Import/Edit_Imp"));
+		pxEditImport^.SetText("");
+		var ^CButton pxButtonImport = cast<CButton>(GetControl("GBox_Import/Btn_Imp"));
+		pxButtonImport^.m_xOnClick = OnImport;
+		var ^CButton pxClearButton = cast<CButton>(GetControl("GBox_Import/Btn_Clear"));
+		pxClearButton^.SetText(CLocalizer.Get().Translate("_ViewFileNew_Btn_Clear"));
+		pxClearButton^.m_xOnClick = OnClickClear;
+		
+		m_pxScale = cast<CSpinCtrlNumber>(GetControl("GBox_Import/Scale"));
+		
+
+
+		if(CSettings.NumSubs("Editor/Misc/FileNew")==0)then
+			CSettings.Set("Editor/Misc/FileNew/Setting","Northland");
+			CSettings.Set("Editor/Misc/FileNew/Height",128);
+			CSettings.Set("Editor/Misc/FileNew/Width",128);
+			CSettings.Set("Editor/Misc/FileNew/ResMode",0);
+			CSettings.Set("Editor/Misc/FileNew/Res",0);
+			CSettings.Set("Editor/Misc/FileNew/ScapeHeight",32);
+			CSettings.Set("Editor/Misc/FileNew/ScapeHeightMode",0);
+		endif;
+		CSettings.Get("Editor/Misc/FileNew/Setting",m_sLastSetting);
+		var int i=pxSetting^.FindItem(m_sLastSetting);
+		if(i!=(-1))then
+			pxSetting^.Select(i);
+		endif;
+		CSettings.Get("Editor/Misc/FileNew/Height",m_iLastHeight);
+		CSettings.Get("Editor/Misc/FileNew/Width",m_iLastWidth);
+		pxSpinHeight^.SetValue(m_iLastHeight);
+		pxSpinWidth^.SetValue(m_iLastWidth);
+
+		CSettings.Get("Editor/Misc/FileNew/ScapeHeightMode",m_iHeightMode);
+		CSettings.Get("Editor/Misc/FileNew/ScapeHeight",m_iScapeHeight);
+
+		if(m_iHeightMode!=0)then
+			pxScapeHeightTgBtn^.SetToggleButtonState(true);
+			pxSpinScapeHeight^.SetDisabled(false);
+		endif;
+		pxSpinScapeHeight^.SetValue(m_iScapeHeight);
+
+		LoadPosition("FileNew");
+
+	endconstructor;
+
+	proc bool OnClickGo()
+		if(CLevelEditorWrap.GetScapeMgr().HasMap())then
+			var int i,j;
+			var int iX=CLevelEditorWrap.GetScapeMgr().GetWidthInBlocks();
+			var int iY=CLevelEditorWrap.GetScapeMgr().GetHeightInBlocks();
+			for(i=0)cond(i<(iX))iter(i++)do
+				for(j=0)cond(j<(iY))iter(j++)do
+					if(CClientWrap.GetForestMgr().IsForestBlock(i,j))then
+						CEvt_ForestBlock.Send(i,j,false,0);
+					endif;
+				endfor;
+			endfor;
+		endif;
+		if(CClientWrap.HasServer())then
+			CLevelEditorInst.SetLoadWindow("Creating Map");
+			CEvt_NewLevel.Send();
+			var ^CSpinCtrlNumber pxSpinWidth = cast<CSpinCtrlNumber>(GetControl("GBox_Size/Spin_X"));
+			var ^CSpinCtrlNumber pxSpinHeight = cast<CSpinCtrlNumber>(GetControl("GBox_Size/Spin_Y"));
+			var ^CSpinCtrlNumber pxSpinScapeRes = cast<CSpinCtrlNumber>(GetControl("GBox_ScapeRes/SpCtrl_ScapeRes"));
+			var ^CSpinCtrlNumber pxSpinScapeHeight = cast<CSpinCtrlNumber>(GetControl("GBox_ScapeRes/SpCtrl_ScapeHeight"));
+
+			var ^CToggleButton pxScapeHeightTgBtn = cast<CToggleButton>(GetControl("GBox_ScapeRes/Btn_ScapeHeight"));
+
+			var ^CEdit pxEditPath = cast<CEdit>(GetControl("GBox_Import/Edit_Imp"));
+			var ^CEdit pxEditName = cast<CEdit>(GetControl("GBox_General/Edit_Name"));
+			var ^CDropList pxDListTex = cast<CDropList>(GetControl("GBox_General/Drop_Setting"));
+
+			var string sImportPath = pxEditPath^.GetText();
+			OnClearData();
+
+			CEvt_ResetObjMgr.Send();
+
+			// tells CLevelEditor what stats the new level has
+			var CLevel xTmpLevel;
+			xTmpLevel.SetFilePath("");
+			xTmpLevel.SetSetting(pxDListTex^.GetSelectedItemAsString());
+			xTmpLevel.SetName(pxEditName^.GetText());
+			OnNewLevel(xTmpLevel,pxEditName^.GetText());
+
+			var real fTmp;
+			if(pxScapeHeightTgBtn^.GetToggleButtonState())then
+				CSettings.Set("Editor/Misc/FileNew/ScapeHeightMode",1);
+				fTmp=pxSpinScapeHeight^.GetValueFloat();
+			else
+				fTmp=32.0f;
+			endif;
+
+			//checks if the import map edit formular is empty, if not it uses the specified .TGA file
+			if(sImportPath!="")then
+				var real fScale=m_pxScale^.GetValueFloat();
+				CLevelEditorWrap.GetScapeMgr().ImportHMap(sImportPath,fScale);
+			else
+				CEvt_CreateMap.Send(pxSpinWidth^.GetValueInt(),pxSpinHeight^.GetValueInt(),fTmp);
+			endif;
+			var string sSetting=pxDListTex^.GetSelectedItemAsString();
+
+			if(sSetting=="Northland")then
+				CLevelEditorWrap.GetScapeMgr().SetTerrainSetting(00b);
+			elseif(sSetting=="Savanna")then
+				CLevelEditorWrap.GetScapeMgr().SetTerrainSetting(01b);
+			elseif(sSetting=="Jungle")then
+				CLevelEditorWrap.GetScapeMgr().SetTerrainSetting(010b);
+			elseif(sSetting=="Icewaste")then
+				CLevelEditorWrap.GetScapeMgr().SetTerrainSetting(011b);
+			elseif(sSetting=="Ashvalley")then
+				CLevelEditorWrap.GetScapeMgr().SetTerrainSetting(0100b);
+			elseif(sSetting=="Test")then
+				CLevelEditorWrap.GetScapeMgr().SetTerrainSetting(0101b);
+			elseif(sSetting=="Cave1")then
+				CLevelEditorWrap.GetScapeMgr().SetTerrainSetting(0110b);
+			elseif(sSetting=="Cave2")then
+				CLevelEditorWrap.GetScapeMgr().SetTerrainSetting(0111b);
+			elseif(sSetting=="Cave3")then
+				CLevelEditorWrap.GetScapeMgr().SetTerrainSetting(01000b);
+			endif;
+			CLevelEditorWrap.LogSpam("UI.ViewFileNew","ScapeRes");
+
+			CSettings.Set("Editor/Misc/FileNew/Setting",sSetting);
+			CSettings.Set("Editor/Misc/FileNew/Height",pxSpinHeight^.GetValueInt());
+			CSettings.Set("Editor/Misc/FileNew/Width",pxSpinWidth^.GetValueInt());
+
+			CSettings.Set("Editor/Misc/FileNew/ScapeHeight",pxSpinScapeHeight^.GetValueFloat());
+			
+			/*
+			var ^CGfxMgr pxGfxMgr=^(CLevelEditorWrap.GetGfxMgr());
+			pxGfxMgr^.Reset(); //begin gsf loading
+
+			//Loading setting specific graphicsets
+
+			//scape setting
+			if(sSetting!="Test")then
+				pxGfxMgr^.LoadGraphicSet(sSetting+"_vegetation");
+				pxGfxMgr^.LoadGraphicSet(sSetting+"_animals");
+				pxGfxMgr^.LoadGraphicSet(sSetting+"_landobj");
+			endif;
+			//load in all sets
+			pxGfxMgr^.LoadGraphicSet("All_animals");
+			pxGfxMgr^.LoadGraphicSet("All_characters");
+			pxGfxMgr^.LoadGraphicSet("All_misc");
+			pxGfxMgr^.LoadGraphicSet("All_effects");
+			pxGfxMgr^.LoadGraphicSet("All_special_weapons");
+			pxGfxMgr^.LoadGraphicSet("All_vehicles");
+			pxGfxMgr^.LoadGraphicSet("Hu_Charakter");
+			pxGfxMgr^.LoadGraphicSet("Hu_Buildings");
+			pxGfxMgr^.LoadGraphicSet("Hu_Misc");
+			pxGfxMgr^.LoadGraphicSet("Hu_Products");
+			pxGfxMgr^.LoadGraphicSet("Hu_Tools");
+			pxGfxMgr^.LoadGraphicSet("Hu_Resource");
+			pxGfxMgr^.LoadGraphicSet("Aje_Character");
+			pxGfxMgr^.LoadGraphicSet("Aje_Buildings");
+			pxGfxMgr^.LoadGraphicSet("Aje_Misc");
+			pxGfxMgr^.LoadGraphicSet("Aje_Products");
+			pxGfxMgr^.LoadGraphicSet("Ninigi_Charakter");
+			pxGfxMgr^.LoadGraphicSet("Ninigi_Buildings");
+			pxGfxMgr^.LoadGraphicSet("Ninigi_Misc");
+			pxGfxMgr^.LoadGraphicSet("Ninigi_Products");
+			pxGfxMgr^.LoadGraphicSetEnd(); //end gsf loading
+
+		//  Werden erst im ObjInsert(load/unload gfx) geladen         
+//			pxGfxMgr^.LoadGraphicSet("SL_Blood_Hu");
+//			pxGfxMgr^.LoadGraphicSet("Pirates_Ninigi_Charakter");
+//			pxGfxMgr^.LoadGraphicSet("SL_Amazons");
+//			pxGfxMgr^.LoadGraphicSet("SL_HeiligeStadt");
+//			pxGfxMgr^.LoadGraphicSet("SL_WaterSanctuary");
+//			pxGfxMgr^.LoadGraphicSet("SL_PirateOutpost");
+//			pxGfxMgr^.LoadGraphicSet("SL_DarwinsHouse");
+//			pxGfxMgr^.LoadGraphicSet("SL_Valhalla");
+//			pxGfxMgr^.LoadGraphicSet("SL_VikingPark");
+//			pxGfxMgr^.LoadGraphicSet("SL_DruidSanctuary");
+//			pxGfxMgr^.LoadGraphicSet("SL_HC_Level_13");
+//			pxGfxMgr^.LoadGraphicSet("SL_Carrier");
+//			pxGfxMgr^.LoadGraphicSet("SEAS_WWI");
+//			pxGfxMgr^.LoadGraphicSet("SEAS_Temple_Ruins");
+//			pxGfxMgr^.LoadGraphicSet("SEAS_Buildings");
+//			pxGfxMgr^.LoadGraphicSet("SEAS_Character");
+//			pxGfxMgr^.LoadGraphicSet("SEAS_Misc");
+//			pxGfxMgr^.LoadGraphicSet("SEAS_Products");
+//			pxGfxMgr^.LoadGraphicSet("SEQ_Character");
+//			pxGfxMgr^.LoadGraphicSet("SEQ_Buildings");
+//			pxGfxMgr^.LoadGraphicSet("SEQ_Misc");
+//			pxGfxMgr^.LoadGraphicSet("SEQ_Products");
+//			pxGfxMgr^.LoadGraphicSet("Test_Objects");
+			*/
+			//Initialize forest from config files
+			CLevelEditorWrap.GetForestMgr().LoadForestConfig(CLevelEditorWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/Classes/Vegetation/Forest_"+sSetting+".txt");
+
+
+			//Reset ToggleBtn & SpCtrl ScapeRes
+			//ResetScRes();
+			//ResetScHeight();
+			CMainController.Get().DisableDropButtons();
+			//Close Window
+			OnClose();
+		else
+			CMessageBox.MsgBox(CLocalizer.Get().Translate("_FileNew_Sorry"), CLocalizer.Get().Translate("_FileNew_NoServer"));
+			CMainController.Get().EnableDropButtons();
+		endif;
+
+		m_pxShowLevel=CEnhancedMenu.Get().GetLevelPropView();
+		m_pxShowLevel^.ShowLevel();
+		CEnhancedMenu.Get().GetViewLevelInfo()^.GetLevelInfoOptions1()^.ResetControls();
+		CEnhancedMenu.Get().GetViewQuestEditor()^.ResetControls();
+		return(true);
+	endproc;
+
+	proc bool OnScapeHeight()
+		var ^CToggleButton pxScapeHeightTgBtn = cast<CToggleButton>(GetControl("GBox_ScapeRes/Btn_ScapeHeight"));
+		var ^CSpinCtrlNumber pxSpinScapeHeight = cast<CSpinCtrlNumber>(GetControl("GBox_ScapeRes/SpCtrl_ScapeHeight"));
+		if(pxScapeHeightTgBtn^.GetToggleButtonState()) then
+			pxSpinScapeHeight^.SetDisabled(false);
+		else
+			//pxSpinScapeHeight^.SetValue(32.0);
+			pxSpinScapeHeight^.SetDisabled(true);
+		endif;
+		return(true);
+	endproc;
+
+	proc bool ResetScHeight()
+		var ^CToggleButton pxScapeHeightTgBtn = cast<CToggleButton>(GetControl("GBox_ScapeRes/Btn_ScapeHeight"));
+		var ^CSpinCtrlNumber pxSpinScapeHeight = cast<CSpinCtrlNumber>(GetControl("GBox_ScapeRes/SpCtrl_ScapeHeight"));
+		pxScapeHeightTgBtn^.SetToggleButtonState(false);
+		pxSpinScapeHeight^.SetValue(32.0);
+		pxSpinScapeHeight^.SetDisabled(true);
+		return(true);
+	endproc;
+
+	proc bool OnCancel()
+		//ResetScRes();
+		//ResetScHeight();
+		CMainController.Get().EnableDropButtons();
+		OnClose();
+		return(true);
+	endproc;
+
+	proc bool OnClearData()
+		m_xOnClear.Call();
+		return(true);
+	endproc;
+
+	proc bool OnNewLevel(CLevel p_xLevel,string p_sString)
+		m_xOnDone.Call(p_xLevel,p_sString);
+		return(true);
+	endproc;
+
+	export proc bool OnUsePresetButton( int p_iX, int p_iY )
+		var ^CSpinCtrlNumber pxSpinWidth = cast<CSpinCtrlNumber>(GetControl("GBox_Size/Spin_X"));
+		var ^CSpinCtrlNumber pxSpinHeight = cast<CSpinCtrlNumber>(GetControl("GBox_Size/Spin_Y"));
+		pxSpinWidth^.SetValue(p_iX);
+		pxSpinHeight^.SetValue(p_iY);
+		return(true);
+	endproc;
+
+	proc bool OnClickClear()
+		var ^CEdit pxEditImport = cast<CEdit>(GetControl("GBox_Import/Edit_Imp"));
+		pxEditImport^.SetText("");
+		return(true);
+	endproc;
+
+	proc bool OnImport()
+		var ^CEnhancedLoadSaveDialog pxWindowOpenMap = new CEnhancedLoadSaveDialog(2,"");
+		pxWindowOpenMap^.ClearFilters();
+		pxWindowOpenMap^.AddFilter("Heightmap Files","*.tga");
+		CClientWrap.GetDesktop()^.AddChild(pxWindowOpenMap);
+		pxWindowOpenMap^.m_xReturnFileString=CatchFile;
+		CWindowMgr.Get().BringWindowToTop(pxWindowOpenMap,true);
+		CWindowMgr.Get().SetModal(pxWindowOpenMap);
+		return(true);
+	endproc;
+
+	// ProcRef: gets the filename and path as string from LoadSave dialog
+	proc bool CatchFile( string p_sFile )
+		var ^CEdit pxTmp = cast<CEdit>(GetControl("GBox_Import/Edit_Imp"));
+		pxTmp^.SetText(p_sFile);
+		return(true);
+	endproc;
+
+	proc bool OnSetWertXS()
+		OnUsePresetButton( 32, 32 );
+		return(true);
+	endproc;
+	proc bool OnSetWertS()
+		OnUsePresetButton( 128, 128 );
+		return(true);
+	endproc;
+	proc bool OnSetWertM()
+		OnUsePresetButton( 512, 512 );
+		return(true);
+	endproc;
+	proc bool OnSetWertL()
+		OnUsePresetButton( 1024, 1024 );
+		return(true);
+	endproc;
+	proc bool OnSetWertXL()
+		OnUsePresetButton( 2048, 2048 );
+		return(true);
+	endproc;
+	proc bool OnSetWertXXL()
+		OnUsePresetButton( 5024, 5024 );
+		return(true);
+	endproc;
+endclass;

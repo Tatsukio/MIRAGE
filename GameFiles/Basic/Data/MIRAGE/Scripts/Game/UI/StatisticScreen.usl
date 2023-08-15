@@ -1,0 +1,933 @@
+class CGraphType inherit CItemData
+	
+	var int m_iType;
+	
+	export constructor( bitset p_dwType )
+		m_iType = p_dwType.ToInt();
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	export proc int GetType()
+		return(m_iType);
+	endproc;
+	
+endclass;
+
+class CGraphsScreen inherit CStaticCtrl
+	
+	var ^CGraphStatic			m_pxGraph;
+
+	var ^CDropList				m_pxStatisticItem;
+	var ^CStaticCtrl			m_pxDropListText;
+
+	var int						m_iValueType;
+	var int						m_iValueIndex;
+
+	var ^CPlayerListScreen		m_pxPlayer;
+	var array ^CCheckBox		m_apxPlayerCheckBoxes;
+	var array int 				m_aiPlayers;
+	var ^CLevelInfo				m_pxLevelInfo;
+	var ^CStatisticMgrClient	m_pxStatisticMgr;
+
+	var array ^CStaticCtrl		m_apxScaleLineTexts;
+	var array ^CStaticCtrl		m_apxScaleColTexts;
+
+	export const color			STDCOLOR			= {{84, 86, 83, 236}};
+	export const color			STDTEXTCOLOR		= {{152, 133, 99, 255}};
+
+	export var int			m_iGSPOSX;
+	export var int			m_iGSPOSY;
+	export var int			m_iGSWIDTH;
+	export var int			m_iGSHEIGHT;
+	export var int			m_iSTDBORDER;
+	export var int			m_iGSHEIGHTMULT;
+	export var int			m_iGSWIDTHTMULT;
+	
+	export var int			m_iPLAYERLISTX;
+	export var int			m_iPLAYERLISTY;
+	export var int			m_iPLAYERCOLORSTARTX;
+
+	export var int			m_iSCALETEXTS;
+
+	export constructor()
+		m_iGSPOSX				= 165 * CGameInst.ms_iUIScaleFactor;
+		m_iGSPOSY				= 15 * CGameInst.ms_iUIScaleFactor;
+		m_iGSWIDTH				= 668 * CGameInst.ms_iUIScaleFactor;
+		m_iGSHEIGHT				= 372 * CGameInst.ms_iUIScaleFactor;
+		m_iSTDBORDER			= 20 * CGameInst.ms_iUIScaleFactor;
+		m_iGSHEIGHTMULT			= m_iGSHEIGHT-2*m_iSTDBORDER;
+		m_iGSWIDTHTMULT			= m_iGSWIDTH-2*m_iSTDBORDER;
+		m_iPLAYERLISTX			= 15 * CGameInst.ms_iUIScaleFactor;
+		m_iPLAYERLISTY			= 20 * CGameInst.ms_iUIScaleFactor;
+		m_iPLAYERCOLORSTARTX	= 20 * CGameInst.ms_iUIScaleFactor;
+		m_iSCALETEXTS			= 5 * CGameInst.ms_iUIScaleFactor;
+		
+		CreateGraph();
+		m_pxStatisticItem^.Select(0);
+		OnChangeStatisticType();
+		DrawGraph();
+	endconstructor;
+
+	export destructor()
+		DestroyGraph();
+	enddestructor;
+
+	proc bool OnCheckPlayerCB()
+		DrawGraph();
+		InvalidateWindow();
+		return (true);
+	endproc;
+
+	proc void CreateGraph()
+		m_pxLevelInfo  = ^(CGameWrap.GetClient().GetLevelInfo());
+		m_pxStatisticMgr = ^(CGameWrap.GetStatisticMgr());
+
+		m_pxGraph = new CGraphStatic;
+		m_pxGraph^.SetVisible( true );
+		m_pxGraph^.SetTextColor( STDTEXTCOLOR );
+		m_pxGraph^.SetSize( m_iGSWIDTH, m_iGSHEIGHT );
+		m_pxGraph^.SetPos( m_iGSPOSX, m_iGSPOSY + 15 * CGameInst.ms_iUIScaleFactor );
+		m_pxGraph^.SetVisible( true );
+		m_pxGraph^.SetText( CLocalizer.Get().Translate( "_UI_StatScre_Label_Graphscene" ) );
+
+		m_pxPlayer = new CPlayerListScreen( false );
+		m_pxPlayer^.SetSize( 170 * CGameInst.ms_iUIScaleFactor, 200 * CGameInst.ms_iUIScaleFactor );
+		m_pxPlayer^.SetPos( m_iPLAYERLISTX, m_iGSPOSY + 10 * CGameInst.ms_iUIScaleFactor );
+		m_pxPlayer^.SetVisible( true );
+		m_pxPlayer^.Init();
+
+		// scale texts along x-axis
+		var int iStepX=((m_iGSWIDTH-(2*m_iSTDBORDER))/4)-5 * CGameInst.ms_iUIScaleFactor;
+		var int i=0;
+		for(i=0)cond(i<=m_iSCALETEXTS)iter(i++)do
+			var ^CStaticCtrl pxNewText = new CStaticCtrl();
+			pxNewText^.SetPos( m_iGSPOSX+m_iSTDBORDER+iStepX*(i), m_iGSHEIGHT + 10 * CGameInst.ms_iUIScaleFactor );
+			pxNewText^.SetSize( 25 * CGameInst.ms_iUIScaleFactor, 25 * CGameInst.ms_iUIScaleFactor );
+			pxNewText^.SetTextColor(STDCOLOR);
+			pxNewText^.SetText("0:00");
+			pxNewText^.SetTextAlign(0);
+			pxNewText^.SetVisible(true);
+			m_apxScaleLineTexts.AddEntry(pxNewText);
+			AddChild( pxNewText );
+		endfor;
+
+		// scale texts a long y-axis
+		var int iStepY=((m_iGSHEIGHT-(2*m_iSTDBORDER))/4);
+		for(i=m_iSCALETEXTS)cond(i>0)iter(i--)do
+			var ^CStaticCtrl pxNewText = new CStaticCtrl();
+			pxNewText^.SetPos( m_iGSPOSX+m_iGSWIDTH-10 * CGameInst.ms_iUIScaleFactor, m_iGSPOSY+m_iSTDBORDER+iStepY*(i-1) );
+			pxNewText^.SetSize( 25 * CGameInst.ms_iUIScaleFactor, 25 * CGameInst.ms_iUIScaleFactor );
+			pxNewText^.SetTextColor(STDCOLOR);
+			pxNewText^.SetText("0");
+			pxNewText^.SetTextAlign(0);
+			pxNewText^.SetVisible(true);
+			m_apxScaleColTexts.AddEntry(pxNewText);
+			AddChild( pxNewText );
+		endfor;
+
+		m_pxDropListText = new CStaticCtrl;
+		m_pxDropListText^.SetTextColor( STDTEXTCOLOR );
+		m_pxDropListText^.SetSize( 100 * CGameInst.ms_iUIScaleFactor, 25 * CGameInst.ms_iUIScaleFactor );
+		m_pxDropListText^.SetText( CLocalizer.Get().Translate( "_UI_StatScre_Label_Category" ) );
+		m_pxDropListText^.SetTextAlign( 0 );
+		m_pxDropListText^.SetPos( m_iGSPOSX + 20 * CGameInst.ms_iUIScaleFactor, m_iGSPOSY + 5 * CGameInst.ms_iUIScaleFactor );
+		m_pxDropListText^.SetVisible( true );
+
+		m_pxStatisticItem = new CDropList();
+		m_pxStatisticItem^.SetMaxPopUpListHeight( CGraphData.End.ToInt() * 25 );
+		m_pxStatisticItem^.SetSize( 250 * CGameInst.ms_iUIScaleFactor, 15 * CGameInst.ms_iUIScaleFactor );
+		m_pxStatisticItem^.SetPos( m_iGSPOSX + 110 * CGameInst.ms_iUIScaleFactor , m_iGSPOSY );
+
+		m_pxStatisticItem^.AddItem( CLocalizer.Get().Translate( "_UI_StatScre_Graph_AllUnits" ),			new CGraphType( CGraphData.AllUnits));
+		m_pxStatisticItem^.AddItem( CLocalizer.Get().Translate( "_UI_StatScre_Graph_AllCivilians" ),		new CGraphType( CGraphData.AllCivilians));
+		m_pxStatisticItem^.AddItem( CLocalizer.Get().Translate( "_UI_StatScre_Graph_AllMilitary" ),			new CGraphType( CGraphData.AllMilitary));
+		m_pxStatisticItem^.AddItem( CLocalizer.Get().Translate( "_UI_StatScre_Graph_AllBuildings" ),		new CGraphType( CGraphData.AllBuildings));
+
+		m_pxStatisticItem^.AddItem( CLocalizer.Get().Translate( "_UI_StatScre_Graph_AllResource" ),			new CGraphType( CGraphData.AllResources));
+		m_pxStatisticItem^.AddItem( CLocalizer.Get().Translate( "_UI_StatScre_Graph_AllFood" ),				new CGraphType( CGraphData.Food));
+		m_pxStatisticItem^.AddItem( CLocalizer.Get().Translate( "_UI_StatScre_Graph_AllWood" ), 			new CGraphType( CGraphData.Wood));
+		m_pxStatisticItem^.AddItem( CLocalizer.Get().Translate( "_UI_StatScre_Graph_AllStone" ), 			new CGraphType( CGraphData.Stone));
+		m_pxStatisticItem^.AddItem( CLocalizer.Get().Translate( "_UI_StatScre_Graph_AllSkulls" ), 			new CGraphType( CGraphData.Skulls));
+
+		m_pxStatisticItem^.AddItem( CLocalizer.Get().Translate( "_UI_StatScre_Graph_AllResourceTotal" ),	new CGraphType( CGraphData.AllResourcesTotal));
+		m_pxStatisticItem^.AddItem( CLocalizer.Get().Translate( "_UI_StatScre_Graph_AllFoodTotal" ), 		new CGraphType( CGraphData.FoodTotal));
+		m_pxStatisticItem^.AddItem( CLocalizer.Get().Translate( "_UI_StatScre_Graph_AllWoodTotal" ), 		new CGraphType( CGraphData.WoodTotal));
+		m_pxStatisticItem^.AddItem( CLocalizer.Get().Translate( "_UI_StatScre_Graph_AllStoneTotal" ), 		new CGraphType( CGraphData.StoneTotal));
+		m_pxStatisticItem^.AddItem( CLocalizer.Get().Translate( "_UI_StatScre_Graph_AllSkullsTotal" ),		new CGraphType( CGraphData.SkullsTotal));
+		m_pxStatisticItem^.Select( m_iValueIndex );
+		m_pxStatisticItem^.Select(0);
+//L		KLog.LogSpam("MaSc","m_iValueIndex="+m_iValueIndex.ToString());
+		m_pxStatisticItem^.m_xOnChange = OnChangeStatisticType;
+		
+		m_aiPlayers=0;
+		var ^CStatisticMgrClient pxStatisticMgr=^(CGameWrap.GetStatisticMgr());
+		var int iPlayer;
+		var int iCnt=0;
+		for(iPlayer=0)cond(iPlayer<8)iter(iPlayer++)do
+			if(!pxStatisticMgr^.PlayerExists(iPlayer))then
+				continue;
+			endif;
+			var ^CCheckBox pxNewCB = new CCheckBox();
+			pxNewCB^.SetPos(0, m_iGSPOSY+35 * CGameInst.ms_iUIScaleFactor+(iCnt * 25 * CGameInst.ms_iUIScaleFactor));
+			pxNewCB^.SetSize(25 * CGameInst.ms_iUIScaleFactor,25 * CGameInst.ms_iUIScaleFactor);
+			pxNewCB^.SetChecked(1);
+			pxNewCB^.SetVisible(true);
+			m_apxPlayerCheckBoxes.AddEntry(pxNewCB);
+			AddChild(pxNewCB);
+			pxNewCB^.m_xOnStateChange=OnCheckPlayerCB;
+			m_aiPlayers.AddEntry(iPlayer);
+			iCnt++;
+		endfor;
+
+		AddChild( m_pxGraph );
+		AddChild( m_pxPlayer );
+		AddChild( m_pxDropListText );
+		AddChild( m_pxStatisticItem );
+	endproc;
+
+	proc void DestroyGraph()
+		if(m_pxGraph != null)then
+			m_pxGraph^.Destroy();
+			m_pxGraph = null;
+		endif;
+		if(m_pxPlayer != null)then
+			m_pxPlayer^.Destroy();
+			m_pxPlayer = null;
+		endif;
+
+		if(m_pxDropListText != null)then
+			m_pxDropListText^.Destroy();
+			m_pxDropListText = null;
+		endif;
+
+		if(m_pxStatisticItem != null)then
+			m_pxStatisticItem^.Destroy();
+			m_pxStatisticItem = null;
+		endif;
+
+		var int i,iC=m_apxPlayerCheckBoxes.NumEntries();
+		for(i=0)cond(i<iC)iter(i++) do
+			if(m_apxPlayerCheckBoxes[i]!=null)then
+				m_apxPlayerCheckBoxes[i]^.Destroy();
+				m_apxPlayerCheckBoxes[i]=null;
+			endif;
+		endfor;
+
+		m_apxPlayerCheckBoxes = 0;
+		m_aiPlayers=0;
+		m_pxLevelInfo = null;
+		m_pxStatisticMgr = null;
+	endproc;
+
+	proc bool OnChangeStatisticType()
+		m_iValueIndex = m_pxStatisticItem^.GetSelectedItem();
+		m_iValueType = (cast<^CGraphType>( m_pxStatisticItem^.GetItemData( m_iValueIndex )))^.GetType();
+		DrawGraph();
+		InvalidateWindow();
+		return true;
+	endproc;
+
+	export proc void Update()
+	endproc;
+
+	export proc void DrawGraph()
+		m_pxGraph^.ClearCanvas();
+		// grey lines for graph
+		m_pxGraph^.AddLine( m_iSTDBORDER,				m_iGSHEIGHT - m_iSTDBORDER,	m_iGSWIDTH - m_iSTDBORDER,	m_iGSHEIGHT -m_iSTDBORDER, STDCOLOR);
+		m_pxGraph^.AddLine( m_iGSWIDTH - m_iSTDBORDER,	m_iGSHEIGHT - m_iSTDBORDER,	m_iGSWIDTH - m_iSTDBORDER,	m_iSTDBORDER + 1, STDCOLOR);
+		m_pxGraph^.AddLine( m_iSTDBORDER, m_iSTDBORDER,	m_iSTDBORDER,				m_iGSHEIGHT - m_iSTDBORDER,	STDCOLOR);
+		m_pxGraph^.AddLine( m_iSTDBORDER, m_iSTDBORDER,	m_iGSWIDTH - m_iSTDBORDER,	m_iSTDBORDER,				STDCOLOR);
+
+		var int iStepX=((m_iGSWIDTH-(2*m_iSTDBORDER))/4);
+		m_pxGraph^.AddLine(m_iSTDBORDER+iStepX  ,m_iGSHEIGHT-m_iSTDBORDER, m_iSTDBORDER+iStepX ,  m_iSTDBORDER, STDCOLOR);
+		m_pxGraph^.AddLine(m_iSTDBORDER+iStepX*2,m_iGSHEIGHT-m_iSTDBORDER, m_iSTDBORDER+iStepX*2, m_iSTDBORDER, STDCOLOR);
+		m_pxGraph^.AddLine(m_iSTDBORDER+iStepX*3,m_iGSHEIGHT-m_iSTDBORDER, m_iSTDBORDER+iStepX*3, m_iSTDBORDER, STDCOLOR);
+
+		CGameWrap.GetStatisticMgr().PrepareData();
+
+		var int iFirstTS	= m_pxStatisticMgr^.GetFirstTimeStamp();
+		var int iLastTS		= m_pxStatisticMgr^.GetLastTimeStamp();
+		var int iTimePeriod	= iLastTS - iFirstTS;
+
+		var	int	iTempVal		= 0;
+		var	int	iHiVal			= 0;
+
+		var int i,iC=m_apxPlayerCheckBoxes.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_apxPlayerCheckBoxes[i]^.GetChecked()==0) then
+				continue;
+			endif;
+			var int iPlayer=m_aiPlayers[i];
+			if(CGameWrap.GetStatisticMgr().HasData()==false) then
+				iTempVal = 0;
+			else
+				if ( ( m_iValueType >= CGraphData.FoodTotal.ToInt() ) && ( m_iValueType <= CGraphData.AllResourcesTotal.ToInt() ) ) then
+					iTempVal = m_pxStatisticMgr^.GetMaxSumPos( iPlayer, m_iValueType );
+				else
+					iTempVal = m_pxStatisticMgr^.GetMaxSum( iPlayer, m_iValueType );
+				endif;
+			endif;
+
+			if ( iTempVal > iHiVal ) then
+				iHiVal = iTempVal;
+			endif;
+
+		endfor;
+
+		DrawScaleRowTexts(iLastTS);
+		DrawScaleColTexts(iHiVal);
+
+		if(iHiVal==0)then
+			return;
+		endif;
+
+		var	int iTimeStep=iTimePeriod/(m_iGSWIDTHTMULT+1);
+
+		var ^CLevelInfoClient pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+		
+		iC=m_apxPlayerCheckBoxes.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_apxPlayerCheckBoxes[i]^.GetChecked()==0) then
+				continue;
+			endif;
+			var int iPlayer=m_aiPlayers[i];
+
+			var	int		iX				= 0,
+						iY				= 0,
+						iValue			= 0,
+						iXLast			= 0,
+						iYLast			= 0,
+						iTime			= iFirstTS;
+			var color xPlayerColor=pxLevelInfo^.GetPlayerColor(iPlayer);
+			for(iX=0)cond(iX<=m_iGSWIDTHTMULT)iter(iX+=2) do
+				if ( iX < m_iGSWIDTHTMULT ) then
+					iTime = iFirstTS + (iTimeStep * iX);
+				else
+					iTime = iLastTS-1;
+				endif;
+
+				if ( ( m_iValueType >= CGraphData.FoodTotal.ToInt() ) && ( m_iValueType <= CGraphData.AllResourcesTotal.ToInt() ) ) then
+					iValue = m_pxStatisticMgr^.GetSumPosAt( iPlayer, m_iValueType, iTime );
+				else
+					iValue = m_pxStatisticMgr^.GetSumAt( iPlayer, m_iValueType, iTime );
+				endif;
+
+				if(iValue<0)then
+					iValue=0;	//HACK bis wir die gecheateten Resourcen drinn haben
+				endif;
+
+				iY = ( iValue * m_iGSHEIGHTMULT ) / iHiVal;
+
+				if ( iX > 0 ) then
+					m_pxGraph^.AddLine( iXLast + m_iSTDBORDER, (m_iGSHEIGHTMULT-iYLast)+m_iSTDBORDER, iX+m_iSTDBORDER, (m_iGSHEIGHTMULT-iY)+m_iSTDBORDER, xPlayerColor );
+				endif;
+
+				iXLast = iX;
+				iYLast = iY;
+			endfor;
+		endfor;
+	endproc;
+
+	proc void DrawScaleRowTexts(int p_iLastTimeStamp)
+		//KLog.LogSpam("MaSc","p_iLastTimeStamp="+p_iLastTimeStamp.ToString());
+		var int i=0;
+		var int iTimeStep=p_iLastTimeStamp/(m_iSCALETEXTS-1);
+		for(i=0)cond(i<=m_iSCALETEXTS)iter(i++)do
+			var int iTime=(iTimeStep*i)/10;
+			var	int	iHour=iTime/3600;
+			var	int	iMinute=(iTime%3600) / 60;
+			var string sText=iHour.ToString()+":";
+
+			if(iMinute<10)then
+				sText+="0"+iMinute.ToString();
+			else
+				sText+=iMinute.ToString();
+			endif;
+
+			//KLog.LogSpam("MaSc","i="+i.ToString()+"sText"+sText);
+			m_apxScaleLineTexts[i]^.SetText(sText);
+		endfor;
+	endproc;
+
+	proc void DrawScaleColTexts(int p_iMaxValue)
+		//KLog.LogSpam("MaSc","p_iMaxValue="+p_iMaxValue.ToString());
+		var int i=0;
+		var int iValStep=((p_iMaxValue.ToReal()/(m_iSCALETEXTS-1).ToReal())).ToInt();
+		for(i=(m_iSCALETEXTS-1))cond(i>0)iter(i--)do
+			var int iValue=p_iMaxValue;
+			if(i!=(m_iSCALETEXTS-1))then
+				iValue=iValStep*i;
+			endif;
+			//KLog.LogSpam("MaSc","i="+i.ToString()+" iValue="+iValue.ToString());
+			m_apxScaleColTexts[i]^.SetText((iValue).ToString());
+		endfor;
+	endproc;
+
+endclass;
+
+
+class CPlayerListScreen inherit CStaticCtrl
+
+	var int 				m_iNumPlayers;
+	var array ^CStaticCtrl	m_apxPlayerNames;
+	var array ^CStaticCtrl	m_apxPlayerColor;
+	var array ^CStaticCtrl	m_apxBackground;
+	var color				m_xPlayerNameColor;
+
+	export var int 		m_iPLAYERROWX;
+	export var int 		m_iPLAYERROWY;
+
+	export var int 		m_iROWHEIGHT;
+	export var int 		m_iICONWIDTH;
+	export var int 		m_iPLAYERNAMEWIDTH;
+
+	var array ^CStaticCtrl	m_apxColumnEndLine;
+	var bool				m_bUseEndColumnLine;
+
+	export constructor(bool p_bUseEndColumnLine)
+		m_iPLAYERROWX = 5 * CGameInst.ms_iUIScaleFactor;
+		m_iPLAYERROWY = 25 * CGameInst.ms_iUIScaleFactor;
+		m_iROWHEIGHT = 25 * CGameInst.ms_iUIScaleFactor;
+		m_iICONWIDTH = 25 * CGameInst.ms_iUIScaleFactor;
+		m_iPLAYERNAMEWIDTH = 100 * CGameInst.ms_iUIScaleFactor;
+	
+		m_iNumPlayers=0;
+		m_xPlayerNameColor={{152,133,99,255}};
+
+		var int i=0;
+		for(i=0)cond(i<8)iter(i++)do
+
+			var ^CStaticCtrl pxNewBG;
+			pxNewBG=new CStaticCtrl();
+			pxNewBG^.SetSize(170 * CGameInst.ms_iUIScaleFactor,25 * CGameInst.ms_iUIScaleFactor);
+			pxNewBG^.SetPos(m_iPLAYERROWX+5 * CGameInst.ms_iUIScaleFactor, m_iPLAYERROWY+i*m_iROWHEIGHT);
+			var ^CCardBitmap pxBmp=CGameInst.GetBitmapMgr().GetBlendBitmap("25 ,layer statistic_playerslot");
+			pxNewBG^.SetBitmap(pxBmp^.GetBitmap());
+			pxNewBG^.SetVisible(false);
+			m_apxBackground.AddEntry(pxNewBG);
+
+			var ^CStaticCtrl pxNewCtrl;
+			pxNewCtrl=new CStaticCtrl();
+			pxNewCtrl^.SetSize(m_iPLAYERNAMEWIDTH,m_iROWHEIGHT);
+			pxNewCtrl^.SetPos(m_iICONWIDTH+5 * CGameInst.ms_iUIScaleFactor, 1);
+			pxNewCtrl^.SetText("PlayerNameDummy "+i.ToString());
+			pxNewCtrl^.SetTextAlign(0);
+			pxNewCtrl^.SetTextColor(m_xPlayerNameColor);
+			pxNewCtrl^.SetVisible(false);
+			m_apxPlayerNames.AddEntry(pxNewCtrl);
+
+			pxNewCtrl=new CStaticCtrl();
+			pxNewCtrl^.SetSize(m_iICONWIDTH, m_iROWHEIGHT);
+			pxNewCtrl^.SetPos(1 * CGameInst.ms_iUIScaleFactor, 1 * CGameInst.ms_iUIScaleFactor);
+			pxNewCtrl^.SetTextColor(m_xPlayerNameColor);
+			pxNewCtrl^.SetText("X");
+			pxNewCtrl^.SetTextAlign(0);
+			pxNewCtrl^.SetVisible(false);
+			m_apxPlayerColor.AddEntry(pxNewCtrl);
+
+			pxNewBG^.AddChild(m_apxPlayerNames[i]);
+			pxNewBG^.AddChild(m_apxPlayerColor[i]);
+			AddChild(pxNewBG);
+
+			m_bUseEndColumnLine=p_bUseEndColumnLine;
+		endfor;
+
+	endconstructor;
+
+	export destructor()
+		var int i=0;
+		for(i=0)cond(i<8)iter(i++)do
+			if(m_apxPlayerNames[i]!=null)then
+				m_apxPlayerNames[i]^.Destroy();
+			endif;
+			if(m_apxPlayerColor[i]!=null)then
+				m_apxPlayerColor[i]^.Destroy();
+			endif;
+			if(m_apxBackground[i]!=null)then
+				m_apxBackground[i]^.Destroy();
+			endif;
+		endfor;
+	enddestructor;
+
+	export proc void Update()
+	endproc;
+
+	export proc void Init() // pointer to data
+		
+		// search the used playerslots and fill the playerinfo in our screen
+		var ^CStatisticMgrClient	pxStatisticMgr	= ^(CGameWrap.GetStatisticMgr());
+		
+		//var ^CLevelInfoClient pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+		var int iPlayerCount=pxStatisticMgr^.GetNumPlayers();
+		m_iNumPlayers=iPlayerCount;
+				
+		var int iIdx=0;
+		var int i=0;
+		for (i=0) cond(i<8) iter(i++) do
+			if(pxStatisticMgr^.PlayerExists(i) == false) then
+				continue;
+			endif;
+			/*
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=pxLevelInfo^.GetOwnerPlayerSlot(i);
+			if(pxPlayerSlot==null)then
+				continue; 
+			endif;
+			*/
+			var string sPlayerName=pxStatisticMgr^.GetPlayerName(i);
+			m_apxPlayerNames[iIdx]^.SetText( CLocalizer.Get().Translate(sPlayerName));
+			var int iColorIdx = pxStatisticMgr^.GetPlayerColorIndex(i);
+			m_apxPlayerColor[iIdx]^.SetText(iColorIdx.ToString());
+
+			var bool bWinner=pxStatisticMgr^.IsWinner(i);
+			var string sBlend="30 ,fill TeamCol "+iColorIdx.ToString()+" 4 "+(20 * CGameInst.ms_iUIScaleFactor).ToString()+" "+(20 * CGameInst.ms_iUIScaleFactor).ToString();
+			if(bWinner)then
+				sBlend+=",layer info_player_winner";
+			endif;
+			//Windows.DbgBreak();
+			var ^CCardBitmap pxBmp=CGameInst.GetBitmapMgr().GetBlendBitmap(sBlend);
+			m_apxPlayerColor[iIdx]^.SetBitmap(pxBmp^.GetBitmap());
+			m_apxBackground[iIdx]^.SetVisible(i<m_iNumPlayers);
+			m_apxPlayerNames[iIdx]^.SetVisible(i<m_iNumPlayers);
+			m_apxPlayerColor[iIdx]^.SetVisible(i<m_iNumPlayers);
+			iIdx++;
+		endfor;
+		/*
+		if(m_bUseEndColumnLine==true)then
+			var int j;
+			for(j=0)cond(j<i)iter(j++)do
+				var ^CStaticCtrl pxNewEnd=new CStaticCtrl;
+				pxNewEnd^.SetSize(1 * CGameInst.ms_iUIScaleFactor,m_iROWHEIGHT);
+				//KLog.LogWarn("StatisticScreen", "PlayerList: j="+j.ToString()+"j*(m_iROWHEIGHT-1)= "+(j*(m_iROWHEIGHT-1)).ToString());
+				pxNewEnd^.SetPos(169 * CGameInst.ms_iUIScaleFactor,m_iPLAYERROWY+(j*m_iROWHEIGHT));
+				var ^CCardBitmap pxBmp=CGameInst.GetBitmapMgr().GetBlendBitmap("29, layer statistic_tablecolumnend");
+				pxNewEnd^.SetBitmap(pxBmp^.GetBitmap());
+				pxNewEnd^.SetVisible(true);
+				m_apxColumnEndLine.AddEntry(pxNewEnd);
+				AddChild(pxNewEnd);
+			endfor;
+		endif;
+		*/
+	endproc;
+
+endclass;
+
+class CTableColumn inherit CStaticCtrl
+
+	var ^CStaticCtrl		m_pxNameBG;
+	var ^CStaticCtrl		m_pxName;
+	var ^CStaticCtrl 		m_pxColumnEndLine;
+
+	var array ^CStaticCtrl	m_apxBG;
+	var array ^CStaticCtrl	m_apxValues;
+	var array ^CStaticCtrl	m_apxColumnEndLine;
+
+	export var int			m_iROWHEIGHT;
+	export const color		STDTEXTCOLOR={{152,133,99,255}};
+
+	export var int 			m_iENDCOLPOSX;
+
+	export constructor( string p_sColumnName, int p_iValueType, int p_iX, int p_iY, int p_iWidth, int p_iHeight, bool p_bEndColumn )
+		m_iROWHEIGHT = 25 * CGameInst.ms_iUIScaleFactor;
+		m_iENDCOLPOSX = 862 * CGameInst.ms_iUIScaleFactor;
+		
+		var ^CCardBitmap pxBmp = CGameInst.GetBitmapMgr().GetBlendBitmap( "28, layer statistic_tablecolumnhead" );
+		var ^CLevelInfoClient pxLevelInfo = ^(CGameWrap.GetClient().GetLevelInfo());
+		var	^CStatisticMgrClient pxStatistic = ^(CGameWrap.GetStatisticMgr());
+		m_pxNameBG = new CStaticCtrl();
+		m_pxNameBG^.SetSize( p_iWidth, m_iROWHEIGHT );
+		m_pxNameBG^.SetPos( p_iX, p_iY );
+		m_pxNameBG^.SetBitmap( pxBmp^.GetBitmap() );
+		m_pxNameBG^.SetVisible( true );
+		AddChild( m_pxNameBG );
+		m_pxName=new CStaticCtrl();
+		m_pxName^.SetTextColor(STDTEXTCOLOR);
+		m_pxName^.SetSize( p_iWidth, m_iROWHEIGHT );
+		m_pxName^.SetText(p_sColumnName);
+		m_pxName^.SetTextAlign(0);
+		m_pxName^.SetPos(7 * CGameInst.ms_iUIScaleFactor,5 * CGameInst.ms_iUIScaleFactor);
+		m_pxNameBG^.AddChild(m_pxName);
+		if(p_bEndColumn)then
+			m_pxColumnEndLine = new CStaticCtrl();
+			var ^CCardBitmap	pxEndBmp 		= CGameInst.GetBitmapMgr().GetBlendBitmap( "29, layer statistic_tablecolumnend" );
+			m_pxColumnEndLine^.SetSize( 1 * CGameInst.ms_iUIScaleFactor, m_iROWHEIGHT );
+			m_pxColumnEndLine^.SetPos( m_iENDCOLPOSX, p_iY );
+			m_pxColumnEndLine^.SetBitmap( pxEndBmp^.GetBitmap() );
+			m_pxColumnEndLine^.SetVisible( true );
+			AddChild( m_pxColumnEndLine );
+		endif;
+		var ^CCardBitmap	pxBGBitmap		= CGameInst.GetBitmapMgr().GetBlendBitmap("28, layer statistic_tablecolumnrow");
+		var ^CStatisticMgrClient	pxStatisticMgr	= ^(CGameWrap.GetStatisticMgr());
+		var int iRow=0;
+		var int iPlayer=0;
+		for (iPlayer=0) cond(iPlayer<8) iter(iPlayer++) do
+			if(pxStatisticMgr^.PlayerExists(iPlayer) == false) then
+				continue;
+			endif;
+			var string sValue = "---";
+
+			if (( p_iValueType == CTableData.Fights_UnitsLost.ToInt() )||
+				( p_iValueType == CTableData.Fights_BuildingsLost.ToInt() )) then
+				sValue = (-pxStatistic^.GetSumNeg( iPlayer, p_iValueType )).ToString();
+			elseif ( p_iValueType == CTableData.Invention_Epoch_2.ToInt() ) then
+				sValue = ParseTime( pxStatistic^.GetFirstTimeSampleValue( iPlayer, CStatisticSample.Epoch.ToInt(), 2 ) );
+			elseif ( p_iValueType == CTableData.Invention_Epoch_3.ToInt() ) then
+				sValue = ParseTime( pxStatistic^.GetFirstTimeSampleValue( iPlayer, CStatisticSample.Epoch.ToInt(), 3 ) );
+			elseif ( p_iValueType == CTableData.Invention_Epoch_4.ToInt() ) then
+				sValue = ParseTime( pxStatistic^.GetFirstTimeSampleValue( iPlayer, CStatisticSample.Epoch.ToInt(), 4 ) );
+			elseif ( p_iValueType == CTableData.Invention_Epoch_5.ToInt() ) then
+				sValue = ParseTime( pxStatistic^.GetFirstTimeSampleValue( iPlayer, CStatisticSample.Epoch.ToInt(), 5 ) );
+			elseif(p_iValueType == CMirageClnMgr.EPOCH6)then
+//				sValue = "dummy";
+				sValue = ParseTime(pxStatistic^.GetFirstTimeSampleValue(iPlayer, CStatisticSample.Epoch.ToInt(), 6));
+			else
+				sValue = pxStatistic^.GetSumPos( iPlayer, p_iValueType ).ToString();
+			endif;
+			var ^CStaticCtrl pxNewBG = new CStaticCtrl();
+
+			pxNewBG^.SetSize(p_iWidth-1 * CGameInst.ms_iUIScaleFactor, m_iROWHEIGHT);
+			pxNewBG^.SetPos(p_iX, p_iY+(iRow+1)*m_iROWHEIGHT);
+			pxNewBG^.SetBitmap(pxBGBitmap^.GetBitmap() );
+			pxNewBG^.SetVisible(true);
+			m_apxBG.AddEntry(pxNewBG);
+			AddChild(pxNewBG);
+
+			var ^CStaticCtrl pxNewVal= new CStaticCtrl();
+			pxNewVal^.SetSize(p_iWidth - 1 * CGameInst.ms_iUIScaleFactor, m_iROWHEIGHT);
+			pxNewVal^.SetTextColor( STDTEXTCOLOR);
+			pxNewVal^.SetPos(7 * CGameInst.ms_iUIScaleFactor, 5 * CGameInst.ms_iUIScaleFactor);
+			pxNewVal^.SetTextAlign(0);
+			pxNewVal^.SetText(sValue);
+			pxNewVal^.SetVisible(true);
+			m_apxValues.AddEntry(pxNewVal);
+			pxNewBG^.AddChild(pxNewVal);
+			if ( p_bEndColumn ) then
+				var ^CStaticCtrl pxEndCol = new CStaticCtrl();
+				var ^CCardBitmap pxEndBmp = CGameInst.GetBitmapMgr().GetBlendBitmap( "29, layer statistic_tablecolumnend" );
+				pxEndCol^.SetSize(1 * CGameInst.ms_iUIScaleFactor,m_iROWHEIGHT);
+				pxEndCol^.SetPos(m_iENDCOLPOSX, p_iY+(iRow+1)*m_iROWHEIGHT);
+				pxEndCol^.SetBitmap(pxEndBmp^.GetBitmap());
+				pxEndCol^.SetVisible( true );
+				m_apxColumnEndLine.AddEntry( pxEndCol );
+				AddChild( pxEndCol );
+			endif;
+			iRow++;
+		endfor;
+	endconstructor;
+
+	proc string ParseTime( int p_iTime )
+		if ( p_iTime == -1 ) then
+			return( CLocalizer.Get().Translate("_UI_StatScre_Label_Failed") );
+		else
+			var int		iTime		= p_iTime / 10;
+			var int		iHour 		= iTime / 3600;
+			var int		iMinutes	= ( iTime % 3600 ) / 60;
+			var int		iSeconds	= ( iTime % 60 );
+			var	string	sHour		= CLocalizer.Get().Translate( "_UI_Time_Hour_Short" );
+			var	string	sMinute		= CLocalizer.Get().Translate( "_UI_Time_Minute_Short" );
+			var string	sSeconds	= CLocalizer.Get().Translate( "_UI_Time_Second_Short" );
+			if ( iHour > 0 ) then
+				return( iHour.ToString() + sHour + iMinutes.ToString() + sMinute + iSeconds.ToString() + sSeconds );
+			else
+				return( iMinutes.ToString() + sMinute + iSeconds.ToString() + sSeconds );
+			endif;
+		endif;
+	endproc;
+
+	export destructor()
+		if ( m_pxNameBG != null ) then
+			m_pxNameBG^.Destroy();
+			m_pxNameBG = null;
+		endif;
+		if ( m_pxName != null ) then
+			m_pxName^.Destroy();
+			m_pxName = null;
+		endif;
+		if ( m_pxColumnEndLine != null ) then
+			m_pxColumnEndLine^.Destroy();
+			m_pxColumnEndLine = null;
+		endif;
+		var int iI;
+		for( iI = 0 )cond( iI < m_apxBG.NumEntries() )iter( ++iI )do
+			if ( m_apxBG[iI] != null ) then
+				m_apxBG[iI]^.Destroy();
+				m_apxBG[iI] = null;
+			endif;
+		endfor;
+		for( iI = 0 )cond( iI < m_apxValues.NumEntries() )iter( ++iI )do
+			if ( m_apxValues[iI] != null ) then
+				m_apxValues[iI]^.Destroy();
+				m_apxValues[iI] = null;
+			endif;
+		endfor;
+		for( iI = 0 )cond( iI < m_apxColumnEndLine.NumEntries() )iter( ++iI )do
+			if ( m_apxColumnEndLine[iI] != null ) then
+				m_apxColumnEndLine[iI]^.Destroy();
+				m_apxColumnEndLine[iI] = null;
+			endif;
+		endfor;
+		m_apxBG = 0;
+		m_apxValues = 0;
+		m_apxColumnEndLine = 0;
+	enddestructor;
+
+	export proc void Update()
+	endproc;
+
+	proc int GetQuestBoni(^CQuestMgr.CQuest p_pxQuest)
+		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+		var int iDifficulty=pxLevelInfo^.GetGenericData()["Base/CurrentDifficulty"].ValueI();
+		var int iBoni=p_pxQuest^.GetBoniEasy();
+		if(iDifficulty==1)then
+			iBoni=p_pxQuest^.GetBoniMiddle();
+		elseif(iDifficulty==2)then
+			iBoni=p_pxQuest^.GetBoniHard();
+		endif;
+		return iBoni;
+	endproc;
+	
+endclass;
+
+class CTablesScreen inherit CStaticCtrl
+	
+	export var int		m_iTABLEWIDTH;
+	export var int		m_iTABLEHEIGHT;
+	export var int		m_iTABLESTARTX;
+	export var int		m_iTABLESTARTY;
+
+	var ^CPlayerListScreen	m_pxPlayer;
+	var array ^CTableColumn	m_apxDataList;
+	var int									m_iType;
+
+	var int									m_iColumnPosX;
+	var int									m_iColumnWidth;
+
+	var ^CTableColumn 	m_pxTestColumn;
+
+	export constructor( int p_iType )
+		m_iTABLEWIDTH = 668 * CGameInst.ms_iUIScaleFactor;
+		m_iTABLEHEIGHT = 400 * CGameInst.ms_iUIScaleFactor;
+		m_iTABLESTARTX = 185 * CGameInst.ms_iUIScaleFactor;
+		m_iTABLESTARTY = 25 * CGameInst.ms_iUIScaleFactor;
+	
+		m_pxPlayer =new CPlayerListScreen(false);
+		m_pxPlayer^.SetSize( 170 * CGameInst.ms_iUIScaleFactor, 400 * CGameInst.ms_iUIScaleFactor );
+		m_pxPlayer^.SetPos( 15 * CGameInst.ms_iUIScaleFactor, m_iTABLESTARTY );
+		m_pxPlayer^.SetVisible(true);
+		m_pxPlayer^.Init();
+		AddChild(m_pxPlayer);
+		Init( p_iType );
+		m_iColumnPosX=m_iTABLESTARTX;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc void Update()
+	endproc;
+
+	proc void AddColumn( string p_sName, int p_iType, bool p_bEnd )
+		var string sLabel = CLocalizer.Get().Translate( "_UI_StatScre_Col_" + p_sName );
+		var ^CTableColumn pxNewCol = new CTableColumn( sLabel, p_iType, m_iColumnPosX, m_iTABLESTARTY, m_iColumnWidth, m_iTABLEHEIGHT, p_bEnd );
+		pxNewCol^.SetPos( 0, 0 );
+		pxNewCol^.SetSize(875 * CGameInst.ms_iUIScaleFactor, m_iTABLEHEIGHT);
+		pxNewCol^.SetVisible( true );
+		AddChild( pxNewCol );
+		m_apxDataList.AddEntry( pxNewCol );
+		m_iColumnPosX += m_iColumnWidth;
+	endproc;
+
+	export proc void Init( int p_iType )
+		m_iColumnPosX = m_iTABLESTARTX;
+		var ^CTableColumn pxNewCol = null;
+		if ( p_iType == CStatsView.Overview.ToInt() ) then
+			m_iColumnWidth = m_iTABLEWIDTH / 4;
+			AddColumn( "Economical",			CTableData.Overview_Economical.ToInt(),		false 	);
+			AddColumn( "Units",					CTableData.Overview_Units.ToInt(),			false 	);
+			AddColumn( "Buildings",				CTableData.Overview_Buildings.ToInt(),		false 	);
+			AddColumn( "Invention",				CTableData.Overview_Invention.ToInt(),		true 	);
+		elseif ( p_iType == CStatsView.Economical.ToInt() ) then
+			m_iColumnWidth = m_iTABLEWIDTH / 6;
+			AddColumn( "Food",					CTableData.Economical_Food.ToInt(),			false 	);
+			AddColumn( "Wood",					CTableData.Economical_Wood.ToInt(),			false 	);
+			AddColumn( "Stone",					CTableData.Economical_Stone.ToInt(),		false 	);
+			AddColumn( "Skulls",				CTableData.Economical_Skulls.ToInt(),		false 	);
+			AddColumn( "Workers",				CTableData.Economical_Worker.ToInt(),		false 	);
+			AddColumn( "Tributesend",			CTableData.Economical_Tribute.ToInt(),		true 	);
+		elseif ( p_iType == CStatsView.Military.ToInt() ) then
+			m_iColumnWidth = m_iTABLEWIDTH / 4;
+			AddColumn( "Infantry",				CTableData.Military_Infantry.ToInt(),		false 	);
+			AddColumn( "Animals",				CTableData.Military_Animals.ToInt(),		false 	);
+			AddColumn( "Vehicles",				CTableData.Military_Vehicles.ToInt(),		false	);
+			AddColumn( "Ships",					CTableData.Military_Ships.ToInt(),			true 	);
+		elseif ( p_iType == CStatsView.Buildings.ToInt() ) then
+			m_iColumnWidth = m_iTABLEWIDTH / 3;
+			AddColumn( "Economybuildingsbuilt",	CTableData.Buildings_Economical.ToInt(),	false 	);
+			AddColumn( "Battlebuildingsbuilt",	CTableData.Buildings_Military.ToInt(),		false 	);
+			AddColumn( "Defensebuildingsbuilt",	CTableData.Buildings_Defense.ToInt(), 		true 	);
+		elseif ( p_iType == CStatsView.Fights.ToInt() ) then
+			m_iColumnWidth = m_iTABLEWIDTH / 5;
+			AddColumn( "Unitslost",				CTableData.Fights_UnitsLost.ToInt(), 		false	);
+			AddColumn( "Buildingslost",			CTableData.Fights_BuildingsLost.ToInt(), 	false	);
+			AddColumn( "Enemieskilled",			CTableData.Fights_EnemiesKilled.ToInt(), 	false	);
+			AddColumn( "Buildingsdestroyed", 	CTableData.Fights_BuildingsRazed.ToInt(),	false	);
+			AddColumn( "Animalskilled",			CTableData.Fights_AnimalsKilled.ToInt(),	true	);
+		elseif ( p_iType == CStatsView.Invention.ToInt() ) then
+			m_iColumnWidth = m_iTABLEWIDTH / 5;
+			AddColumn( "Level2",				CTableData.Invention_Epoch_2.ToInt(), true);
+			AddColumn( "Level3",				CTableData.Invention_Epoch_3.ToInt(), true);
+			AddColumn( "Level4",				CTableData.Invention_Epoch_4.ToInt(), true);
+			AddColumn( "Level5",				CTableData.Invention_Epoch_5.ToInt(), true);
+			AddColumn( "Level6",				CMirageClnMgr.EPOCH6, true);
+		elseif(p_iType==CStatsView.Quest.ToInt())then
+			m_iColumnWidth = m_iTABLEWIDTH / 3;
+			AddColumn( "QuestsAll",				CTableData.Quest_QuestPointsAll.ToInt(), true);
+			AddColumn( "QuestsMain",			CTableData.Quest_QuestPointsMain.ToInt(), true);
+			AddColumn( "QuestsBonus",			CTableData.Quest_QuestPointsSub.ToInt(), true);
+		endif;
+	endproc;
+endclass;
+
+class CStatisticScreen inherit CStateUIWnd
+
+	var ^CDesktop				m_pxDesktop;
+	var ^CEndScreen				m_pxEndScreen;
+
+	var ^CTabCtrl				m_pxTabCtrl;
+
+	//var	^CStaticCtrlEx		m_pxBackground;
+
+	var ^CTablesScreen			m_pxOverview;
+	var ^CTablesScreen			m_pxEconomical;
+	var ^CTablesScreen			m_pxMilitary;
+	var ^CTablesScreen			m_pxBuildings;
+	var ^CTablesScreen			m_pxFights;
+	var ^CTablesScreen			m_pxInvention;
+	var ^CTablesScreen			m_pxQuest;
+	var ^CGraphsScreen			m_pxTimeLine;
+
+	var bool					m_bMultiPlayer;
+	var string					m_sReason;
+
+	export const color			STDTEXTCOLOR	= {{ 152, 133, 99, 255 }};
+	export var int				m_iTABCTRLSIZEX;
+	export var int				m_iTABCTRLSIZEY;
+	export var int				m_iSCREENPOSY;
+
+	export constructor(^CEndScreen p_pxEndScreen)
+		m_iTABCTRLSIZEX = 135 * CGameInst.ms_iUIScaleFactor;
+		m_iTABCTRLSIZEY = 27 * CGameInst.ms_iUIScaleFactor;
+		m_iSCREENPOSY = 7 * CGameInst.ms_iUIScaleFactor;
+		m_pxEndScreen = p_pxEndScreen;
+		var ^CLevelInfoClient pxLevelInfo = ^(CGameWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB = ^(pxLevelInfo^.GetGenericData());
+		var string sLevelName = (pxGenericDB^)["Base/LevelName"].Value();
+		m_bMultiPlayer=true;
+		begin GetMultiplayer;
+			var ^CPropDB.CNode pxMapType = pxGenericDB^.FindNode("Base/MapType", false );
+			if(pxMapType!=null)then
+				m_bMultiPlayer=(pxMapType^.Value()=="multiplayer");
+			endif;
+		end GetMultiplayer;
+		if(m_bMultiPlayer && (sLevelName=="Single 01"||
+		sLevelName=="Single 02"||sLevelName=="Single 03"||sLevelName=="Single 04"||
+		sLevelName=="Single 05"||sLevelName=="Single 06"||sLevelName=="Single 07"||
+		sLevelName=="Single 08"||sLevelName=="Single 09"||sLevelName=="Single 10"||
+		sLevelName=="Single 11"||sLevelName=="Single 12"||sLevelName=="Single 13"||
+		sLevelName=="Single 14"||sLevelName=="Single 15"||sLevelName=="Single 16"||
+		sLevelName=="Single B41"||sLevelName=="Single B42"||sLevelName=="Single B43"))then
+			if(!InitFromResource( "UI/StatisticScreen", "StatisticScreenSP" ) ) then
+				return;
+			endif;
+		elseif(m_bMultiPlayer)then
+			if( !InitFromResource( "UI/StatisticScreen", "StatisticScreen" ) ) then
+				return;
+			endif;
+		else
+			if(!InitFromResource( "UI/StatisticScreen", "StatisticScreenSP" ) ) then
+				return;
+			endif;
+		endif;
+		if ( CGameWrap.GetStatisticMgr().HasData() ) then
+			CGameWrap.GetStatisticMgr().PrepareData();
+		endif;
+		m_pxDesktop = CClientWrap.GetDesktop();
+		SetSize(930 * CGameInst.ms_iUIScaleFactor,580 * CGameInst.ms_iUIScaleFactor);
+		SetPos( ( m_pxDesktop^.GetWidth() - GetWidth() ) / 2 , ( m_pxDesktop^.GetHeight() - GetHeight() ) / 2 );
+		var ^CButton pxTmp=cast<CButton>(GetControl("OkayButton"));
+		pxTmp^.SetText("  "+pxTmp^.GetText());
+		pxTmp^.SetTextAlign(0);
+		pxTmp^.m_xOnClick = OnOkay;
+		SetCmd("Commit", OnOkay );
+		AddAccelerator("RETURN,NONE,Commit");
+		m_pxTabCtrl = new CTabCtrl();
+		//m_pxTabCtrl^.SetSize( 875, 420 );
+		m_pxTabCtrl^.SetSize( 875 * CGameInst.ms_iUIScaleFactor, 440 * CGameInst.ms_iUIScaleFactor );
+		m_pxTabCtrl^.SetPos( 0, m_iSCREENPOSY + 10 * CGameInst.ms_iUIScaleFactor );
+		m_pxTabCtrl^.SetVisible( true );
+		AddChild( m_pxTabCtrl );
+		m_pxOverview	= new CTablesScreen( CStatsView.Overview.ToInt() );
+		m_pxOverview^.SetVisible( true );
+		m_pxEconomical	= new CTablesScreen( CStatsView.Economical.ToInt() );
+		m_pxEconomical^.SetVisible( true );
+		m_pxMilitary	= new CTablesScreen( CStatsView.Military.ToInt() );
+		m_pxMilitary^.SetVisible( true );
+		m_pxBuildings	= new CTablesScreen( CStatsView.Buildings.ToInt() );
+		m_pxBuildings^.SetVisible( true );
+		m_pxFights		= new CTablesScreen( CStatsView.Fights.ToInt() );
+		m_pxFights^.SetVisible( true );
+		m_pxInvention	= new CTablesScreen( CStatsView.Invention.ToInt() );
+		m_pxInvention^.SetVisible( true );
+		if(m_bMultiPlayer && (sLevelName=="Single 01"||
+		sLevelName=="Single 02"||sLevelName=="Single 03"||sLevelName=="Single 04"||
+		sLevelName=="Single 05"||sLevelName=="Single 06"||sLevelName=="Single 07"||
+		sLevelName=="Single 08"||sLevelName=="Single 09"||sLevelName=="Single 10"||
+		sLevelName=="Single 11"||sLevelName=="Single 12"||sLevelName=="Single 13"||
+		sLevelName=="Single 14"||sLevelName=="Single 15"||sLevelName=="Single 16"||
+		sLevelName=="Single B41"||sLevelName=="Single B42"||sLevelName=="Single B43"))then
+			m_pxQuest= new CTablesScreen(CStatsView.Quest.ToInt());
+			m_pxQuest^.SetVisible(true);
+		elseif(!m_bMultiPlayer)then
+			m_pxQuest= new CTablesScreen(CStatsView.Quest.ToInt());
+			m_pxQuest^.SetVisible(true);
+		endif;
+		m_pxTimeLine	= new CGraphsScreen( );
+		m_pxTimeLine^.SetVisible( true );
+		m_pxTabCtrl^.AddTab( CLocalizer.Get().Translate( "_UI_StatScre_Tab_Overview" ), m_pxOverview, true);
+		m_pxTabCtrl^.AddTab( CLocalizer.Get().Translate( "_UI_StatScre_Tab_Economical" ), m_pxEconomical, true);
+		m_pxTabCtrl^.AddTab( CLocalizer.Get().Translate( "_UI_StatScre_Tab_Military" ), m_pxMilitary, true);
+		m_pxTabCtrl^.AddTab( CLocalizer.Get().Translate( "_UI_StatScre_Tab_Buildings" ), m_pxBuildings, true);
+		m_pxTabCtrl^.AddTab( CLocalizer.Get().Translate( "_UI_StatScre_Tab_Fights" ), m_pxFights, true);
+		m_pxTabCtrl^.AddTab( CLocalizer.Get().Translate( "_UI_StatScre_Tab_Invention" ), m_pxInvention, true);
+		if(m_bMultiPlayer && (sLevelName=="Single 01"||
+		sLevelName=="Single 02"||sLevelName=="Single 03"||sLevelName=="Single 04"||
+		sLevelName=="Single 05"||sLevelName=="Single 06"||sLevelName=="Single 07"||
+		sLevelName=="Single 08"||sLevelName=="Single 09"||sLevelName=="Single 10"||
+		sLevelName=="Single 11"||sLevelName=="Single 12"||sLevelName=="Single 13"||
+		sLevelName=="Single 14"||sLevelName=="Single 15"||sLevelName=="Single 16"||
+		sLevelName=="Single B41"||sLevelName=="Single B42"||sLevelName=="Single B43"))then
+			m_pxTabCtrl^.AddTab( CLocalizer.Get().Translate( "_UI_StatScre_Tab_Quest" ),m_pxQuest,true);
+		elseif(!m_bMultiPlayer)then
+			m_pxTabCtrl^.AddTab( CLocalizer.Get().Translate( "_UI_StatScre_Tab_Quest" ),m_pxQuest,true);
+		endif;
+		m_pxTabCtrl^.AddTab( CLocalizer.Get().Translate( "_UI_StatScre_Tab_TimeLine" ), m_pxTimeLine, true);
+		m_pxTabCtrl^.SelectTab( 0 );
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc void Update()
+	endproc;
+
+	export proc void Init(string p_sParam)
+	endproc;
+
+	proc bool OnOkay()
+		m_pxEndScreen^.OnCloseStats();
+		Destroy();
+		return true;
+	endproc;
+
+endclass;

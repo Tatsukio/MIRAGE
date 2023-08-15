@@ -1,0 +1,4267 @@
+class CConditionFactory inherit CTriggerMgr.IConditionFactory
+
+	export proc ^CTrigger.ICondition  CreateCondition ( CFourCC p_xType , ref CAttribs p_rxParams )
+		if(p_xType == "TIME") then
+			// >>>>>>>>>>> Timer <<<<<<<<<<<<<
+			return new CConditionTime(p_rxParams);
+		elseif (p_xType == "TRUE") then
+			return new CConditionTrue(p_rxParams);
+		elseif (p_xType == "TIMR") then
+			return new CConditionTimer(p_rxParams);
+		elseif (p_xType == "REGN") then
+			return new CConditionRegion(p_rxParams);
+		//From AyCe
+		elseif (p_xType == "GREG") then
+			return new CConditionGroupRegion(p_rxParams);
+		elseif (p_xType == "CHAT") then
+			return new CConditionChat(p_rxParams);
+		elseif (p_xType == "PLYR") then
+			return new CConditionPlayer(p_rxParams);
+		elseif (p_xType == "PLTR") then
+			return new CConditionTribe(p_rxParams);
+		elseif (p_xType == "OBJP") then
+			return new CConditionObjProps(p_rxParams);
+		elseif (p_xType == "DEAD") then
+			return new CConditionDead(p_rxParams);
+		elseif (p_xType == "DYIN") then
+			return new CConditionDying(p_rxParams);
+
+		elseif (p_xType == "CHKO") then
+			return new CConditionCheckObj(p_rxParams.GetValue("obj_name"), p_rxParams.GetValueInt("obj_count"),
+										  p_rxParams.GetValueInt("player"));
+		elseif (p_xType == "TECH") then
+			return new CConditionTechTree(p_rxParams.GetValue("filter"), p_rxParams.GetValueInt("player"));
+
+		elseif (p_xType == "PLDE") then
+			return new CConditionPlayerDead(p_rxParams);
+		elseif (p_xType == "TSKA") then
+			return new CConditionTaskAbort(p_rxParams);
+		elseif (p_xType == "QUES") then
+			return new CConditionQuest(p_rxParams);
+		elseif (p_xType == "SQEN") then
+			return new CConditionSequenceEnd(p_rxParams);
+		elseif (p_xType == "DSEN") then
+			return new CConditionDlgSceneEnd(p_rxParams);
+		elseif (p_xType == "CVAR") then
+			return new CConditionVars(p_rxParams);
+		elseif(p_xType == "DIPL") then
+			return new CConditionDiplomacy(p_rxParams);
+		elseif(p_xType == "ITEM") then
+			return new CConditionItem(p_rxParams);
+		elseif(p_xType == "BLDG") then
+			return new CConditionBuilding(p_rxParams);
+		elseif(p_xType == "TRIB") then
+			return new CConditionTribute(p_rxParams);
+		elseif(p_xType == "SGHT") then
+			return new CConditionInSight(p_rxParams);
+		elseif(p_xType == "WAYR") then
+			return new CConditionWaypointReached(p_rxParams);
+		elseif(p_xType == "CKGR") then
+			return new CConditionCheckGroup(p_rxParams);
+		elseif(p_xType == "DGBL") then
+			return new CConditionDimGate(p_rxParams);
+		elseif(p_xType == "AIFE") then
+			return new CConditionFightEnd(p_rxParams);
+		elseif(p_xType == "ISFG") then
+			return new CConditionIsFighting(p_rxParams);
+		elseif (p_xType == "UNTT") then
+			return new CUniversalTriggerCondition(p_rxParams);
+		elseif(p_xType == "RTME") then
+			return new CConditionRandomTimer(p_rxParams);
+		endif;
+		return null;
+	endproc;
+
+endclass;
+
+
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+//	EVERY CLASS INHERITED FROM 'ICondition' MUST DEFINE
+// 	A STANDARD-CONSTRUCTOR AND A 'DoKArc(ref CArc p_rxArc)'
+//  METHOD.
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+
+//----------------------------------------------------------
+// Condition:	Time
+//----------------------------------------------------------
+class CConditionTime inherit CTrigger.ICondition
+
+	const int TIMER_ID=117711;
+	var int m_iTimer;
+	var real m_fDuration;
+	var real m_fRemainDuration;
+	var bool m_bShow, m_bCountUp, m_bReset;
+	var bool m_bStarted;
+	var CGameTime m_xStart;
+		
+	export constructor()
+		m_iTimer = -1;
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+		m_fDuration = p_rxArgs.GetValueFloat("duration");
+		m_fRemainDuration=m_fDuration;
+		m_iTimer = -1;
+		m_bShow = p_rxArgs.GetValueInt("show")==1;
+		m_bCountUp = p_rxArgs.GetValueInt("countup")==1;
+		m_bReset = p_rxArgs.GetValueInt("reset")==1;
+		//KLog.LogSpam("MaZi", "ConditionTime : "+m_fDuration.ToString());
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		//KLog.LogSpam("MaZi",GetAttachedTrigger()^.GetName()+ " - OnPush");
+		SetState(0);
+		SetState(1);
+		Invalidate();
+		var bool bRepeat=false;
+		var ^CTrigger pxT = GetAttachedTrigger();
+		if(pxT!=null) then
+			bRepeat=!pxT^.GetFireOnce();
+		endif;
+		if(bRepeat)then
+			//KLog.LogSpam("MaZi", "repeat");
+			m_fRemainDuration=m_fDuration;
+			OnEnabled();
+		else
+			//KLog.LogSpam("MaZi", "disable");
+			OnDisabled();
+		endif;
+
+		return true;
+	endproc;
+
+	proc bool OnEnabled()
+		//KLog.LogSpam("MaZi","OnEnabled");
+		SetState(0);
+		DeleteTimer(TIMER_ID);
+		
+		var CGameTime xInvalid;
+		if(m_xStart == xInvalid) then
+			m_fRemainDuration=m_fDuration;
+		endif;
+		
+		//KLog.LogSpam("MaZi", GetAttachedTrigger()^.GetName()+" ... CreateTimer: "+m_fRemainDuration.ToString());		
+		CreateTimer(TIMER_ID,CGameTimeSpan.OneSecond()*m_fRemainDuration,false);
+		if(m_fRemainDuration==m_fDuration)then
+			m_xStart=CTimeMgr.Get().GetTime();
+		endif;
+		if(m_bShow)then
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			var bitset dwClients = 0ffh;
+			CSrvWrap.SendGenericEvtToClients(dwClients, "Counter\tStart\t"+xNow.ToString()+"\t"+m_fDuration.ToString()+"\t"+m_fRemainDuration.ToString()+"\t"+m_bCountUp.ToString());
+		endif;
+		
+		//--------------------------------
+		/*
+		var int iOwner=-1;
+		var ^CObjTime pxTimeObj=cast<CObjTime>(CSrvWrap.GetObjMgr()^.CreateObj("ObjTime",iOwner));
+		if(pxTimeObj==null)then
+			KLog.LogError("CConditionTime","TimerObj create failed");
+			return true;
+		endif;
+		var CGameTimeSpan xInterval=CGameTimeSpan.OneSecond()*m_fDuration;
+		var bool bRepeat=false;		
+		pxTimeObj^.Start(xInterval,bRepeat);
+		*/
+		return true;
+	endproc;
+	
+	proc bool OnDisabled()
+		//KLog.LogSpam("MaZi","OnDisabled");
+		DeleteTimer(TIMER_ID);
+		if(m_bReset) then
+			m_fRemainDuration = m_fDuration;		
+		else
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			m_fRemainDuration=m_fDuration-(xNow-m_xStart).GetSecondsF();
+		endif;		
+		
+		if(m_bShow)then
+			var bitset dwClients = 0ffh;
+			CSrvWrap.SendGenericEvtToClients(dwClients, "Counter\tStop");
+		endif;
+		return true;
+	endproc;
+	
+	
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="TIME")then
+			if(p_pxNode^.GetVersion()==1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_fDuration;
+				var bool bTmp;
+				(pxArc^) << bTmp;
+				m_bShow=false; m_bCountUp=false; m_bReset=true;
+			elseif(p_pxNode^.GetVersion()==2)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_fDuration;
+				m_bShow=false; m_bCountUp=false; m_bReset=true;
+			elseif(p_pxNode^.GetVersion()>=3)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_fDuration;
+				(pxArc^) << m_fRemainDuration;
+				(pxArc^) << m_bShow;
+				(pxArc^) << m_bCountUp;
+				(pxArc^) << m_bReset;
+				m_xStart.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="TIME";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,3);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_fDuration;
+		var CGameTime xInvalid;
+		if(m_xStart!=xInvalid)then
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			m_fRemainDuration=m_fDuration-(xNow-m_xStart).GetSecondsF();
+			//KLog.LogSpam("MaZi", "saved remain : "+m_fRemainDuration.ToString());
+		endif;		
+		(pxArc^) << m_fRemainDuration;
+		(pxArc^) << m_bShow;
+		(pxArc^) << m_bCountUp;
+		(pxArc^) << m_bReset;
+		m_xStart.DoKArc(pxArc^);
+		pxN^.Close();
+	endproc;
+
+endclass;
+
+class CConditionTrue inherit CTrigger.ICondition
+		
+	export constructor()
+		//SetState(1);
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+		//SetState(1);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		return true;
+	endproc;
+
+	proc bool OnEnabled()
+		SetState(0);
+		SetState(1);
+		Invalidate();
+		return true;
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+	
+	proc void Load(^CUOFReaderNode p_pxNode)
+		super.Load(p_pxNode);
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+	endproc;
+
+endclass;
+
+class CConditionTimer inherit CTrigger.ICondition
+
+	var int m_iTimerID;
+		
+	export constructor()
+		m_iTimerID = -1;
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+		m_iTimerID=p_rxArgs.GetValueInt("timer_id");
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	export proc int GetTimerID()
+		return m_iTimerID;
+	endproc;
+	
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		SetState(0);
+		SetState(1);
+		Invalidate();
+		return true;
+	endproc;
+
+	proc bool OnEnabled()
+		return true;
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="TIMR")then
+			var ^CArc pxArc=^(p_pxNode^.GetArc());
+			(pxArc^) << m_iTimerID;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="TIMR";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,0);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_iTimerID;
+		pxN^.Close();
+	endproc;
+
+endclass;
+
+
+//----------------------------------------------------------
+// Condition:	TechTree
+//----------------------------------------------------------
+class CConditionTechTree inherit CTrigger.ICondition
+
+	var string m_sFilter;
+	var int	   m_iPlayer;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(string p_sFilter, int p_iPlayer)
+		m_sFilter = p_sFilter;
+	endconstructor;
+
+	export destructor()
+		if (CSrvWrap.GetCurLevel()!=null) then
+			var ^CPlayer pxPlayer = CSrvWrap.GetCurLevel()^.GetPlayer(m_iPlayer);
+			if (pxPlayer!=null) then pxPlayer^.Unsubscribe(this); endif;
+		endif;
+	enddestructor;
+
+	export proc bool OnPush(ref CEvtPointer  p_rxEP )
+		CheckState();
+		return true;
+	endproc;
+
+	proc void CheckState()
+		var ^CPlayer pxPlayer = CSrvWrap.GetCurLevel()^.GetPlayer(m_iPlayer);
+		if (pxPlayer==null) then return;  endif;
+		var ^CTechTreeDef pxTTD = ^(pxPlayer^.GetPlayerTechTreeDef());
+		if (pxTTD^.HasFilter(m_sFilter) || pxTTD^.HasFilter("/"+m_sFilter)) then
+			SetState(1);
+			Invalidate();
+			return;
+		endif;
+		SetState(0);
+		Invalidate();
+	endproc;
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+
+	proc bool Initialize()
+		var ^CPlayer pxPlayer = CSrvWrap.GetCurLevel()^.GetPlayer(m_iPlayer);
+		if (pxPlayer==null) then return false; endif;
+		pxPlayer^.Unsubscribe(this);
+		pxPlayer^.Subscribe(this);
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="TTRE")then
+			if(p_pxNode^.GetVersion()==1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_sFilter;
+				(pxArc^) << m_iPlayer;
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="TTRE";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_sFilter;
+		(pxArc^) << m_iPlayer;
+		pxN^.Close();
+	endproc;
+
+endclass;
+
+class CObjFinder
+
+	var CGuid					m_xRgnGuid;
+
+	export var string	m_sType;
+	export var int		m_iOwner;
+
+	export var CGuid	m_xObjGuid;
+	export var string	m_sObjName;
+
+	export var string	m_sObjClass;
+	
+	export var string	m_sObjExcludeClass;
+
+	export var string	m_sCharTribe;
+	export var string	m_sCharCaste;
+	export var int		m_iCharLevel;
+	export var bool		m_bFOOnly;
+
+	export constructor()
+		CheckRegion();
+		m_iOwner=-2;
+		m_sObjName="NA";
+		m_sCharTribe="All";
+		m_sCharCaste="All";
+		m_iCharLevel=-1;
+		m_bFOOnly=false;
+	endconstructor;
+
+	export proc string Dump()
+		var string sT = " >>>> CObjFinder-Dump <<<<\n";
+		sT+= "\tOwner:\t"+m_iOwner.ToString()+"\n";
+		sT+= "\tType:\t"+m_sType+"\n";
+		sT+= "\tObjName:\t"+m_sObjName+"\n";
+		sT+= "\tObjClass:\t"+m_sObjClass+"\n";
+		sT+= "\tObjExcludeClass:\t"+m_sObjExcludeClass+"\n";
+		sT+= "\tCharTribe:\t"+m_sCharTribe+"\n";
+		sT+= "\tCharCaste:\t"+m_sCharCaste+"\n";
+		sT+= "\tCHarLvl:\t"+m_iCharLevel.ToString()+"\n";
+		sT+= ">>>> ++++ <<<<\n";
+		return sT;
+	endproc;
+	
+	export proc void Init(ref CAttribs p_rxParams)
+		Init(p_rxParams, "");
+	endproc;
+	
+	export proc void Init(ref CAttribs p_rxParams, string p_sPrefix)
+		var string sRgnGuid=p_rxParams.GetValue(p_sPrefix+"rgn_guid");
+		if(sRgnGuid!="UniqueWorldRegion")then
+			m_xRgnGuid.FromString(sRgnGuid);
+		endif;
+		CheckRegion();
+		m_sType=p_rxParams.GetValue(p_sPrefix+"obj_type");
+		m_sType.TrimRight('|');
+		m_iOwner=p_rxParams.GetValueInt(p_sPrefix+"obj_owner");
+		m_sObjName=p_rxParams.GetValue(p_sPrefix+"obj_name");
+		if(m_sObjName.IsEmpty())then
+			m_sObjName="NA";
+		endif;
+		var string sObjGuid=p_rxParams.GetValue(p_sPrefix+"obj_guid");
+		if(sObjGuid!="NA")then
+			m_xObjGuid.FromString(sObjGuid);
+		endif;
+		m_sObjClass=p_rxParams.GetValue(p_sPrefix+"obj_class");
+		m_sObjClass.TrimRight('|');
+		m_sObjExcludeClass=p_rxParams.GetValue(p_sPrefix+"exclude_class");
+		m_sObjExcludeClass.TrimRight('|');
+		m_sCharTribe=p_rxParams.GetValue(p_sPrefix+"char_tribe");
+		m_sCharCaste=p_rxParams.GetValue(p_sPrefix+"char_caste");
+		m_iCharLevel=p_rxParams.GetValueInt(p_sPrefix+"char_level");
+	endproc;
+	
+	export proc void Init(ref CPropDB.CNode p_rxNode)
+		var string sRgnGuid=p_rxNode.GetValueS("rgn_guid","UniqueWorldRegion");
+		if(sRgnGuid!="UniqueWorldRegion")then
+			m_xRgnGuid.FromString(sRgnGuid);
+		endif;
+		CheckRegion();
+		m_sType=p_rxNode.GetValueS("obj_type");
+		m_sType.TrimRight('|');
+		m_iOwner=p_rxNode.GetValueI("obj_owner",-2);
+		m_sObjName=p_rxNode.GetValueS("obj_name","NA");
+		if(m_sObjName.IsEmpty())then
+			m_sObjName="NA";
+		endif;
+		var string sObjGuid=p_rxNode.GetValueS("obj_guid","NA");
+		if(sObjGuid!="NA")then
+			m_xObjGuid.FromString(sObjGuid);
+		endif;
+		m_sObjClass=p_rxNode.GetValueS("obj_class","");
+		m_sObjClass.TrimRight('|');
+		m_sObjExcludeClass=p_rxNode.GetValueS("exclude_class","");
+		m_sObjExcludeClass.TrimRight('|');
+		m_sCharTribe=p_rxNode.GetValueS("char_tribe","All");
+		m_sCharCaste=p_rxNode.GetValueS("char_caste","All");
+		m_iCharLevel=p_rxNode.GetValueI("char_level",-1);
+	endproc;
+	
+	export proc void SetRegion(CGuid p_xGuid)
+		m_xRgnGuid=p_xGuid;
+		CheckRegion();
+	endproc;
+	
+	export proc ^CRegion GetRegion()
+		var ^CRegion pxR=CSrvWrap.GetRegionMgr().GetRegionByGuid(m_xRgnGuid);
+		return pxR;
+	endproc;
+	
+	/*export proc bool MakeQuery(ref CObjList po_rxObjs)
+		return MakeQuery(po_rxObjs, true);
+	endproc;*/
+	
+	export proc bool MakeQuery(ref CObjList po_rxObjs, bool p_bOnlyFO)
+		m_bFOOnly=p_bOnlyFO;
+		return MakeQuery(po_rxObjs);
+	endproc;
+	
+	export proc bool MakeQuery(ref CObjList po_rxObjs/*, bool p_bExtractGroups*/)
+		po_rxObjs.Clear();
+		var ^CRegion pxRgn=GetRegion();
+		if(pxRgn==null)then
+			return false;
+		endif;
+		if(m_sObjName!="NA")then
+			var ^CGameObj pxObj=CSrvWrap.GetObjMgr()^.GetObjByGuid(m_xObjGuid);
+			if((pxObj==null) && (!m_sObjName.IsEmpty()))then
+				//L KLog.LogSpam("MaMa","ObjName: "+m_sObjName);
+				pxObj=CSrvWrap.GetObjMgr()^.GetObjByName(m_sObjName);
+			endif;
+			if(pxObj==null)then return false; endif;
+			var CObjList xGroupObjs;
+			if(pxObj^.GetType()=="GROU") then
+				var ^CGroupObj pxGroup = cast<CGroupObj>(pxObj);
+				var int i, iC = pxGroup^.NumMembers();
+				for(i=0) cond(i<iC) iter(++i)do
+					var CObjHndl xHndl = pxGroup^.GetMember(i);
+					if(xHndl.IsValid()) then
+						xGroupObjs.Include(xHndl);
+					endif;
+				endfor;
+			else
+				xGroupObjs.Include(pxObj^.GetHandle());
+			endif;
+			var int i, iC = xGroupObjs.NumEntries();
+			for(i=0) cond(i<iC) iter(++i)do
+				var ^CGameObj pxO = xGroupObjs[i].GetObj();
+				if(pxO==null || !pxRgn^.IsObjectInRegion(pxO^.GetHandle()))then 
+					xGroupObjs.DeleteEntry(i--); --iC;
+				endif;
+			endfor;
+			po_rxObjs.Include(xGroupObjs);
+			return true;
+		else
+			var CObjQuery xQ;
+			xQ.SetRegion(pxRgn^.GetHandle());
+			if(!m_sType.IsEmpty() && (m_sType.Find("All")<0))then
+				var array string asTok;
+				m_sType.Split(asTok,"|",true);
+				var int i, iC=asTok.NumEntries();
+				for(i=0) cond(i<iC) iter(++i)do
+					xQ.SetType(asTok[i], i!=0);
+				endfor;
+			endif;
+			if(m_iOwner!=-2)then
+				xQ.SetOwner(m_iOwner);
+			endif;
+			if(!m_sObjClass.IsEmpty() && (m_sObjClass!="NA"))then
+//				xQ.SetClass(m_sObjClass);
+				var array string asClass;
+				m_sObjClass.Split(asClass,"|",true);
+				var int i, iC=asClass.NumEntries();
+				for(i=0)cond(i<iC)iter(++i)do
+					xQ.SetClass(asClass[i], i!=0);
+				endfor;
+			endif;
+			if(!m_sObjExcludeClass.IsEmpty() && (m_sObjExcludeClass!="NA"))then
+				var CObjQuery xExclusionQ;
+				xExclusionQ.ClearClasses();
+				xExclusionQ.SetRegion(pxRgn^.GetHandle());
+				if(m_iOwner!=-2)then
+					xExclusionQ.SetOwner(m_iOwner);
+				endif;
+				var CObjList xExclusionL;
+				var array string asTok;
+				m_sObjExcludeClass.Split(asTok,"|",true);
+				var int i, iC=asTok.NumEntries();
+				for(i=0) cond(i<iC) iter(++i)do
+//					CMirageSrvMgr.Debug("asTok["+i.ToString()+"]: '"+(asTok[i]).ToString()+"'");
+					xExclusionQ.SetClass(asTok[i], i!=0);
+				endfor;
+				if(xExclusionQ.Execute(xExclusionL))then
+					xQ.Exclude(xExclusionL);
+				endif;
+			endif;
+			var CObjList xTmp;
+			if(!xQ.Execute(xTmp))then return false; endif;
+			// check character specific attribs
+			var string sCaste=m_sCharCaste;sCaste.MakeLower();
+			var bool bCheckTribe=(m_sCharTribe!="All");
+			var bool bCheckCaste=(m_sCharCaste!="All");
+			var bool bCheckLevel=(m_iCharLevel!=-1);
+			if((m_sType.Find("CHTR")>=0)&&(bCheckTribe||bCheckCaste||bCheckLevel))then
+				var int i,iC=xTmp.NumEntries();
+				//L KLog.LogSpam("MaMa","Check "+iC.ToString()+" objects");
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CCharacter pxChar=cast<CCharacter>(xTmp[i].GetObj());
+					if(pxChar==null)then /*KLog.LogSpam("MaMa","not a char: "+i.ToString());*/ continue; endif;
+					if(bCheckTribe && m_sCharTribe!=pxChar^.GetTribeName())then /*KLog.LogSpam("MaMa",i.ToString()+": "+m_sCharTribe+"!="+pxChar^.GetTribeName());*/ continue; endif;
+					if(bCheckCaste && sCaste!=pxChar^.GetCaste())then /*KLog.LogSpam("MaMa",i.ToString()+": "+m_sCharCaste+"!="+pxChar^.GetCaste());*/ continue; endif;
+					if(bCheckLevel && m_iCharLevel>pxChar^.GetLevel())then /*KLog.LogSpam("MaMa",i.ToString()+": "+m_iCharLevel.ToString()+">"+pxChar^.GetLevel().ToString());*/ continue; endif;
+					//L KLog.LogSpam("MaMa",i.ToString()+" passed all");
+					po_rxObjs.Include(xTmp[i]);
+				endfor;
+			else
+				if(m_bFOOnly)then
+					var int i, iC = xTmp.NumEntries();
+					for(i=0)cond(i<iC)iter(++i)do
+						var ^CFightingObj pxFO=cast<CFightingObj>(xTmp[i].GetObj());
+						if(pxFO==null)then
+							xTmp.DeleteEntry(i--);
+							--iC;
+						endif;
+					endfor;
+				elseif(m_sType.Find("All")!=-1) then
+					var int i, iC = xTmp.NumEntries();
+					for(i=0) cond(i<iC) iter(++i)do
+						var ^CGameObj pxO = xTmp[i].GetObj();
+						if(pxO^.GetType()=="OTHR" || cast<CFood>(pxO)!=null)then
+							xTmp.DeleteEntry(i--);
+							--iC;
+						endif;
+					endfor;
+				endif;
+				po_rxObjs=xTmp;
+			endif;
+			var int i, iC = po_rxObjs.NumEntries();
+			for(i=0) cond(i<iC) iter(++i)do
+				var ^CGameObj pxO = po_rxObjs[i].GetObj();
+				if(cast<CVirtualProduceUnit>(pxO)!=null) then
+					po_rxObjs.DeleteEntry(i--);
+					--iC;
+				endif;
+			endfor;
+			//if(p_bExtractGroups) then
+				var CObjList xGroupObjs;
+				iC = po_rxObjs.NumEntries();
+				for(i=0) cond(i<iC) iter(++i)do
+					var ^CGameObj pxO = po_rxObjs[i].GetObj();
+					if(pxO!=null && pxO^.GetType()=="GROU") then
+						var ^CGroupObj pxGroup = cast<CGroupObj>(pxO);
+						if(pxGroup!=null) then
+							var int j, iJC = pxGroup^.NumMembers();
+							for(j=0) cond(j<iJC) iter(++j)do
+								xGroupObjs.Include(pxGroup^.GetMember(j));
+							endfor;
+						endif;
+						po_rxObjs.DeleteEntry(i--); --iC;
+					endif;
+				endfor;
+				po_rxObjs.Include(xGroupObjs);
+			//endif;
+			return (po_rxObjs.NumEntries()!=0);
+		endif;
+	endproc;
+
+	export proc void DoKArc(ref CArc p_rxArc)
+		var int iVersion=3;
+		p_rxArc << iVersion;
+		if(iVersion==1)then
+			p_rxArc << m_sType;
+			p_rxArc << m_iOwner;
+
+			p_rxArc << m_xObjGuid;
+			p_rxArc << m_sObjName;
+
+			p_rxArc << m_sObjClass;
+		elseif(iVersion==2)then
+			p_rxArc << m_xRgnGuid;
+
+			p_rxArc << m_sType;
+			p_rxArc << m_iOwner;
+
+			p_rxArc << m_xObjGuid;
+			p_rxArc << m_sObjName;
+			p_rxArc << m_sObjClass;
+
+			p_rxArc << m_sCharTribe;
+			p_rxArc << m_sCharCaste;
+			p_rxArc << m_iCharLevel;
+		elseif(iVersion==3)then
+			p_rxArc << m_xRgnGuid;
+
+			p_rxArc << m_sType;
+			p_rxArc << m_iOwner;
+
+			p_rxArc << m_xObjGuid;
+			p_rxArc << m_sObjName;
+			p_rxArc << m_sObjClass;
+
+			p_rxArc << m_sCharTribe;
+			p_rxArc << m_sCharCaste;
+			p_rxArc << m_iCharLevel;
+
+			p_rxArc << m_sObjExcludeClass;
+		endif;
+		if(p_rxArc.Reading())then
+			CheckRegion();
+		endif;
+		m_sType.TrimRight('|');
+	endproc;
+
+	proc void CheckRegion()
+		var ^CRegion pxRgn=CSrvWrap.GetRegionMgr().GetRegionByGuid(m_xRgnGuid);
+		if(pxRgn==null)then
+			var ^CRegion pxRgn=CSrvWrap.GetRegionMgr().GetRegion(CSrvWrap.GetRegionMgr().GetWorldRgnHndl());
+			if(pxRgn!=null)then
+				m_xRgnGuid=pxRgn^.GetGUID();
+			endif;
+		endif;
+	endproc;
+	
+	export proc bool Contains(CObjHndl p_xHndl) 
+		if(!p_xHndl.IsValid())then return false; endif;
+		var ^CRegion pxRgn=GetRegion();
+		if(pxRgn==null)then return false; endif;
+		if(!pxRgn^.IsObjectInRegion(p_xHndl))then return false; endif;
+		var ^CGameObj pxSubject=p_xHndl.GetObj();
+		if(m_sObjName!="NA")then
+			var ^CGameObj pxObj=CSrvWrap.GetObjMgr()^.GetObjByGuid(m_xObjGuid);
+			if(pxSubject^.GetGuid()==m_xObjGuid)then
+				return true;
+			elseif(pxSubject^.GetName()==m_sObjName)then
+				return true;
+			else
+				return false;
+			endif;
+		endif;
+		var bool bFound=true;
+		if(!m_sType.IsEmpty())then
+			var array string asTok;
+			m_sType.Split(asTok,"|",true);
+			if(asTok.FindEntry("All")==-1)then
+				bFound=(asTok.FindEntry(pxSubject^.GetType().AsString())!=-1);
+			endif;
+		endif;
+		if(bFound && m_iOwner!=-2)then
+			bFound=(m_iOwner==pxSubject^.GetOwner());
+		endif;
+		if(bFound && !m_sObjClass.IsEmpty() && (m_sObjClass!="NA"))then
+//			bFound=(m_sObjClass==pxSubject^.GetClassName());
+//			bFound=(m_sObjClass.Find(pxSubject^.GetClassName())!=-1);
+			var array string asClass;
+			m_sObjClass.Split(asClass,"|",true);
+			bFound=(asClass.FindEntry(pxSubject^.GetClassName())!=-1);
+		endif;
+		if(bFound && !m_sObjExcludeClass.IsEmpty() && (m_sObjExcludeClass!="NA"))then
+			var array string asTok;
+			m_sObjExcludeClass.Split(asTok,"|",true);
+			bFound=(asTok.FindEntry(pxSubject^.GetClassName())==-1);
+		endif;
+		return bFound;
+	endproc;
+endclass;
+
+//----------------------------------------------------------
+// Condition:	Region
+// TODO
+//----------------------------------------------------------
+class CConditionObjFinder inherit CTrigger.ICondition
+
+	export var CObjFinder	m_xObjFinder;
+	export var CObjList		m_xResultObjects;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(ref CGuid p_rxRgnGuid)
+		m_xObjFinder.SetRegion(p_rxRgnGuid);
+		MakeSubscription();
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxParams)
+		m_xObjFinder.Init(p_rxParams);
+		MakeSubscription();
+	endconstructor;
+
+	export destructor()
+		var ^CRegion pxRgn=m_xObjFinder.GetRegion();
+		if(pxRgn!=null)then
+			pxRgn^.Unsubscribe(this);
+		endif;
+	enddestructor;
+
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+
+	proc bool Initialize()
+		MakeSubscription();
+		CheckState();
+		Invalidate();
+		return true;
+	endproc;
+
+	proc void MakeSubscription()
+		var ^CRegion pxRgn=m_xObjFinder.GetRegion();
+		if(pxRgn!=null)then
+			pxRgn^.Unsubscribe(this);
+			pxRgn^.Subscribe(this);
+		else
+//			CSrvWrap.LogWarn("Conditions", "Failed to subscribe Region");
+		endif;
+	endproc;
+
+	export proc void CheckState()
+		m_xObjFinder.MakeQuery(m_xResultObjects);
+	endproc;
+
+	export proc bool OnPush (ref CEvtPointer p_rxEP)
+		CheckState();
+		return true;
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="OBFR")then
+			if(p_pxNode^.GetVersion()==1) then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				m_xObjFinder.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	export proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="OBFR";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		m_xObjFinder.DoKArc(pxArc^);
+		pxN^.Close();
+	endproc;
+
+endclass;
+
+//----------------------------------------------------------
+// Condition:	Region
+// TODO
+//----------------------------------------------------------
+class CConditionRegion inherit CConditionObjFinder
+
+	var string			m_sCount;
+	var bool				m_bFOOnly;
+	var ^CGroupObj	m_pxGroupObj;
+	var CObjList		m_xGroupObjList;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(ref CGuid p_rxRgnGuid)
+		m_xObjFinder.SetRegion(p_rxRgnGuid);
+		MakeSubscription();
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxParams)
+		m_xObjFinder.Init(p_rxParams);
+		MakeSubscription();
+		m_sCount = p_rxParams.GetValue("obj_count");
+		m_bFOOnly = p_rxParams.GetValueInt("only_fo")==1;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	proc void CheckState()
+		SetGroupObjList();
+//		m_xObjFinder.MakeQuery(m_xResultObjects);
+		m_xObjFinder.MakeQuery(m_xResultObjects,m_bFOOnly);
+//		if(!m_xObjFinder.MakeQuery(m_xResultObjects))then
+//			SetState(0);
+//			Invalidate();
+//			return;
+//		endif;
+		if(m_xGroupObjList.NumEntries() > 0 && m_xResultObjects.NumEntries() > 0)then
+			var int i,iC= m_xGroupObjList.NumEntries();
+			var int iCounter;
+			var bool bNotInList = false;
+			for(i=0)cond(i<iC)iter(++i)do
+				iCounter = m_xResultObjects.FindEntry(m_xGroupObjList[i]);
+				if (iCounter == -1) then
+					bNotInList = true;
+				endif;
+			endfor;
+			if(bNotInList == false) then
+				SetState(1);
+				Invalidate();
+				return;
+			endif;
+		elseif(CHelper.Compare(m_xResultObjects.NumEntries(), m_sCount)) then
+			SetState(1);
+			Invalidate();
+			return;
+		endif;
+		SetState(0);
+		Invalidate();
+	endproc;
+
+	proc void SetGroupObjList()
+		if (m_xObjFinder.m_sType == "GROU") then
+			var CGuid xG = m_xObjFinder.m_xObjGuid;
+			var ^CGameObj pxO = CSrvWrap.GetObjMgr()^.GetObjByGuid(xG);
+			if(pxO != null) then
+				var CObjHndl xObjHandle = pxO^.GetHandle();
+				m_pxGroupObj = cast<CGroupObj>(xObjHandle.GetObj());
+				if (m_pxGroupObj != null) then
+					var int i,iC = m_pxGroupObj^.NumMembers();
+					for(i=0)cond(i<iC)iter(++i)do
+						m_xGroupObjList.Include(m_pxGroupObj^.GetMember(i));
+					endfor;
+				endif;
+			endif;
+			m_xObjFinder.m_sType = "ALL";
+		endif;
+	endproc;
+	
+	proc bool OnEnabled()
+		if(m_sCount.Find("$(")>=0) then
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+			pxLevelInfo^.Unsubscribe(this);
+			pxLevelInfo^.Subscribe(this);
+			
+			var ^CUserProfile pxP = CSrvWrap.GetCurUserProfile();
+			if(pxP!=null) then
+				pxP^.Unsubscribe(this);
+				pxP^.Subscribe(this);
+			endif;
+		endif;
+		MakeSubscription();
+		CheckState();
+		return true;
+	endproc;
+	
+	proc bool OnDisabled()
+		if(m_sCount.Find("$(")>=0) then
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+			pxLevelInfo^.Unsubscribe(this);
+			
+			var ^CUserProfile pxP = CSrvWrap.GetCurUserProfile();
+			if(pxP!=null) then
+				pxP^.Unsubscribe(this);
+			endif;
+		endif;
+		var ^CRegion pxRgn=m_xObjFinder.GetRegion();
+		if(pxRgn!=null)then
+			pxRgn^.Unsubscribe(this);
+		endif;
+		SetState(0);
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="REGN")then
+			if(p_pxNode^.GetVersion()==1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				var int iCount;
+				(pxArc^) << iCount;
+				m_sCount=iCount.ToString();
+				(pxArc^) << m_xObjFinder.m_iOwner;
+				if(m_xObjFinder.m_iOwner==-1)then
+					m_xObjFinder.m_iOwner=-2;
+				endif;
+				(pxArc^) << m_xObjFinder.m_sCharTribe;
+				(pxArc^) << m_xObjFinder.m_sCharCaste;
+				m_xObjFinder.m_sCharCaste=m_xObjFinder.m_sCharCaste.Left(3);
+				(pxArc^) << m_xObjFinder.m_iCharLevel;
+				(pxArc^) << m_xObjFinder.m_sType;
+
+				(pxArc^) << m_xObjFinder.m_xObjGuid;
+				var bool bSpecifiedObj;
+				(pxArc^) << bSpecifiedObj;
+				if(!bSpecifiedObj)then
+					m_xObjFinder.m_sObjName="NA";
+				else
+					m_xObjFinder.m_sObjName="";
+				endif;
+				(pxArc^) << m_xObjFinder.m_sObjClass;
+
+				var CGuid xGuid;
+				(pxArc^) << xGuid;
+				m_xObjFinder.SetRegion(xGuid);
+			elseif(p_pxNode^.GetVersion()==2)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				var CGuid xGuid;
+				(pxArc^) << xGuid;
+				m_xObjFinder.SetRegion(xGuid);
+				var int iCount;
+				(pxArc^) << iCount;
+				m_sCount=iCount.ToString();
+
+				(pxArc^) << m_xObjFinder.m_sCharTribe;
+				(pxArc^) << m_xObjFinder.m_sCharCaste;
+				(pxArc^) << m_xObjFinder.m_iCharLevel;
+				m_xObjFinder.DoKArc(pxArc^);
+			elseif (p_pxNode^.GetVersion()==3) then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				var CGuid xGuid;
+				(pxArc^) << xGuid;
+				m_xObjFinder.SetRegion(xGuid);
+				(pxArc^) << m_sCount;
+				(pxArc^) << m_xObjFinder.m_sCharTribe;
+				(pxArc^) << m_xObjFinder.m_sCharCaste;
+				(pxArc^) << m_xObjFinder.m_iCharLevel;
+				m_xObjFinder.DoKArc(pxArc^);
+			elseif (p_pxNode^.GetVersion()==4) then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_sCount;
+				m_xObjFinder.DoKArc(pxArc^);
+			elseif (p_pxNode^.GetVersion()==5) then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_sCount;
+			endif;
+		elseif(p_pxNode^.GetType()=="onfo")then
+			var ^CArc pxArc=^(p_pxNode^.GetArc());
+			if(p_pxNode^.GetVersion()==1)then
+				(pxArc^) << m_bFOOnly;
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="REGN";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,5);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_sCount;
+		pxN^.Close();
+		xF="onfo"; // Henry: for finding only fighting objects
+		var int iVersion=1;
+		pxN=p_pxNode^.AddSubChunk(xF,iVersion);
+		pxArc=^(pxN^.GetArc());
+		if(iVersion>=1)then
+			(pxArc^) << m_bFOOnly;
+		endif;
+		pxN^.Close();
+	endproc;
+
+endclass;
+
+//----------------------------------------------------------
+//From AyCe
+// Condition:	GroupRegion
+// TODO
+//----------------------------------------------------------
+class CConditionGroupRegion inherit CConditionObjFinder
+
+	var string				m_sCount;
+	var ^CGroupObj		m_pxGroupObj;
+	var CObjHndl			m_xGroup;
+	var CObjList			m_xOwnList;
+	var CObjList			m_xResultList;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(ref CGuid p_rxRgnGuid)
+		m_xObjFinder.SetRegion(p_rxRgnGuid);
+		MakeSubscription();
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxParams)
+
+		var CGuid xG; xG.FromString(p_rxParams.GetValue("group"));
+		var ^CGameObj pxO = CSrvWrap.GetObjMgr()^.GetObjByGuid(xG);
+		if(pxO!=null) then
+			m_xGroup = pxO^.GetHandle();
+		endif;
+
+		m_xObjFinder.Init(p_rxParams);
+		MakeSubscription();
+		m_sCount	= p_rxParams.GetValue("obj_count");
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	proc void CheckState()
+		/*
+		* 1. Init own list and list of potential group
+		* 2. If the ObjSel is a Group, query all objects of the group
+		* 3. Otherwise query the specified object(s)
+		* 4. Cycle through group, count number of equal objects
+		* 5. Compare and return
+		*/
+		// 1. Init own list and list of potential group
+		m_xResultObjects.Clear();
+		m_xOwnList.Clear();
+		m_xResultList.Clear();
+		var ^CGroupObj pxGO = cast<CGroupObj>(m_xGroup.GetObj());
+		if(pxGO!=null) then
+			var int i,iC = pxGO^.NumMembers();
+			var CObjHndl xOH;
+			for(i=0)cond(i<iC)iter(++i)do
+				xOH = pxGO^.GetMember(i);
+				if(xOH.IsValid())then
+					m_xOwnList.AddEntry(xOH);
+				endif;
+			endfor;
+		endif;
+		if (m_xObjFinder.m_sType == "GROU") then
+			// 2. If the ObjSel is a Group, query all objects of the group
+			var CGuid xG = m_xObjFinder.m_xObjGuid;
+			var ^CGameObj pxO = CSrvWrap.GetObjMgr()^.GetObjByGuid(xG);
+			if(pxO != null) then
+				var CObjHndl xObjHandle = pxO^.GetHandle();
+				m_pxGroupObj = cast<CGroupObj>(xObjHandle.GetObj());
+				if (m_pxGroupObj != null) then
+					var int i,iC = m_pxGroupObj^.NumMembers();
+					var CObjHndl xOH;
+					for(i=0)cond(i<iC)iter(++i)do
+						xOH = m_pxGroupObj^.GetMember(i);
+						if(xOH.IsValid())then
+							m_xResultList.AddEntry(xOH);
+						endif;
+					endfor;
+				endif;
+			endif;
+			// m_xObjFinder.m_sType = "ALL";
+		else
+			// 3. Otherwise query the specified object(s)
+			m_xObjFinder.MakeQuery(m_xResultList);
+		endif;
+		var int iC1 = m_xOwnList.NumEntries();
+		var int iC2 = m_xResultList.NumEntries();
+		// No need for any comparing when one list is empty
+		if(iC1 > 0 && iC2 > 0) then
+			// own list should always have less entries
+			if(iC1 > iC2) then
+				var CObjList xTempList = m_xResultList;
+				m_xResultList = m_xOwnList;
+				m_xOwnList = xTempList;
+				// ok this is for showing off only...
+				iC2 += iC1;
+				iC1 = iC2 - iC1;
+				iC2 -= iC1;
+				// ...but it does the trick!
+			endif;
+			var int i;
+			var CObjHndl xObj;
+			// 4. Cycle through group, count number of equal objects
+			for(i=0)cond(i<iC1)iter(++i)do
+				xObj = m_xOwnList[i];
+				if(m_xResultList.FindEntry(xObj) != -1)then
+					m_xResultObjects.AddEntry(xObj);
+				endif;
+			endfor;
+		endif;
+
+		// 5. Compare and return
+		if(CHelper.Compare(m_xResultObjects.NumEntries(), m_sCount)) then
+			SetState(1);
+		else
+			SetState(0);
+		endif;
+		Invalidate();
+
+
+		// OLD CODE
+
+		//SetGroupObjList();
+		/*m_xObjFinder.MakeQuery(m_xResultObjects);
+		if (m_xGroupObjList.NumEntries() > 0 && m_xResultObjects.NumEntries() > 0) then 
+			var int i,iC= m_xGroupObjList.NumEntries();
+			var int iCounter;
+			var bool bNotInList = false;
+			
+			for(i=0)cond(i<iC)iter(++i)do
+				iCounter = m_xResultObjects.FindEntry(m_xGroupObjList[i]);
+				if (iCounter == -1) then
+					bNotInList = true;
+				endif;
+			endfor;
+			if(bNotInList == false) then
+				SetState(1);
+				Invalidate();
+				return;
+			endif;
+		elseif(CHelper.Compare(m_xResultObjects.NumEntries(), m_sCount)) then
+			SetState(1);
+			Invalidate();
+			return;
+		endif;
+		SetState(0);
+		Invalidate();*/
+	endproc;
+	
+	proc bool OnEnabled()
+		CSrvWrap.GetObjMgr()^.UnsubscribeAll(this);
+		if(m_sCount.Find("$(")>=0) then
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+			pxLevelInfo^.Unsubscribe(this);
+			pxLevelInfo^.Subscribe(this);
+			
+			var ^CUserProfile pxP = CSrvWrap.GetCurUserProfile();
+			if(pxP!=null) then
+				pxP^.Unsubscribe(this);
+				pxP^.Subscribe(this);
+			endif;
+		endif;
+		MakeSubscription();
+		CheckState();
+		CSrvWrap.GetObjMgr()^.Subscribe(m_xGroup, this);
+		if(m_pxGroupObj != null)then
+			CSrvWrap.GetObjMgr()^.Subscribe(m_pxGroupObj^.GetHandle(), this);
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnDisabled()
+		CSrvWrap.GetObjMgr()^.UnsubscribeAll(this);
+		if(m_sCount.Find("$(")>=0) then
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+			pxLevelInfo^.Unsubscribe(this);
+			
+			var ^CUserProfile pxP = CSrvWrap.GetCurUserProfile();
+			if(pxP!=null) then
+				pxP^.Unsubscribe(this);
+			endif;
+		endif;
+		var ^CRegion pxRgn=m_xObjFinder.GetRegion();
+		if(pxRgn!=null)then
+			pxRgn^.Unsubscribe(this);
+		endif;
+		SetState(0);
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="GREG")then
+			var ^CArc pxArc=^(p_pxNode^.GetArc());
+			(pxArc^) << m_sCount;
+			m_xGroup.DoKArc(pxArc^);
+
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="GREG";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,0);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_sCount;
+		m_xGroup.DoKArc(pxArc^);
+		pxN^.Close();
+	endproc;
+
+endclass;
+
+
+//----------------------------------------------------------
+// Condition:	Player
+//----------------------------------------------------------
+class CConditionPlayer inherit CTrigger.ICondition
+
+	var int		m_iPlayerID;
+	var	string	m_sAttrib;
+	var string	m_sValue;
+
+	export constructor()
+
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+		m_iPlayerID = p_rxArgs.GetValueInt("player_id");
+		m_sAttrib = p_rxArgs.GetValue("attrib_name");
+		m_sValue = p_rxArgs.GetValue("attrib_value");
+	endconstructor;
+
+	export destructor()
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if (pxLevel!=null) then
+			var ^CPlayer pxPlayer = pxLevel^.GetPlayer(m_iPlayerID);
+			if (pxPlayer != null) then
+				pxPlayer^.Unsubscribe(this);
+			endif;
+		endif;
+	enddestructor;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		CheckState();
+		return true;
+	endproc;
+
+	proc void CheckState()
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CPlayer pxPlayer = pxLevel^.GetPlayer(m_iPlayerID);
+		if (pxPlayer != null ) then
+			var ^CAttribs pxAttr = pxPlayer^.GetAttribs();
+			if (pxAttr != null) then
+				var int iVal = pxAttr^.GetValueInt(m_sAttrib);
+				if (CHelper.Compare(iVal, m_sValue)) then
+					SetState(1);
+					Invalidate();
+					return;
+				endif;
+			endif;
+		endif;
+		SetState(0);
+		Invalidate();
+	endproc;
+
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+
+	proc bool Initialize()
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CPlayer pxPlayer = pxLevel^.GetPlayer(m_iPlayerID);
+		if (pxPlayer != null) then
+			pxPlayer^.Unsubscribe(this);
+			pxPlayer^.Subscribe(this);
+		endif;
+		
+		if(m_sValue.Find("$(")>=0) then
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+			pxLevelInfo^.Unsubscribe(this);
+			pxLevelInfo^.Subscribe(this);
+			
+			var ^CUserProfile pxP = CSrvWrap.GetCurUserProfile();
+			if(pxP!=null) then
+				pxP^.Unsubscribe(this);
+				pxP^.Subscribe(this);
+			endif;
+		endif;
+		CheckState();
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="PLAY")then
+			if(p_pxNode^.GetVersion()==1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_iPlayerID;
+				(pxArc^) << m_sAttrib;
+				var int iDummy;
+				(pxArc^) << iDummy;
+				var bool bDummy;
+				(pxArc^) << bDummy;
+			elseif(p_pxNode^.GetVersion()==2)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_iPlayerID;
+				(pxArc^) << m_sAttrib;
+				(pxArc^) << m_sValue;
+				var bool bDummy;
+				(pxArc^) << bDummy;
+			elseif(p_pxNode^.GetVersion()==3)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_iPlayerID;
+				(pxArc^) << m_sAttrib;
+				(pxArc^) << m_sValue;
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="PLAY";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,3);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_iPlayerID;
+		(pxArc^) << m_sAttrib;
+		(pxArc^) << m_sValue;
+		pxN^.Close();
+	endproc;
+
+endclass;
+
+//----------------------------------------------------------
+// Condition:	Tribe
+//----------------------------------------------------------
+class CConditionTribe inherit CTrigger.ICondition
+
+	var int			m_iPlayerID;
+	var string	m_sTribe;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+		m_iPlayerID = p_rxArgs.GetValueInt("player_id");
+		m_sTribe = p_rxArgs.GetValue("tribe_name");
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		CheckState();
+		return true;
+	endproc;
+
+	proc void CheckState()
+		var ^CBasePlayer pxBPlayer=CBasePlayer.GetPlayer(m_iPlayerID);
+		if(pxBPlayer==null)then return; endif;
+		if(pxBPlayer^.m_sTribe==m_sTribe)then
+			SetState(1);
+			Invalidate();
+			return;
+		endif;
+		SetState(0);
+		Invalidate();
+	endproc;
+
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+
+	proc bool Initialize()
+		CheckState();
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="PLTR")then
+			if(p_pxNode^.GetVersion()>=1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_iPlayerID;
+				(pxArc^) << m_sTribe;
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="PLTR";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_iPlayerID;
+		(pxArc^) << m_sTribe;
+		pxN^.Close();
+	endproc;
+
+endclass;
+
+
+//----------------------------------------------------------
+// Condition:	ObjProps
+//----------------------------------------------------------
+class CConditionObjProps inherit CTrigger.ICondition
+
+	var string				m_sMod;
+	var string				m_sAttribName;
+	var string				m_sAttribDiv;
+	var int						m_iValue;
+//	var int						m_iTimerID;
+	var CObjList			m_xSubscribed;
+	var CObjFinder		m_xObjFinder;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxAttr)
+		m_sAttribName = p_rxAttr.GetValue("attrib_name");
+		m_sAttribDiv  = p_rxAttr.GetValue("attrib_max");
+		m_xObjFinder.Init(p_rxAttr);
+		var string sValMod = p_rxAttr.GetValue("attrib_value");
+
+		sValMod.TrimLeft();
+		var char c=sValMod.GetAt(0);
+		while(c=='<'||c=='>'||c=='=')do
+			m_sMod+=c;
+			sValMod.Delete(0);
+			c=sValMod.GetAt(0);
+		endwhile;
+		m_iValue = sValMod.ToInt();
+	endconstructor;
+
+	export destructor()
+		CSrvWrap.GetObjMgr()^.UnsubscribeAll(this);
+		MakeSubscription(false);
+	enddestructor;
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+	
+	proc bool Initialize()
+		MakeSubscription(true);
+		CheckObjSubscription();
+		var int i,iC=m_xSubscribed.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			CheckState(m_xSubscribed[i]);
+		endfor;
+		Invalidate();
+		return true;
+	endproc;
+	
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		if(p_rxEP.GetClass()=="OBJCHNGE")then
+			var CObjHndl xHndl;
+			xHndl.FromInt(p_rxEP.GetInt32A());
+			CheckState(xHndl);
+			Invalidate();
+		else
+			CheckObjSubscription();
+		endif;
+		return false;
+	endproc;
+
+	proc void MakeSubscription(bool p_bSubscription)
+		var ^CRegion pxRgn=m_xObjFinder.GetRegion();
+		if(pxRgn!=null)then
+			if(p_bSubscription)then
+				pxRgn^.Unsubscribe(this);
+				pxRgn^.Subscribe(this);
+			else
+				pxRgn^.Unsubscribe(this);
+			endif;
+		else
+//			CSrvWrap.LogWarn("Conditions", "Failed to subscribe Region");
+		endif;
+	endproc;
+
+	proc void CheckObjSubscription()
+		var CObjList xCurObjs;
+		m_xObjFinder.MakeQuery(xCurObjs);
+		var ^CObjMgrHost pxObjMgr=CSrvWrap.GetObjMgr();
+		begin;
+			var int i,iC=xCurObjs.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(m_xSubscribed.FindEntry(xCurObjs[i])==-1)then
+					pxObjMgr^.Subscribe(xCurObjs[i], this);
+				endif;
+			endfor;
+		end;
+		begin;
+			var int i,iC=m_xSubscribed.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(xCurObjs.FindEntry(m_xSubscribed[i])==-1)then
+					pxObjMgr^.Unsubscribe(m_xSubscribed[i], this);
+				endif;
+			endfor;
+		end;
+		m_xSubscribed=xCurObjs;
+	endproc;
+
+	static proc bool IntCompare(int p_iVal1,int p_iVal2,string p_sOp)
+		switch(p_sOp.GetAt(0))
+			case('>')do
+				if(p_sOp.GetAt(1)=='=') then return p_iVal1>=p_iVal2; endif;
+				return p_iVal1>p_iVal2;
+			endcase;
+			case('<')do
+				if(p_sOp.GetAt(1)=='=') then return p_iVal1<=p_iVal2; endif;
+				return p_iVal1<p_iVal2;
+			endcase;
+			case default do	return p_iVal1==p_iVal2; endcase;
+		endswitch;
+	endproc;
+
+	proc void CheckState(CObjHndl p_xObj)
+		if (p_xObj.IsValid()) then
+			var ^CGameObj pxO = p_xObj.GetObj();
+			if (pxO!=null) then
+				var ^CAttribs pxAttr = pxO^.GetAttribs();
+				if (pxAttr!=null) then
+					var int iVal = pxAttr^.GetValueInt(m_sAttribName);
+					if(!m_sAttribDiv.IsEmpty()) then
+						var int iDiv=pxAttr^.GetValueInt(m_sAttribDiv);
+						if(iDiv>0) then
+							iVal=(iVal*100)/iDiv;
+						endif;
+					endif;
+					if(IntCompare(iVal,m_iValue,m_sMod)) then
+						SetState(1);
+					else
+						SetState(0);
+					endif;
+				endif;
+			endif;
+		endif;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="OBPR")then
+			if(p_pxNode^.GetVersion()>=1 && p_pxNode^.GetVersion() < 4)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_sAttribName;
+				(pxArc^) << m_sMod;
+				var CGuid xGuid;
+				(pxArc^) << xGuid;
+				if(p_pxNode^.GetVersion()>=2) then (pxArc^) << m_sAttribDiv; endif;
+				if(p_pxNode^.GetVersion()>=3) then (pxArc^) << m_iValue; endif;
+			elseif (p_pxNode^.GetVersion()==4) then
+				var ^CArc pxArc = ^(p_pxNode^.GetArc());
+				pxArc^ << m_sAttribName;
+				pxArc^ << m_sMod;
+				pxArc^ << m_sAttribDiv;
+				pxArc^ << m_iValue;
+				m_xObjFinder.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="OBPR";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,4);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_sAttribName;
+		(pxArc^) << m_sMod;
+		(pxArc^) << m_sAttribDiv;
+		(pxArc^) << m_iValue;
+		m_xObjFinder.DoKArc(pxArc^);
+		pxN^.Close();
+	endproc;
+endclass;
+
+//----------------------------------------------------------
+// Condition:	Dead
+//----------------------------------------------------------
+class CConditionDead inherit CTrigger.ICondition
+
+	var CObjList	m_xSubscribed;
+	var CObjFinder	m_xObjFinder;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(string p_sName,string p_sGuid)
+		m_xObjFinder.m_sObjName=p_sName;
+		m_xObjFinder.m_xObjGuid.FromString(p_sGuid);
+	endconstructor;
+
+	export constructor(string p_sGuid)
+		m_xObjFinder.m_sObjName="";
+		m_xObjFinder.m_xObjGuid.FromString(p_sGuid);
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxParams)
+		m_xObjFinder.Init(p_rxParams);
+	endconstructor;
+
+	export destructor()
+		CSrvWrap.GetObjMgr()^.UnsubscribeAll(this);
+		MakeSubscription(false);
+	enddestructor;
+
+	proc void CheckObjSubscription()
+		var CObjList xCurObjs;
+		m_xObjFinder.MakeQuery(xCurObjs);
+		var ^CObjMgrHost pxObjMgr=CSrvWrap.GetObjMgr();
+		begin;
+			var int i,iC=xCurObjs.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(m_xSubscribed.FindEntry(xCurObjs[i])==-1)then
+					pxObjMgr^.SubscribeObjDel(xCurObjs[i], this);
+				endif;
+			endfor;
+		end;
+		begin;
+			var int i,iC=m_xSubscribed.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(xCurObjs.FindEntry(m_xSubscribed[i])==-1)then
+					pxObjMgr^.UnsubscribeObjDel(m_xSubscribed[i], this);
+				endif;
+			endfor;
+		end;
+		m_xSubscribed=xCurObjs;
+	endproc;
+
+	proc void MakeSubscription(bool p_bSubscription)
+		var ^CRegion pxRgn=m_xObjFinder.GetRegion();
+		if(pxRgn!=null)then
+			if(p_bSubscription)then
+				pxRgn^.Unsubscribe(this);
+				pxRgn^.Subscribe(this);
+			else
+				pxRgn^.Unsubscribe(this);
+			endif;
+		else
+//			CSrvWrap.LogWarn("Conditions", "Failed to subscribe Region");
+		endif;
+	endproc;
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+	
+	proc bool Initialize()
+		MakeSubscription(true);
+		CheckObjSubscription();
+		return true;
+	endproc;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		// object deleted
+		if(p_rxEP.GetClass()=="OBJCHNGE")then
+			SetState(1);
+			Invalidate();
+			return true;
+		else
+			CheckObjSubscription();
+		endif;
+		if(m_xSubscribed.NumEntries()>0)then // cntcheck
+			SetState(0);
+		else
+			// fire always if all objs are already dead or never existed
+			SetState(1);
+		endif;
+		
+		Invalidate();
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="DEAD")then
+			if(p_pxNode^.GetVersion()==1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_xObjFinder.m_xObjGuid;
+				m_xObjFinder.m_sObjName="";
+			elseif(p_pxNode^.GetVersion()==2)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				m_xObjFinder.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="DEAD";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,2);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		m_xObjFinder.DoKArc(pxArc^);
+		pxN^.Close();
+	endproc;
+
+endclass;
+
+//----------------------------------------------------------
+// Condition:	Dying
+//----------------------------------------------------------
+class CConditionDying inherit CTrigger.ICondition
+
+	var CObjList	m_xSubscribed;
+	var CObjFinder	m_xObjFinder;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(string p_sName,string p_sGuid)
+		m_xObjFinder.m_sObjName=p_sName;
+		m_xObjFinder.m_xObjGuid.FromString(p_sGuid);
+	endconstructor;
+
+	export constructor(string p_sGuid)
+		m_xObjFinder.m_sObjName="";
+		m_xObjFinder.m_xObjGuid.FromString(p_sGuid);
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxParams)
+		m_xObjFinder.Init(p_rxParams);
+	endconstructor;
+
+	export destructor()
+		CSrvWrap.GetObjMgr()^.UnsubscribeAll(this);
+		MakeSubscription(false);
+	enddestructor;
+
+	proc void CheckObjSubscription()
+		var CObjList xCurObjs;
+		m_xObjFinder.MakeQuery(xCurObjs);
+		var ^CObjMgrHost pxObjMgr=CSrvWrap.GetObjMgr();
+		begin;
+			var int i,iC=xCurObjs.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(m_xSubscribed.FindEntry(xCurObjs[i])==-1)then
+					pxObjMgr^.SubscribeObjDel(xCurObjs[i], this);
+				endif;
+			endfor;			
+		end;
+		begin;
+			var int i,iC=m_xSubscribed.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(xCurObjs.FindEntry(m_xSubscribed[i])==-1)then
+					pxObjMgr^.UnsubscribeObjDel(m_xSubscribed[i], this);
+				endif;
+			endfor;
+		end;
+		m_xSubscribed=xCurObjs;	
+	endproc;
+
+	proc void MakeSubscription(bool p_bSubscription)	
+		var ^CRegion pxRgn=m_xObjFinder.GetRegion();
+		if(pxRgn!=null)then
+			if(p_bSubscription)then
+				pxRgn^.Unsubscribe(this);
+				pxRgn^.Subscribe(this);
+			else
+				pxRgn^.Unsubscribe(this);
+			endif;
+		else
+//			CSrvWrap.LogWarn("Conditions", "Failed to subscribe Region");
+		endif;
+	endproc;
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+	
+	proc bool Initialize()
+		MakeSubscription(true);
+		CheckObjSubscription();		
+		return true;
+	endproc;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		if(GetState()==1)then
+			SetState(1);
+			Invalidate();
+			return true;	
+		endif;
+		// object deleted
+		if(p_rxEP.GetClass()=="OBJCHNGE")then
+			SetState(1);
+			Invalidate();
+			return true;
+		else
+			CheckObjSubscription();
+		endif;
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="DYIN")then
+			if(p_pxNode^.GetVersion()==1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				m_xObjFinder.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)		
+		super.Save(p_pxNode);		
+		var CFourCC xF="DYIN";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		m_xObjFinder.DoKArc(pxArc^);		
+		pxN^.Close();		
+	endproc;
+
+endclass;
+
+
+//----------------------------------------------------------
+// Condition:	CheckObj
+//----------------------------------------------------------
+class CConditionCheckObj inherit CTrigger.ICondition
+
+	var string 	m_sObjName;
+	var int 	m_iCount;
+	var int 	m_iPlayer;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(string p_sName, int p_iCnt, int p_iPlayer)
+		m_sObjName = p_sName;
+		m_iCount = p_iCnt;
+		m_iPlayer = p_iPlayer;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		CheckState();
+		return true;
+	endproc;
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+
+	proc bool Initialize()
+		return true;
+	endproc;
+
+	proc void CheckState()
+		var int iCnt = 0;
+		var int iHndl = CSrvWrap.GetRegionMgr().GetWorldRgnHndl();
+		var ^CRegion pxRgn = CSrvWrap.GetRegionMgr().GetRegion(iHndl);
+		if (pxRgn != null) then
+			var int i;
+			for (i=0) cond (i<pxRgn^.NumObjects()) iter (++i)do
+				var CObjHndl xHndl = pxRgn^.GetObject(i);
+				if (xHndl.IsValid()) then
+					var ^CGameObj pxObj = xHndl.GetObj();
+					if (pxObj!=null) then
+						var string sName = pxObj^.GetName();
+						if (sName.GetLength() > m_sObjName.GetLength()) then
+							sName.Delete(m_sObjName.GetLength(), 9999);
+						endif;
+						if (sName == m_sObjName && pxObj^.GetOwner()==m_iPlayer) then ++iCnt; endif;
+					endif;
+				endif;
+			endfor;
+		endif;
+		if (iCnt >= m_iCount) then
+			SetState(1);
+			Invalidate();
+		else
+			SetState(0);
+			Invalidate();
+		endif;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="CHOB")then
+			if(p_pxNode^.GetVersion()==1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_sObjName;
+				(pxArc^) << m_iCount;
+				(pxArc^) << m_iPlayer;
+
+				var int iHndl = CSrvWrap.GetRegionMgr().GetWorldRgnHndl();
+				var ^CRegion pxRgn = CSrvWrap.GetRegionMgr().GetRegion(iHndl);
+				if (pxRgn != null) then
+					pxRgn^.Subscribe(this);
+				endif;
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="CHOB";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_sObjName;
+		(pxArc^) << m_iCount;
+		(pxArc^) << m_iPlayer;
+		pxN^.Close();
+	endproc;
+
+endclass;
+
+//----------------------------------------------------------
+// Condition:	PlayerDead
+//----------------------------------------------------------
+class CConditionPlayerDead inherit CTrigger.ICondition
+	export const int PRODUCER_MODE = 0;
+	export const int BUILDING_MODE = 1;
+	export const int NONE_MODE = 2;
+	
+	// producer cache
+	static var array string ms_asCachedClass;
+	static var array bool ms_abCachedProducer;
+		
+	export static proc bool IsProducer(^CGameObj p_pxObj)
+		var ^CFightingObj pxFO = cast<CFightingObj>(p_pxObj);
+		if(pxFO==null) then return false; endif;
+
+		var string sClass = pxFO^.GetClassName();
+		var string sType = pxFO^.GetType().AsString();
+		
+		var int iIdx= ms_asCachedClass.FindEntry(sClass);
+		if(iIdx>=0) then
+			return ms_abCachedProducer[iIdx];
+		else
+			var CTechTree xTT = pxFO^.GetTechTree();
+			var ^CTechTree.CNode pxNode = xTT.FindNode("/Actions/"+pxFO^.GetTribeName()+"/Build");
+			if(pxNode==null) then return false; endif;
+			
+			var int i, iC = pxNode^.NumSubs();
+			for(i=0) cond(i<iC) iter(++i)do
+				var ^CTechTree.CNode pxTypeNode = pxNode^.GetSub(i);
+				
+				var int j, iJC = pxTypeNode^.NumSubs();
+				for(j=0) cond(j<iJC) iter(++j)do
+					var ^CTechTree.CNode pxAction = pxTypeNode^.GetSub(j);
+					
+					var ^CTechTree.CNode pxLocations = pxAction^.GetSub("locations");
+					if(pxLocations==null) then continue; endif;
+					
+					var int k, iKC = pxLocations^.NumSubs();
+					for(k=0) cond(k<iKC) iter(++k)do
+						var ^CTechTree.CNode pxLoc = pxLocations^.GetSub(k);
+
+						var string sLocation = pxLoc^.GetValue();
+						
+						var int iL = sClass.GetLength();
+						var int iT = sType.GetLength();
+						if(sLocation.Right(iL)==sClass || sLocation.Right(iT)==sType) then 
+							ms_asCachedClass.AddEntry(sClass);
+							ms_abCachedProducer.AddEntry(true);
+							return true;
+						endif;
+					endfor;
+				endfor;
+			endfor;
+			
+			ms_asCachedClass.AddEntry(sClass);
+			ms_abCachedProducer.AddEntry(false);
+			return false;
+		endif;
+	endproc;
+	
+	class CObjDelSubscriber inherit CEvtSink
+
+		var int m_iMode;
+		var int m_iPlayer;
+		var bool m_bCheckPyramid;
+		var ^bool m_pbCanFire;
+		
+		export static var array string ms_asValidTypes;
+
+		export constructor(int p_iPlayer, ^bool p_pbCanFire, int p_iMode, bool p_bPyramid)
+			m_iPlayer = p_iPlayer;
+			m_pbCanFire = p_pbCanFire;
+			m_iMode = p_iMode;
+			m_bCheckPyramid=p_bPyramid;
+
+			ms_asValidTypes.AddEntry("BLDG");
+			ms_asValidTypes.AddEntry("ANML");
+			ms_asValidTypes.AddEntry("VHCL");
+			ms_asValidTypes.AddEntry("CHTR");
+			ms_asValidTypes.AddEntry("SHIP");
+			
+		endconstructor;
+
+		export destructor()
+			CSrvWrap.GetObjMgr()^.UnsubscribeObjChDel(this);
+		enddestructor;
+		
+		export proc bool OnPush(ref CEvtPointer  p_rxEP)
+			
+			var CObjHndl xObj;
+			xObj.FromInt(p_rxEP.GetInt32A());
+			if(!xObj.IsValid())then return true; endif;
+			
+			var ^CFightingObj pxFightingObj=cast<CFightingObj>(xObj.GetObj());
+			if(pxFightingObj==null)then return true; endif;
+			if(pxFightingObj^.GetOwner()!=m_iPlayer)then return true; endif;
+
+			if(ms_asValidTypes.FindEntry(pxFightingObj^.GetType().AsString())==-1)then return true; endif;
+			
+			if(m_iMode==CConditionPlayerDead.BUILDING_MODE && !m_bCheckPyramid)then
+				var CObjList xList;
+				CBLDGMgr.Get().GetAllBuildings(m_iPlayer,xList);
+			endif;
+				
+			if(m_iMode==CConditionPlayerDead.PRODUCER_MODE && !m_bCheckPyramid)then
+				if(!CConditionPlayerDead.IsProducer(pxFightingObj))then return true; endif;
+			endif;
+			
+			var bool bPyramidClear=true;
+			var CObjList xProducerPyramidList;
+			var bool bFire=true;
+			if(m_bCheckPyramid || m_iMode==CConditionPlayerDead.PRODUCER_MODE)then
+				var CObjQuery xQuery;
+				xQuery.SetType("BLDG");
+				xQuery.SetType("CHTR", true);
+				xQuery.SetType("VHCL", true);
+				xQuery.SetType("ANML", true);
+				xQuery.SetType("SHIP", true);
+				xQuery.SetOwner(m_iPlayer);
+				xQuery.Execute(xProducerPyramidList);
+			endif;
+			
+			if(m_bCheckPyramid)then
+				var int i,iC=xProducerPyramidList.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					if(xProducerPyramidList[i]==xObj)then continue; endif;
+					var ^CFightingObj pxFighter=cast<CFightingObj>(xProducerPyramidList[i].GetObj());
+					if(pxFighter==null)then continue; endif;
+					if(!pxFighter^.DoesCountInUnitLimit())then continue; endif;
+					//L KLog.LogSpam("PLDE",pxFighter^.GetName()+" rescued player "+m_iPlayer.ToString()+" (Pyramid)");
+					bFire=false;
+					break;
+				endfor;
+			endif;
+			if(bFire)then
+				if(m_iMode==CConditionPlayerDead.BUILDING_MODE)then
+					var CObjList xList;
+					CBLDGMgr.Get().GetAllBuildings(m_iPlayer,xList);
+					var int i,iC=xList.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						if(xList[i]==xObj)then continue; endif;
+						var ^CGameObj pxGameObj=xList[i].GetObj();
+						if(pxGameObj==null)then continue; endif;
+						if(cast<CWall>(pxGameObj)!=null || cast<CTrap>(pxGameObj)!=null || cast<CGate>(pxGameObj)!=null)then continue; endif;
+						//L KLog.LogSpam("PLDE",pxGameObj^.GetName()+" rescued player "+m_iPlayer.ToString()+" (Building)");
+						bFire=false;
+						break;
+					endfor;
+				elseif(m_iMode==CConditionPlayerDead.PRODUCER_MODE)then
+					var int i,iC=xProducerPyramidList.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						if(xProducerPyramidList[i]==xObj)then continue; endif;
+						var ^CGameObj pxGameObj=xProducerPyramidList[i].GetObj();
+						if(pxGameObj==null)then continue; endif;
+						if(!CConditionPlayerDead.IsProducer(pxGameObj))then continue; endif;
+						//L KLog.LogSpam("PLDE",pxGameObj^.GetName()+" rescued player "+m_iPlayer.ToString()+" (Producer)");
+						bFire=false;
+						break;
+					endfor;
+				endif;
+			endif;
+
+			m_pbCanFire^ = bFire;
+
+			return true;
+		endproc;
+	endclass;
+
+	class CObjNewSubscriber inherit CEvtSink
+		
+		var int m_iPlayer;
+		var ^bool m_pbCanFire;
+		var int m_iMode;
+
+		export constructor(int p_iPlayer, ^bool p_pbCanFire, int p_iMode)
+			m_iPlayer = p_iPlayer;
+			m_pbCanFire = p_pbCanFire;
+			m_iMode = p_iMode;
+		endconstructor;
+
+		export destructor()
+			CSrvWrap.GetObjMgr()^.UnsubscribeObjChNew(this);
+		enddestructor;
+
+		export proc bool OnPush(ref CEvtPointer  p_rxEP)
+			var CObjList xL;
+
+			var CObjHndl xObj;
+			xObj.FromInt(p_rxEP.GetInt32A());
+			if (xObj.IsValid()) then
+				var ^CGameObj pxO = xObj.GetObj();
+				if(pxO!=null && pxO^.GetOwner() == m_iPlayer) then
+					if((pxO^.GetType()=="BLDG"&&m_iMode==CConditionPlayerDead.BUILDING_MODE) || (m_iMode==CConditionPlayerDead.PRODUCER_MODE && CConditionPlayerDead.IsProducer(pxO))) then
+						m_pbCanFire^ = false;
+					endif;
+				endif;
+			endif;
+			return true;
+		endproc;
+	endclass;
+
+	var int	   	m_iPlayer;
+	var int		m_iMode;
+	var bool	m_bCheckPyramid;
+
+	var bool 	m_bCheckBuildings;
+	var bool 	m_bCheckProducer;
+	var bool 	m_bCanFire;
+	
+	var ^CObjDelSubscriber m_pxDelSink;
+	//var ^CObjNewSubscriber m_pxAddSink;
+
+	export constructor()
+	endconstructor;
+	
+	export constructor(ref CAttribs p_rxArgs)
+		m_iPlayer = p_rxArgs.GetValueInt("player_id");
+		if(p_rxArgs.GetValueInt("check_producer")==1)then
+			m_iMode=0;
+		elseif(p_rxArgs.GetValueInt("check_bldgs")==1)then
+			m_iMode=1;
+		elseif(p_rxArgs.GetValueInt("check_none")==1)then
+			m_iMode=2;
+		endif;
+		m_bCheckPyramid=p_rxArgs.GetValueInt("check_pyramid")==1;
+	endconstructor;
+
+	export constructor(int p_iPlayer, bool p_bCheckBldgs)
+		m_iPlayer = p_iPlayer;
+		m_iMode=0;
+		if(p_bCheckBldgs)then
+			m_iMode=1;
+		endif;
+		m_bCanFire = false;
+	endconstructor;
+
+	export destructor()
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if (pxLevel!=null) then
+			var ^CPlayer pxPlayer = CSrvWrap.GetCurLevel()^.GetPlayer(m_iPlayer);
+			if (pxPlayer!=null) then
+				pxPlayer^.Unsubscribe(this);
+			endif;
+		endif;
+		if(m_pxDelSink!=null)then
+			CSrvWrap.GetObjMgr()^.UnsubscribeObjChDel(m_pxDelSink);
+			delete m_pxDelSink;
+		endif;		
+		//delete m_pxAddSink;
+	enddestructor;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP)
+		if (p_rxEP.GetClass()=="UnitLost") then
+			if(m_bCanFire)then
+				SetState(1);
+				Invalidate();
+				return true;
+			endif;
+			SetState(0);
+			Invalidate();
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+	
+	proc bool Initialize()
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if (pxLevel!=null) then
+			var ^CPlayer pxPlayer = pxLevel^.GetPlayer(m_iPlayer);
+			if (pxPlayer==null) then
+				KLog.LogWarn("CConditionPlayerDead", "NO PLAYER");
+				return false;
+			endif;
+			pxPlayer^.Unsubscribe(this);
+			pxPlayer^.Subscribe(this);
+		endif;
+
+		m_bCanFire = false;
+		if(m_pxDelSink==null)then
+			m_pxDelSink = new CObjDelSubscriber(m_iPlayer, ^m_bCanFire, m_iMode, m_bCheckPyramid);
+			CSrvWrap.GetObjMgr()^.SubscribeObjChDel(m_pxDelSink);
+		endif;
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="PLDE")then
+			var int iV = p_pxNode^.GetVersion();
+			var ^CArc pxArc=^(p_pxNode^.GetArc());
+			var bool bInvalid;
+			if(iV<=3)then
+				if(iV>=1)then 	(pxArc^) << m_iPlayer; 			endif;
+				if(iV>=2)then	(pxArc^) << bInvalid;			endif;
+				if(iV>=3)then	(pxArc^) << bInvalid;			endif;
+			endif;
+			if(iV>=4)then
+				(pxArc^) << m_iPlayer;
+				(pxArc^) << m_iMode;
+				(pxArc^) << m_bCheckPyramid;
+			endif;
+			if(m_pxDelSink==null)then
+				m_pxDelSink = new CObjDelSubscriber(m_iPlayer, ^m_bCanFire, m_iMode, m_bCheckPyramid);
+				CSrvWrap.GetObjMgr()^.SubscribeObjChDel(m_pxDelSink);
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="PLDE";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,4);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_iPlayer;
+		(pxArc^) << m_iMode;
+		(pxArc^) << m_bCheckPyramid;
+		pxN^.Close();
+	endproc;
+
+endclass;
+
+//----------------------------------------------------------
+// Condition:	CConditionTaskAbort
+//----------------------------------------------------------
+class CConditionTaskAbort inherit CTrigger.ICondition
+
+	var string m_sObjName;
+	var CGuid  m_xObjGuid;
+	var CObjFinder m_xObjFinder;
+	var string m_sTask;
+	var bitset m_dwFlags;
+	var array ^CFightingObj m_apxHookedObjs;
+
+	var int		m_iInitTimer;
+	var int		m_iInitRetries;
+
+	const int	MAX_INIT_RETRIES = 3;
+
+	var ^CTaskHook	m_pxHook;
+
+	class CTaskHook inherit CTaskChangeSubscriber
+
+		const bitset 	TASK_ENTERED	= 01b;
+		const bitset 	TASK_LEFT		= 010b;
+
+		var ^CConditionTaskAbort m_pxCond;
+		var string	m_sTask;
+		var bitset  m_dwFlags;
+
+		export constructor(^CConditionTaskAbort p_pxC, bitset p_dwFlags, string p_sTask)
+			m_pxCond = p_pxC;
+			m_dwFlags = p_dwFlags;
+			m_sTask = p_sTask;
+		endconstructor;
+
+		export destructor()
+		enddestructor
+
+		export proc bool OnPush(string p_sFrom, string p_sTo)
+			if (p_sFrom == p_sTo) then return false; endif;
+
+			if (p_sFrom == m_sTask) then m_pxCond^.TaskLeft(); return true; endif;
+			if (p_sTo == m_sTask) then m_pxCond^.TaskEntered(); return false; endif;
+			return false;
+		endproc;
+
+	endclass;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxAttr)
+		m_xObjFinder.Init(p_rxAttr);
+		m_iInitRetries = 0;
+		m_sTask = p_rxAttr.GetValue("task_name");
+		m_dwFlags = p_rxAttr.GetValueInt("task_flags").ToBitset();
+		MakeSubscription();
+	endconstructor;
+
+	export destructor()
+		//UnsubscribeAll();
+	enddestructor;
+
+	export proc void TaskEntered()
+		SetState(1);
+		Invalidate();
+	endproc;
+
+	export proc void TaskLeft()
+		SetState(0);
+		Invalidate();
+	endproc;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		return true;
+	endproc;
+
+	proc void CheckState()
+	endproc;
+
+	proc void MakeSubscription()
+		if (m_pxHook == null) then
+			m_pxHook = new CTaskHook(this, m_dwFlags, m_sTask);
+		endif;
+
+		var CObjList xObjs;
+		m_xObjFinder.MakeQuery(xObjs);
+		var int i, iC = xObjs.NumEntries();
+		for (i=0) cond(i<iC) iter(++i)do
+			if (xObjs[i].IsValid()) then
+				var ^CFightingObj pxFO = cast<CFightingObj>(xObjs[i].GetObj());
+				if (pxFO!=null)then
+					pxFO^.GetTaskMgr()^.Subscribe(m_pxHook);
+					m_apxHookedObjs.AddEntry(pxFO);
+				endif;
+			endif;
+		endfor;
+	endproc;
+
+	proc void UnsubscribeAll()
+		var int i, iC = m_apxHookedObjs.NumEntries();
+		for (i=0) cond(i<iC) iter(++i)do
+			if (m_apxHookedObjs[i]!=null && m_apxHookedObjs[i]^.GetTaskMgr()!=null) then
+				m_apxHookedObjs[i]^.GetTaskMgr()^.Unsubscribe(m_pxHook);
+			endif;
+		endfor;
+		m_apxHookedObjs = 0;
+	endproc;
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+
+	proc bool Initialize()
+		MakeSubscription();
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="TSKA")then
+			if(p_pxNode^.GetVersion()==1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_sObjName;
+				var string sG;
+				(pxArc^) << sG;
+				m_xObjGuid.FromString(sG);
+				(pxArc^) << m_sTask;
+
+				if (!sG.IsEmpty()) then
+					m_xObjGuid.FromString(sG);
+				else
+					var ^CGameObj pxO = CSrvWrap.GetObjMgr()^.GetObjByName(m_sObjName);
+					if (pxO!=null) then
+						m_xObjGuid = pxO^.GetGuid();
+					endif;
+				endif;
+			elseif (p_pxNode^.GetVersion()==2) then
+				var ^CArc pxArc = ^(p_pxNode^.GetArc());
+				(pxArc^) << m_sTask;
+				m_xObjFinder.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="TSKA";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,2);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_sTask;
+		m_xObjFinder.DoKArc(pxArc^);
+		pxN^.Close();
+	endproc;
+
+endclass;
+
+
+//----------------------------------------------------------
+// Action:	CConditionQuest
+//----------------------------------------------------------
+class CConditionQuest inherit CTrigger.ICondition
+
+	var string 	m_sQuestname;
+	var CGuid	m_xGuid;
+	var int		m_iOwner;
+	var int		m_iDestState;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxAttr)
+		m_sQuestname = p_rxAttr.GetValue("quest_name");
+		m_xGuid.FromString(p_rxAttr.GetValue("quest_guid"));
+		m_iOwner = p_rxAttr.GetValueInt("owner");
+		m_iDestState = p_rxAttr.GetValueInt("dest_state");
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+	
+	proc bool Initialize()
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CQuestMgrHost pxQM=^(pxLevel^.GetQuestMgr());
+		pxQM^.Unsubscribe(this);
+		pxQM^.Subscribe(this);
+		var CEvtPointer xEvt;
+		OnPush(xEvt);
+		return true;
+	endproc;
+	
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CQuestMgrHost pxQM=^(pxLevel^.GetQuestMgr());		
+		var ^CQuestMgr.CQuest pxQuest = pxQM^.GetQuest(m_xGuid);
+		
+		// temp fallback
+		if(pxQuest==null) then
+			pxQuest = pxQM^.GetQuest(m_sQuestname);
+		endif;
+				
+		if (pxQuest!=null) then
+			var bool bReady=false;
+			if(m_iDestState==0 && pxQuest^.IsVisible())then//NOTVISIBLE (from invisible to visible)				
+				bReady=true;			
+			elseif(m_iDestState==1 && pxQuest^.IsAccomplished())then//ACCOMPLISHED) (from unaccomplished to accomplished)				
+				bReady=true;
+			elseif(m_iDestState==2 && pxQuest^.IsUnaccomplishable())then//UNACCOMPLISHABLE (from accomplishable to unuccomplishable)				
+				bReady=true;
+			elseif(m_iDestState==3 && !pxQuest^.IsAccomplished() && !pxQuest^.IsUnaccomplishable() && !pxQuest^.IsVisible())then				
+				bReady=true;			
+			endif;		
+			
+			if(bReady)then
+				SetState(1);
+				Invalidate();
+				pxQM^.Unsubscribe(this);
+				return true;
+			endif;
+		endif;
+		SetState(0);
+		Invalidate();
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="QUES")then
+			if(p_pxNode^.GetVersion()==1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_sQuestname;
+				(pxArc^) << m_iOwner;
+				(pxArc^) << m_iDestState;
+			elseif(p_pxNode^.GetVersion()==2)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_sQuestname;
+				(pxArc^) << m_iOwner;
+				(pxArc^) << m_iDestState;
+				(pxArc^) << m_xGuid;
+			endif;			
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="QUES";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,2);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_sQuestname;
+		(pxArc^) << m_iOwner;
+		(pxArc^) << m_iDestState;
+		(pxArc^) << m_xGuid;
+		pxN^.Close();
+	endproc;
+
+endclass;
+
+//-------------------------------------
+//----------------------------------------------------------
+
+class CConditionSequenceEnd inherit CTrigger.ICondition
+
+	var string 		m_sSequenceName;
+	var bool		m_bWasLoaded;
+
+	export constructor()
+		MakeSubscription();
+		m_bWasLoaded = false;
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxParams)
+		MakeSubscription();
+		m_sSequenceName=p_rxParams.GetValue("sequence_name");
+		m_bWasLoaded = false;
+	endconstructor;
+
+	export destructor()
+		CSequenceSource.Unsubscribe(this);
+	enddestructor;
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+	
+	proc bool Initialize()
+		MakeSubscription();
+		if ( m_bWasLoaded == false ) then
+			SetState(0);
+		endif;
+		m_bWasLoaded = false;
+		Invalidate();
+		return true;
+	endproc;
+
+	proc void MakeSubscription()
+		CSequenceSource.Unsubscribe(this);
+		CSequenceSource.Subscribe(this);
+	endproc;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		var string sSequence=p_rxEP.GetString();
+		var CIOPath xPath1;
+		var CIOPath xPath2;
+		xPath1.Init(sSequence);
+		xPath2.Init(m_sSequenceName);
+		if(xPath1.FilePart()==xPath2.FilePart()) then
+			SetState(1);
+			Invalidate();
+		else
+			SetState(0);
+			Invalidate();
+		endif;
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="SQEN")then
+			var ^CArc pxArc=^(p_pxNode^.GetArc());
+			(pxArc^) << m_sSequenceName;
+			m_bWasLoaded = true;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="SQEN";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,0);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_sSequenceName;
+		
+		pxN^.Close();
+	endproc;
+
+endclass;
+
+class CConditionDlgSceneEnd inherit CTrigger.ICondition
+
+	var string 		m_sDlgSceneName;
+
+	export constructor()
+		MakeSubscription();
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxParams)
+		MakeSubscription();
+		m_sDlgSceneName=p_rxParams.GetValue("dlgscene_name");
+	endconstructor;
+
+	export destructor()
+		CDlgSceneSource.Unsubscribe(this);
+	enddestructor;
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+	
+	proc bool Initialize()
+		MakeSubscription();		
+		return true;
+	endproc;
+
+	proc void MakeSubscription()
+		CDlgSceneSource.Unsubscribe(this);
+		CDlgSceneSource.Subscribe(this);
+	endproc;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		var string sScene=p_rxEP.GetString();
+		var CIOPath xPath1;
+		var CIOPath xPath2;
+		xPath1.Init(sScene);
+		xPath2.Init(m_sDlgSceneName);
+		//KLog.LogSpam("AnTr","CConditionDlgSceneEnd: '"+xPath1.FilePart()+"' == '"+xPath2.FilePart()+"'");
+		if(xPath1.FilePart()==xPath2.FilePart()) then
+			SetState(1);
+			Invalidate();			
+		endif;
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="DSEN")then
+			var ^CArc pxArc=^(p_pxNode^.GetArc());
+			(pxArc^) << m_sDlgSceneName;			
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="DSEN";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,0);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_sDlgSceneName;
+		pxN^.Close();
+	endproc;
+
+endclass;
+
+
+//----------------------------------------------------------
+// Action:	CConditionVars
+//----------------------------------------------------------
+class CConditionVars inherit CTrigger.ICondition
+	
+	var bool			m_bLocal;
+	var string		m_sVar;
+	var string		m_sOp;
+	var string		m_sVal;
+	
+	export constructor()
+	endconstructor;
+	
+	export constructor(ref CAttribs p_rxArgs)
+		m_bLocal = p_rxArgs.GetValueInt("local")==1;
+		m_sVar = p_rxArgs.GetValue("varname");
+		m_sOp = p_rxArgs.GetValue("operation");
+		m_sVal = p_rxArgs.GetValue("value");
+		m_sVal.TrimLeft();
+		m_sVal.TrimRight();
+	endconstructor;
+	
+	export destructor()
+		if(m_bLocal) then
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel==null) then return; endif;
+		var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+		pxLevelInfo^.Unsubscribe(this);
+		else
+			var ^CUserProfile pxP = CSrvWrap.GetCurUserProfile();
+			if(pxP!=null) then
+				pxP^.Unsubscribe(this);
+			endif;
+		endif;
+	enddestructor;
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+	
+	proc bool Initialize()
+		if(m_bLocal) then
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+			pxLevelInfo^.Unsubscribe(this);
+			pxLevelInfo^.Subscribe(this);
+		endif;
+		if(!m_bLocal || m_sVal.GetAt(0)=='$') then
+			var ^CUserProfile pxP = CSrvWrap.GetCurUserProfile();
+			if(pxP!=null) then
+				pxP^.Unsubscribe(this);
+				pxP^.Subscribe(this);
+			endif;
+		endif;
+		SetState(0);
+		Invalidate();
+		var CEvtPointer xE;
+		OnPush(xE);
+		return true;
+	endproc;
+	
+	proc string GetVarVal(string p_sVar)
+		var string sV = p_sVar.Mid(2, p_sVar.GetLength()-3);
+		var ^CLevelInfo pxLevelInfo= CSrvWrap.GetLevelInfo(false);
+		var ^CPropDB.CNode pxNode = pxLevelInfo^.GetGenericData().FindNode("Variables/"+sV, false);
+		if(pxNode!=null) then
+			return pxNode^.GetValueS("value");
+		endif;
+		var ^CUserProfile pxP = CSrvWrap.GetCurUserProfile();
+		if(pxP!=null) then
+			var ^CPropDB.CNode pxN = pxP^.GetPropDB().FindNode("Campaign/Variables", true);
+			return pxN^.GetValueS(sV, "");
+		endif;
+		return "";
+	endproc;
+	
+	proc void DoCheck(string p_sVal, string p_sCheckVal, string p_sOp, string p_sType)
+		if(p_sCheckVal.GetAt(0)=='$') then
+			p_sCheckVal = GetVarVal(p_sCheckVal);
+		endif;
+		if(p_sOp=="==") then
+			if(p_sVal==p_sCheckVal) then
+				SetState(1);
+				Invalidate();
+				return;
+			endif;
+		else
+			if(p_sType=="int") then
+				var int iVal = p_sVal.ToInt();
+				if(CHelper.Compare(iVal, p_sOp+p_sCheckVal)) then
+					SetState(1);
+					Invalidate();
+					return;
+				endif;
+			else
+				var real fVal = p_sVal.ToReal();
+				if(CHelper.Compare(fVal, p_sOp+p_sCheckVal)) then
+					SetState(1);
+					Invalidate();
+					return;
+				endif;
+			endif;
+		endif;
+		SetState(0);
+		Invalidate();
+	endproc;
+	
+	export proc bool OnPush (ref CEvtPointer p_rxEP )
+		if(m_bLocal) then
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+			var ^CPropDB.CNode pxNode = pxLevelInfo^.GetGenericData().FindNode("Variables/"+m_sVar, false);
+			if(pxNode!=null) then
+				DoCheck(pxNode^.GetValueS("value"), m_sVal, m_sOp, pxNode^.GetValueS("type"));
+			endif;
+		endif;
+		if(!m_bLocal) then
+			var string sType;
+			var string sDefault;
+			var CPropDB xDef;
+			if(xDef.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/ProfileVariables.txt")) then
+				var ^CPropDB.CNode pxVar = xDef.GetRoot().Get(m_sVar);
+				if(pxVar==null) then
+					//KLog.LogSpam("MaZi", "Unknown global Variable '"+m_sVar+"'. Global Vars must be defined in /Server/settings/ProfileVariables.txt.");
+					return false;
+				endif;
+				sType = pxVar^.GetValueS("type", "");
+				sDefault = pxVar^.GetValueS("default", "");
+			endif;
+			var ^CUserProfile pxP = CSrvWrap.GetCurUserProfile();
+			if(pxP!=null) then
+				var ^CPropDB.CNode pxN = pxP^.GetPropDB().FindNode("Campaign/Variables", true);
+				var string sVal = pxN^.GetValueS(m_sVar, sDefault);
+				DoCheck(sVal, m_sVal, m_sOp, sType);
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="CVAR")then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+			if(p_pxNode^.GetVersion()==1)then
+				(pxArc^) << m_sVar;
+				(pxArc^) << m_sOp;
+				(pxArc^) << m_sVal;
+				m_bLocal=true;
+			elseif(p_pxNode^.GetVersion()==2) then
+				(pxArc^) << m_sVar;
+				(pxArc^) << m_sOp;
+				(pxArc^) << m_sVal;
+				(pxArc^) << m_bLocal;
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="CVAR";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,2);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_sVar;
+		(pxArc^) << m_sOp;
+		(pxArc^) << m_sVal;
+		(pxArc^) << m_bLocal;
+		pxN^.Close();
+	endproc;
+	
+	export proc string GetVariable()
+		return m_sVar;
+	endproc;
+	
+endclass;
+
+
+class CConditionDiplomacy inherit CTrigger.ICondition
+
+	var int m_iPlyr1;
+	var int m_iPlyr2;
+	var int m_iRelation;
+
+	static var array ^CConditionDiplomacy ms_apxCondDipl;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+		m_iPlyr1 = p_rxArgs.GetValueInt("plyr1");
+		m_iPlyr2 = p_rxArgs.GetValueInt("plyr2");
+		m_iRelation = p_rxArgs.GetValueInt("relation");
+	endconstructor;
+
+	export destructor()
+		ms_apxCondDipl.RemEntry(this);
+	enddestructor;
+
+	export static proc ^array ^CConditionDiplomacy GetPendingConditions()
+		return ^ms_apxCondDipl;
+	endproc;
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+	
+	proc bool Initialize()
+		SetState(0);
+		ms_apxCondDipl.AddEntry(this);
+		var CEvtPointer xE;
+		OnPush(xE);
+		return true;
+	endproc;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		if(CSrvWrap.GetDiplomacyMgr().GetRelation(m_iPlyr1, m_iPlyr2) == m_iRelation) then
+			SetState(1);
+		else
+			SetState(0);
+		endif;
+		Invalidate();
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="DIPL")then
+			if(p_pxNode^.GetVersion()>=1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_iPlyr1;
+				(pxArc^) << m_iPlyr2;
+				(pxArc^) << m_iRelation;
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="DIPL";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_iPlyr1;
+		(pxArc^) << m_iPlyr2;
+		(pxArc^) << m_iRelation;
+		pxN^.Close();
+	endproc;
+endclass;
+
+class CHelper
+
+	static proc string GetValueString(string p_sV)
+		var int iStart = p_sV.Find("$(");
+		if(iStart>=0) then
+			iStart+=2;
+			var int iEnd = p_sV.Find(')');
+			if(iEnd<0 || iEnd < iStart) then
+				//L KLog.LogWarn("MaZi", "CHelper::ToInt() ... Error in Variable-String.");
+				return p_sV;
+			endif;
+			
+			var string sMid = p_sV.Mid(iStart, iEnd-iStart);
+
+			var ^CLevelInfo pxLevelInfo= CSrvWrap.GetLevelInfo(false);
+	
+			var ^CPropDB.CNode pxNode = pxLevelInfo^.GetGenericData().FindNode("Variables/"+sMid, false);
+			if(pxNode!=null) then
+				return pxNode^.GetValueS("value");
+			endif;
+			
+			var ^CUserProfile pxP = CSrvWrap.GetCurUserProfile();
+			if(pxP!=null) then
+				var ^CPropDB.CNode pxN = pxP^.GetPropDB().FindNode("Campaign/Variables", true);
+				return pxN^.GetValueS(sMid, "");
+			endif;
+			//L KLog.LogWarn("MaZi", "Variable '"+sMid+"' not found");
+			return "";
+		else
+			return p_sV;
+		endif;
+	endproc;
+	
+	static proc int ToInt(string p_sV)
+		return GetValueString(p_sV).ToInt();
+	endproc;
+	
+	static proc real ToReal(string p_sV)
+		return GetValueString(p_sV).ToReal();
+	endproc;
+
+	export static proc bool Compare(int p_iA, string p_sB) 
+		var int iB = 0;
+		if (p_sB.Left(2)  == ">=") then
+			iB = ToInt(p_sB.Mid(2));
+			return p_iA >= iB;
+		elseif (p_sB.Left(1) == ">") then
+			iB = ToInt(p_sB.Mid(1));
+			return p_iA > iB;
+		elseif (p_sB.Left(2)  == "<=") then
+			iB = ToInt(p_sB.Mid(2));
+			return p_iA <= iB;
+		elseif (p_sB.Left(1) == "<") then
+			iB = ToInt(p_sB.Mid(1));
+			return p_iA < iB;
+		elseif (p_sB.Left(2)  == "==") then
+			iB = ToInt(p_sB.Mid(2));
+			return p_iA == iB;
+		elseif (p_sB.Left(2)  == "!=") then
+			iB = ToInt(p_sB.Mid(2));
+			return p_iA != iB;
+		elseif (p_sB.Left(1) == "=") then
+			iB = ToInt(p_sB.Mid(1));
+			return p_iA == iB;
+		else
+			iB = ToInt(p_sB);
+		endif;
+		return p_iA >= iB;
+	endproc;
+
+	export static proc bool Compare(real p_fA, string p_sB)
+		var real fB = 0.0f;
+		if (p_sB.Left(2)  == ">=") then
+			fB = ToReal(p_sB.Mid(2));
+			return p_fA >= fB;
+		elseif (p_sB.Left(1) == ">") then
+			fB = ToReal(p_sB.Mid(1));
+			return p_fA > fB;
+		elseif (p_sB.Left(2)  == "<=") then
+			fB = ToReal(p_sB.Mid(2));
+			return p_fA <= fB;
+		elseif (p_sB.Left(1) == "<") then
+			fB = ToReal(p_sB.Mid(1));
+			return p_fA < fB;
+		elseif (p_sB.Left(2)  == "==") then
+			fB = ToReal(p_sB.Mid(2));
+			return p_fA == fB;
+		elseif (p_sB.Left(2)  == "!=") then
+			fB = ToReal(p_sB.Mid(2));
+			return p_fA != fB;
+		elseif (p_sB.Left(1) == "=") then
+			fB = ToReal(p_sB.Mid(1));
+			return p_fA == fB;
+		else
+			fB = ToReal(p_sB);
+		endif;
+		return p_fA >= fB;
+	endproc;
+endclass;
+
+class CConditionItem inherit CTrigger.ICondition
+
+	var CObjFinder		m_xObjFinder;
+	var string			m_sItem;
+	var int				m_iTimer;
+	var bool			m_bSearchFailed;
+	
+	export constructor()
+		m_iTimer=-1;
+		m_bSearchFailed=false;
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+		m_xObjFinder.Init(p_rxArgs);
+		m_sItem = p_rxArgs.GetValue("item_class");
+		m_iTimer=-1;
+		m_bSearchFailed=false;
+	endconstructor;
+
+	export destructor()
+		MakeSubscription(false);
+		if(m_iTimer<0) then return; endif;
+		var ^CTimerObj pxTimer=CTimeMgr.Get().GetTimer(m_iTimer);
+		if(pxTimer!=null) then
+			pxTimer^.Unsubscribe(this);
+			CTimeMgr.Get().DeleteTimer(m_iTimer);
+			m_iTimer = -1;
+		endif;
+	enddestructor;
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+
+	proc bool Initialize()
+		MakeSubscription(true);
+		SetState(0);
+		var CObjList xL;
+		m_xObjFinder.MakeQuery(xL);
+
+		var int i,iC=xL.NumEntries();
+		for(i=0) cond(i<iC) iter(++i)do
+			var ^CGameObj pxO = xL[i].GetObj();
+			if(pxO!=null) then
+				var ^CInventory pxI = pxO^.GetInventory();
+				if(pxI!=null && !pxI^.IsEmpty()) then
+					if(pxI^.GetItem(0) == xL[i]) then
+						SetState(1);
+						break;
+					endif;
+				endif;
+			endif;
+		endfor;
+		Invalidate();
+		return true;
+	endproc;
+
+	proc void MakeSubscription(bool p_bDo)
+		var CObjQuery xQ;
+		xQ.SetClass(m_sItem);
+		var CObjList xL;
+		xQ.Execute(xL);
+		
+		//KLog.LogSpam("MaZi", "Objs of class '" + m_sItem + "': " + xL.NumEntries().ToString());
+		
+		var int i, iC = xL.NumEntries();
+		
+		if(iC==0 && !m_bSearchFailed) then
+			// retry in 1sec
+			m_iTimer=CTimeMgr.Get().CreateTimer(CGameTimeSpan.OneSecond()*1.0, false);
+			var ^CTimerObj pxTimer=CTimeMgr.Get().GetTimer(m_iTimer);
+			pxTimer^.Subscribe(this);
+			return;
+		endif;
+		
+		for(i=0) cond(i<iC) iter(++i)do
+			var ^CItem pxO = cast<CItem>(xL[i].GetObj());
+			if(pxO!=null) then
+				if(p_bDo) then
+					pxO^.m_xEvtSource.Subscribe(this);
+				else
+					pxO^.m_xEvtSource.Unsubscribe(this);
+				endif;
+			endif;
+		endfor;
+	endproc;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		if(m_iTimer>=0)then
+			if(p_rxEP.GetClass() == CTimeMgr.Get().GetTimer(m_iTimer)^.GetEventTemplate().GetClass()) then
+				var ^CTimerObj pxTimer=CTimeMgr.Get().GetTimer(m_iTimer);
+				if(pxTimer!=null) then
+					pxTimer^.Unsubscribe(this);
+					CTimeMgr.Get().DeleteTimer(m_iTimer);
+					m_iTimer = -1;
+					Initialize();
+					m_bSearchFailed=true;
+				endif;
+			endif;
+		endif;
+		
+		if(p_rxEP.GetClass().ToString()=="ITEMTAKE") then
+			var CObjHndl xHndl;
+			xHndl.FromInt(p_rxEP.GetInt(0));
+			
+			var ^CGameObj pxO = xHndl.GetObj();
+			if(pxO!=null) then
+				var bool bFound = false;
+				if (m_sItem == "item_whatever") then
+					bFound=true;
+				else
+					var CObjList xL;
+					m_xObjFinder.MakeQuery(xL);
+					var int i, iC = xL.NumEntries();
+					for(i=0) cond(i<iC) iter(++i)do
+						if(xL[i]==xHndl) then bFound=true; break; endif;
+					endfor;
+				endif;
+				if(bFound) then
+					SetState(1);
+				else
+					SetState(0);
+				endif;
+				Invalidate();
+				SetState(0);
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="ITEM")then
+			var ^CArc pxArc=^(p_pxNode^.GetArc());
+			if(p_pxNode^.GetVersion()==1)then
+				m_xObjFinder.DoKArc(pxArc^);
+				
+				var CObjHndl xHndl;
+				xHndl.DoKArc(pxArc^);
+				m_sItem="INVALID";
+			endif;
+			if(p_pxNode^.GetVersion()==2) then
+				m_xObjFinder.DoKArc(pxArc^);
+				(pxArc^) << m_sItem;
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="ITEM";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,2);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		m_xObjFinder.DoKArc(pxArc^);
+		//m_xItem.DoKArc(pxArc^);
+		(pxArc^) << m_sItem;
+		pxN^.Close();
+	endproc;
+endclass;
+
+
+///***
+///CConditionBuilding
+///***
+class CConditionBuilding inherit CTrigger.ICondition
+
+	var string 			m_sClass;
+	var string 			m_sValue;
+	var string 			m_sVariable;
+	var int    			m_iOwner;
+	var CObjFinder		m_xObjFinder;
+	var bool			m_bInitialized;
+	
+
+	export constructor()
+		m_bInitialized=false;
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+		//L KLog.LogSpam("CyGi","CConditionBuilding::constructor()");
+		m_bInitialized=false;
+		m_sClass = p_rxArgs.GetValue("class");
+		m_sValue = p_rxArgs.GetValue("value");
+		m_iOwner = p_rxArgs.GetValueInt("owner");
+		m_sVariable = p_rxArgs.GetValue("variable");
+		m_xObjFinder.Init(p_rxArgs);
+	endconstructor;
+	
+	export constructor(string p_sName,string p_sGuid)
+		//L KLog.LogSpam("CyGi","CConditionBuilding::constructor() p_sName: "+p_sName+" p_sGuid: "+p_sGuid);
+		m_xObjFinder.m_sObjName=p_sName;
+		m_xObjFinder.m_xObjGuid.FromString(p_sGuid);
+		m_bInitialized=false;
+	endconstructor;
+
+	export constructor(string p_sGuid)
+		//L KLog.LogSpam("CyGi","CConditionBuilding::constructor() p_sName: "+p_sGuid);
+		m_xObjFinder.m_sObjName="";
+		m_xObjFinder.m_xObjGuid.FromString(p_sGuid);
+		m_bInitialized=false;
+	endconstructor;
+
+	export destructor()
+		//L KLog.LogSpam("CyGi","CConditionBuilding::destructor()");
+		Uninitialize();
+	enddestructor;
+	
+	proc bool OnEnabled()
+		//L KLog.LogSpam("CyGi","CConditionBuilding::OnEnabled()");
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		//L KLog.LogSpam("CyGi","CConditionBuilding::OnDisabled()");
+		Uninitialize();
+		return true;
+	endproc;
+
+	proc void Uninitialize()
+		if(m_bInitialized)then
+			CBLDGConditionsMgr.Get().Unsubscribe(this);
+			m_bInitialized=false;
+		endif;
+	endproc;
+
+	proc bool Initialize()
+		//L KLog.LogSpam("CyGi","CConditionBuilding::Initialize()");
+		if(!m_bInitialized)then
+			CBLDGConditionsMgr.Get().Subscribe(this);
+			m_bInitialized=true;
+		endif;
+		var CEvtPointer xE = CEvtPointer.CreateEvent("BLDGCHG");
+		xE.SetInt(0, m_iOwner);
+		OnPush(xE);
+		return true;
+	endproc;
+	
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+
+		if(p_rxEP.GetClass()=="BLDGCHG")then
+			var int iChgOwner = p_rxEP.GetInt(0);
+			if(iChgOwner!=m_iOwner) then return false; endif;
+			
+			var ^CRegion pxRgn=m_xObjFinder.GetRegion();
+			if(pxRgn==null)then return false; endif;
+
+			var int i,iObjInRegion=pxRgn^.NumObjects();
+			var int iRgnCount=0;
+
+			for(i=0)cond(i<iObjInRegion)iter(i++)do
+				var ^CGameObj pxObj=pxRgn^.GetObject(i).GetObj();
+				if(pxObj==null)then continue; endif;
+				if(pxObj^.IsMarkedForDelete())then continue; endif;
+				if(pxObj^.GetClassName()!=m_sClass)then continue; endif;
+				if(pxObj^.GetOwner()!=m_iOwner)then continue; endif;
+				var ^CAttribs pxAttr=pxObj^.GetAttribs();
+				if(pxAttr==null)then continue; endif;
+				if(pxAttr^.GetValue("CurTask")=="BuildUpB")then continue; endif;
+				if(pxAttr^.GetValueInt("ReadyForWork")!=1)then continue; endif;
+				if(!CBLDGMgr.Get().HasBuilding(pxObj^.GetOwner(),pxObj^.GetHandle()))then continue; endif;
+				iRgnCount++;
+			endfor;
+
+			begin Variables;
+				if(!m_sVariable.IsEmpty())then
+					var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+					var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+			
+					var ^CPropDB.CNode pxNode = pxLevelInfo^.GetGenericData().FindNode("Variables", true);
+					if(pxNode!=null) then
+						var ^CPropDB.CNode pxVar = pxNode^.Get(m_sVariable);
+						if(pxVar==null) then
+							pxVar = ^(pxNode^.AddValue(m_sVariable, ""));
+							pxVar^.SetValue("type", "int");
+							pxVar^.SetValue("value", "0");
+						endif;
+						if(pxVar!=null) then
+							var int iOldValue=pxVar^.GetValueS("value").ToInt();
+							if(iOldValue!=iRgnCount)then
+								pxVar^.SetValue("value", iRgnCount.ToString());
+								pxLevelInfo^.NotifyVarsChange();
+							endif;
+						endif;
+					endif;
+				endif;
+			end Variables;
+
+			if(CHelper.Compare(iRgnCount, m_sValue))then
+				SetState(1);
+			else
+				SetState(0);
+			endif;
+			Invalidate();
+		endif;
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		//L KLog.LogSpam("CyGi","CConditionBuilding::Load()");
+		if(p_pxNode^.GetType()=="BLDG")then
+			var int iVersion=p_pxNode^.GetVersion();
+			var ^CArc pxArc=^(p_pxNode^.GetArc());
+			if(iVersion>=1)then
+				(pxArc^) << m_sClass;
+				(pxArc^) << m_sValue;
+				(pxArc^) << m_iOwner;
+			endif;
+			if(iVersion>=2)then
+				m_xObjFinder.DoKArc(pxArc^);
+			endif;
+			if(iVersion>=3)then
+				(pxArc^) << m_sVariable;
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		//L KLog.LogInfo("CyGi","ConditionFactory::Save() Save RegionName: "+m_xObjFinder.GetRegion()^.GetName());
+		super.Save(p_pxNode);
+		var CFourCC xF="BLDG";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,3);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_sClass;
+		(pxArc^) << m_sValue;
+		(pxArc^) << m_iOwner;
+		m_xObjFinder.DoKArc(pxArc^);
+		(pxArc^) << m_sVariable;
+		pxN^.Close();
+	endproc;
+endclass;
+
+
+class CConditionTribute inherit CTrigger.ICondition
+
+	var int m_iOwner, m_iReceiver;
+	var string m_sResource, m_sAmount;
+	var int m_iResID;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+		m_iOwner = p_rxArgs.GetValueInt("owner");
+		m_iReceiver = p_rxArgs.GetValueInt("receiver");
+		m_sResource = p_rxArgs.GetValue("resource");
+		m_sAmount = p_rxArgs.GetValue("amount");
+		CStatsMgr.Get();
+		m_iResID = CStatsMgr.CPlayerStats.GetResourceIDByName(m_sResource);
+	endconstructor;
+
+	export destructor()
+		var ^CStatsMgr.CPlayerStats pxStats = CStatsMgr.Get().GetPlayerStats(m_iOwner);
+		if(pxStats!=null) then
+			pxStats^.GetTributeStats(m_iReceiver)^.Unsubscribe(this);
+		endif;
+	enddestructor;
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+
+	proc bool Initialize()
+		var ^CStatsMgr.CPlayerStats pxStats = CStatsMgr.Get().GetPlayerStats(m_iOwner);
+		if(pxStats!=null) then
+			pxStats^.GetTributeStats(m_iReceiver)^.Unsubscribe(this);
+			pxStats^.GetTributeStats(m_iReceiver)^.Subscribe(this);
+			pxStats^.AddTribute(m_iReceiver, m_sResource, 0);
+		endif;
+		return true;
+	endproc;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		if(p_rxEP.GetClass()=="STAT_TRB") then
+			var int iResID = p_rxEP.GetInt(0);
+			var int iAmount = p_rxEP.GetInt(1);
+			
+			if(m_iResID==iResID) then
+				if(CHelper.Compare(iAmount, m_sAmount)) then
+					SetState(1);
+				else
+					SetState(0);
+				endif;
+				Invalidate();
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="TRIB")then
+			if(p_pxNode^.GetVersion()>=1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_iOwner;
+				(pxArc^) << m_iReceiver;
+				(pxArc^) << m_sResource;
+				(pxArc^) << m_iResID;
+				(pxArc^) << m_sAmount;
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="TRIB";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_iOwner;
+		(pxArc^) << m_iReceiver;
+		(pxArc^) << m_sResource;
+		(pxArc^) << m_iResID;
+		(pxArc^) << m_sAmount;
+		pxN^.Close();
+	endproc;
+endclass;
+
+
+///class CConditionInSight
+class CConditionInSight inherit CTrigger.ICondition
+
+	const real FREQUENCY = 2.0f;
+
+	var int 		m_iTimer;
+	var CObjFinder	m_xObjsA, m_xObjsB;
+	
+	export constructor()
+		m_iTimer=-1;
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+		m_xObjsA.Init(p_rxArgs);
+		m_xObjsB.Init(p_rxArgs, "B_");
+		m_iTimer=-1;
+	endconstructor;
+
+	export destructor()
+		Shut();
+	enddestructor;
+	
+	proc void Shut()
+		var ^CTimerObj pxTimer=CTimeMgr.Get().GetTimer(m_iTimer);
+		if(pxTimer!=null) then
+			pxTimer^.Unsubscribe(this);
+			CTimeMgr.Get().DeleteTimer(m_iTimer);
+			m_iTimer = -1;
+		endif;
+	endproc;
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+
+	proc bool Initialize()
+		Shut();
+		SetState(0);
+		m_iTimer=CTimeMgr.Get().CreateTimer(CGameTimeSpan.OneSecond()*FREQUENCY, true);
+		var ^CTimerObj pxTimer=CTimeMgr.Get().GetTimer(m_iTimer);
+		pxTimer^.Subscribe(this);
+		var CEvtPointer xE;
+		OnPush(xE);
+		return true;
+	endproc;
+	
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )	
+		var CObjList xA, xB;
+		m_xObjsA.MakeQuery(xA);
+		m_xObjsB.MakeQuery(xB);
+		if(CSrvWrap.GetObjMgr()^.CheckVisibility(xA, xB)) then
+			SetState(1);
+		else
+			SetState(0);
+		endif;
+		Invalidate();
+		return true;
+	endproc;
+	
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="SGHT")then
+			if(p_pxNode^.GetVersion()>=1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				m_xObjsA.DoKArc(pxArc^);
+				m_xObjsB.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="SGHT";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		m_xObjsA.DoKArc(pxArc^);
+		m_xObjsB.DoKArc(pxArc^);
+		pxN^.Close();
+	endproc;
+endclass;
+
+class CConditionWaypointReached inherit CTrigger.ICondition
+
+	var CObjFinder m_xObjs;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+		m_xObjs.Init(p_rxArgs);
+	endconstructor;
+
+	export destructor()
+		CWaypointSubscriptionMgr.Get().Unsubscribe(this);
+	enddestructor;
+
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+	
+	proc bool Initialize()
+		CWaypointSubscriptionMgr.Get().Unsubscribe(this);
+		CWaypointSubscriptionMgr.Get().Subscribe(this);
+		return true;
+	endproc;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		if(p_rxEP.GetClass()=="OBJ_WYPT") then
+			var CObjHndl xHndl;
+			xHndl.FromInt(p_rxEP.GetInt(0));
+			if(xHndl.IsValid()) then
+				var CObjList xL;
+				m_xObjs.MakeQuery(xL);
+				if(xL.FindEntry(xHndl)>=0) then
+					SetState(1);
+				else
+					SetState(0);
+				endif;
+				Invalidate();
+				SetState(0);
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="WAYR")then
+			if(p_pxNode^.GetVersion()>=1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				m_xObjs.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="WAYR";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		m_xObjs.DoKArc(pxArc^);
+		pxN^.Close();
+	endproc;
+endclass;
+
+
+///class CConditionCheckGroup
+class CConditionCheckGroup inherit CTrigger.ICondition
+
+	var CObjHndl 	m_xGroup;
+	var string		m_sVal;
+
+	export constructor()
+	endconstructor;
+
+
+	export constructor(ref CAttribs p_rxArgs)
+		var CGuid xG;
+		xG.FromString(p_rxArgs.GetValue("group_guid"));
+		var ^CGameObj pxO = CSrvWrap.GetObjMgr()^.GetObjByGuid(xG);
+		if(pxO!=null) then
+			m_xGroup = pxO^.GetHandle();
+		endif;
+		m_sVal = p_rxArgs.GetValue("check_val");
+	endconstructor;
+
+
+	export destructor()
+		if(!m_xGroup.IsValid()) then return; endif;
+		var ^CGroupObj pxGroup = cast<CGroupObj>(m_xGroup.GetObj());
+		if(pxGroup!=null) then
+			pxGroup^.GetEvtSource().Unsubscribe(this);
+		endif;
+
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+		pxLevelInfo^.Unsubscribe(this);
+		
+		var ^CUserProfile pxP = CSrvWrap.GetCurUserProfile();
+		if(pxP!=null) then
+			pxP^.Unsubscribe(this);
+		endif;
+	enddestructor;
+
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+
+
+	proc bool Initialize()
+		if(!m_xGroup.IsValid()) then return false; endif;
+		var ^CGroupObj pxGroup = cast<CGroupObj>(m_xGroup.GetObj());
+		if(pxGroup!=null) then
+			pxGroup^.GetEvtSource().Unsubscribe(this);
+			pxGroup^.GetEvtSource().Subscribe(this);
+			pxGroup^.Invalidate();
+		endif;
+		if(m_sVal.Find("$(")>=0) then
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+			pxLevelInfo^.Unsubscribe(this);
+			pxLevelInfo^.Subscribe(this);
+			
+			var ^CUserProfile pxP = CSrvWrap.GetCurUserProfile();
+			if(pxP!=null) then
+				pxP^.Unsubscribe(this);
+				pxP^.Subscribe(this);
+			endif;
+		endif;
+		return true;
+	endproc;
+
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		SetState(0);
+		if(p_rxEP.GetClass()=="GROU_CHG") then
+			if(CHelper.Compare(p_rxEP.GetInt(0), m_sVal)) then
+				SetState(1);
+			else
+				SetState(0);
+			endif;
+			Invalidate();
+			return true;
+		endif;
+		return false;
+	endproc;
+
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="CKGR")then
+			var ^CArc pxArc=^(p_pxNode^.GetArc());
+			if(p_pxNode^.GetVersion()>=1)then
+				m_xGroup.DoKArc(pxArc^);
+				(pxArc^) << m_sVal;
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="CKGR";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		m_xGroup.DoKArc(pxArc^);
+		(pxArc^) << m_sVal;
+		pxN^.Close();
+	endproc;
+endclass;
+
+
+///class CConditionDimGate
+class CConditionDimGate inherit CTrigger.ICondition
+	var int m_iOwner;
+	
+	export constructor()
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+		m_iOwner = p_rxArgs.GetValueInt("player");
+	endconstructor;
+
+	export destructor()
+		CWarpMgr.Get().Unsubscribe(this);
+	enddestructor;
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+	
+	proc bool Initialize()
+		CWarpMgr.Get().Unsubscribe(this);
+		CWarpMgr.Get().Subscribe(this);
+		return true;
+	endproc;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		SetState(1);
+		Invalidate();
+		CWarpMgr.Get().Unsubscribe(this);
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="DGBL")then
+			if(p_pxNode^.GetVersion()>=1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				pxArc^ << m_iOwner;
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="DGBL";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		pxArc^ << m_iOwner;
+		pxN^.Close();
+	endproc;
+endclass;
+
+
+//CConditionFightEnd
+class CConditionFightEnd inherit CTrigger.ICondition
+	
+	var int 	m_iOwner;
+	var string 	m_sAttack;	
+	
+	export constructor()
+	endconstructor;
+
+
+	export constructor(ref CAttribs p_rxArgs)
+		//L KLog.LogSpam("CyGi","AIFE Constructor()");	
+		m_iOwner = p_rxArgs.GetValueInt("owner");
+		m_sAttack= p_rxArgs.GetValue("attack");	
+		
+		//L KLog.LogSpam("CyGi","AIFE Constructor() Owner=" + m_iOwner.ToString());		
+		//L KLog.LogSpam("CyGi","AIFE Constructor() Attack=" + m_sAttack);			
+	endconstructor;
+
+
+	export destructor()
+		//L KLog.LogSpam("CyGi","AIFE Destructor()");
+		OnDisabled();	
+	enddestructor;
+
+
+	proc bool OnEnabled()
+		//L KLog.LogSpam("CyGi","AIFE OnEnabled()");	
+		return Initialize();
+	endproc;
+	
+	
+	proc bool OnDisabled()
+		//L KLog.LogSpam("CyGi","AIFE OnDisabled()");	
+		CAiInterface.Unsubscribe(m_iOwner, this);
+		return true;
+	endproc;
+
+
+	proc bool Initialize()
+		//L KLog.LogSpam("CyGi","AIFE Initialize()");		
+		CAiInterface.Subscribe(m_iOwner, this);
+		return true;
+	endproc;
+
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )	
+		//L KLog.LogSpam("CyGi","AIFE OnPush()");	
+		if(p_rxEP.GetClass().ToString()=="ATTACK") then
+			SetState(1);
+		else
+			SetState(0);
+		endif;	
+		Invalidate();
+		return true;
+	endproc;
+
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		//L KLog.LogSpam("CyGi","AIFE Load()");	
+		if(p_pxNode^.GetType()=="AIFE")then
+			if(p_pxNode^.GetVersion()>=1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_iOwner;
+				(pxArc^) << m_sAttack;
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		//L KLog.LogSpam("CyGi","AIFE Save()");	
+		super.Save(p_pxNode);
+		var CFourCC xF="AIFE";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_iOwner;
+		(pxArc^) << m_sAttack;
+		pxN^.Close();
+	endproc;
+endclass;
+
+class CConditionIsFighting inherit CTrigger.ICondition
+
+	var CObjFinder m_xA, m_xB;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+		m_xA.Init(p_rxArgs);
+		m_xB.Init(p_rxArgs, "B_");
+	endconstructor;
+
+	export destructor()
+		OnDisabled();
+	enddestructor;
+
+	proc bool OnEnabled()
+		if(m_xB.m_iOwner == -2) then
+			var int i, iC = 8;
+			for(i=-1) cond(i<iC) iter(++i)do
+				var ^CBasePlayer pxPlayer = CBasePlayer.GetPlayer(i);
+				if(pxPlayer!=null) then
+					pxPlayer^.Subscribe(this);
+				endif;
+			endfor;
+		else
+			var ^CBasePlayer pxPlayer = CBasePlayer.GetPlayer(m_xB.m_iOwner);
+			if(pxPlayer!=null) then
+				pxPlayer^.Subscribe(this);
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnDisabled()
+		if(m_xB.m_iOwner == -2) then
+			var int i, iC = 8;
+			for(i=-1) cond(i<iC) iter(++i)do
+				var ^CBasePlayer pxPlayer = CBasePlayer.GetPlayer(i);
+				if(pxPlayer!=null) then
+					pxPlayer^.Unsubscribe(this);
+				endif;
+			endfor;
+		else
+			var ^CBasePlayer pxPlayer = CBasePlayer.GetPlayer(m_xB.m_iOwner);
+			if(pxPlayer!=null) then
+				pxPlayer^.Unsubscribe(this);
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		if(p_rxEP.GetClass().ToString()=="Attacked") then
+			SetState(0);
+			var CObjHndl xHndlA;xHndlA.FromInt(p_rxEP.GetInt(0));//Victim
+			var CObjHndl xHndlB;xHndlB.FromInt(p_rxEP.GetInt(1));//Attacker
+			if(m_xA.Contains(xHndlB) && m_xB.Contains(xHndlA)) then
+				SetState(1);
+			endif;
+			Invalidate();
+		endif;
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="ISFG")then
+			if(p_pxNode^.GetVersion()>=1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				m_xA.DoKArc(pxArc^);
+				m_xB.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="ISFG";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		m_xA.DoKArc(pxArc^);
+		m_xB.DoKArc(pxArc^);
+		pxN^.Close();
+	endproc;
+endclass;
+
+class CConditionRandomTimer inherit CTrigger.ICondition
+
+	const int TIMER_ID = 4711;
+	var int m_iMin, m_iMax;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+		m_iMin = p_rxArgs.GetValueInt("Min");
+		m_iMax = p_rxArgs.GetValueInt("Max");
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	proc bool OnEnabled()
+		DeleteTimer(TIMER_ID);
+		Random.Seed();
+		var int iTime = Math.Max(m_iMin, (Random.GetInt()%m_iMax));
+		CreateTimer(TIMER_ID,CGameTimeSpan.OneSecond()*iTime.ToReal(),false);
+		return true;
+	endproc;
+	
+	proc bool OnDisabled()
+		DeleteTimer(TIMER_ID);
+		return true;
+	endproc;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		SetState(0);
+		SetState(1);
+		Invalidate();
+		var bool bRepeat=false;
+		var ^CTrigger pxT = GetAttachedTrigger();
+		if(pxT!=null) then
+			bRepeat=(pxT^.GetEdgeType()&CTrigger.TF_FireOnce)==0b;
+		endif;
+		if(bRepeat)then
+			OnEnabled();
+		endif;
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="RTME")then
+			if(p_pxNode^.GetVersion()>=1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				pxArc^ << m_iMin;
+				pxArc^ << m_iMax;
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="RTME";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		pxArc^ << m_iMin;
+		pxArc^ << m_iMax;
+		pxN^.Close();
+	endproc;
+endclass;
+
+class CConditionChat inherit CTrigger.ICondition
+
+	var int m_iPlayer;
+	var bool m_bExact;
+	var bool m_bOnlyCheats;
+	var string m_sText;
+
+	static var array ^CConditionChat ms_apxCondChat;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+		m_iPlayer = p_rxArgs.GetValueInt("player");
+		m_sText = p_rxArgs.GetValue("text");
+		m_bExact = p_rxArgs.GetValueBool("exact");
+		m_bOnlyCheats = p_rxArgs.GetValueBool("only_cheats");
+	endconstructor;
+
+	export destructor()
+		ms_apxCondChat.RemEntry(this);
+	enddestructor;
+
+	export static proc ^array ^CConditionChat GetPendingConditions()
+		return ^ms_apxCondChat;
+	endproc;
+	
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+	
+	proc bool Initialize()
+		SetState(0);
+		ms_apxCondChat.AddEntry(this);
+		var CEvtPointer xE;
+		OnPush(xE);
+		return true;
+	endproc;
+
+	export proc bool OnChatMsg(int p_iFrom, string p_sText)
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CLevelInfoHost pxLevelInfo = ^(pxLevel^.GetLevelInfo());
+		var ^CGameAttribs pxGIAttr = ^(pxLevelInfo^.GetAttribs());
+		if(pxGIAttr==null)then return true; endif;
+
+		var bool bCheatsActive = (pxGIAttr^.GetValue("cheats_enabled")=="true");
+
+		var int iFind = p_sText.Find(m_sText);
+
+		if(iFind > -1 && (m_iPlayer == -1 || p_iFrom == m_iPlayer) && (!m_bOnlyCheats || bCheatsActive) && (m_bExact || iFind>0)) then
+			SetState(1);
+		else
+			SetState(0);
+		endif;
+		Invalidate();
+		return true;
+	endproc;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		SetState(0);
+		Invalidate();
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="CHAT")then
+			if(p_pxNode^.GetVersion()>=1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				(pxArc^) << m_iPlayer;
+				(pxArc^) << m_sText;
+				(pxArc^) << m_bExact;
+				(pxArc^) << m_bOnlyCheats;
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="CHAT";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		(pxArc^) << m_iPlayer;
+		(pxArc^) << m_sText;
+		(pxArc^) << m_bExact;
+		(pxArc^) << m_bOnlyCheats;
+		pxN^.Close();
+	endproc;
+endclass;
+
+/*
+
+	Condition - Template
+
+class CCondition<ConditionName> inherit CTrigger.ICondition
+
+	export constructor()
+	endconstructor;
+
+	export constructor(ref CAttribs p_rxArgs)
+
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	proc bool OnEnabled()
+		return Initialize();
+	endproc;
+	
+	proc bool OnDisabled()
+		return true;
+	endproc;
+
+	proc bool Initialize()
+		// TODO: Initilize stuff ( make subscriptions, ect. )
+		var CEvtPointer xE;
+		OnPush(xE);
+		return true;
+	endproc;
+
+	export proc bool OnPush (ref CEvtPointer  p_rxEP )
+		// TODO: do stuff
+		return true;
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="<FourCC>")then
+			if(p_pxNode^.GetVersion()>=1)then
+				var ^CArc pxArc=^(p_pxNode^.GetArc());
+				// TODO: Load stuff
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xF="<FourCC>";
+		var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+		var ^CArc pxArc=^(pxN^.GetArc());
+		// TODO: Save stuff
+		pxN^.Close();
+	endproc;
+endclass;
+*/

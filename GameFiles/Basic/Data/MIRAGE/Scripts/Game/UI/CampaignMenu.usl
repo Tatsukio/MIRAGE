@@ -1,0 +1,527 @@
+class CCampaignMenu inherit CStaticCtrl
+	
+	var CMapInfoList m_xAllCampaignLevels;
+	var ^CGameInfoWindow m_pxGameInfoWindow;
+	var ^CCampaignList m_pxCampaignList;
+	var ^CCampaignListSmall m_pxCampaignListSmall;
+	
+	export constructor()
+		var ^CDesktop pxDesktop=CClientWrap.GetDesktop();	
+		SetPos(0,0);
+		SetSize(pxDesktop^.GetWidth(),pxDesktop^.GetHeight());
+		
+		//Slow if CGameInst.ms_iUIScaleFactor != 1
+		CGameWrap.GetMapInfoList(CClientWrap.GetUrsRelPath()+"/Data/Base/Maps/Cpn_single_001/",m_xAllCampaignLevels,200 * CGameInst.ms_iUIScaleFactor,200 * CGameInst.ms_iUIScaleFactor);
+		
+		CCampaignMgr.Get().CheckUserProfile();
+		
+		m_pxGameInfoWindow=new CGameInfoWindow(CGameInfoWindow.GIWT_SINGLEPLAYER,^m_xAllCampaignLevels,false);
+		AddChild(m_pxGameInfoWindow);
+		m_pxGameInfoWindow^.SetPos(0,30 * CGameInst.ms_iUIScaleFactor);
+		m_pxGameInfoWindow^.Init(CPlayerSlotID.First());
+		
+		m_pxCampaignListSmall=new CCampaignListSmall(m_pxGameInfoWindow);
+		AddChild(m_pxCampaignListSmall);
+		m_pxCampaignListSmall^.SetPos(680 * CGameInst.ms_iUIScaleFactor,30 * CGameInst.ms_iUIScaleFactor);
+		
+		m_pxCampaignList=new CCampaignList(^m_xAllCampaignLevels,m_pxGameInfoWindow,m_pxCampaignListSmall);
+		AddChild(m_pxCampaignList);
+		m_pxCampaignList^.SetPos(380 * CGameInst.ms_iUIScaleFactor,30 * CGameInst.ms_iUIScaleFactor);
+		
+		m_pxGameInfoWindow^.RegisterPointGauge(m_pxCampaignList^.GetPointGauge()^.GetSHWND());
+		m_pxGameInfoWindow^.RegisterPointGauge(m_pxCampaignListSmall^.GetPointGauge()^.GetSHWND());
+		m_pxGameInfoWindow^.m_xOnActivateTab=OnChangeTab;	
+		m_pxGameInfoWindow^.GetTabCtrl()^.SelectTab(0);
+		OnChangeTab(0);
+		
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	export proc void OnChangeTab(int p_iCurTab)
+		if(p_iCurTab==0)then
+			m_pxCampaignList^.SetVisible(true);
+			m_pxCampaignListSmall^.SetVisible(false);
+		else
+			m_pxCampaignList^.SetVisible(false);
+			m_pxCampaignListSmall^.SetVisible(true);
+		endif;
+		m_pxCampaignList^.InvalidateContent();
+		m_pxCampaignListSmall^.InvalidateContent();
+		
+		if(
+			m_pxGameInfoWindow^.GetPointBuyAvailable() &&
+			m_pxGameInfoWindow^.GetTabCtrl()!=null &&
+			m_pxGameInfoWindow^.GetTabCtrl()^.GetCurrentTab()==0
+		)then
+			//m_pxCampaignList^.ChangeStartButtonText(CLocalizer.Get().Translate("_MyArmy"));
+			m_pxCampaignList^.ChangeStartButtonText(CLocalizer.Get().Translate("_UI_CampMenu_Button_Start"));
+		else
+			m_pxCampaignList^.ChangeStartButtonText(CLocalizer.Get().Translate("_UI_CampMenu_Button_Start"));
+		endif;
+	endproc;
+endclass;
+
+class CCampaignList inherit CFrameWindow
+	
+	//var CMapInfoList	m_xAllCampaignLevels;	
+	var ^CMapInfoList 		m_pxMapInfoList;
+	var ^CGameInfoWindow m_pxGameInfoWindow;
+	var ^CCampaignListSmall	m_pxCampaignListSmall;
+	var array ^CList		m_apxLevelListTabs;
+	var ^CList			m_pxLevelList; // levellist of the moment
+	var ^CTabCtrl			m_pxTabCtrl;
+	var ^CCampaignSettings	m_pxSettingsBox;
+	var ^CButton			m_pxStart;
+	var ^CButton			m_pxBack;
+	
+	var ^CMapInfoList.CMapInfo m_pxCurMapInfo;
+	var int				m_iNumLLTabs;
+	var array string		m_asLLTabsNames;
+	var array bool			m_abLLTabsTypes;
+	var bool			m_bSEASVersion;
+	var bool			m_bSEASMap;
+	var string			m_sMapName;
+	var int				m_iCredits;
+	
+	class CListItemData inherit CItemData
+		export var string	m_sLevelKey;
+		export var string	m_sLevelFile;
+		export var bool		m_bPointBuyEnabled;
+		export var int		m_iCredits;		
+		export var string	m_sLevelCheckSumme;
+		export var bool		m_bSEASVersion;
+		
+		export constructor(string p_sLevelKey, string p_sLevelFile,bool p_bPointBuyEnabled,int p_iCredits, string p_sLevelCheckSumme, bool p_bSEASVersion)
+			m_sLevelKey=p_sLevelKey;
+			m_sLevelFile=p_sLevelFile;
+			m_bPointBuyEnabled=p_bPointBuyEnabled;
+			m_iCredits=p_iCredits;
+			m_sLevelCheckSumme=p_sLevelCheckSumme;
+			m_bSEASVersion=p_bSEASVersion;
+		endconstructor;
+	endclass;
+
+	export constructor(^CMapInfoList p_pxMapInfoList,^CGameInfoWindow p_pxGameInfoWindow,^CCampaignListSmall	p_pxCampaignListSmall)
+		if(!InitFromResource("UI/CampaignMenu","CampaignList")) then
+			return;
+		endif;
+		m_asLLTabsNames = CCampaignMgr.Get().GetCustomCampaignSectionNames();
+		m_abLLTabsTypes = CCampaignMgr.Get().GetCustomCampaignSectionTypes();
+		m_iNumLLTabs = m_asLLTabsNames.NumEntries();
+		m_pxMapInfoList=p_pxMapInfoList;
+		m_pxGameInfoWindow=p_pxGameInfoWindow;
+		m_pxCampaignListSmall=p_pxCampaignListSmall;
+		var ^CDesktop pxDesktop=CClientWrap.GetDesktop();
+		m_apxLevelListTabs = m_iNumLLTabs;
+		m_pxTabCtrl=cast<CTabCtrl>(GetControl("TabCtrl"));
+		var int i;
+		for(i=0)cond(i<m_iNumLLTabs)iter(i++)do
+			m_apxLevelListTabs[i] = new CList();
+			m_pxTabCtrl^.AddTab(CLocalizer.Get().Translate("_UI_CampMenu_Tab_"+m_asLLTabsNames[i]),m_apxLevelListTabs[i],CLocalizer.Get().Translate("_UI_CampMenu_Tab_"+m_asLLTabsNames[i]+"_TT"));
+		endfor;
+		m_pxSettingsBox=cast<CCampaignSettings>(GetControl("Settings"));
+		m_pxStart=cast<CButton>(GetControl("StartButton"));
+		m_pxStart^.m_xOnClick=OnStart;
+		m_pxBack=cast<CButton>(GetControl("BackButton"));
+		m_pxBack^.m_xOnClick=OnBack;
+		SetCmd("Exit", OnBack );
+		AddAccelerator("ESCAPE,NONE,Exit");
+		Init();
+	endconstructor;
+	
+	proc bool OnChangeTab(int p_iCurTab)
+		m_pxLevelList = m_apxLevelListTabs[p_iCurTab];
+		OnSelectLevel();
+		return true;
+	endproc;
+	export proc void ChangeStartButtonText(string p_sValue)
+		m_pxStart^.SetText(p_sValue);
+	endproc;
+	
+	proc void Init()
+		var ^CCampaignMgr pxCampaignMgr=^(CCampaignMgr.Get());
+		ClearLevelLists();
+		var ^CPropDB.CNode pxCampaignLevelList = ^(pxCampaignMgr^.GetLevels()^.GetRoot());
+		var int i2 = 0;
+		for()cond(i2<m_iNumLLTabs)iter(i2++)do
+		var int iSelIdx=-1;
+			m_apxLevelListTabs[i2]^.m_xOnSelect.Clear();
+			var ^CPropDB.CNode pxCampaignLevels = ^(pxCampaignLevelList^.Get(m_asLLTabsNames[i2]));
+		var int i,iC=pxCampaignLevels^.NumSubs();		
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPropDB.CNode pxCampaignLevel=^((pxCampaignLevels^)[i]);
+			if(pxCampaignLevel^.GetValueI("enabled")==0)then
+				continue;
+			endif;
+			var string sLevelFile=pxCampaignLevel^.Value();
+			var ^CMapInfoList.CMapInfo pxMapInfo=m_pxMapInfoList^.GetMapInfo(sLevelFile);
+			if(pxMapInfo==null)then
+				continue;
+			endif;
+			var string sMapName=pxMapInfo^.GetMapName();
+			var string sTranslatedMapName=CLocalizer.Get().Translate(sMapName);
+			var string sLevelCheckSumme=pxMapInfo^.GetLevelInfo().GetLevelCheckSumme();
+			var bool bPointBuyEnabled=(pxCampaignLevel^.GetValueI("PB_Available")!=0);
+				var bool bSEASVersion=(pxCampaignLevel^.GetValueI("SEAS_Version")==1);
+			var int iCredits=pxCampaignLevel^.GetValueI("Credits");
+			var int iMinCredits=pxCampaignLevel^.GetValueI("MinCredits");
+				if(bSEASVersion)then
+					sTranslatedMapName += " [SEAS]";
+				endif;
+			if(iCredits<iMinCredits)then
+				iCredits=iMinCredits;
+			endif;
+				m_apxLevelListTabs[i2]^.AddItem(sTranslatedMapName,new CListItemData(pxCampaignLevel^.Name(),sLevelFile,bPointBuyEnabled,iCredits,sLevelCheckSumme,bSEASVersion));
+				iSelIdx++;
+		endfor;
+			if(iSelIdx==-1 || !m_abLLTabsTypes[i2])then
+			iSelIdx=0;
+		endif;
+			m_apxLevelListTabs[i2]^.Select(iSelIdx);
+			m_apxLevelListTabs[i2]^.m_xOnSelect=OnSelectLevel;
+		endfor;
+		m_pxTabCtrl^.m_xOnChangeTab=OnChangeTab;
+		m_pxTabCtrl^.SelectTab(0);
+		OnChangeTab(0);
+	endproc;
+	
+	export proc ^CPointGauge GetPointGauge()
+		return m_pxSettingsBox^.GetPointGauge();
+	endproc;
+	
+	proc void ClearLevelLists()
+		var int i2;
+		for(i2=0)cond(i2<m_iNumLLTabs)iter(i2++)do
+			var int i,iC=m_apxLevelListTabs[i2]^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+				delete (m_apxLevelListTabs[i2]^.GetItemData(i));
+			endfor;
+			m_apxLevelListTabs[i2]^.Clear();
+		endfor;
+	endproc;
+	
+	proc bool OnSelectLevel()
+		m_pxCurMapInfo=null;
+		var int iSelItem=m_pxLevelList^.GetSelectedItem();
+		if(iSelItem!=-1)then
+			var ^CListItemData pxItemData=cast<CListItemData>((m_pxLevelList^.GetItemData(iSelItem)));
+			if(pxItemData!=null)then
+				m_pxGameInfoWindow^.Update(pxItemData^.m_sLevelFile,pxItemData^.m_iCredits);
+				m_pxCurMapInfo=m_pxMapInfoList^.GetMapInfo(pxItemData^.m_sLevelFile);
+				m_pxGameInfoWindow^.SetPointBuyAvailable(pxItemData^.m_bPointBuyEnabled);
+				m_sMapName = pxItemData^.m_sLevelFile;
+				m_iCredits = pxItemData^.m_iCredits;
+				m_bSEASVersion = pxItemData^.m_bSEASVersion;
+				m_bSEASMap = false;
+			endif;
+		endif;
+		
+		var ^CLevelInfo pxCurLevelInfo;
+		if(m_pxCurMapInfo!=null)then
+			pxCurLevelInfo=^(m_pxCurMapInfo^.GetLevelInfo());
+			pxCurLevelInfo^.InitDefaultValues(false);
+		endif;
+		m_pxSettingsBox^.Init(m_pxGameInfoWindow,m_pxCurMapInfo,m_sMapName,m_iCredits,HasSEASVersion());
+		m_pxCampaignListSmall^.Init(m_pxCurMapInfo,this);
+		CCampaignMgr.Get().SetCurLevelInfo(pxCurLevelInfo);
+		var ^CCampaignMenu pxParent = cast<CCampaignMenu>(GetParentWindow());
+		if(pxParent!=null)then
+			pxParent^.OnChangeTab(0);
+		endif;
+		return true;
+	endproc;
+			
+	export proc bool OnStart()
+		if(
+			m_pxGameInfoWindow^.GetPointBuyAvailable() &&
+			m_pxGameInfoWindow^.GetTabCtrl()!=null &&
+			m_pxGameInfoWindow^.GetTabCtrl()^.GetCurrentTab()==0
+		)then
+			m_pxGameInfoWindow^.GetTabCtrl()^.SelectTab(1);
+			return true;
+		endif;
+		var int iSelItem=m_pxLevelList^.GetSelectedItem();
+		if(iSelItem==-1)then
+			return true;
+		endif;
+		var ^CListItemData pxItemData=cast<CListItemData>(m_pxLevelList^.GetItemData(iSelItem));
+		if(pxItemData==null)then 
+			return true;
+		endif;
+		var ^CLevelInfo pxCLInfo=^(m_pxCurMapInfo^.GetLevelInfo());			
+		var string sTribe=(pxCLInfo^.GetGenericData())["PlayerSettings/Player_0/Restrictions/Base/Tribes"].GetValueS("Default","Hu");		
+		CCampaignMgr.Get().SetCurLevel(pxItemData^.m_sLevelKey);		
+		m_pxGameInfoWindow^.WriteResultToLevelInfo(0,sTribe);	
+		var ^CLevelInfo pxLevelInfo=^(CCampaignMgr.Get().GetCurLevelInfo());	
+		var ^CLevelInfo.CPlayerSlot pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(m_pxGameInfoWindow^.GetPlayerSlotID()));
+		if(pxPlayerSlot!=null)then
+			pxPlayerSlot^.SetTribe(sTribe);
+			var ^CUserProfileList pxList=^(CClientWrap.GetUserProfileList());
+			if(pxList!=null)then
+				var string sPlayerName=pxList^.GetCurrentProfile()^.GetUserName();
+				if(sPlayerName=="")then
+					sPlayerName=Windows.GetUserName();
+					CSettings.Set("Game/PlayerName",sPlayerName);
+				endif;
+				pxPlayerSlot^.SetName(sPlayerName);
+			endif;
+		endif;
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		pxBaseNode^.SetValue("Difficulty",CCampaignMgr.Get().GetDifficulty());
+		
+		CUIStateMgr.Get().SetLoadScreenInfo(CUIStateMgr.CLoadScreenInfo.LOADSCR_SINGLEPLAYER,CCampaignMgr.Get().GetCurLevel(),pxItemData^.m_sLevelCheckSumme);
+		if(!CClientWrap.HasServer())then
+			CUIStateMgr.Get().ShowLoadingScreen("StartingServerAndStartingGame",CUIStateMgr.STATE_LOADCAMPAIGNLEVEL);
+		else
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_LOADCAMPAIGNLEVEL);
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool HasSEASVersion()
+		return m_bSEASVersion;
+	endproc;
+	export proc bool IsSEASMap()
+		return m_bSEASMap;
+	endproc;
+	export proc string GetMapName()
+		return m_sMapName;
+	endproc;
+	export proc int GetCredits()
+		return m_iCredits;
+	endproc;
+	export proc void SetSEASMap(bool p_bValue)
+		m_bSEASMap = p_bValue;
+	endproc;
+	export proc bool OnBack()
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_MAINMENU);		
+		return true;
+	endproc;	
+	
+	proc void OnUpdateContent()
+		super.OnUpdateContent();
+		m_pxSettingsBox^.InvalidateContent();
+	endproc;
+	
+endclass;
+
+class CCampaignListSmall inherit CFrameWindow
+	
+	//var CMapInfoList	m_xAllCampaignLevels;	
+	var ^CGameInfoWindow m_pxGameInfoWindow;
+	var ^CCampaignSettings	m_pxSettingsBox;
+	var ^CCampaignList		m_pxCampaignList;
+	var ^CButton			m_pxStart;
+	var ^CButton			m_pxBack;
+	
+	export constructor(^CGameInfoWindow p_pxGameInfoWindow)
+		if(!InitFromResource("UI/CampaignMenu","CampaignListSmall")) then
+			return;
+		endif;
+		m_pxGameInfoWindow=p_pxGameInfoWindow;
+		var ^CDesktop pxDesktop=CClientWrap.GetDesktop();
+		m_pxSettingsBox=cast<CCampaignSettings>(GetControl("Settings"));
+		m_pxStart=cast<CButton>(GetControl("StartButton"));
+		m_pxStart^.m_xOnClick=OnStart;
+		m_pxBack=cast<CButton>(GetControl("BackButton"));
+		m_pxBack^.m_xOnClick=OnBack;
+		SetCmd("Exit", OnBack );
+		AddAccelerator("ESCAPE,NONE,Exit");
+		m_pxStart^.SetDisabled(true);
+		m_pxBack^.SetDisabled(true);
+	endconstructor;
+	
+	export proc void Init(^CMapInfoList.CMapInfo p_pxCurMapInfo,^CCampaignList p_pxCampaignList)		
+		m_pxCampaignList=p_pxCampaignList;
+		m_pxStart^.SetDisabled(m_pxCampaignList==null);	
+		m_pxBack^.SetDisabled(m_pxCampaignList==null);
+		m_pxSettingsBox^.Init(m_pxGameInfoWindow,p_pxCurMapInfo,m_pxCampaignList^.GetMapName(),m_pxCampaignList^.GetCredits(),m_pxCampaignList^.HasSEASVersion());		
+	endproc;
+	
+	export proc ^CPointGauge GetPointGauge()
+		return m_pxSettingsBox^.GetPointGauge();
+	endproc;
+	
+	proc bool OnStart()
+		return m_pxCampaignList^.OnStart();
+	endproc;
+	
+	proc bool OnBack()
+		return m_pxCampaignList^.OnBack();
+	endproc;
+	
+	proc void OnUpdateContent()
+		super.OnUpdateContent();
+		m_pxSettingsBox^.InvalidateContent();
+	endproc;
+endclass;
+
+class CCampaignSettings inherit CWindow
+	var ^CRadioButton		m_pxEasyBtn;
+	var ^CRadioButton		m_pxMediumBtn;
+	var ^CRadioButton		m_pxHardBtn;
+	
+	var ^CRadioButton		m_pxTribeHu;
+	var ^CRadioButton		m_pxTribeAje;
+	var ^CRadioButton		m_pxTribeNinigi;
+	var ^CRadioButton		m_pxTribeSEAS;
+	
+	var ^CPointGauge		m_pxPointGauge;
+	
+	var ^CGameInfoWindow	m_pxGameInfoWindow;
+	var ^CMapInfoList.CMapInfo m_pxCurMapInfo;
+	
+	var bool			m_bSEASVersion;
+	var string			m_sMapName;
+	var int				m_iCredits;
+	export constructor()
+		if(!InitFromResource("UI/CampaignMenu","CampaignSettings")) then
+			return;
+		endif;
+		var ^CDesktop pxDesktop=CClientWrap.GetDesktop();
+		m_pxTribeHu=cast<CRadioButton>(GetControl("TribeContainer/Tribe_Hu"));
+		m_pxTribeHu^.m_xOnChange=OnChangeTribe;
+		m_pxTribeAje=cast<CRadioButton>(GetControl("TribeContainer/Tribe_Aje"));
+		m_pxTribeAje^.m_xOnChange=OnChangeTribe;
+		m_pxTribeNinigi=cast<CRadioButton>(GetControl("TribeContainer/Tribe_Ninigi"));
+		m_pxTribeNinigi^.m_xOnChange=OnChangeTribe;
+		m_pxTribeSEAS=cast<CRadioButton>(GetControl("TribeContainer/Tribe_SEAS"));
+		m_pxTribeSEAS^.m_xOnChange=OnChangeTribe;
+		//m_pxTribeSEAS^.SetText(CLocalizationMgr.Get().Translate("_SEAS"));
+		//m_pxTribeSEAS^.SetToolTipText(CLocalizationMgr.Get().Translate("SM_TribeSEAS_TT"));
+		
+		m_pxEasyBtn=cast<CRadioButton>(GetControl("Easy"));
+		m_pxEasyBtn^.m_xOnChange=OnChangeDifficulty;
+		m_pxMediumBtn=cast<CRadioButton>(GetControl("Medium"));
+		m_pxMediumBtn^.m_xOnChange=OnChangeDifficulty;
+		m_pxHardBtn=cast<CRadioButton>(GetControl("Hard"));
+		m_pxHardBtn^.m_xOnChange=OnChangeDifficulty;
+		m_pxPointGauge=cast<CPointGauge>(GetControl("PointGauge"));
+	endconstructor;
+	
+	export proc void Init(^CGameInfoWindow p_pxGameInfoWindow, ^CMapInfoList.CMapInfo p_pxCurMapInfo, string p_sMapName, int p_iCredits, bool p_bSEASVersion)		
+		m_pxGameInfoWindow=p_pxGameInfoWindow;
+		m_pxCurMapInfo=p_pxCurMapInfo;
+		m_bSEASVersion = p_bSEASVersion;
+		m_sMapName = p_sMapName;
+		m_iCredits = p_iCredits;
+		var ^CLevelInfo pxCurLevelInfo;
+		if(m_pxCurMapInfo!=null)then
+			pxCurLevelInfo=^(m_pxCurMapInfo^.GetLevelInfo());
+			var ^CPropDB.CNode pxTribes = pxCurLevelInfo^.GetGenericData().FindNode("PlayerSettings/Player_0/Restrictions/Base/Tribes", false);
+			if(pxTribes!=null) then
+				var string sV = pxTribes^.Value();
+				var array string asToks;
+				sV.Split(asToks, ":", true);
+				
+				m_pxTribeHu^.SetDisabled(asToks.FindEntry("Hu")==-1);
+				m_pxTribeAje^.SetDisabled(asToks.FindEntry("Aje")==-1);
+				m_pxTribeNinigi^.SetDisabled(asToks.FindEntry("Ninigi")==-1);
+				m_pxTribeSEAS^.SetDisabled((asToks.FindEntry("SEAS")==-1)); // AyCe &&!m_bSEASVersion);
+				var string sDefTribe=pxTribes^.GetValueS("Default");
+				m_pxGameInfoWindow^.UpdatePointBuy(sDefTribe);		
+				/*
+				sV = pxTribes^.GetValueS("Default");
+				if(!sV.IsEmpty()) then
+					var int iID=-1;
+					var int i,iC=m_pxTribeList^.NumItems();
+					for(i=0)cond(i<iC)iter(i++)do
+						var ^CItemDataString pxIDS=cast<CItemDataString>(m_pxTribeList^.GetItemData(i));
+						if(pxIDS^.m_sData==sV)then
+							iID=i;
+							break;
+						endif;
+					endfor;
+					if(iID>=0) then
+						m_pxTribeList^.Select(iID);
+					endif;
+				endif;
+				*/
+			endif;
+		endif;
+		OnUpdateContent();
+		OnChangeTribe();
+	endproc;
+	
+	export proc ^CPointGauge GetPointGauge()
+		return m_pxPointGauge;
+	endproc;
+	
+	proc void OnUpdateContent()
+		super.OnUpdateContent();
+		if(m_pxGameInfoWindow==null || m_pxCurMapInfo==null)then
+			SetDisabled(true);
+			return;
+		endif;
+		SetDisabled(false);
+		var ^CCampaignMgr pxCampaignMgr=^(CCampaignMgr.Get());
+		//var ^CPropDB.CNode pxCampaignLevels=^(pxCampaignMgr^.GetLevels());		
+				
+		var int iDefDifficulty=CCampaignMgr.Get().GetDifficulty();
+		if(iDefDifficulty==CCampaignMgr.DIFFICULTY_HARD)then
+			m_pxHardBtn^.SetSelected(true);
+		elseif(iDefDifficulty==CCampaignMgr.DIFFICULTY_MEDIUM)then
+			m_pxMediumBtn^.SetSelected(true);
+		else
+			m_pxEasyBtn^.SetSelected(true);
+		endif;
+		m_pxTribeHu^.m_xOnChange.Clear();
+		m_pxTribeAje^.m_xOnChange.Clear();
+		m_pxTribeNinigi^.m_xOnChange.Clear();
+		m_pxTribeSEAS^.m_xOnChange.Clear();
+		var string sCurTribe=m_pxGameInfoWindow^.GetPointBuyMenu().GetCurTribe();
+		if(sCurTribe=="Ninigi")then
+			m_pxTribeNinigi^.SetSelected(true);
+		elseif(sCurTribe=="Aje")then
+			m_pxTribeAje^.SetSelected(true);
+		elseif(sCurTribe=="SEAS")then
+			m_pxTribeSEAS^.SetSelected(true);
+		else
+			m_pxTribeHu^.SetSelected(true);
+		endif;
+		m_pxTribeHu^.m_xOnChange=OnChangeTribe;
+		m_pxTribeAje^.m_xOnChange=OnChangeTribe;
+		m_pxTribeNinigi^.m_xOnChange=OnChangeTribe;		
+		m_pxTribeSEAS^.m_xOnChange=OnChangeTribe;		
+	endproc;
+	
+	export proc string GetTribe() 
+		if(m_pxTribeAje^.GetSelected())then
+			return "Aje";
+		endif;
+		if(m_pxTribeNinigi^.GetSelected())then
+			return "Ninigi";
+		endif;
+		if(m_pxTribeSEAS^.GetSelected())then
+			return "SEAS";
+		endif;
+		return "Hu";
+	endproc;
+	
+	proc bool OnChangeTribe()
+		if(m_pxCurMapInfo==null)then 
+			return true; 
+		endif;
+		var string sTribe=GetTribe();
+		var ^CPropDB.CNode pxTribes = ^(m_pxCurMapInfo^.GetLevelInfo().GetGenericData().FindNode("PlayerSettings/Player_0/Restrictions/Base/Tribes", false));
+		if(pxTribes!=null) then
+			pxTribes^.SetValue("Default",sTribe);
+		endif;
+		m_pxGameInfoWindow^.UpdatePointBuy(sTribe);
+		return true;
+	endproc;
+	
+	proc bool OnChangeDifficulty()
+		var int iDifficulty=CCampaignMgr.DIFFICULTY_EASY;
+		if(m_pxMediumBtn^.GetSelected())then
+			iDifficulty=CCampaignMgr.DIFFICULTY_MEDIUM;
+		elseif(m_pxHardBtn^.GetSelected())then
+			iDifficulty=CCampaignMgr.DIFFICULTY_HARD;
+		endif;
+		CCampaignMgr.Get().SetDifficulty(iDifficulty);
+		return true;
+	endproc;
+
+endclass;

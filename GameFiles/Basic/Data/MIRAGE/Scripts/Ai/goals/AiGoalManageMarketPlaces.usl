@@ -1,0 +1,1021 @@
+//CAiGoalManageMarketPlaces
+class CAiGoalManageMarketPlaces inherit CAiGoal
+	
+	const int							RE_PLAN = 75;
+	const int							RE_CHECK = 20;
+	
+	var string						m_sState;
+	var string						m_sMarketPlaceClass;
+	var string						m_sMarketCartClass;
+	var string						m_sTribe;
+	var int								m_iMarketCartTimer;
+	var int								m_iOutpostID;
+	
+	var ^CAiRequestInfo				m_pxMarketPlaceRequestPendingBase;	///< never acess theese pointers, they could be invalid!!!
+	var ^CAiRequestInfo				m_pxMarketPlaceRequestPendingOutpost;
+	
+	var bool										m_bCartRequestPending;
+	var real										m_fRouteLength;
+	var CAiObjWrap							m_xMainMarket;
+	var CAiObjWrap							m_xOutpostMarket;
+	var ^CAiSolution						m_pxSolution;
+	var CAiNeedPtr							m_pxNeed;
+	var CAiTaskBuildSquad				m_xAllocator;
+	var CAiTaskUnitSupervisor		m_xCartSupervisor;
+	
+	var bool										m_bInitedHack;
+	var bool										m_bOutpostReady;
+	var array vec3							m_avSecPoints;
+
+	static var int							ms_iMarketCartTimerInit;
+	static var int							ms_iEnemyAreaCheckRadius;
+	static var int							ms_iAnimalAreaCheckRadius;
+	static var real							ms_fPathDestTolerance;
+	static var real							ms_fMinDist;
+	static var real							ms_fMaxDist;
+	static var real							ms_fMaxRouteLength;
+	static var real							ms_fMainBaseProtectRange;
+	static var real							ms_fSecurityPointDistance;
+	
+	var array ^CAiTaskBuildTowers m_apxTowerTasks;
+	var int 										m_iMaxTowerRetryCount;
+	var int 										m_iTowerRetryCount;
+	var bool										m_bDone;
+	var ^CAiBrain 							m_pxBrain;
+	var ^CAiSensor							m_pxSensor;
+	var string									m_sPlayerID;
+	var int											m_iPlayerID;
+	var int											m_iMarketCounter;
+	
+	var bool										m_bMPUpgrade;
+	var int											m_iRePlanCounter;
+	var int											m_iReCheckCounter;
+	
+	///constructor
+	export constructor()
+	endconstructor;
+	
+	///destructor
+	export destructor()
+		if(m_pxSolution!=null)then
+			delete m_pxSolution;
+		endif;
+	enddestructor;
+	
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		super.Init(p_pxBrain);
+		if(p_pxBrain==null)then return false; endif;	
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+//		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(44+iType);
+		m_bInitedHack = false;
+		m_apxTowerTasks=0;
+		m_iMaxTowerRetryCount=5;
+		m_iTowerRetryCount=5;
+		m_bDone=false;
+		m_iMarketCounter=0;
+		m_sState = "Planning";
+		m_iMarketCartTimer = 0;
+		m_iOutpostID = -1;
+		m_fRouteLength = 0.0;
+		m_pxMarketPlaceRequestPendingBase=null;
+		m_pxMarketPlaceRequestPendingOutpost=null;
+		m_bCartRequestPending = false;
+		m_avSecPoints = 0;
+		ms_iMarketCartTimerInit = 3;
+		ms_iEnemyAreaCheckRadius = 2;
+		ms_iAnimalAreaCheckRadius = 1;
+		ms_fPathDestTolerance = 30.0;
+		ms_fMinDist = 25.0;
+		ms_fMaxDist = 500.0;
+		ms_fMaxRouteLength = 600.0;
+		ms_fMainBaseProtectRange = 90.0;
+		ms_fSecurityPointDistance = 90.0;
+		m_iRePlanCounter = 0;
+		m_iReCheckCounter = 0;
+		var ^CAiTechTree pxTT= ^(m_pxSensor^.GetTechTree());
+		m_sTribe = pxTT^.GetTribe();
+		if(m_sTribe == "Hu")then
+			m_sMarketPlaceClass = "hu_warehouse";
+			m_sMarketCartClass = "hu_cart";
+			var ^CAiTechTree pxT=GetAiTechTree();
+			if(pxT!=null)then
+				var ^CAiNodeInstance pxNI=pxT^.GetNodeInstanceFromPartialName("InventObjects/hu_marketplace");
+				if(pxNI!=null)then
+					m_bMPUpgrade=pxNI^.GetInstanceCount()>0;
+				endif;
+			endif;
+		elseif(m_sTribe == "Aje")then
+			m_bMPUpgrade=true;
+			m_sMarketPlaceClass = "aje_bazaar";
+			m_sMarketCartClass = "aje_trade_dino";
+		elseif(m_sTribe == "Ninigi")then
+			m_bMPUpgrade=true;
+			m_sMarketPlaceClass = "ninigi_warehouse";
+			m_sMarketCartClass = "ninigi_cart";
+		elseif(m_sTribe == "SEAS")then
+			m_bMPUpgrade=true;
+			m_sMarketPlaceClass = "seas_steelwork";
+			//Henry: adding seas trade unit
+			m_sMarketCartClass = "seas_trade_dino";
+		endif;
+		var ^CAiMaps pxMaps = ^(m_pxSensor^.GetAiMaps());
+		MakeSolution();
+		m_xAllocator.Init(this, false, false);
+		m_xAllocator.SetPriority(100.0f);
+		m_xAllocator.SetSolution(m_pxSolution);
+		RemoveTask(^m_xAllocator);
+		AddTask(^m_xAllocator);
+		m_xCartSupervisor.Init(this);
+		RemoveTask(^m_xCartSupervisor);
+		AddTask(^m_xCartSupervisor);
+		m_bInitedHack = true;
+		return true;
+	endproc;
+	
+	///MakeSolution
+	proc void MakeSolution()
+		var ^CAiTechTree pxTT = GetAiTechTree();
+		if(pxTT == null)then return; endif;
+		if((m_pxSolution != null) || (m_pxNeed != null))then return; endif;
+		m_pxSolution = new CAiSolution();
+		m_pxNeed = CAiNeed.Create();
+		var ^CAiNodeInstance pxNI = pxTT^.GetNodeInstanceFromPartialName(m_sMarketCartClass);
+		if(pxNI == null)then return; endif;
+		m_pxNeed.GetNeed()^.AddEntry(pxNI);
+		m_pxNeed.GetNeed()^.SetNeededInstanceCount(4);
+		m_pxNeed.GetNeed()^.SetGlobal(false);
+		m_pxNeed.GetNeed()^.SetLockable(true);
+		m_pxSolution^.AddRequired(m_pxNeed);
+		m_pxSolution^.SetSubject(0);
+	endproc;
+	
+	///shut
+	export proc void Shut()
+		m_bInitedHack = false;
+		m_xAllocator.Shut();
+		RemoveTask(^m_xAllocator);
+		RemoveTask(^m_xCartSupervisor);
+		m_xCartSupervisor.Shut();
+		var int i, iC=m_apxTowerTasks.NumEntries();
+		if(iC>0)then
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CAiTaskBuildTowers pxTowerTask=m_apxTowerTasks[i];
+				pxTowerTask^.Shut();
+				RemoveTask(pxTowerTask);
+				delete pxTowerTask;
+			endfor;
+		endif;
+		m_apxTowerTasks=0;
+		m_iMaxTowerRetryCount=5;
+		m_iTowerRetryCount=5;
+	endproc;
+	
+	///CheckForEnemyBaseAt
+	proc bool CheckForEnemyBaseAt(vec3 p_vChkPoint)
+		if(m_pxBrain==null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;	
+		var ^CAiMaps pxMaps = ^(m_pxSensor^.GetAiMaps());
+		var ^CAiMaps pxGlobalMaps = ^(m_pxSensor^.GetGlobalAiMaps());
+		var ^CAiMap pxEnemy = ^(pxMaps^.GetAiMap("Enemy", m_iPlayerID));
+		var CAiMap xDangerMap;
+		var CAiMap xRangeMap;
+		var CAiMap xHostileAnimal;
+		xHostileAnimal.CopyFrom(pxGlobalMaps^.GetAiMap("HostileAnimal", m_iPlayerID));
+		xHostileAnimal.OpMultiplication(pxMaps^.GetAiMap("HostileAnimalModifier", m_iPlayerID), true);
+		xHostileAnimal.MultMosaicFast(p_vChkPoint);
+		xRangeMap.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID);
+		xRangeMap.ClearToFast(0.0);
+		var int iX, iY;
+		CAiArea.Vec3ToArea(p_vChkPoint, iX, iY);
+		xRangeMap.AddInfluenceFast(iX, iY, ms_iAnimalAreaCheckRadius.ToReal(), 0.0, 10.0);
+		xDangerMap.CopyFromFast(pxEnemy^);
+		xDangerMap.MultiplyFast(xRangeMap);
+		xDangerMap.MultMosaicFast(p_vChkPoint);
+		var CAiArea xMostDangerousArea = xDangerMap.FindMinArea();
+		if(xDangerMap.GetValue(xMostDangerousArea) < 0.0) then
+			return true;
+		endif;
+		xRangeMap.ClearToFast(0.0);
+		xRangeMap.AddInfluenceFast(iX, iY, ms_iEnemyAreaCheckRadius.ToReal(), 0.0, 10.0);
+		xDangerMap.CopyFromFast(pxEnemy^);
+		xDangerMap.SubtractFast(xHostileAnimal);
+		xDangerMap.MultiplyFast(xRangeMap);
+		xDangerMap.MultMosaicFast(p_vChkPoint);
+		xMostDangerousArea = xDangerMap.FindMinArea();
+		if(xDangerMap.GetValue(xMostDangerousArea)<0.0) then
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	///CheckSecurityPoints
+	proc bool CheckSecurityPoints(CAiPathPtr p_pxPath)
+		if(p_pxPath == null)then return false; endif;
+		if(m_pxBrain==null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;
+		if(p_pxPath.GetPath()^.NumEntries() < 2)then return false; endif;
+		var real fLength;
+		var vec3 vSL = m_pxSensor^.GetStartLocation();
+		var bool bInBaseProtectRange = true;
+		var int iCurPointIdx = 0;
+		var real fCurPointLength = 0.0;
+		var real fCurPointDist = (p_pxPath.GetPath()^.Get(iCurPointIdx + 1) - p_pxPath.GetPath()^.Get(iCurPointIdx)).Abs();
+		var vec3 vCurDir = p_pxPath.GetPath()^.Get(iCurPointIdx + 1) - p_pxPath.GetPath()^.Get(iCurPointIdx);
+		vCurDir.Normalize();
+		m_avSecPoints = 0;
+		for(fLength=0.0)cond(fLength<m_fRouteLength)iter(fLength+=ms_fSecurityPointDistance)do
+			while(fLength > (fCurPointLength + fCurPointDist))do
+				iCurPointIdx++;
+				if((iCurPointIdx + 1) >= p_pxPath.GetPath()^.NumEntries())then
+					break;
+				endif;
+				fCurPointLength += fCurPointDist;
+				fCurPointDist = (p_pxPath.GetPath()^.Get(iCurPointIdx + 1) - p_pxPath.GetPath()^.Get(iCurPointIdx)).Abs();
+				vCurDir = p_pxPath.GetPath()^.Get(iCurPointIdx + 1) - p_pxPath.GetPath()^.Get(iCurPointIdx);
+				vCurDir.Normalize();
+			endwhile;
+			var vec3 vSecPoint = p_pxPath.GetPath()^.Get(iCurPointIdx) + vCurDir * (fLength - fCurPointLength);
+			var bool bContinue = false;
+			if(bInBaseProtectRange == true)then
+				var real fSLDist = (vSL - vSecPoint).Abs();
+				if(fSLDist < ms_fMainBaseProtectRange)then
+					continue;
+				else
+					bInBaseProtectRange = false;
+				endif;
+			endif;
+			var CAiObjQuery xOQ;
+			var CAiObjWrapList xList;
+			xOQ.SetClass(GetTowerClass());
+			xOQ.RegionCircle(vSecPoint,ms_fSecurityPointDistance+8.0f);
+			xOQ.SetOwner(m_iPlayerID);
+			xOQ.Execute(xList);
+			if(xList.NumEntries()>0)then continue; endif;
+			m_avSecPoints.AddEntry(vSecPoint);
+			if(CheckForEnemyBaseAt(vSecPoint))then
+				return false;
+			endif;
+		endfor;
+		return true;
+	endproc;
+	
+	///CheckRoute
+	proc bool CheckRoute(vec3 p_vOPPos)
+		if(m_pxSensor==null)then return false; endif;
+		var vec3 vSL = m_pxSensor^.GetStartLocation();
+		var bool bInBase=vSL==p_vOPPos;
+		var real fAirLine = (vSL - p_vOPPos).Abs();
+		if(fAirLine < ms_fMinDist && !bInBase)then
+			return false;
+		endif;
+		if(fAirLine > ms_fMaxDist)then
+			return false;
+		endif;
+		var CAiPathPtr pxPath = m_pxSensor^.CalcPath(vSL, p_vOPPos, false, false);
+		if(!bInBase)then
+			if(pxPath == null)then
+				return false;
+			else
+				if(pxPath.GetPath()^.NumEntries() <= 0)then
+					return false;
+				else
+					var vec3 vFoundDest = pxPath.GetPath()^.Get(pxPath.GetPath()^.NumEntries() - 1);
+					if((p_vOPPos - vFoundDest).Abs() > ms_fPathDestTolerance)then
+						return false;
+					endif;
+				endif;
+			endif;
+		endif;
+		m_fRouteLength = pxPath.GetPath()^.ComputeLength();
+		if(!bInBase&&m_fRouteLength > ms_fMaxRouteLength)then
+			return false;
+		endif;
+		if(CheckSecurityPoints(pxPath) == false)then
+			return false;
+		endif;
+		return true;
+	endproc;
+	
+	///ModifyExistingOutpost
+	proc bool ModifyExistingOutpost(ref int p_riOutpostID)
+		if(m_pxBrain==null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;
+		var vec3 vSL=m_pxSensor^.GetStartLocation();
+		var array CAiGoalManageMarketPlaces.CPositionSorter axOutposts;
+		var int i, k, iC = m_pxSensor^.NumOutposts();
+		for(i=0)cond(i<iC)iter(++i)do
+//			if(i == 0)then
+//				continue;
+//			endif;
+			var ^CAiOutpost pxOP;
+			pxOP = ^(m_pxSensor^.GetOutpost(i));
+			if(pxOP==null)then
+				continue;
+			endif;
+			var CAiObjWrapList xOPObjs=pxOP^.GetObjects();
+			if(xOPObjs.NumEntries()<1)then
+				continue;
+			endif;
+			var CAiObjQuery xQuery;
+			var CAiObjWrapList xMarketPlacesList;
+			xQuery.SetOwner(m_iPlayerID);
+			xQuery.SetClass(m_sMarketPlaceClass);
+			xQuery.Execute(xOPObjs, xMarketPlacesList);
+			k = xMarketPlacesList.Validate();
+			var ^CAiGoalManageMarketPlaces.CPositionSorter pxOutPost=^(axOutposts.NewEntryRef());
+			pxOutPost^.Initialize(vSL,m_pxSensor^.GetOutpost(i).GetWorldPos(),k,i);
+		endfor;
+		axOutposts.QSort();
+		iC=axOutposts.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+//			if(i == 0)then
+//				continue;
+//			endif;
+			// Henry: if village has only 1 marketplace, then skip it
+			if(axOutposts[i].m_iOPID==0&&axOutposts[i].m_iMarketplaces<2)then
+				continue;
+			endif;
+			var vec3 vOPPos=axOutposts[i].m_vPos;
+			if(CheckRoute(vOPPos))then
+				var ^CAiModuleEconomyDefault pxEM=cast<CAiModuleEconomyDefault>(m_pxBrain^.GetEconomyModule());
+				if(pxEM==null)then return false; endif;
+				p_riOutpostID = axOutposts[i].m_iOPID;
+				return true;
+			endif;
+		endfor;
+		return false;
+	endproc;
+	
+	///FindAcceptableOutpostPosition
+	proc bool FindAcceptableOutpostPosition(ref int p_riIslandId, ref vec3 p_rvOPPos)
+		if(m_pxBrain==null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;
+		var CAiObjQuery xOQ;
+		var CAiObjQuery xOQExclude;
+		var CAiObjWrapList xList;
+		var CAiObjWrapList xExcludeList;
+		var vec3 vSL = m_pxSensor^.GetStartLocation();
+		p_riIslandId = m_pxSensor^.ComputeIslandId(vSL);
+		xOQExclude.SetType("STON");
+		xOQExclude.RegionCircle(m_pxSensor^.GetStartLocation(), ms_fMinDist);
+		xOQExclude.Execute(xExcludeList);
+		xOQ.SetType("STON");
+		xOQ.RegionCircle(vSL, ms_fMaxDist);
+		xOQ.Exclude(xExcludeList);
+		xOQ.Execute(xList);
+		var int i, iC = xList.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			p_rvOPPos = xList[i].GetPos();
+			if(CheckRoute(p_rvOPPos) == true)then
+				return true;
+			endif;
+		endfor;
+		var ^CAiMaps pxMaps = ^(m_pxSensor^.GetAiMaps());
+		var ^CAiMaps pxGlobalMaps = ^(m_pxSensor^.GetGlobalAiMaps());
+		var CAiMap xValidOPPosMap;
+		var CAiMap xAnimalSubtractMap;
+		var CAiMap xEnemySubtractMap;
+		var CAiMap xBuildSubtractMap;
+		var CAiMap xTmpMap;
+		var int iX, iY;
+		CAiArea.Vec3ToArea(vSL, iX, iY);
+		xTmpMap.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID);
+		xValidOPPosMap.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID);
+		xValidOPPosMap.AddGradientRadialFast(iX, iY, CAiArea.FloatToAreaFloat(ms_fMinDist), CAiArea.FloatToAreaFloat(ms_fMaxDist), 0.2, 1.0);
+		xEnemySubtractMap.CopyFromFast(pxMaps^.GetAiMap("Enemy", m_iPlayerID));
+		xEnemySubtractMap.SubtractFast(pxGlobalMaps^.GetAiMap("HostileAnimal", m_iPlayerID)); //no animals
+		xEnemySubtractMap.FilterFast(-0.001, -0.001, 0.0, 1.0); //enemy areas to 0, nonenemy areas to 1
+		xEnemySubtractMap.DilateFast(xTmpMap, ms_iEnemyAreaCheckRadius, 0.0, 0.0, 0.0, 1.0); //dilate black animal areas
+		xAnimalSubtractMap.CopyFromFast(pxGlobalMaps^.GetAiMap("HostileAnimal", m_iPlayerID));
+		xAnimalSubtractMap.FilterFast(-0.001, -0.001, 0.0, 1.0); //enemy areas to 0, nonenemy areas to 1
+		xAnimalSubtractMap.DilateFast(xTmpMap, ms_iAnimalAreaCheckRadius, 0.0, 0.0, 0.0, 1.0); //dilate black animal areas
+		xBuildSubtractMap.CopyFromFast(pxGlobalMaps^.GetAiMap("Build", m_iPlayerID));
+		xBuildSubtractMap.MultiplyFast(pxMaps^.GetAiMap("BuildModifier", m_iPlayerID)); //enemy areas to 0, nonenemy areas to 1
+		xBuildSubtractMap.FilterFast(10.5, 10.5, 0.0, 1.0); //free areas forbuild to 1, other to 0
+		xValidOPPosMap.MultiplyFast(xEnemySubtractMap);
+		xValidOPPosMap.MultiplyFast(xAnimalSubtractMap);
+		xValidOPPosMap.MultiplyFast(xBuildSubtractMap);
+		xValidOPPosMap.MultMosaicFast(vSL);
+		var CAiArea xBestArea = xValidOPPosMap.FindMaxArea();
+		while(xValidOPPosMap.GetValueSafe(xBestArea) > 0.0)do
+			p_rvOPPos = xBestArea.GetWorldCenterPos();
+			if(CheckRoute(p_rvOPPos) == true)then
+				return true;
+			endif;
+			xValidOPPosMap.AddGradientRadialFast(xBestArea.GetX(), xBestArea.GetY(), 0.0, 1.0, -2.0, -2.0);
+			xBestArea = xValidOPPosMap.FindMaxArea();
+		endwhile;
+		return false;
+	endproc;
+	
+	///ModifyOrCreateAcceptableOutpost
+	proc bool ModifyOrCreateAcceptableOutpost(ref int p_riOutpostID)
+		var vec3 vOPPos;
+		var int iIslandId;
+		if(ModifyExistingOutpost(p_riOutpostID) == true)then
+			return true;
+		endif;
+		if(FindAcceptableOutpostPosition(iIslandId, vOPPos) == true)then
+			if(m_pxBrain==null)then return false; endif;
+			var ^CAiModuleEconomyDefault pxEM = cast<CAiModuleEconomyDefault>(m_pxBrain^.GetEconomyModule());
+			if(pxEM==null)then return false; endif;
+			if(!pxEM^.StartOutpost(iIslandId, vOPPos, "EmptyOutpost", p_riOutpostID))then
+				return false;
+			endif;
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	proc string GetTowerClass()
+		var string sTribe=m_pxSensor^.GetTechTree().GetTribe();
+		var string sTowerClassName;
+		if(sTribe=="Hu")then
+			sTowerClassName="hu_small_tower";
+		elseif(sTribe=="Aje")then
+			sTowerClassName="aje_small_tower";
+		elseif(sTribe=="Ninigi")then
+			sTowerClassName="ninigi_small_tower";
+		elseif(sTribe=="SEAS")then
+			sTowerClassName="seas_turret_tower";
+		else
+			KLog.LogError("AiGoalManageMarketPlaces","invalid tribe:"+sTribe);
+		endif;
+		return sTowerClassName;
+	endproc;
+	
+	///UpdateTowerRequests
+	proc void UpdateTowerRequests()
+		if(!m_bDone)then
+			if(m_pxBrain==null)then return; endif;
+			if(m_pxSensor==null)then return; endif;
+			var ^CAiModuleDefenseDefault pxDM = cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+			if(pxDM == null)then return; endif;
+			var ^CAiMaps pxMaps = ^(m_pxSensor^.GetAiMaps());
+			var ^CAiMaps pxGlobalMaps = ^(m_pxSensor^.GetGlobalAiMaps());
+			var ^CAiMap pxDefCovMap = ^(pxMaps^.GetAiMap("DefensiveCoverage", m_iPlayerID));
+			var int iX, iY;
+			var int i, iC = m_avSecPoints.NumEntries();
+			if(iC>0)then
+				var string sTowerClassName=GetTowerClass();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CAiTaskBuildTowers pxTowerTask = new CAiTaskBuildTowers(m_avSecPoints[i], sTowerClassName);
+					pxTowerTask^.Init(this);
+					pxTowerTask^.CalculateStartCost();
+					if(!pxTowerTask^.Start())then
+						pxTowerTask^.Shut();
+						delete pxTowerTask;
+						continue;
+					endif;
+					m_apxTowerTasks.AddEntry(pxTowerTask);
+					AddTask(pxTowerTask);
+				endfor;
+			endif;
+			m_bDone=true;
+		endif;
+	endproc;
+	
+	///CreateRequest-> create a ConstructionInfo fora building (by partial NodeInstance name), skip if building already exists
+	proc CAiConstructionInfoPtr CreateRequest(string p_sName, string p_sObjFlag, int p_iNumber, int p_iOPId, bool p_bBuildIfNotExist, bool p_bWantUnits, real p_fPrio)
+		var CAiConstructionInfoPtr pxCI;
+		var CAiNeedPtr pxNd;
+		var ^CAiNodeInstance pxNI;
+		if(m_pxSensor==null)then return pxCI; endif;
+		var ^CAiTechTree pxTT=^(m_pxSensor^.GetTechTree());
+		pxNI = pxTT^.GetNodeInstanceFromPartialName(p_sName, p_sObjFlag);
+		if(pxNI != null)then
+			if((p_bBuildIfNotExist==true)&&(pxNI^.GetInstanceCount(p_iOPId)>0))then
+				return pxCI;
+			endif;
+			pxNd = CAiNeed.Create(true,p_iNumber);
+			pxNd.GetNeed()^.AddEntry(pxNI);
+			pxCI = CAiConstructionInfo.Create();
+			SetRequesterFor(pxCI.GetConstructionInfo());
+			pxCI.GetConstructionInfo()^.SetNeed(pxNd);
+			pxCI.GetConstructionInfo()^.SetOutpostId(p_iOPId);
+			pxCI.GetConstructionInfo()^.SetWantUnits(p_bWantUnits);
+			pxCI.GetConstructionInfo()^.SetPriority(p_fPrio);
+		endif;
+		return pxCI;
+	endproc;
+	
+	///UpdateMarketObj
+	proc bool UpdateMarketObj(^CAiNodeInstance p_pxNI, ref CAiObjWrap p_rxMarketObj, int p_iOutpostId);
+		if(p_pxNI==null)then return false; endif;
+		if(p_rxMarketObj.IsValid())then return true; endif;
+		var int i, iC = p_pxNI^.NumActualUnits(p_iOutpostId);
+		for(i=0)cond(i<iC)iter(++i)do
+			p_rxMarketObj=p_pxNI^.GetActualUnit(p_iOutpostId, i);
+			if(p_rxMarketObj.IsValid())then return true; endif;
+		endfor;
+		return false;
+	endproc;
+	
+	///UpdateMarketPlaceRequests
+	proc bool UpdateMarketPlaceRequests()
+		if(m_pxBrain==null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;
+		var ^IAiModuleEconomy pxEMod = m_pxBrain^.GetEconomyModule();
+		if(pxEMod==null)then return false; endif;
+		var ^CAiTechTree pxTT = ^(m_pxSensor^.GetTechTree());
+		var ^CAiNodeInstance pxNI = pxTT^.GetNodeInstanceFromPartialName(m_sMarketPlaceClass);
+		if(pxNI == null)then
+			return false;
+		endif;
+//		var int iNumMarketPlacesBase=pxNI^.GetInstanceCount(0);
+//		var int iNumMarketPlacesOutpost=pxNI^.GetInstanceCount(m_iOutpostID);
+		// Henry: at norsemen after the marketplace upgrade CAiNodeInstance's GetInstanceCount(int p_iOutpostId) isn't working. i guess it because the name (hu_warehouse) and the (new) object flag (hu_marketplace) are different...
+		var int iNumMarketPlacesBase=GetMarketPlaceCount(0);
+		var int iNumMarketPlacesOutpost=GetMarketPlaceCount(m_iOutpostID);
+		var int j=0;
+		begin CheckingAllMarketPlaces;
+			var CAiObjWrapList xList;
+			var CAiObjQuery xQuery;
+			xQuery.SetOwner(m_iPlayerID);
+			xQuery.SetClass(m_sMarketPlaceClass);
+			xQuery.SetAttribNeg("CurTask","BuildUpB");
+			xQuery.SetAttribNeg("ReadyForWork",0);
+			xQuery.Execute(xList);
+			j=xList.Validate();
+			if(j>(iNumMarketPlacesBase+iNumMarketPlacesOutpost))then
+				m_iReCheckCounter++;
+			endif;
+			if(m_iReCheckCounter>=RE_CHECK)then
+				m_sState="Planning";
+				m_iReCheckCounter=0;
+				return false;
+			endif;
+		end CheckingAllMarketPlaces;
+		if(m_pxMarketPlaceRequestPendingBase==null)then
+			if(iNumMarketPlacesBase<1)then
+				var CAiConstructionInfoPtr pxCI = CreateRequest(m_sMarketPlaceClass, "", 1, 0, true, false, 0.666);
+				if(pxCI != null)then
+					if(pxEMod^.ExternalRequestConstruction(pxCI)==false)then
+					else
+						m_pxMarketPlaceRequestPendingBase=pxCI.GetConstructionInfo();
+					endif;
+					return false;
+				endif;
+			endif;
+		endif;
+		if(m_pxMarketPlaceRequestPendingOutpost==null)then
+			if(iNumMarketPlacesOutpost<1) then
+			var CAiConstructionInfoPtr pxCI = CreateRequest(m_sMarketPlaceClass, "", 1, m_iOutpostID, true, false, 0.666);
+			if(pxCI != null)then
+				if(pxEMod^.ExternalRequestConstruction(pxCI)==false)then
+				else
+					m_pxMarketPlaceRequestPendingOutpost=pxCI.GetConstructionInfo();
+				endif;
+				return false;
+			endif;
+			endif;
+		endif;
+		if(iNumMarketPlacesBase<=0)then
+			return false;
+		endif;
+		if(iNumMarketPlacesOutpost<=0)then //check if the outpost has a market place
+			return false;
+		endif;
+		// Henry: at norsemen after the marketplace upgrade CAiNodeInstance's GetActualUnit(int p_iOutpostId , int p_iIdx) and NumActualUnits(int p_iOutpostId) aren't working. i guess it because the name (hu_warehouse) and the (new) object flag (hu_marketplace) are different
+//		if(UpdateMarketObj(pxNI, m_xMainMarket, 0) == false)then
+		if(GetMarketObj(pxNI, m_xMainMarket, 0, m_xOutpostMarket) == false)then
+			return false;
+		endif;
+//		if(UpdateMarketObj(pxNI, m_xOutpostMarket, m_iOutpostID) == false)then
+		if(GetMarketObj(pxNI, m_xOutpostMarket, m_iOutpostID, m_xMainMarket) == false)then
+			return false;
+		endif;
+		return true;
+	endproc;
+	
+	///CheckForCartCompletion
+	proc void CheckForCartCompletion()
+		if(m_pxSensor==null)then return; endif;
+		if(m_xAllocator.IsRunning())then
+			var bool bError = false;
+			if(m_xAllocator.GetUnits().NumEntries()<=0)then bError=true; endif; 
+			if(!bError)then
+				if(!m_xOutpostMarket.IsValid())then bError = true; endif;
+			endif;
+			if(!bError)then
+				if(m_pxSensor==null)then bError=true; endif;
+			endif;
+			if(!bError)then
+				if(m_xOutpostMarket.IsValid())then
+					m_pxSensor^.ExecuteGamePlayCommand(m_xAllocator.GetUnits()[0].GetHandle(), "Dock", m_xOutpostMarket.GetHandle(), m_xOutpostMarket.GetPos(), "/AI_Help");
+				endif;
+			endif;
+			m_xCartSupervisor.AddUnits(m_xAllocator.GetUnits());
+			m_xAllocator.Shut();
+			m_xAllocator.Init(this,false,false);
+		endif;
+		var ^CAiTechTree pxTT = ^(m_pxSensor^.GetTechTree());
+		if(pxTT==null)then return; endif;
+		m_sTribe = pxTT^.GetTribe();
+		if(m_sTribe == "Hu")then
+			m_sMarketCartClass = "hu_cart";
+		elseif(m_sTribe == "Aje")then
+			m_sMarketCartClass = "aje_trade_dino";
+		elseif(m_sTribe == "Ninigi")then
+			m_sMarketCartClass = "ninigi_cart";
+		elseif(m_sTribe == "SEAS")then
+			//addings seas trade unit
+			m_sMarketCartClass = "seas_trade_dino";
+		endif;
+		var CAiObjWrapList xList;
+		var CAiObjQuery xQuery;
+		xQuery.SetOwner(m_iPlayerID);
+		xQuery.SetClass(m_sMarketCartClass);
+		xQuery.Execute(xList);
+		var int i, iC=xList.NumEntries();
+		if(iC>=1)then SetOutpostReady(true); endif;
+		if(iC>0)then
+			for(i=0)cond(i<iC)iter(i++)do
+				if(xList[i].IsValid())then
+//					if(xList[i].GetCurrentTask()=="idle"||xList[i].GetCurrentTask()=="Idle")then
+					if(xList[i].GetCurrentTask()!="Trade"||xList[i].GetAttribValue("CurTask")!="Trade")then
+						if(m_xOutpostMarket.IsValid()&&m_xMainMarket.IsValid())then
+							var int iDockTarget=m_xOutpostMarket.GetHandle();
+							var vec3 vPosCart=xList[i].GetPos();
+							var vec3 vPosDock=m_xOutpostMarket.GetPos();
+							if((m_xMainMarket.GetPos()-vPosCart).AbsSquare()>(vPosDock-vPosCart).AbsSquare()) then
+								iDockTarget=m_xMainMarket.GetHandle();
+								vPosDock=m_xMainMarket.GetPos();
+							endif;
+							var bool bSuccess= m_pxSensor^.ExecuteGamePlayCommand(xList[i].GetHandle(), "Dock",iDockTarget,vPosDock,"/AI_Help");
+						else
+							var bool bSuccess= m_pxSensor^.ExecuteGamePlayCommand(xList[i].GetHandle(), "LookForTarget",-1,xList[i].GetPos(),"/AI_Help");
+						endif;
+					endif;
+				else
+					xList.RemEntry(xList[i]);
+					i--; iC--;
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	///RequestMarketCart
+	proc void RequestMarketCart()
+		if(m_xAllocator.IsInitState())then
+			m_xAllocator.SetSolution(m_pxSolution);
+			m_xAllocator.SetOutpostId(0);
+			if(m_xAllocator.Start(false))then return; endif;
+			if(m_xAllocator.Start(true))then return; endif;
+		elseif(m_xAllocator.IsNotPossible())then
+			m_xAllocator.Init(this,false,false);
+			return;
+		elseif(m_xAllocator.IsAborted())then
+			m_xAllocator.Init(this,false,false);
+			return;
+		endif;
+	endproc;
+	
+	///SetOutpostReady
+	proc void SetOutpostReady(bool p_bOutpostReady)
+		m_bOutpostReady=p_bOutpostReady;
+	endproc;
+	
+	///GetOutpostReady
+	export proc bool GetOutpostReady()
+		return m_bOutpostReady;
+	endproc;
+	
+	///Think
+	export proc void Think()
+		if(m_pxBrain==null)then return; endif;
+//		if(m_iPlayerID==2)then
+////		if(m_sState!="Planning"&&m_sState!="Building"&&m_sState!="Impossible")then
+//			CMirageAIMgr.Debug(m_iPlayerID.ToString()+" mpmgr state: "+m_sState);
+//		endif;
+		if(m_xOutpostMarket.IsValid())then
+			CheckBuildingHitpoints(m_xOutpostMarket);
+		endif;
+		if(m_sState=="Planning")then
+			if(ModifyOrCreateAcceptableOutpost(m_iOutpostID) == false)then
+				m_sState = "Impossible";
+				return;
+			endif;
+			m_sState = "Building";
+		elseif(m_sState=="Building")then
+			UpdateTowerRequests();
+			if(UpdateMarketPlaceRequests())then
+				m_sState = "CheckUpgrade";
+			else
+				m_iRePlanCounter++;
+			endif;
+			if(m_iRePlanCounter>=RE_PLAN)then
+				m_sState="Planning";
+				m_iRePlanCounter=0;
+				Init(m_pxBrain);
+				return;
+			endif;
+		elseif(m_sState=="CheckUpgrade")then
+			if(m_bMPUpgrade)then
+				m_sState = "Trading";
+			else
+				var ^CAiTechTree pxT=GetAiTechTree();
+				if(pxT!=null)then
+					var ^CAiNodeInstance pxNI=pxT^.GetNodeInstanceFromPartialName("InventObjects/hu_marketplace");
+					if(pxNI!=null)then
+						m_bMPUpgrade=pxNI^.GetInstanceCount()>0;
+					endif;
+				endif;
+				if(!m_bMPUpgrade)then
+//					var ^CAiModuleEconomyDefault pxEMod=cast<CAiModuleEconomyDefault>(m_pxBrain^.GetEconomyModule());
+//					if(pxEMod==null)then
+//						m_sState = "Impossible";
+//						return;
+//					endif;
+//					var ^CAiGoal pxG=pxEMod^.GetGoalByName("AiGoalBuildVillage");
+//					if(pxG==null)then
+//						m_sState = "Impossible";
+//						return;
+//					endif;
+//					var ^CAiGoalBuildVillage pxBVGoal=cast<CAiGoalBuildVillage>(pxG);
+//					if(pxBVGoal==null)then
+//						m_sState = "Impossible";
+//						return;
+//					endif;
+//					if(!pxBVGoal^.IsActive())then
+//						m_sState = "Impossible";
+//						return;
+//					endif;
+//					pxBVGoal^.AddRequestExternal("hu_plaza","",1,true,true);
+					// Henry: doesn't seems to be working, lets code it hardcore
+//					CMirageAIMgr.Debug("doing it the hard way... "+m_iPlayerID.ToString());
+					if(m_pxSensor==null)then return; endif;
+					var CAiObjWrapList xList;
+					var CAiObjQuery xQuery;
+					xQuery.SetOwner(m_iPlayerID);
+					xQuery.SetClass(m_sMarketPlaceClass);
+					xQuery.SetAttribNeg("CurTask","BuildUpB");
+					xQuery.SetAttribNeg("ReadyForWork",0);
+					xQuery.Execute(xList);
+					var int i, iC=xList.NumEntries();
+					if(iC>0)then
+						for(i=0)cond(i<iC)iter(i++)do
+							if(xList[i].IsValid())then
+								m_pxSensor^.ExecuteGamePlayCommand(xList[i].GetHandle(), "Action", xList[i].GetHandle(), {0.0,0.0,0.0}, "/Actions/Hu/Upgrades/hu_warehouse/hu_plaza");
+								return;
+							endif;
+						endfor;
+					endif;
+					return;
+				else
+					m_sState = "Trading";
+				endif;
+			endif;
+		elseif(m_sState == "Trading")then
+			UpdateTowerRequests();
+			if(UpdateMarketPlaceRequests())then
+				m_sState = "Trading";
+			endif;
+			CheckForCartCompletion();
+			if(m_iMarketCartTimer <= 0)then
+				m_iMarketCartTimer = ms_iMarketCartTimerInit;
+				RequestMarketCart();
+			else
+				m_iMarketCartTimer--;
+			endif;
+		elseif(m_sState=="Impossible")then
+			m_iMarketCounter++;
+			var int iCache=m_iMarketCounter;
+			if(m_iMarketCounter>=5)then
+//				CMirageAIMgr.Debug("deactivating for: "+m_iPlayerID.ToString());
+				m_sState="Planning";
+				m_iMarketCounter=0;
+				Deactivate();
+				return;
+			endif;
+			Init(m_pxBrain);
+			m_iMarketCounter=iCache;
+		endif;
+		var int i, iC = m_apxTowerTasks.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiTaskBuildTowers pxTowerTask=m_apxTowerTasks[i];	
+			if(!pxTowerTask^.IsWorking())then
+				if(pxTowerTask^.IsAborted() || pxTowerTask^.IsNotPossible())then
+					pxTowerTask^.Shut();
+					pxTowerTask^.Init(this);
+					pxTowerTask^.CalculateStartCost();
+					pxTowerTask^.Start();
+				elseif(pxTowerTask^.IsCompleted())then
+					pxTowerTask^.Shut();
+					RemoveTask(pxTowerTask);
+					delete pxTowerTask;
+					m_apxTowerTasks.DeleteEntryUS(i);
+					i--;
+					iC--;
+				endif;
+			endif;
+		endfor;
+	endproc;
+	
+	///EvtRequestSucceeded
+	export proc void EvtRequestSucceeded(^CAiRequestInfo p_pxRequest)
+		var CFourCC xCONSType = "CONS";
+		if(p_pxRequest^.GetType() == xCONSType)then
+			if(p_pxRequest^.GetPriority() == 0.666)then // we have a marketplace request
+				if(m_pxMarketPlaceRequestPendingBase==p_pxRequest) then
+					m_pxMarketPlaceRequestPendingBase=null;
+				endif;
+				if(m_pxMarketPlaceRequestPendingOutpost==p_pxRequest) then
+					m_pxMarketPlaceRequestPendingOutpost=null;
+				endif;
+			else
+				m_bCartRequestPending = false;
+				var ^CAiConstructionInfo pxCI = cast<CAiConstructionInfo>(p_pxRequest);
+				if(pxCI == null)then
+					return;
+				endif;
+				var ^CAiObjWrapList pxUnits = ^(pxCI^.GetUnits());
+				if(pxUnits^.NumEntries() <= 0)then
+					return;
+				endif;
+				if(m_xOutpostMarket.IsValid() == false)then
+					KLog.LogWarn("AiGoalManageMarketPlaces", "Outpost market is invalid! PlayerID: "+m_sPlayerID);
+					return;
+				endif;
+				if(m_pxSensor==null)then return; endif;
+				if(m_xOutpostMarket.IsValid())then
+					m_pxSensor^.ExecuteGamePlayCommand(pxUnits^[0].GetHandle(), "Dock", m_xOutpostMarket.GetHandle(), m_xOutpostMarket.GetPos(), "/AI_Help");
+				endif;
+			endif;
+		endif;
+		if(p_pxRequest^.GetType()=="ATCK")then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxRequest);
+		endif;
+	endproc;
+	
+	///CheckBuildingHitpoints
+	proc void CheckBuildingHitpoints(CAiObjWrap p_xOutpostMarketplace)
+		if(m_pxBrain==null)then return; endif;
+		var vec3 vDamagedBuildingPos={0.0,0.0,0.0};
+		var int iCurHitPoints;
+		var int iMaxHitPoints;
+		var CAiObjWrapList xList;
+		if(!p_xOutpostMarketplace.IsValid())then return; endif;
+		iCurHitPoints=p_xOutpostMarketplace.GetAttribValueInt("hitpoints");
+		iMaxHitPoints=p_xOutpostMarketplace.GetAttribValueInt("maxhitpoints");
+		if((iCurHitPoints<iMaxHitPoints)&&(p_xOutpostMarketplace.GetAttribValue("CurTask")!="BuildUp")&&(p_xOutpostMarketplace.GetAttribValue("CurTask")!="BuildUpB"))then
+			vDamagedBuildingPos=p_xOutpostMarketplace.GetPos();
+			var ^CAiAttackInfo pxAttackInfo = new CAiAttackInfo();
+			pxAttackInfo^.SetCanUse(CAiAttackInfo.AT_NotPresent,true);
+			if(p_xOutpostMarketplace.IsValid())then
+				pxAttackInfo^.GetTargets().CopyFrom(xList); 
+			endif;
+			pxAttackInfo^.SetRisk(100.0);
+			pxAttackInfo^.SetStrategy("quick");
+			pxAttackInfo^.SetPos(vDamagedBuildingPos);
+			SetRequesterFor(pxAttackInfo);
+			m_pxBrain^.GetFightModule()^.RequestAttack(pxAttackInfo);
+		endif;
+	endproc;
+	
+	///EvtRequestAccepted
+	export proc void EvtRequestAccepted(^CAiRequestInfo p_pxInfo)
+		if(p_pxInfo^.GetType()=="ATCK")then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+		endif;
+	endproc;
+	
+	///EvtRequestFailed
+	export proc void EvtRequestFailed(^CAiRequestInfo p_pxRequest)
+		var CFourCC xCONSType = "CONS";
+		if(p_pxRequest^.GetType() == xCONSType)then
+			if(p_pxRequest^.GetPriority() == 0.666)then
+				if(m_pxMarketPlaceRequestPendingBase==p_pxRequest) then
+					m_pxMarketPlaceRequestPendingBase=null;
+				endif;
+				if(m_pxMarketPlaceRequestPendingOutpost==p_pxRequest) then
+					m_pxMarketPlaceRequestPendingOutpost=null;
+				endif;
+			else
+				m_bCartRequestPending = false;
+			endif;
+		endif;
+		if(p_pxRequest^.GetType()=="ATCK")then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxRequest);
+		endif;
+	endproc;
+	
+	///EvtRequestRejected
+	export proc void EvtRequestRejected(^CAiRequestInfo p_pxRequest)
+		var CFourCC xCONSType = "CONS";
+		if(p_pxRequest^.GetType() == xCONSType)then
+			if(p_pxRequest^.GetPriority() == 0.666)then // we have a marketplace request
+				if(m_pxMarketPlaceRequestPendingBase==p_pxRequest) then
+					m_pxMarketPlaceRequestPendingBase=null;
+				endif;
+				if(m_pxMarketPlaceRequestPendingOutpost==p_pxRequest) then
+					m_pxMarketPlaceRequestPendingOutpost=null;
+				endif;
+			else
+				m_bCartRequestPending = false;
+			endif;
+		endif;
+		if(p_pxRequest^.GetType()=="ATCK")then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxRequest);
+		endif;
+	endproc;
+	
+	proc int GetMarketPlaceCount(int p_iOutPostID)
+		if(m_pxSensor==null||m_pxBrain==null)then return 0; endif;
+		var ^CAiTechTree pxTT = ^(m_pxSensor^.GetTechTree());
+		var ^CAiNodeInstance pxNI = pxTT^.GetNodeInstanceFromPartialName(m_sMarketPlaceClass);
+		if(pxNI == null)then return 0; endif;
+		var int iNumMarketPlaces=pxNI^.GetInstanceCount(p_iOutPostID);
+		if(iNumMarketPlaces<1)then
+			var ^CAiOutpost pxOP;
+			pxOP = ^(m_pxSensor^.GetOutpost(p_iOutPostID));
+			if(pxOP==null)then return 0; endif;
+			var CAiObjWrapList xOPObjs=pxOP^.GetObjects();
+			if(xOPObjs.NumEntries()<1)then return 0; endif;
+			var CAiObjQuery xQuery;
+			var CAiObjWrapList xList;
+			xQuery.SetOwner(m_iPlayerID);
+			xQuery.SetClass(m_sMarketPlaceClass);
+			xQuery.SetAttribNeg("CurTask","BuildUpB");
+			xQuery.SetAttribNeg("ReadyForWork",0);
+			xQuery.Execute(xOPObjs, xList);
+			iNumMarketPlaces = xList.Validate();
+		endif;
+		return iNumMarketPlaces;
+	endproc;
+	
+	///GetMarketObj
+	proc bool GetMarketObj(^CAiNodeInstance p_pxNI, ref CAiObjWrap p_rxMarketObj, int p_iOutPostID, CAiObjWrap p_xOther);
+		if(p_pxNI==null)then return false; endif;
+		if(p_rxMarketObj.IsValid())then return true; endif;
+		var int i, iC = p_pxNI^.NumActualUnits(p_iOutPostID);
+		for(i=0)cond(i<iC)iter(++i)do
+			p_rxMarketObj=p_pxNI^.GetActualUnit(p_iOutPostID, i);
+			if(p_rxMarketObj.IsValid())then return true; endif;
+		endfor;
+		if(m_pxSensor==null||m_pxBrain==null)then return false; endif;
+		begin UseQuery;
+			var ^CAiOutpost pxOP;
+			pxOP = ^(m_pxSensor^.GetOutpost(p_iOutPostID));
+			if(pxOP==null)then return false; endif;
+			var CAiObjWrapList xOPObjs=pxOP^.GetObjects();
+			if(xOPObjs.NumEntries()<1)then return false; endif;
+			var CAiObjQuery xQuery;
+			var CAiObjWrapList xList;
+			xQuery.SetOwner(m_iPlayerID);
+			xQuery.SetClass(m_sMarketPlaceClass);
+			xQuery.SetAttribNeg("CurTask","BuildUpB");
+			xQuery.SetAttribNeg("ReadyForWork",0);
+			xQuery.Execute(xOPObjs, xList);
+			var int i, iC = xList.Validate();
+			if(iC>0)then
+				for(i=0)cond(i<iC)iter(i++)do
+					if(xList[i].IsValid())then
+						if(p_xOther.IsValid()&&p_xOther.IsSameAs(xList[i]))then continue; endif;
+						p_rxMarketObj=xList[i];
+						return true;
+					endif;
+				endfor;
+			endif;
+		end UseQuery;
+		return false;
+	endproc;
+	
+	class CPositionSorter
+		
+		export var vec3 m_vPos;
+		export var real m_fDistance;
+		export var int m_iOPID;
+		export var int m_iMarketplaces;
+		
+		export proc void Initialize(vec3 p_vStartLocation, vec3 p_vOutpost, int p_iMP, int p_iID)
+			m_iOPID=p_iID;
+			m_iMarketplaces=p_iMP;
+			m_vPos=p_vOutpost;
+			m_fDistance=(p_vStartLocation-p_vOutpost).Abs2();
+		endproc;
+		
+		export proc bool op_Greater(ref CAiGoalManageMarketPlaces.CPositionSorter p_rxOther)
+			// Henry: Base village should be last
+			if(m_iOPID==0&&m_iMarketplaces<2)then
+				return true;
+			endif;
+			if(m_iMarketplaces!=p_rxOther.m_iMarketplaces)then
+				return m_iMarketplaces<p_rxOther.m_iMarketplaces;
+			endif;
+			return m_fDistance<p_rxOther.m_fDistance;
+		endproc;
+		
+	endclass;
+	
+endclass;

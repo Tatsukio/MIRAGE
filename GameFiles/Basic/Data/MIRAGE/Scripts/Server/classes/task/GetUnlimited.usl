@@ -1,0 +1,267 @@
+class CGetUnlimited inherit CGenericHarvest
+	
+	var bool m_bFirstHit;
+	var bool m_bLastHit;
+	var string m_sTaskDescription;
+	
+	var CObjQuery m_xDeliverSearch;
+	
+	export constructor()
+		SetName("GetUlmtd");
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="GeUL";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		(pxArc^) << m_bFirstHit;
+		(pxArc^) << m_bLastHit;
+		(pxArc^) << m_sTaskDescription;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="GeUL")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			(pxArc^) << m_bFirstHit;
+			(pxArc^) << m_bLastHit;
+			(pxArc^) << m_sTaskDescription;
+			InitQueries();
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc void SetThing(string p_sTribe)
+		m_sThing = "Hu_Corn";
+		m_xThingLink = "HndR";
+		m_sWaitAnim = "shoulder_standanim";
+	endproc;
+	
+	/// return value specifies if idleanim should be set
+	export proc bool OnActionEnd(bool p_bBroken)
+		if(m_sState=="drop_food")then
+			//wait in proper stand
+			SetWaitAnim();
+		endif;
+		return false;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xWorker,CObjHndl p_xFood)
+		if(!p_xWorker.IsValid()||!p_xFood.IsValid())then
+			return false;
+		endif;
+		m_xWorker=p_xWorker;
+		m_xHarvestSite=p_xFood;
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		var ^CGameObj pxFood=m_xHarvestSite.GetObj();
+		if(pxWorker == null || pxFood == null)then m_sState="exit"; return false; endif;
+		pxWorker^.AnnounceState("getcorn");
+		//Check if unit may harvest
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(pxWorker);
+		if(pxFightingObj==null)then m_sState="exit"; return false; endif;
+		if(!pxFightingObj^.CanHarvest())then m_sState="exit"; return false; endif;
+		var ^CAttribs pxAttr = pxFood^.GetAttribs();
+		if(pxAttr==null || pxAttr^.GetValueInt("UnlimitedBuilding")!=1)then m_sState="exit";return false; endif;
+		if(pxWorker^.GetType()=="CHTR")then
+			(cast<CCharacter>(pxWorker))^.HideWeapons();
+		endif;
+		var ^CUnlimitedBuilding pxHouse = cast<CUnlimitedBuilding>(pxFood);
+		m_sThing = "Hu_Corn";
+		m_xThingLink = "HndR";
+		m_asResources = pxHouse^.GetResourceArray();
+		InitQueries();
+		m_sState="goto_food";
+		return true;
+	endproc;
+	
+	proc void InitQueries()
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker==null) then return; endif;
+		m_xDeliverSearch.SetOwner(pxWorker^.GetOwner());
+		m_xDeliverSearch.SetAttribsNeg("CurTask","BuildUp");
+		var int i;
+		for(i=0)cond(i<m_asResources.NumEntries())iter(i++)do
+			m_xDeliverSearch.SetAttribsPos(m_asResources[i]+"Delivery",true);
+		endfor;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom,^CState p_pxTo)
+		if(!m_xWorker.IsValid() || !m_xHarvestSite.IsValid() || m_sState=="exit")then EndTask(); return; endif;
+		var ^CUnlimitedBuilding pxHouse = cast<CUnlimitedBuilding>(m_xHarvestSite.GetObj());
+		if(pxHouse!=null)then
+			pxHouse^.UnRegister(m_xWorker);
+			if(!pxHouse^.Register(m_xWorker))then
+				EndTask();
+				return;
+			endif;
+		else
+			EndTask();
+			return;
+		endif;
+		var ^CCharacter pxChar = cast<CCharacter>(m_xWorker.GetObj());
+		if(pxChar==null)then EndTask(); return; endif;
+		if(m_asResources.NumEntries()>0)then
+			m_sTaskDescription = m_asResources[0];
+			pxChar^.SetTaskDescription(m_asResources[0]);
+		endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxWorker;
+		begin CheckWorker;
+			var ^CGameObj pxTmp=m_xWorker.GetObj();
+			if(pxTmp==null)then EndTask();return; endif;
+			pxWorker=cast<CCharacter>(pxTmp);
+		end CheckWorker;
+		var ^CUnlimitedBuilding pxFood;
+		begin CheckFood;
+			var ^CGameObj pxTmp=m_xHarvestSite.GetObj();
+			if(pxTmp!=null)then
+				pxFood=cast<CUnlimitedBuilding>(pxTmp);
+			endif;
+		end CheckFood;
+		begin TaskDescription;
+			if(m_asResources.NumEntries()>0)then
+				if(m_asResources[0]!=m_sTaskDescription)then
+					m_sTaskDescription = m_asResources[0];
+					pxWorker^.SetTaskDescription(m_asResources[0]);
+				endif;
+			endif;
+		end TaskDescription;
+		var int i;
+		var bool bResFull = true;
+		for(i=0)cond(i<m_asResources.NumEntries())iter(i++)do
+			if(!(pxWorker^.ResInvIsFull(m_asResources[i])&&m_sState!="drop_food"))then
+				bResFull = false;
+			endif;
+		endfor;
+		if(bResFull&&m_sState!="pick_up")then
+			pxWorker^.SetLinkGFX(m_xThingLink,m_sThing);
+			m_sState="goto_deliver";
+		endif;
+		if(pxFood==null&&m_sState!="drop_food")then
+			m_sState="search_for_jobs";
+		endif;
+		if(m_sState=="goto_food")then
+			m_vCurTarget=GetAdoptedDest(pxWorker^.GetPos(),pxFood^.GetPos(),pxFood^.GetRadius());
+			var CGameObj.CAdvanceActionParams xAWAP;
+			xAWAP.m_fMinDistance=0.0f;
+			xAWAP.m_iPrefSpeed=pxWorker^.GetDefaultSpeed();
+			if(pxWorker^.GetOnWall())then
+				pxWorker^.AdvanceWallAction(m_xHarvestSite,xAWAP,true,false);
+			else
+				pxWorker^.AdvanceAction(m_xHarvestSite,xAWAP);
+			endif;
+			m_sState="rotate_to_target";
+		elseif(m_sState=="rotate_to_target") then
+			if((pxWorker^.GetPos()-pxFood^.GetPos()).Abs()>=pxFood^.GetRadius()*1.29) then
+				m_sState="goto_food";
+			else
+				var vec3 vDir=pxFood^.GetPos()-pxWorker^.GetPos();
+				var Quat qTRot;
+				qTRot.FromXYDir(vDir.GetX(),vDir.GetY());
+				pxWorker^.RotateAction(qTRot);
+				m_bFirstHit=true;
+				m_bLastHit=false;
+				m_fProgressStep=pxWorker^.GetResourceInventorySize(m_asResources[0]) / (5.0 /*<-number of loops per full charge*/ * pxWorker^.GetTimeFactor(m_xHarvestSite));
+				m_sState = "bash_food";
+			endif;
+		elseif(m_sState=="bash_food")then
+			if((pxWorker^.GetPos()-pxFood^.GetPos()).Abs()>=pxFood^.GetRadius()*1.29)then
+				m_sState="goto_food";
+			else
+				var real fMineAll;
+				for(i=0)cond(i<m_asResources.NumEntries())iter(i++)do
+					var real fMined=pxWorker^.GetResInvSpace(m_asResources[i]);
+					pxWorker^.ResInvAdd(m_asResources[i],fMined);
+					fMineAll += fMined;
+				endfor;
+				var int iNumSteps=Math.F2I(fMineAll/m_fProgressStep);
+				pxWorker^.AnimAction("potter_ground",iNumSteps,true,true);
+				if(pxFood^.GetClassName()=="aje_slaughterhouse")then
+					pxFood^.OnWork();
+				endif;
+				m_sState="pick_up";
+				var CGameTime xNow=CTimeMgr.Get().GetTime();
+				if(m_bFirstHit)then
+					m_bFirstHit=false;
+				endif;
+				m_xLastTick=xNow;
+			endif;
+		elseif(m_sState=="pick_up")then
+			pxWorker^.SetLinkGFX(m_xThingLink,m_sThing);
+			pxWorker^.AnimAction("pick_up");
+			m_sState="goto_deliver";
+		elseif(m_sState=="goto_deliver")then
+			var CObjList xDeliveries;
+			if(m_xDeliverSearch.Execute(xDeliveries))then
+				xDeliveries.SortDistance(pxWorker^.GetPos());
+				while(xDeliveries.NumEntries()>0)do
+					if(!xDeliveries[0].IsValid())then xDeliveries.DeleteEntry(0); continue; endif;
+					if(xDeliveries.NumEntries()>1&&!pxWorker^.CheckMaxAutoprodDist(xDeliveries[0]))then xDeliveries.DeleteEntry(0); continue; endif;
+					break;
+				endwhile;
+			endif;
+			if(xDeliveries.NumEntries()>0) then
+				m_xCurDelivery = xDeliveries[0];
+				var ^CGameObj pxDelivery=m_xCurDelivery.GetObj();
+				var CGameObj.CAdvanceActionParams xAWAP;
+				xAWAP.m_fMinDistance=0.0f; // pxDelivery^.GetRadius();
+				xAWAP.m_iPrefSpeed=pxWorker^.GetDefaultSpeed();
+				xAWAP.m_xWalkSet="sldr";
+				if(pxWorker^.GetOnWall())then
+					pxWorker^.AdvanceWallAction(pxDelivery^.GetHandle(),xAWAP,true,false);
+				else
+					pxWorker^.AdvanceAction(pxDelivery^.GetHandle(),xAWAP);
+				endif;
+				m_sState="drop_food";
+			else
+				EndTask();
+				return;
+			endif;
+		elseif(m_sState=="drop_food")then
+			if(!m_xCurDelivery.IsValid() || (pxWorker^.GetPos()-m_xCurDelivery.GetObj()^.GetPos()).Abs()>=m_xCurDelivery.GetObj()^.GetRadius()*1.29)then
+				m_sState="goto_deliver";
+			else
+				var bool bPutSomethingDown = pxWorker^.CheckInResInvAllPossible(m_xCurDelivery.GetObj());
+				if(bPutSomethingDown)then
+					var ^CFightingObj pxDelivery = cast<CFightingObj>(m_xCurDelivery.GetObj());
+					if(pxDelivery!=null)then
+						pxDelivery^.AcceptDeliveries();
+					endif;
+					pxWorker^.AnimAction("put_down");
+					pxWorker^.RemLinkGFX(m_xThingLink);
+					m_sState="goto_food";
+				else
+					if(pxWorker^.GetCurrentAnimName()!="shoulder_standanim")then
+						pxWorker^.SetAnim("shoulder_standanim",3);
+					endif;
+					pxWorker^.WaitAction(2.0);
+					return;
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CGameObj pxFood=m_xHarvestSite.GetObj();
+		if(pxFood!=null)then
+			var ^CUnlimitedBuilding pxHouse = cast<CUnlimitedBuilding>(pxFood);
+			pxHouse^.UnRegister(m_xWorker);
+		endif;
+		var ^CCharacter pxChar = cast<CCharacter>(m_xWorker.GetObj());
+		if(pxChar==null)then return; endif;
+		pxChar^.SetTaskDescription("");
+		pxChar^.ShowWeapons();
+	endproc;
+	
+	export proc bool Break()
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker!=null)then pxWorker^.TerminateAction(); endif;
+		return true;
+	endproc;
+
+endclass;

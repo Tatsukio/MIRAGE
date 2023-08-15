@@ -1,0 +1,279 @@
+class CGroupObj inherit CGameObj
+
+	const int 	OBJS_PER_STAGE		= 28;
+	const int	CHARS_PER_HANDLE 	= 9;
+
+	const int	MAX_OBJ_STAGES		= 5;
+	const int	MAX_OBJECTS			= 140;
+
+	var CObjList					m_xObjects;
+	var CEvtSource					m_xEventSrc;
+
+	constructor()
+	endconstructor;
+
+	destructor()
+	enddestructor;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		if(!p_bLoad) then
+			SetType("GROU");
+			SetVisible(false);
+			InitAttribs();
+		else
+		endif;
+		//KLog.LogWarn("CHP","Grp Init: "+m_xObjects.NumEntries().ToString()+" "+GetName());
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="GROU")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xObjects.DoKArc(pxArc^);
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+		//KLog.LogWarn("CHP","Grp Load: "+m_xObjects.NumEntries().ToString()+" "+GetName());
+	endproc;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xBase="GROU";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xObjects.DoKArc(pxArc^);
+		pxWalk^.Close();
+		//KLog.LogWarn("CHP","Grp Save: "+m_xObjects.NumEntries().ToString()+" "+GetName());
+	endproc;
+	
+	export proc void OnPostLoad()
+		super.OnPostLoad();
+		var int i, iC = m_xObjects.NumEntries();
+		for(i=0) cond(i<iC) iter(++i) do
+			var ^CFightingObj pxFO = cast<CFightingObj>(m_xObjects[i].GetObj());
+			if(pxFO!=null) then
+				pxFO^.SetGroup(GetHandle());
+			endif;
+		endfor;
+	endproc;
+	
+	export proc int NumMembers()
+		return m_xObjects.NumEntries();
+	endproc;
+	
+	export proc CObjHndl GetMember(int p_iID)
+		return m_xObjects[p_iID];
+	endproc;
+	
+	export proc ref CEvtSource GetEvtSource()
+		return m_xEventSrc;
+	endproc;
+	
+	export proc void Invalidate()
+		var CEvtPointer xEvt = CEvtPointer.CreateEvent("GROU_CHG");
+		xEvt.SetInt(0, NumMembers());
+		m_xEventSrc.Broadcast(xEvt);
+	endproc;
+	
+	export proc void AddMember(CObjHndl p_xObj)
+		if(p_xObj.IsValid() && m_xObjects.FindEntry(p_xObj)<0) then
+			if(m_xObjects.NumEntries() >= MAX_OBJECTS) then
+				//L KLog.LogWarn("MaZi", "ONLY " + MAX_OBJECTS.ToString() + " OBJS CAN BE GROUPED TOGETHER");
+				return;
+			endif;
+			
+			if(p_xObj.GetObj()^.GetType()=="GROU") then return; endif;
+			
+			m_xObjects.Include(p_xObj);
+			var ^CFightingObj pxFO = cast<CFightingObj>(p_xObj.GetObj());
+			if(pxFO!=null) then
+				if(m_xObjects.NumEntries()==1) then
+					SetPos(pxFO^.GetPos());
+				endif;
+				pxFO^.SetGroup(GetHandle());
+			endif;
+			Invalidate();
+			var int iNumObjs = m_xObjects.NumEntries();
+			var int iStage = (iNumObjs-1) / OBJS_PER_STAGE;
+			
+			var int i = OBJS_PER_STAGE*iStage;
+			var int iC = iNumObjs;
+			
+			var string sStage;
+			for(i=i) cond(i<iC) iter(++i) do
+				sStage+=Int2String(m_xObjects[i].AsInt(), 16)+"|";
+			endfor;
+			
+			var ^CAttribs pxA = GetAttribs();
+			if(pxA!=null) then
+				pxA^.SetValue("member_hndl_"+iStage.ToString(), sStage);
+			endif;
+		endif;
+		//KLog.LogWarn("CHP","Grp Add: "+m_xObjects.NumEntries().ToString()+" "+GetName());
+	endproc;
+	
+	export proc void RemMember(CObjHndl p_xObj)
+		if(!p_xObj.IsValid()) then return; endif;
+		var int iObjIdx = m_xObjects.FindEntry(p_xObj);
+		if(iObjIdx<0) then return; endif;
+		
+		m_xObjects.DeleteEntry(iObjIdx);
+		var ^CFightingObj pxFO = cast<CFightingObj>(p_xObj.GetObj());
+		if(pxFO!=null) then
+			pxFO^.SetGroup(CObjHndl.Invalid());
+		endif;
+		Invalidate();
+		var ^CAttribs pxA = GetAttribs();
+		if(pxA==null) then return; endif;
+		
+		var string sStage;
+		var int i, iC = m_xObjects.NumEntries();
+		var int iCur=0;
+		for(i=0) cond(i<iC) iter(++i) do
+			sStage += Int2String(m_xObjects[i].AsInt(),16)+"|";
+			if((i+1)%OBJS_PER_STAGE==0) then 
+				pxA^.SetValue("member_hndl_"+iCur.ToString(), sStage);
+				sStage="";
+				++iCur;
+			endif;
+		endfor;
+		pxA^.SetValue("member_hndl_"+iCur.ToString(), sStage);
+		
+		for(i=iCur+1) cond(i<MAX_OBJ_STAGES) iter(++i) do
+			pxA^.SetValue("member_hndl_"+i.ToString(), "");
+		endfor;
+		//KLog.LogWarn("CHP","Grp Rem: "+m_xObjects.NumEntries().ToString()+" "+GetName());
+	endproc;
+	
+	export proc void HandleEditorCommand(string p_sCommand,^CGameObj p_pxObject,vec3 p_vPos,string p_sMiscParams)
+		if(p_sCommand=="AddMember") then
+			if(p_pxObject!=null) then
+				AddMember(p_pxObject^.GetHandle());
+			endif;
+		elseif(p_sCommand=="RemMember") then
+			if(p_pxObject!=null) then
+				RemMember(p_pxObject^.GetHandle());
+			endif;
+		endif;
+	endproc;
+	
+	export proc void HandleGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams)
+		if(p_sCommand=="Action") then
+			if(p_sMiscParams.Find("/SetPos")>=0) then
+				var int i, iC = m_xObjects.NumEntries();
+				for(i=0) cond(i<iC) iter(++i) do
+					var ^CGameObj pxO = m_xObjects[i].GetObj();
+					if(pxO!=null) then
+						var vec3 vP;
+						CSrvWrap.GetObjMgr()^.GetFreePos(vP, pxO, p_vPos);
+						pxO^.SetPos(vP);
+					endif;
+				endfor;
+			elseif(p_sMiscParams.Find("/AbortTask")>=0) then
+				var int i, iC = m_xObjects.NumEntries();
+				for(i=0) cond(i<iC) iter(++i) do
+					var ^CFightingObj pxFO = cast<CFightingObj>(m_xObjects[i].GetObj());
+					if(pxFO!=null)then
+//						pxFO^.BreakEveryTask();
+//						pxFO^.TerminateAction();
+						pxFO^.TriggerAbortTask();
+					endif;
+				endfor;
+			elseif(p_sMiscParams.Find("/AnimAction")>=0) then
+				var string sAnimName;
+				var int iLoops = 1;
+				var array string asToks;
+				p_sMiscParams.Split(asToks, "/", true);
+				var int j, iJC = asToks.NumEntries();
+				for(j=0) cond(j<iJC) iter(++j) do
+					var array string asDef;
+					asToks[j].Split(asDef, "=", true);
+					
+					if(asDef.NumEntries()==2) then
+						if(asDef[0].Find("AnimName")>=0) then
+							sAnimName=asDef[1];
+						endif;
+						if(asDef[0].Find("Loops")>=0) then
+							iLoops = asDef[1].ToInt();
+						endif;
+					endif;
+				endfor;
+				
+				var int i, iC = m_xObjects.NumEntries();
+				for(i=0) cond(i<iC) iter(++i) do
+					var ^CGameObj pxO = m_xObjects[i].GetObj();
+					if(pxO!=null) then
+						if(iLoops>1) then
+							pxO^.AnimAction(sAnimName, iLoops, true, true);
+						else
+							pxO^.AnimAction(sAnimName);
+						endif;
+					endif;
+				endfor;
+			else
+				var int i, iC = m_xObjects.NumEntries();
+				for(i=0) cond(i<iC) iter(++i) do
+					var ^CGameObj pxO = m_xObjects[i].GetObj();
+					if(pxO!=null) then
+						pxO^.HandleGamePlayCommand(p_sCommand, p_pxObject, p_vPos, p_sMiscParams);
+					endif;
+				endfor;
+			endif;
+		else
+			var int i, iC = m_xObjects.NumEntries();
+			for(i=0) cond(i<iC) iter(++i) do
+				var ^CGameObj pxO = m_xObjects[i].GetObj();
+				if(pxO!=null) then
+					pxO^.HandleGamePlayCommand(p_sCommand, p_pxObject, p_vPos, p_sMiscParams);
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	proc string Int2String(int p_iVal, int p_iBase)
+		var int iTmp;
+		var int i=7;
+		var string sStr = "        ";
+		while(i>=0) do
+			iTmp=p_iVal%p_iBase;
+			
+			if(iTmp>=0 && iTmp<10) then 
+				sStr.SetAt(i--, '0'+iTmp);
+			else
+				sStr.SetAt(i--, 'A'+(iTmp-10));
+			endif;
+			p_iVal/=p_iBase;
+		endwhile;
+		return sStr;
+	endproc;
+
+	proc int HexString2Int(string p_sVal)
+		var int iSum=0;
+		var int i = p_sVal.GetLength()-1;
+		var int iP=0;
+		for(i=i) cond(i>=0) iter(--i) do
+			var char cA = p_sVal.GetAt(i);
+			var int iVal;
+			if(cA>='0'&&cA<='9') then
+				iVal=(cA-('0').ToInt()).ToInt();
+			else
+				iVal=10+(cA-('A').ToInt()).ToInt();
+			endif;
+			Console.Print(iVal.ToString()+"/"+iP.ToString()+"/"+i.ToString()+"\n");
+			iSum+=iVal*(pow(16,iP));
+			++iP;
+		endfor;
+		return iSum;
+	endproc;
+	
+	proc int pow(int p_iVal, int p_iExp)
+		if(p_iExp==0) then return 1; endif;
+		var int iVal=p_iVal;
+		var int i, iC = p_iExp;
+		for(i=1) cond(i<iC) iter(++i) do
+			iVal*=p_iVal;
+		endfor;
+		return iVal;
+	endproc;
+
+endclass;

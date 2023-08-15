@@ -1,0 +1,153 @@
+class CGameMenu inherit CStateUIWnd
+	
+	static var ^CGameMenu ms_pxInstance;
+	export constructor()
+		if(!InitFromResource("UI/GameMenu","GameMenu")) then
+			return;
+		endif;
+		ms_pxInstance=this;
+		var ^CDesktop pxDesktop=CClientWrap.GetDesktop();
+		
+		SetPos(pxDesktop^.GetWidth()/2-GetWidth()/2,pxDesktop^.GetHeight()/2-GetHeight()/2);
+		
+		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+		var ^CButton pxTmp=cast<CMenuButton>(GetControl("Back"));
+		pxTmp^.m_xOnClick=OnBack;
+		SetCmd("OnBack", OnBack );
+		AddAccelerator("1,NONE,OnBack");
+		
+		pxTmp=cast<CMenuButton>(GetControl("Options"));
+		pxTmp^.m_xOnClick=OnOptions;
+		SetCmd("OnOptions", OnOptions );
+		AddAccelerator("5,NONE,OnOptions");
+		
+		pxTmp=cast<CMenuButton>(GetControl("SaveGame"));
+		pxTmp^.m_xOnClick=OnSaveGame;
+		SetCmd("OnSaveGame", OnSaveGame );
+		AddAccelerator("2,NONE,OnSaveGame");
+		var int iTmp=0;
+		if(!CSettings.Get("Game/ButtonSaveMultiplayerEnable",iTmp))then
+			CSettings.Set("Game/ButtonSaveMultiplayerEnable",iTmp);
+		endif;
+		if((pxLevelInfo!=null && pxLevelInfo^.GetNumHumanPlayers()!=1) && iTmp==0) then 
+			pxTmp^.SetDisabled(true);
+		endif;
+		
+		pxTmp=cast<CMenuButton>(GetControl("RestartMission"));
+//		pxTmp^.m_xOnClick=OnRetryGame;
+		pxTmp^.m_xOnClick=AskForRetryGame;
+		pxTmp^.SetVisible(pxLevelInfo^.GetNumHumanPlayers()==1 && CGameWrap.GetClient().HasValidPlayerSlot() && CMirageClnMgr.AllowRetry(pxLevelInfo));
+		if(pxTmp^.GetVisible())then
+			SetCmd("OnRetryGame", AskForRetryGame );
+			AddAccelerator("4,NONE,OnRetryGame");
+		endif;
+		pxTmp=cast<CMenuButton>(GetControl("LoadGame"));
+		pxTmp^.m_xOnClick=OnLoadGame;
+		SetCmd("OnLoadGame", OnLoadGame );
+		AddAccelerator("3,NONE,OnLoadGame");
+		//pxTmp^.SetDisabled(true);
+		
+		pxTmp=cast<CMenuButton>(GetControl("Abandon"));
+//		pxTmp^.m_xOnClick=OnAbandonGame;
+		pxTmp^.m_xOnClick=AskForAbandonGame;
+		SetCmd("AskForAbandonGame", AskForAbandonGame );
+		AddAccelerator("6,NONE,AskForAbandonGame");
+		
+		pxTmp=cast<CMenuButton>(GetControl("QuitWindows"));
+		pxTmp^.m_xOnClick=OnQuitToWindows;
+		SetCmd("OnQuitToWindows", OnQuitToWindows );
+		AddAccelerator("7,NONE,OnQuitToWindows");
+		SetCmd("Exit", OnBack );
+		SetCmd("Escape", OnBack );
+		AddAccelerator("ESCAPE,NONE,Escape");
+		AddAccelerator("F10,NONE,Exit");
+		CGameWrap.Pause();
+	endconstructor;
+	
+	export destructor()		
+		ms_pxInstance=null;
+		CGameWrap.Unpause();
+	enddestructor;
+
+	export proc bool Init()
+		return(true);
+	endproc;
+
+	proc bool OnSaveGame()
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_SAVEGAMEMENU);
+		return(true);
+	endproc;
+
+	proc bool OnLoadGame()
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_LOADGAMEMENU);
+		return(true);
+	endproc;
+	
+//	proc bool OnRetryGame()
+//		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_RELOADGAME);
+//		CSoundMgrCln.SetGameIsRunning(false);
+//		return true;
+//	endproc;
+	
+	proc bool OnBack()
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_INGAME);
+		return true;
+	endproc;
+
+	proc bool OnOptions()
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_OPTIONSMENU);
+		return true;
+	endproc;
+	
+	proc bool AskForAbandonGame()
+		if(CMirageClnMgr.ms_iSDK==1)then
+			CMirageClnMgr.StartSDK();
+			return true;
+		endif;
+		CMessageBox.MsgBox_YESNO(CLocalizer.Get().Translate("_MIRAGE_UI_GameMenu_Title_AbandonGame"),CLocalizer.Get().Translate("_MIRAGE_UI_GameMenu_Label_AbandonGame"),CMessageBox.SMB_ICONQUESTION,OnAbandonMsgBox_CallBack);
+		SetVisible(false);
+		return true;
+	endproc;
+	
+	proc void OnAbandonMsgBox_CallBack(int p_iResult)
+		var bitset dwResult = Math.IntToBitset(p_iResult);
+		if(dwResult==CMessageBox.SID_YES)then
+			CMirageClnMgr.Get().Abandon();
+			CEvt_AbandonGame.Send();
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_INGAME);
+		else
+			SetVisible(true);
+		endif;
+//		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_INGAME);
+	endproc;
+	
+	proc bool AskForRetryGame()
+		CMessageBox.MsgBox_YESNO(CLocalizer.Get().Translate("_MIRAGE_UI_GameMenu_Title_RetryGame"),CLocalizer.Get().Translate("_MIRAGE_UI_GameMenu_Label_RetryGame"),CMessageBox.SMB_ICONQUESTION,OnRetryMsgBox_CallBack);
+		SetVisible(false);
+		return true;
+	endproc;
+	
+	proc void OnRetryMsgBox_CallBack(int p_iResult)
+		var bitset dwResult = Math.IntToBitset(p_iResult);
+		if(dwResult==CMessageBox.SID_YES)then
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_RELOADGAME);
+			CSoundMgrCln.SetGameIsRunning(false);
+		else
+			SetVisible(true);
+		endif;
+//		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_INGAME);
+	endproc;
+	
+	proc bool OnQuitToWindows()
+		//CGameWrap.Quit();
+		AskForQuit();
+		return true;
+	endproc;
+	
+	proc bool AskForQuit()
+		CMessageBox.MsgBox_YESNO(CLocalizer.Get().Translate("_UI_MainMenu_Title_QuitToWindows"),CLocalizer.Get().Translate("_UI_MainMenu_Label_QuitToWindows"),CMessageBox.SMB_ICONQUESTION,CUIStateMgr.Get().OnQuitMsgBox_CallBack);
+		SetVisible(false);
+		return true;
+	endproc;	
+
+endclass;

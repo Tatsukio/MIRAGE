@@ -1,0 +1,238 @@
+///class CAiTaskGeneralScouting
+class CAiTaskGeneralScouting inherit CAiTaskTargetRealization
+
+	var vec3				m_vSearchPos;		///<the position of the target object
+	var vec3				m_vWaypoint1;
+	var vec3				m_vWaypoint2;
+	var ^CAiExplorationInfo	m_pxInfo;			///<the explorationinfo (contains informations about what has to be found)
+	var CAiObjWrap			m_xObj;				///<the obj of the actor, who performs the scouting
+	var CAiObjWrap			m_xTargetObj;		///<the target object, forwhich we are scouting
+	var real				m_fSafityDistance;	///<the safity distance to hold forthe target
+	var vec3				m_vScoutPos;
+	var vec3				m_vOldScoutPos;
+	var real				m_fAbs;
+	var string				m_sState;
+	var string				m_sLevelName;
+	var int					m_iNumPlayers;
+	
+	
+	///constructor
+	export constructor()
+	endconstructor;
+	
+	
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	
+	///OnUserInteraction
+	export proc void OnUserInteraction(CAiObjWrap p_xOW)
+		if(m_xObj.IsSameAs(p_xOW))then
+			var CAiObjWrap xInvalid;			
+			Abort();
+			m_xObj = xInvalid;
+		endif;
+	endproc;
+
+
+	///init
+	export proc void Init(^CAiGoal p_pxGoal, CAiObjWrap p_xActor, ^CAiExplorationInfo p_pxExplorationInfo)
+		super.Init(p_pxGoal);
+		if(p_pxGoal==null)then return; endif;
+		
+		m_pxBrain = p_pxGoal^.GetAiBrain(); 
+		if(m_pxBrain==null)then return; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return; endif;
+		
+		m_iPlayerID=GetAiBrain()^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		
+//		m_iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%m_iNumPlayers;
+		var int iType = 1;
+		
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(pxCM^.GetDifficultyInt()+iType);
+		
+		m_pxInfo	= p_pxExplorationInfo;
+		m_xObj		= p_xActor;
+		m_fSafityDistance = 75.0;
+		m_fAbs=0.0;
+		
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+	endproc;
+	
+
+	///Start
+	export proc bool Start()
+		SetRunning();
+		var bool			bError = false;
+		var CAiObjWrapList	xList;
+		
+		if(m_pxInfo == null)then
+			return false;
+		endif;
+		
+		m_pxInfo^.Execute(xList);
+		if(xList.NumEntries()<=0)then
+			SearchForEnemy(xList);
+		endif;
+		
+		if(xList.NumEntries()>0)then
+			if(m_pxSensor==null)then bError = true; endif;
+			if(m_pxBrain==null)then bError = true; endif;
+				
+			var int iOwnIslandID = m_pxSensor^.ComputeIslandId(m_pxSensor^.GetStartLocation());
+			var int i, iC=xList.NumEntries();
+			if(iC<=0)then bError = true; endif;
+			
+			for(i=0)cond(i<iC)iter(i++)do					
+				m_xTargetObj = xList[i];
+				var int iTargetIslandID= m_pxSensor^.ComputeIslandId(m_xTargetObj.GetPos());					
+				if(iOwnIslandID==iTargetIslandID)then
+					if(m_xObj.IsValid())then
+						m_vScoutPos = m_xObj.GetPos();
+						m_vSearchPos = m_xTargetObj.GetPos();						
+						JasminsFindTotallyUselessAndMeaninglessWayToTargetProc(m_vScoutPos, m_vSearchPos, m_vWaypoint1, m_vWaypoint2);	
+						m_pxSensor^.ExecuteGamePlayCommand(m_xObj.GetHandle(), "Action", -1, m_vWaypoint1, "/Walk");
+						m_sState="Waypoint1";
+						break;
+					else
+						bError = true;
+					endif;
+				else
+					var string sTribe=m_pxSensor^.GetTechTree().GetTribe();
+					
+					var string sClass;
+					if(sTribe=="Hu")then
+						sClass="hu_dragon_boat";
+					elseif(sTribe=="Aje")then
+						sClass="aje_cronosaurus";
+					elseif(sTribe=="Ninigi")then
+						sClass="ninigi_fire_boat";
+					//Henry: adding seas submarine
+					elseif(sTribe=="SEAS")then
+						sClass="seas_submarine";
+					endif;
+					
+					var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+					m_xObj = pxCM^.GetCheatMgr().SpawnUnit(sClass);
+					
+					if(m_xObj.IsValid())then
+						m_vScoutPos = m_xObj.GetPos();
+						m_vSearchPos = m_xTargetObj.GetPos();
+						
+						JasminsFindTotallyUselessAndMeaninglessWayToTargetProc(m_vScoutPos, m_vSearchPos, m_vWaypoint1, m_vWaypoint2);						
+						if(m_sLevelName!="Single 09")then
+							m_pxSensor^.ExecuteGamePlayCommand(m_xObj.GetHandle(), "Action", -1, m_vWaypoint1, "/Walk");
+							m_sState="Waypoint1";
+						else
+							m_pxSensor^.ExecuteGamePlayCommand(m_xObj.GetHandle(), "Action", -1, m_vSearchPos, "/Walk");
+							m_sState="Targetpoint";
+						endif;			
+						break;
+					else
+						bError = true;
+					endif;					
+					bError = true;
+				endif;
+			endfor;
+		else
+			bError = true;
+		endif;
+		if(bError == true)then
+			m_pxInfo^.NotifyOnFailed();
+			Abort();
+		endif;
+		return bError;
+	endproc;
+	
+	
+	///Shut
+	export proc void Shut()
+	endproc;
+	
+	
+	///Think
+	export proc void Think()
+	 	if(m_xTargetObj.IsValid() == false)then
+			Abort();
+			Start();
+	 	endif;
+	 	
+	 	if(m_pxSensor==null)then return; endif;
+		if(m_xObj.IsValid())then
+			if(m_sState=="Waypoint1")then			
+				var vec3		vDistance = m_vWaypoint1 - m_xObj.GetPos(); 
+				var real		fAbs = vDistance.Abs(); 			 	
+			 	var vec3		vScoutPos=m_xObj.GetPos();
+			 	
+			 	if((fAbs==m_fAbs)||(vScoutPos==m_vWaypoint1))then
+			 		m_pxSensor^.ExecuteGamePlayCommand(m_xObj.GetHandle(), "Action", -1, m_vWaypoint2, "/Walk");
+			 		m_sState="Targetpoint";
+			 	endif;
+				m_fAbs=fAbs;
+			
+			elseif(m_sState=="Waypoint2")then
+				var vec3		vDistance = m_vWaypoint2 - m_xObj.GetPos();
+				var real		fAbs = vDistance.Abs(); 
+			 	var vec3		vScoutPos=m_xObj.GetPos();
+			 	
+			 	if((fAbs==m_fAbs)||(vScoutPos==m_vWaypoint2))then
+			 		m_pxSensor^.ExecuteGamePlayCommand(m_xObj.GetHandle(), "Action", -1, m_vSearchPos, "/Walk");
+			 		m_sState="Targetpoint";
+			 	endif;
+			 	m_fAbs=fAbs;
+					
+			elseif(m_sState=="Targetpoint")then
+		 		var vec3		vDistance = m_vSearchPos - m_xObj.GetPos();
+				var real		fAbs = vDistance.Abs(); 
+
+				if(fAbs < m_fSafityDistance)then
+					m_fAbs=fAbs;
+					if((m_xTargetObj.GetPos() - m_xObj.GetPos()).Abs() < m_fSafityDistance)then
+						m_pxSensor^.ExecuteGamePlayCommand(m_xObj.GetHandle(), "Action", -1, m_xObj.GetPos(), "/Walk"); //stop walking
+						m_sState="ReturnHome";
+					else
+						m_vSearchPos = m_xTargetObj.GetPos();
+						m_pxSensor^.ExecuteGamePlayCommand(m_xObj.GetHandle(), "Action", -1, m_vSearchPos, "/Walk"); //follow the victim if it has changed its position
+					endif;
+				endif;
+			elseif(m_sState=="ReturnHome")then
+				var vec3		vHomePos= m_pxSensor^.GetStartLocation();
+				var vec3		vDistance = vHomePos - m_xObj.GetPos(); 
+				var real		fAbs = vDistance.Abs(); 			 	
+			 	var vec3		vScoutPos=m_xObj.GetPos();
+			 	
+			 	if((fAbs==m_fAbs)||(vScoutPos==vHomePos))then
+			 		m_pxSensor^.ExecuteGamePlayCommand(m_xObj.GetHandle(), "Action", -1, vHomePos, "/Walk");
+			 		SetCompleted();
+			 	endif;
+				m_fAbs=fAbs;	
+			endif;
+		else
+			Abort();
+		endif;
+	endproc;
+	
+	
+	///JasminsFindTotallyUselessAndMeaninglessWayToTarget
+	proc void JasminsFindTotallyUselessAndMeaninglessWayToTargetProc(vec3 p_vStartPos, vec3 p_vEndPos, ref vec3 po_rvWaypoint1, ref vec3 po_rvWaypoint2)
+		po_rvWaypoint1=p_vEndPos;
+		po_rvWaypoint2=p_vEndPos;
+	endproc;
+	
+	
+	///SearchForEnemy
+	proc void SearchForEnemy(ref CAiObjWrapList po_rxList)
+		po_rxList.Clear();
+		var CAiObjQuery xQuery;
+		xQuery.AddMyEnemiesToSearch(m_iPlayerID, true);
+		xQuery.SetType("SLOC");
+		xQuery.Execute(po_rxList);
+	endproc;
+
+endclass;

@@ -1,0 +1,162 @@
+// NOT USED ANYMORE
+class CDropItem inherit CTask
+
+	var CObjHndl	m_xWorker;
+	var CObjHndl	m_xItem;
+	var vec3			m_vDropPos;
+	var string		m_sState;
+
+	export constructor()
+		SetName("DropItem");
+	endconstructor;
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="DrIt";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xWorker.DoKArc(pxArc^);
+		m_xItem.DoKArc(pxArc^);
+		(pxArc^) << m_vDropPos;
+		(pxArc^) << m_sState;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="DrIt")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xWorker.DoKArc(pxArc^);
+			m_xItem.DoKArc(pxArc^);
+			(pxArc^) << m_vDropPos;
+			(pxArc^) << m_sState;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xWorker,CObjHndl p_xItem, vec3 p_vDropPos)
+		if(!p_xWorker.IsValid()||!p_xItem.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xWorker = p_xWorker;
+		m_xItem = p_xItem;
+		m_vDropPos = p_vDropPos;
+		m_sState = "check_inv";
+		return true;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xWorker, CGuid p_xGuid, vec3 p_vDropPos)
+		if(!p_xWorker.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xWorker = p_xWorker;
+		m_vDropPos = p_vDropPos;
+		m_sState = "check_inv";
+		if (m_xWorker.IsValid()) then
+			var bool bFound = false;
+			var ^CInventory pxInv = m_xWorker.GetObj()^.GetInventory();
+			if (pxInv != null) then
+				var int i;
+				for (i=0) cond (i<pxInv^.Count()) iter (++i) do
+					if (pxInv^.GetItem(i).GetObj() != null) then
+						if (pxInv^.GetItem(i).GetObj()^.GetGuid() == p_xGuid) then
+							m_xItem = pxInv^.GetItem(i);
+							bFound = true;
+							break;
+						endif;
+					endif;
+				endfor;
+			endif;
+			if (bFound == false) then EndTask(); return false; endif;
+		endif;
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		var ^CInventory pxInv=pxWorker^.GetInventory();
+		var ^CGameObj pxItem=m_xItem.GetObj();
+		var int iC = pxInv^.Count();
+		pxInv^.SetSize(6);
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		var ^CGameObj pxItem=m_xItem.GetObj();
+		if((pxWorker==null)||(pxItem==null))then return; endif;
+		if(m_sState=="check_inv")then
+			var ^CInventory pxInv=pxWorker^.GetInventory();
+			if(pxInv^.IsEmpty())then
+				EndTask();
+			else
+				m_sState = "find_item";
+			endif;
+		elseif(m_sState=="find_item")then
+			if (pxWorker^.GetInventory()^.FindItem(m_xItem) >= 0 ) then
+				m_sState="goto_pos";
+			else
+				EndTask();
+			endif;
+		elseif(m_sState=="goto_pos")then
+			if((pxWorker^.GetPos()-m_vDropPos).AbsSquare()>1.0)then
+//				var vec3 vTarget=GetAdoptedDest(pxWorker^.GetPos(),m_vDropPos,0.9f);
+				var int iSpeed=2;
+				var ^CFightingObj pxF=cast<CFightingObj>(pxWorker);
+				if(pxF!=null)then
+					iSpeed=pxF^.GetDefaultSpeed();
+				endif;
+				if(pxWorker^.GetOnWall())then
+					pxWorker^.WallWalkAction(m_vDropPos,true,iSpeed,false);
+				else
+					pxWorker^.WalkAction(m_vDropPos,iSpeed);
+				endif;
+			else
+				m_sState="drop_anim";
+			endif;
+		elseif(m_sState=="drop_anim")then
+			pxWorker^.AnimAction("pick_up");
+			m_sState = "drop";
+		elseif(m_sState=="drop") then
+			var ^CItem pxI = cast<CItem>(pxItem);
+			if (pxI != null) then
+				pxI^.OnDropped(pxWorker);
+			endif;
+			CFeedback.Print(pxWorker^.GetOwner(), CFeedback.INFO, "_NT_ItemDropped\t"+pxItem^.GetTechTreeDesc());
+			pxItem^.TerminateAction();
+			var ^CInventory pxInv=pxWorker^.GetInventory();
+			pxInv^.RemItem(pxItem^.GetHandle());
+			CSrvWrap.SendGenericEvtToPlayer(pxWorker^.GetOwner(), "update_inv");
+			var ^CAttribs pxAttr = pxWorker^.GetAttribs();
+			if(pxAttr!=null)then
+				pxAttr^.SetValue("inventory_item_name","");
+			endif;
+			var ^CFightingObj pxFO = cast<CFightingObj>(pxWorker);
+			if(pxFO!=null) then
+				pxFO^.GetBestWeapon(null, true);
+			endif;
+			EndTask();
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc bool Break()
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker!=null)then
+			pxWorker^.TerminateAction();
+			var ^CInventory pxInv=pxWorker^.GetInventory();
+			if(pxInv!=null)then
+				pxInv^.Invalidate();
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+endclass;

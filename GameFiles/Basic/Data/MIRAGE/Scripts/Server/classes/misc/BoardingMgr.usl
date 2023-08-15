@@ -1,0 +1,809 @@
+class CBoardingMgr inherit CEvtSink
+	
+	static var ^CBoardingMgr ms_pxInst;
+	
+	export static proc ref CBoardingMgr Get()
+		if(ms_pxInst==null)then
+			ms_pxInst = new CBoardingMgr();
+		endif;
+		return ms_pxInst^;
+	endproc;
+	
+	export static proc void StaticShut()
+		delete ms_pxInst;
+	endproc;
+	
+	var array ^CBoardCoordinator m_apxBC;
+	
+	const real BC_IDLE_TIMEOUT = 5.0f;
+	
+	const real TICK_TIMER_RES = 0.5f;
+	var int	m_iTimerID;
+	
+	export constructor()
+		m_iTimerID = -1;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	export proc bool RegisterPassengerRequest(CObjHndl p_xObj, CObjHndl p_xTrans)
+		var ^CBoardCoordinator pxBC = GetBC(p_xTrans, true);
+		if(m_iTimerID < 0)then
+			m_iTimerID = CTimeMgr.Get().CreateTimer(CGameTimeSpan.OneSecond()* TICK_TIMER_RES, true);
+			CTimeMgr.Get().GetTimer(m_iTimerID)^.Subscribe(this);
+		endif;
+		if(pxBC==null)then return false; endif;
+		return pxBC^.RegisterPassenger(p_xObj);
+	endproc;
+
+	export proc bool UnregisterPassengerRequest(CObjHndl p_xObj, CObjHndl p_xTrans)
+		var ^CBoardCoordinator pxBC = GetBC(p_xTrans, false);
+		if(pxBC!=null)then
+			return pxBC^.UnregisterPassenger(p_xObj);
+		endif;
+		return false;
+	endproc;
+
+	export proc bool UnregisterTransporterRequest(CObjHndl p_xTrans)
+		var ^CBoardCoordinator pxBC = GetBC(p_xTrans, false);
+		if(pxBC!=null)then
+			pxBC^.BreakPassengerActions();
+			return true;
+		endif;
+		return false;
+	endproc;
+
+	export proc bool RevivePassengerRequest(CObjHndl p_xObj, CObjHndl p_xTrans)
+		var ^CBoardCoordinator pxBC = GetBC(p_xTrans,true,false);
+		if(m_iTimerID < 0)then
+			m_iTimerID = CTimeMgr.Get().CreateTimer(CGameTimeSpan.OneSecond()* TICK_TIMER_RES, true);
+			CTimeMgr.Get().GetTimer(m_iTimerID)^.Subscribe(this);
+		endif;
+		if(pxBC==null)then return false; endif;
+		return pxBC^.RevivePassenger(p_xObj);
+	endproc;
+
+	proc ^CBoardCoordinator GetBC(CObjHndl p_xTrans, bool p_bCreateIfNone, bool p_bInit)
+		var ^CBoardCoordinator pxBC = null;
+		var int i, iC = m_apxBC.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			pxBC = m_apxBC[i];
+			if(pxBC!=null && pxBC^.GetTransport()== p_xTrans)then
+				return pxBC;
+			endif;
+		endfor;
+		if(p_bCreateIfNone)then
+			var ^CGameObj pxTrans=p_xTrans.GetObj();
+			if(pxTrans!=null)then
+				if(pxTrans^.GetClassName()=="crash_blimp")then
+					pxBC = new CBoardBlimpCoordinator();
+				elseif(pxTrans^.CanFly())then
+					pxBC = new CBoardZeppelinCoordinator();
+				elseif(pxTrans^.IsAmphibian())then
+					pxBC = new CBoardAmphibianCoordinator();
+				elseif(pxTrans^.GetType()== "SHIP")then
+					pxBC = new CBoardShipCoordinator();
+				else
+					pxBC = new CBoardCoordinator();
+				endif;
+				if(p_bInit)then
+					pxBC^.Init(this, p_xTrans);
+				else
+					pxBC^.Set(this, p_xTrans);
+				endif;
+				m_apxBC.AddEntry(pxBC);
+			endif;
+		endif;
+		return pxBC;
+	endproc;
+
+	proc ^CBoardCoordinator GetBC(CObjHndl p_xTrans, bool p_bCreateIfNone)
+		return GetBC(p_xTrans,p_bCreateIfNone,true);
+	endproc;
+	
+	export proc bool OnPush(ref CEvtPointer  p_rxEP)
+		//L KLog.LogSpam("MaZi", "OnPush");
+		if(m_apxBC.NumEntries()<= 0)then
+			CTimeMgr.Get().GetTimer(m_iTimerID)^.Unsubscribe(this);
+			CTimeMgr.Get().DeleteTimer(m_iTimerID);
+			m_iTimerID = -1;
+		endif;
+		var int i, iC = m_apxBC.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			var ^CBoardCoordinator pxBC = m_apxBC[i];
+			if(pxBC^.CheckIdleTimeout(BC_IDLE_TIMEOUT))then
+				pxBC^.BreakTransporterActions();
+				delete m_apxBC[i];
+				m_apxBC.DeleteEntry(i);
+				--iC; --i;
+				continue;
+			endif;
+			pxBC^.OnTick();
+		endfor;
+		return true;
+	endproc;
+			
+endclass;
+
+// Coordinates a boarding operation
+// The Passengers trying to board a ship are coordinated here
+// This is the base class for all boarding-ops. The specialized ops are
+// implemented in the derived classes
+class CBoardCoordinator 
+	
+	export const int BC_IDLE									= 0;
+	export const int BC_SEARCH_MEETING_POS		= 1;
+	export const int BC_ONTHEWAY							= 2;
+	export const int BC_ABORTED								= 3;
+	
+	var ^CBoardingMgr	m_pxMgr;
+	
+	var CObjList			m_xPassengers;
+	var CObjHndl			m_xTransport;
+	
+	var int						m_iCurState;
+	
+	var vec3					m_vMeetingPos;
+	var vec3					m_vTransporterDest;
+	
+	export constructor()
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	export proc void Init(^CBoardingMgr p_pxMgr, CObjHndl p_xTrans)
+		Set(p_pxMgr,p_xTrans);
+		var ^CTransportObj pxTransporter=cast<CTransportObj>(m_xTransport.GetObj());
+		if(pxTransporter!=null && pxTransporter^.NumFreeSeats()>0)then
+			var ^CManagedBoardingTransporter pxTask=cast<CManagedBoardingTransporter>(CSrvWrap.GetUSLFactoryMgr().CreateState(pxTransporter^.GetFSM(),"BoardTra"));
+			if(pxTask!=null)then
+				pxTask^.SetUserCommand(true);
+				var bool bInit=pxTask^.Init(m_xTransport);
+				if(bInit)then
+					pxTransporter^.AddTask(pxTask,false);
+//					pxTransporter^.AddNextTask(pxTask);
+					pxTransporter^.TerminateAction();
+				else
+					pxTask^.GetFactory()^.FreeState(pxTask);
+				endif;
+			endif;
+		endif;
+		m_iCurState = BC_IDLE;
+	endproc;
+
+	export proc void Set(^CBoardingMgr p_pxMgr, CObjHndl p_xTrans)
+		m_pxMgr = p_pxMgr;
+		m_xTransport = p_xTrans;
+	endproc;
+
+	export proc bool ValidatePassengers()
+		var CObjList xOrig;
+		xOrig=m_xPassengers;
+		var int i, iC=xOrig.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!xOrig[i].IsValid())then
+				xOrig.DeleteEntry(i);i--;iC--;
+			endif;
+		endfor;
+		m_xPassengers=xOrig;
+		return xOrig.NumEntries()>0;
+	endproc;
+
+	export proc CObjHndl GetTransport()
+		return m_xTransport;
+	endproc;
+	
+	export proc bool RegisterPassenger(CObjHndl p_xObj)
+		if(m_xPassengers.FindEntry(p_xObj)>=0)then
+			return false;
+		endif;
+		if(m_iCurState==BC_ABORTED)then
+			return false;
+		endif;
+		var ^CTransportObj pxTO = cast<CTransportObj>(m_xTransport.GetObj());
+		if(pxTO!=null)then
+			if(pxTO^.RegisterPassenger(p_xObj))then
+				m_xPassengers.Include(p_xObj);
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(p_xObj.GetObj());
+				if(pxPassenger!=null)then
+					if(IsPassengerNextToTransporter(pxTO,pxPassenger))then
+						pxPassenger^.TerminateAction();
+//						pxTO^.TerminateAction();
+						pxTO^.ReactToGamePlayCommand("Action",pxPassenger,pxTO^.GetPos(),"/AddPassenger",false,false,false);
+						pxPassenger^.StopBoarding();
+						UnregisterPassenger(p_xObj);
+						return true;
+					endif;
+				endif;
+				if(m_iCurState==BC_IDLE)then
+					m_iCurState=BC_SEARCH_MEETING_POS;
+					OnTick();
+				elseif(m_iCurState!=BC_ABORTED)then
+					var ^CFightingObj pxFO = cast<CFightingObj>(p_xObj.GetObj());
+					if(pxFO!=null)then
+						PassengerArrived(pxTO, pxFO);
+					endif;
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool RevivePassenger(CObjHndl p_xObj)
+		if(m_xPassengers.FindEntry(p_xObj)>=0)then
+			return false;
+		endif;
+		if(m_iCurState==BC_ABORTED)then
+			return false;
+		endif;
+		m_xPassengers.Include(p_xObj);
+		if(m_iCurState==BC_IDLE)then
+			m_iCurState=BC_SEARCH_MEETING_POS;
+		endif;
+		return true;
+	endproc;
+
+	export proc bool UnregisterPassenger(CObjHndl p_xObj)
+		if(m_xPassengers.RemEntry(p_xObj))then
+			var ^CTransportObj pxTO = cast<CTransportObj>(m_xTransport.GetObj());
+			if(pxTO!=null)then
+				pxTO^.UnregisterPassenger(p_xObj);
+			endif;
+			if(m_xPassengers.NumEntries()<=0)then
+				m_iCurState = BC_IDLE;
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+	export proc void BreakTransporterActions()
+		var ^CTransportObj pxTO = cast<CTransportObj>(m_xTransport.GetObj());
+		if(pxTO!=null)then
+			pxTO^.StopBoarding();
+		endif;
+	endproc;
+
+	export proc void BreakPassengerActions()
+		var CObjList xPassengers;
+		xPassengers=m_xPassengers;
+		var int i, iC=xPassengers.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			var ^CFightingObj pxFO =cast<CFightingObj>(xPassengers[i].GetObj());
+			if(pxFO!=null)then
+				pxFO^.StopBoarding();
+			endif;
+		endfor;
+	endproc;
+
+	export proc bool SearchMeetingPoint()
+		if(m_xTransport.IsValid())then
+			var vec3 vMid=GetPassengerPos();
+			var ^CPathfinder pxPF = ^(CSrvWrap.GetPathfinder());
+			m_vMeetingPos=m_xTransport.GetObj()^.GetPos();
+			return true;
+/*			if(pxPF^.GetLandBoardingPos(m_xTransport.GetObj()^.GetOwner(),vMid,m_xTransport.GetObj()^.GetPos(),m_vMeetingPos))then
+				return true;
+			endif;
+*/		endif;
+		return false;
+	endproc;
+
+	export proc bool CheckIdleTimeout(real p_fTimeout)
+		if(m_iCurState == BC_IDLE)then
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	proc bool TransporterArrived(^CFightingObj p_pxTransporter)
+		var real fRadius = p_pxTransporter^.GetCollisionRadius();
+		fRadius += 5.0;
+		fRadius *= fRadius;
+		if((p_pxTransporter^.GetPos()-m_vTransporterDest).Abs2S()>fRadius)then
+			p_pxTransporter^.WalkAction(m_vTransporterDest, p_pxTransporter^.GetMaxSpeed());
+			return false;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool PassengerArrived(^CFightingObj p_pxTransporter, ^CFightingObj p_pxPassenger)
+		if(p_pxTransporter==null||p_pxPassenger==null)then return false; endif;
+		var real fDistance =(p_pxPassenger^.GetPos()-m_vMeetingPos).Abs2();
+		var real fMaxRange =(p_pxPassenger^.GetCollisionRadius()+p_pxTransporter^.GetCollisionRadius())*2.0;
+		if(fDistance>fMaxRange)then
+			if(p_pxPassenger^.GetOnWall())then
+				p_pxPassenger^.WallWalkAction(m_vMeetingPos,true,p_pxPassenger^.GetMaxSpeed(),false);
+			else
+				p_pxPassenger^.WalkAction(m_vMeetingPos, p_pxPassenger^.GetMaxSpeed());
+			endif;
+			return false;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool IsPassengerNextToTransporter(^CFightingObj p_pxTransporter, ^CFightingObj p_pxPassenger)
+		if(p_pxTransporter==null||p_pxPassenger==null)then return false; endif;
+		var real fDistance =(p_pxPassenger^.GetPos()-p_pxTransporter^.GetPos()).Abs2();
+		var real fMaxRange =1.5+(p_pxPassenger^.GetCollisionRadius()+p_pxTransporter^.GetCollisionRadius())*2.0;
+		if(fDistance>fMaxRange)then
+			return false;
+		else
+			return true;
+		endif;
+	endproc;
+	
+	export proc bool OnTick()
+		var ^CFightingObj pxTransporter=cast<CFightingObj>(m_xTransport.GetObj());
+		if(pxTransporter==null)then BreakPassengerActions(); return false; endif;
+		if(!ValidatePassengers())then BreakTransporterActions(); return false; endif;
+		if(m_iCurState == BC_IDLE)then
+			return true;
+		elseif(m_iCurState == BC_SEARCH_MEETING_POS)then
+			// Henry: if a passenger is already next to the transporter, the whole meeting pos searching and walking shall be skipped (happens if there are too many units/buildings around them)
+			var CObjList xToDel, xRemain, xOrig;
+			xOrig=m_xPassengers;
+			var int i, k, iC=xOrig.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(xOrig[i].GetObj());
+				if(pxPassenger==null)then continue; endif;
+				if(!IsPassengerNextToTransporter(pxTransporter,pxPassenger))then
+					xRemain.AddEntry(xOrig[i]);
+					continue;
+				endif;
+				pxPassenger^.TerminateAction();
+//				if(bFirst)then
+//					pxTransporter^.TerminateAction();
+//				endif;
+				pxTransporter^.ReactToGamePlayCommand("Action",pxPassenger,pxTransporter^.GetPos(),"/AddPassenger",false,false,false);
+				xToDel.AddEntry(xOrig[i]);
+//				bFirst=false;
+			endfor;
+			iC=xToDel.NumEntries();
+			k=iC;
+			for(i=0)cond(i<iC)iter(i++)do
+//				if(!xToDel[i].IsValid())then continue; endif;
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(xToDel[i].GetObj());
+				if(pxPassenger==null)then continue; endif;
+				pxPassenger^.StopBoarding();
+				UnregisterPassenger(xToDel[i]);
+			endfor;
+			iC=xRemain.NumEntries();
+			if(iC<1)then
+				BreakTransporterActions();
+				m_iCurState=BC_IDLE;
+				return false;
+			endif;
+			if(!SearchMeetingPoint())then m_iCurState=BC_ABORTED; return false; endif;
+			var vec3 vPos = m_vMeetingPos;
+			m_vTransporterDest = m_vMeetingPos;
+			if(!CSrvWrap.GetObjMgr()^.GetFreePos(m_vTransporterDest, pxTransporter, m_vTransporterDest))then m_iCurState=BC_ABORTED; return false; endif;
+			TransporterArrived(pxTransporter);
+			if(!CSrvWrap.GetObjMgr()^.GetFreePos(m_vMeetingPos, xRemain[0].GetObj(), m_vMeetingPos))then m_iCurState=BC_ABORTED; return false; endif;
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxFO = cast<CFightingObj>(xRemain[i].GetObj());
+				PassengerArrived(pxTransporter,pxFO);
+			endfor;
+			m_iCurState = BC_ONTHEWAY;
+		elseif(m_iCurState == BC_ONTHEWAY)then
+			var bool bTransporterArrived=false;
+			if(!ValidatePassengers())then BreakTransporterActions(); return false; endif;
+			if(!pxTransporter^.HasAction())then
+				bTransporterArrived=TransporterArrived(pxTransporter);
+			endif;
+			var CObjList xToDel, xOrig;
+			xOrig=m_xPassengers;
+			var int i, iC=xOrig.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(xOrig[i].GetObj());
+				if(pxPassenger==null)then continue; endif;
+				if(!pxPassenger^.HasAction())then
+					if(!PassengerArrived(pxTransporter,pxPassenger))then continue; endif;
+					if(!bTransporterArrived)then continue; endif;
+					pxTransporter^.ReactToGamePlayCommand("Action",pxPassenger,pxTransporter^.GetPos(),"/AddPassenger",false,false,false);
+					xToDel.AddEntry(xOrig[i]);
+				endif;
+			endfor;
+			iC=xToDel.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+//				if(!xToDel[i].IsValid())then continue; endif;
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(xToDel[i].GetObj());
+				if(pxPassenger==null)then continue; endif;
+				pxPassenger^.StopBoarding();
+			endfor;
+		elseif(m_iCurState==BC_ABORTED)then
+			BreakPassengerActions();
+			BreakTransporterActions();
+		endif;
+		if(m_xPassengers.NumEntries()<= 0)then
+			m_iCurState = BC_IDLE;
+		endif;
+		return true;
+	endproc;
+	
+	export proc vec3 GetPassengerPos()
+		var vec3 vPos;
+		var CObjList xOrig;
+		xOrig=m_xPassengers;
+		var int i, iC = xOrig.Validate();
+		for(i=0)cond(i<iC)iter(++i)do
+			var ^CGameObj pxO = xOrig[i].GetObj();
+			if(pxO==null)then continue; endif;
+			vPos += pxO^.GetPos();
+		endfor;
+		return vPos/iC.ToReal();
+	endproc;
+
+endclass;
+
+// Implementation of the Ship-Boarding op
+class CBoardShipCoordinator inherit CBoardCoordinator
+	
+	export proc bool SearchMeetingPoint()
+		var CObjList xOrig;
+		xOrig=m_xPassengers;
+		if(!m_xTransport.IsValid()||xOrig.Validate()<1)then return false; endif;
+		var vec3 vMid=xOrig[0].GetObj()^.GetPos();
+		var ^CPathfinder pxPF = ^(CSrvWrap.GetPathfinder());
+		if(pxPF^.GetShipBoardingPos(m_xTransport.GetObj()^.GetOwner(),vMid, m_xTransport.GetObj()^.GetPos(), m_vMeetingPos))then
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+endclass;
+
+class CBoardAmphibianCoordinator inherit CBoardCoordinator
+	
+	export proc bool SearchMeetingPoint()
+		var CObjList xOrig;
+		xOrig=m_xPassengers;
+		if(!m_xTransport.IsValid()||xOrig.Validate()<1)then return false; endif;
+		var vec3 vMid=xOrig[0].GetObj()^.GetPos();
+		var ^CPathfinder pxPF = ^(CSrvWrap.GetPathfinder());
+		if(pxPF^.GetAmphibianBoardingPos(m_xTransport.GetObj()^.GetOwner(),vMid, m_xTransport.GetObj()^.GetPos(), m_vMeetingPos))then
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+endclass;
+
+// Implementation of the Zeppelin-Boarding op
+class CBoardZeppelinCoordinator inherit CBoardCoordinator
+	
+	var bool m_bSorted;
+	
+	export constructor()
+		m_bSorted=false;
+	endconstructor;
+	
+//	export proc bool SearchMeetingPoint()
+////		var vec3 vMid=GetPassengerPos();
+//		var vec3 vMid=m_xPassengers[0].GetObj()^.GetPos();
+//		if(vMid.ToBool())then
+//			m_vMeetingPos=vMid;
+//			return true;
+//		endif;
+//		return false;
+//	endproc;
+	
+	export proc bool SearchMeetingPoint()
+		if(m_xTransport.IsValid())then
+			var vec3 vMid=GetPassengerPos();
+			var ^CPathfinder pxPF = ^(CSrvWrap.GetPathfinder());
+//			m_vMeetingPos=m_xTransport.GetObj()^.GetPos();
+			m_vMeetingPos=vMid;
+//			if(pxPF^.GetLandBoardingPos(m_xTransport.GetObj()^.GetOwner(),vMid,m_xTransport.GetObj()^.GetPos(),m_vMeetingPos))then
+			if(pxPF^.GetLandBoardingPos(m_xTransport.GetObj()^.GetOwner(),vMid,vMid,m_vMeetingPos))then
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+
+	export proc bool SortPassengersByPos(vec3 p_vPos)
+		m_xPassengers.SortDistance(p_vPos);
+		return m_xPassengers.NumEntries()>0;
+	endproc;
+	
+	proc bool TransporterArrived(^CFightingObj p_pxTransporter)
+		var real fRadius = p_pxTransporter^.GetCollisionRadius();
+		fRadius += 10.0;
+		fRadius *= fRadius;
+		if((p_pxTransporter^.GetPos()-m_vTransporterDest).Abs2S()>fRadius)then
+			p_pxTransporter^.WalkAction(m_vTransporterDest, p_pxTransporter^.GetMaxSpeed());
+			return false;
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool RegisterPassenger(CObjHndl p_xObj)
+		if(m_xPassengers.FindEntry(p_xObj)>=0)then
+			return false;
+		endif;
+		if(m_iCurState==BC_ABORTED)then
+			return false;
+		endif;
+		var ^CTransportObj pxTO = cast<CTransportObj>(m_xTransport.GetObj());
+		if(pxTO!=null)then
+			if(pxTO^.RegisterPassenger(p_xObj))then
+				m_xPassengers.Include(p_xObj);
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(p_xObj.GetObj());
+				if(pxPassenger!=null)then
+					if(IsPassengerNextToTransporter(pxTO,pxPassenger))then
+						pxPassenger^.TerminateAction();
+//						pxTO^.TerminateAction();
+						pxTO^.ReactToGamePlayCommand("Action",pxPassenger,pxTO^.GetPos(),"/AddPassenger",false,false,false);
+						pxPassenger^.StopBoarding();
+						UnregisterPassenger(p_xObj);
+						return true;
+					endif;
+				endif;
+				if(m_iCurState==BC_IDLE)then
+					m_iCurState=BC_SEARCH_MEETING_POS;
+					OnTick();
+				elseif(m_iCurState!=BC_ABORTED)then
+					var ^CFightingObj pxFO = cast<CFightingObj>(p_xObj.GetObj());
+					if(pxFO!=null)then
+						PassengerArrived(pxTO, pxFO);
+					endif;
+				endif;
+//				CheckProximity(pxTO,p_xObj);
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+//	proc bool CheckProximity(^CFightingObj p_pxTransporter,CObjHndl p_xObj)
+//		if(p_pxTransporter==null||!p_xObj.IsValid()||m_xPassengers.NumEntries()<=0||!m_xPassengers[0].IsValid()||p_xObj==m_xPassengers[0])then return false; endif;
+//		var CObjHndl xPrevPrimary=m_xPassengers[0];
+//		var vec3 vPos=p_pxTransporter^.GetPos();
+//		SortPassengersByPos(p_pxTransporter^.GetPos());
+//		if(!(m_xPassengers[0]==xPrevPrimary))then
+//			m_vMeetingPos=m_xPassengers[0].GetObj()^.GetPos();
+//			m_vTransporterDest=m_vMeetingPos;
+//			p_pxTransporter^.WalkAction(m_vMeetingPos, p_pxTransporter^.GetMaxSpeed());
+//			m_iCurState=BC_ONTHEWAY;
+//			return true;
+//		endif;
+//		return false;
+//	endproc;
+	
+	export proc bool OnTick()
+		var ^CFightingObj pxTransporter=cast<CFightingObj>(m_xTransport.GetObj());
+		if(pxTransporter==null)then BreakPassengerActions(); return false; endif;
+		if(!ValidatePassengers())then BreakTransporterActions(); return false; endif;
+//		if(!m_bSorted)then m_bSorted=SortPassengersByPos(pxTransporter^.GetPos()); endif;
+		if(m_iCurState == BC_IDLE)then
+			m_bSorted=false;
+			return true;
+		elseif(m_iCurState == BC_SEARCH_MEETING_POS)then
+			var CObjList xToDel, xRemain, xOrig;
+			xOrig=m_xPassengers;
+			var int i, k, iC=xOrig.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(xOrig[i].GetObj());
+				if(pxPassenger==null)then continue; endif;
+				if(!IsPassengerNextToTransporter(pxTransporter,pxPassenger))then
+					xRemain.AddEntry(xOrig[i]);
+					continue;
+				endif;
+				pxPassenger^.TerminateAction();
+				pxTransporter^.ReactToGamePlayCommand("Action",pxPassenger,pxTransporter^.GetPos(),"/AddPassenger",false,false,false);
+				xToDel.AddEntry(xOrig[i]);
+			endfor;
+			iC=xToDel.NumEntries();
+			k=iC;
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(xToDel[i].GetObj());
+				if(pxPassenger==null)then continue; endif;
+				pxPassenger^.StopBoarding();
+				UnregisterPassenger(xToDel[i]);
+			endfor;
+			iC=xRemain.NumEntries();
+			if(iC<1)then
+				BreakTransporterActions();
+				m_iCurState=BC_IDLE;
+				return false;
+			endif;
+			if(!SearchMeetingPoint())then m_iCurState=BC_ABORTED; return false; endif;
+//			var vec3 vPos = m_vMeetingPos;
+			m_vTransporterDest = m_vMeetingPos;
+			if(!CSrvWrap.GetObjMgr()^.GetFreePos(m_vMeetingPos, xRemain[0].GetObj(), m_vMeetingPos))then
+				m_iCurState=BC_ABORTED;
+				return false;
+			endif;
+			iC=xRemain.Validate();
+			TransporterArrived(pxTransporter);
+			for(i=0)cond(i<iC)iter(++i)do
+				var ^CFightingObj pxFO = cast<CFightingObj>(xRemain[i].GetObj());
+				PassengerArrived(pxTransporter,pxFO);
+			endfor;
+			m_iCurState = BC_ONTHEWAY;
+		elseif(m_iCurState == BC_ONTHEWAY)then
+			var bool bTransporterArrived=false;
+			if(!pxTransporter^.HasAction())then
+				bTransporterArrived=TransporterArrived(pxTransporter);
+			endif;
+			if(!bTransporterArrived)then return false; endif;
+			var CObjList xToDel, xOrig;
+			xOrig=m_xPassengers;
+			var int i, iC=xOrig.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(xOrig[i].GetObj());
+				if(pxPassenger==null)then continue; endif;
+				if(!pxPassenger^.HasAction())then
+					if(!PassengerArrived(pxTransporter,pxPassenger))then continue; endif;
+//					if(!bTransporterArrived)then continue; endif;
+					pxTransporter^.ReactToGamePlayCommand("Action",pxPassenger,pxTransporter^.GetPos(),"/AddPassenger",false,false,false);
+					xToDel.AddEntry(xOrig[i]);
+				endif;
+			endfor;
+			iC=xToDel.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(xToDel[i].GetObj());
+				if(pxPassenger==null)then continue; endif;
+				pxPassenger^.StopBoarding();
+			endfor;
+			m_bSorted=false;
+			m_iCurState=BC_SEARCH_MEETING_POS;
+		elseif(m_iCurState==BC_ABORTED)then
+			BreakPassengerActions();
+			BreakTransporterActions();
+		endif;
+		if(m_xPassengers.NumEntries()<=0)then
+			m_iCurState = BC_IDLE;
+		endif;
+		return true;
+	endproc;
+	
+endclass;
+
+// Implementation of the Blimp-Boarding op
+class CBoardBlimpCoordinator inherit CBoardCoordinator
+	
+	export constructor()
+	endconstructor;
+	
+	export proc bool SearchMeetingPoint()
+		if(m_xTransport.IsValid())then
+			m_vMeetingPos=m_xTransport.GetObj()^.GetPos();
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	proc bool TransporterArrived(^CFightingObj p_pxTransporter)
+		return true;
+	endproc;
+	
+	export proc bool RegisterPassenger(CObjHndl p_xObj)
+		if(m_xPassengers.FindEntry(p_xObj)>=0)then
+			return false;
+		endif;
+		if(m_iCurState==BC_ABORTED)then
+			return false;
+		endif;
+		var ^CTransportObj pxTO = cast<CTransportObj>(m_xTransport.GetObj());
+		if(pxTO!=null)then
+			if(pxTO^.RegisterPassenger(p_xObj))then
+				m_xPassengers.Include(p_xObj);
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(p_xObj.GetObj());
+				if(pxPassenger!=null)then
+					if(IsPassengerNextToTransporter(pxTO,pxPassenger))then
+						pxPassenger^.TerminateAction();
+						pxTO^.ReactToGamePlayCommand("Action",pxPassenger,pxTO^.GetPos(),"/AddPassenger",false,false,false);
+						pxPassenger^.StopBoarding();
+						UnregisterPassenger(p_xObj);
+						return true;
+					endif;
+				endif;
+				if(m_iCurState==BC_IDLE)then
+					m_iCurState=BC_SEARCH_MEETING_POS;
+					OnTick();
+				elseif(m_iCurState!=BC_ABORTED)then
+					var ^CFightingObj pxFO = cast<CFightingObj>(p_xObj.GetObj());
+					if(pxFO!=null)then
+						PassengerArrived(pxTO, pxFO);
+					endif;
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool OnTick()
+		var ^CFightingObj pxTransporter=cast<CFightingObj>(m_xTransport.GetObj());
+		if(pxTransporter==null)then BreakPassengerActions(); return false; endif;
+		if(!ValidatePassengers())then BreakTransporterActions(); return false; endif;
+		if(m_iCurState == BC_IDLE)then
+			return true;
+		elseif(m_iCurState == BC_SEARCH_MEETING_POS)then
+			var CObjList xToDel, xRemain, xOrig=m_xPassengers;
+			var int i, k, iC=xOrig.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(xOrig[i].GetObj());
+				if(pxPassenger==null)then continue; endif;
+				if(!IsPassengerNextToTransporter(pxTransporter,pxPassenger))then
+					xRemain.AddEntry(xOrig[i]);
+					continue;
+				endif;
+				pxPassenger^.TerminateAction();
+				pxTransporter^.ReactToGamePlayCommand("Action",pxPassenger,pxTransporter^.GetPos(),"/AddPassenger",false,false,false);
+				xToDel.AddEntry(xOrig[i]);
+			endfor;
+			iC=xToDel.NumEntries();
+			k=iC;
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(xToDel[i].GetObj());
+				if(pxPassenger==null)then continue; endif;
+				pxPassenger^.StopBoarding();
+				UnregisterPassenger(xToDel[i]);
+			endfor;
+			iC=xRemain.NumEntries();
+			if(iC<1)then
+				BreakTransporterActions();
+				m_iCurState=BC_IDLE;
+				return false;
+			endif;
+			if(!SearchMeetingPoint())then m_iCurState=BC_ABORTED; return false; endif;
+			m_vTransporterDest = m_vMeetingPos;
+			for(i=0)cond(i<iC)iter(++i)do
+				var ^CFightingObj pxFO = cast<CFightingObj>(xRemain[i].GetObj());
+				if(pxFO!=null)then
+					PassengerArrived(pxTransporter,pxFO);
+				endif;
+			endfor;
+			m_iCurState = BC_ONTHEWAY;
+			return true;
+		elseif(m_iCurState == BC_ONTHEWAY)then
+			var bool bMeetAgain=false;
+			var CObjList xToDel, xRemain, xOrig;
+			xOrig=m_xPassengers;
+			var int i, iC=xOrig.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(xOrig[i].GetObj());
+				if(pxPassenger==null)then continue; endif;
+				if(!pxPassenger^.HasAction())then
+					if(!PassengerArrived(pxTransporter,pxPassenger))then
+						bMeetAgain=true;
+						xRemain.AddEntry(xOrig[i]);
+						continue;
+					endif;
+					pxTransporter^.ReactToGamePlayCommand("Action",pxPassenger,pxTransporter^.GetPos(),"/AddPassenger",false,false,false);
+					xToDel.AddEntry(xOrig[i]);
+				else
+					xRemain.AddEntry(xOrig[i]);
+				endif;
+			endfor;
+			iC=xToDel.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(xToDel[i].GetObj());
+				if(pxPassenger==null)then continue; endif;
+				pxPassenger^.StopBoarding();
+			endfor;
+			iC=xRemain.NumEntries();
+			if(iC<1)then
+				BreakTransporterActions();
+				m_iCurState=BC_IDLE;
+				return false;
+			endif;
+			if(bMeetAgain)then
+				m_iCurState=BC_SEARCH_MEETING_POS;
+				return false;
+			endif;
+		elseif(m_iCurState==BC_ABORTED)then
+			BreakPassengerActions();
+			BreakTransporterActions();
+		endif;
+		if(m_xPassengers.NumEntries()<=0)then
+			m_iCurState = BC_IDLE;
+		endif;
+		return true;
+	endproc;
+	
+endclass;
+

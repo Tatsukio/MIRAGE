@@ -1,0 +1,434 @@
+//TrackCtrl.usl
+class CUSLTrackCtrl inherit CSeqTrackCtrl
+	var ^CItemPropView		m_pxItemPropView;
+	var ^CSequenceEditor	m_pxSequenceEditor;
+
+	export constructor()
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc void SetItemPropView(^CItemPropView p_pxItemPropView)
+		m_pxItemPropView=p_pxItemPropView;
+	endproc;
+
+	export proc void SetSequenceEditor(^CSequenceEditor	p_pxSequenceEditor)
+		m_pxSequenceEditor=p_pxSequenceEditor;
+	endproc;
+
+	proc void OnItemCtrlSelect(^CItemCtrl p_pxItemCtrl)
+		super.OnItemCtrlSelect(p_pxItemCtrl);
+		if(m_pxItemPropView!=null)then
+			var ^CPropCtrl pxPropCtrl=null;
+			if(p_pxItemCtrl!=null)then
+				pxPropCtrl=p_pxItemCtrl^.GetPropCtrl();
+			endif;
+			m_pxItemPropView^.Init(pxPropCtrl);
+		endif;
+	endproc;
+
+	proc void OnItemDataChanged(^CItemCtrl p_pxItemCtrl)
+		super.OnItemDataChanged(p_pxItemCtrl);
+		if(m_pxItemPropView!=null)then
+			var ^CPropCtrl pxPropCtrl=null;
+			if(p_pxItemCtrl!=null)then
+				pxPropCtrl=p_pxItemCtrl^.GetPropCtrl();
+			endif;
+			m_pxItemPropView^.Init(pxPropCtrl);
+		endif;
+	endproc;
+
+	proc void OnUpdateControlPanel(^CSequence p_pxSequence,^CSeqRuler p_pxRuler)
+		CEnhancedMenu.Get().GetSequenceControlPanel()^.Update(this,p_pxSequence,p_pxRuler);
+		if(m_pxSequenceEditor!=null)then
+			m_pxSequenceEditor^.OnUpdateControlPanel();
+		endif;
+	endproc;
+	
+	proc void OnUpdateCameraView(^CSequence p_pxSequence,^CCamera p_pxCamera)
+		CMainController.Get().UpdateCameraPosition(p_pxCamera);
+	endproc;
+	/*
+	export proc void CreateActor(^CPropDB.CNode p_pxPreset, vec3 p_vPos, Quat p_qRot)
+		super.CreateActor(p_pxPreset,p_vPos,p_qRot);		
+		m_pxSequenceEditor^.OnChangeSequence();		
+	endproc;
+	*/
+
+endclass;
+
+class CSequenceControlPanel inherit CEnhancedFrameWindow
+
+	var ^CButton			m_pxPlay;
+	var ^CButton			m_pxStop;
+	var ^CButton			m_pxSkipEnd;
+	var ^CButton			m_pxSkipStart;
+	var ^CButton			m_pxSkipFwd;
+	var ^CButton			m_pxSkipRwd;
+	var ^CToggleButton		m_pxEdit;
+	var ^CToggleButton		m_pxCam;
+	var ^CToggleButton		m_pxRepeat;
+	var ^CSpinCtrlNumber	m_pxSetCurFrame;
+	var ^CSequence 			m_pxSequence;
+	var ^CSeqRuler 			m_pxSeqRuler;
+	var ^CUSLTrackCtrl 		m_pxTrackCtrl;
+	var string 				m_sPicPath;
+
+	export constructor()
+		if(!InitFromResource("sequencer/SequenceEditor","ControlPanel"))then
+			CLevelEditorWrap.LogError("UI.SequenceEditor","ControlPanel InitFromRessource() failed");
+			return;
+		endif;
+		m_pxSequence=null;
+		m_pxSeqRuler=null;
+		m_pxTrackCtrl=null;
+		m_sPicPath=CLevelEditorWrap.GetSEPicPath();
+		m_pxPlay=cast<CButton>(GetControl("Bottom/Play"));
+		m_pxPlay^.m_xOnClick = OnPlay;
+		m_pxStop=cast<CButton>(GetControl("Bottom/Stop"));
+		m_pxStop^.m_xOnClick = OnStop;
+		m_pxStop^.SetBitmap(m_sPicPath+"/seq_stop_normal.tga",m_sPicPath+"/seq_stop_down.tga",m_sPicPath+"/seq_stop_normal.tga",m_sPicPath+"/seq_stop_disabled.tga");
+
+		m_pxSkipStart=cast<CButton>(GetControl("Bottom/SkipStart"));
+		m_pxSkipStart^.m_xOnClick = OnSkipStart;
+		m_pxSkipStart^.SetBitmap(m_sPicPath+"/seq_skipstart_normal.tga",m_sPicPath+"/seq_skipstart_down.tga",m_sPicPath+"/seq_skipstart_normal.tga",m_sPicPath+"/seq_skipstart_disabled.tga");
+		m_pxSkipEnd=cast<CButton>(GetControl("Bottom/SkipEnd"));
+		m_pxSkipEnd^.m_xOnClick = OnSkipEnd;
+		m_pxSkipEnd^.SetBitmap(m_sPicPath+"/seq_skipend_normal.tga",m_sPicPath+"/seq_skipend_down.tga",m_sPicPath+"/seq_skipend_normal.tga",m_sPicPath+"/seq_skipend_disabled.tga");
+
+		m_pxSkipFwd=cast<CButton>(GetControl("Bottom/SkipFwd"));
+		m_pxSkipFwd^.m_xOnClick = OnSkipFwd;
+		m_pxSkipFwd^.SetBitmap(m_sPicPath+"/seq_skipfwd_normal.tga",m_sPicPath+"/seq_skipfwd_down.tga",m_sPicPath+"/seq_skipfwd_normal.tga",m_sPicPath+"/seq_skipfwd_disabled.tga");
+		m_pxSkipRwd=cast<CButton>(GetControl("Bottom/SkipRwd"));
+		m_pxSkipRwd^.m_xOnClick = OnSkipRwd;
+		m_pxSkipRwd^.SetBitmap(m_sPicPath+"/seq_skiprwd_normal.tga",m_sPicPath+"/seq_skiprwd_down.tga",m_sPicPath+"/seq_skiprwd_normal.tga",m_sPicPath+"/seq_skiprwd_disabled.tga");
+
+		m_pxEdit=cast<CToggleButton>(GetControl("Top/Edit"));
+		m_pxEdit^.m_xOnClick = OnEdit;
+		m_pxEdit^.SetBitmap(m_sPicPath+"/seq_key_normal.tga",m_sPicPath+"/seq_key_down.tga",m_sPicPath+"/seq_key_normal.tga",m_sPicPath+"/seq_key_disabled.tga");
+		
+		m_pxCam=cast<CToggleButton>(GetControl("Top/SwitchCam"));
+		m_pxCam^.m_xOnClick = OnSwitchCam;
+		m_pxCam^.SetBitmap(m_sPicPath+"/seq_cam_normal.tga",m_sPicPath+"/seq_cam_down.tga",m_sPicPath+"/seq_cam_normal.tga",m_sPicPath+"/seq_cam_disabled.tga");
+
+		m_pxRepeat=cast<CToggleButton>(GetControl("Top/Repeat"));
+		m_pxRepeat^.m_xOnClick = OnRepeat;
+		m_pxRepeat^.SetBitmap(m_sPicPath+"/seq_norepeat_normal.tga",m_sPicPath+"/seq_repeat_normal.tga",m_sPicPath+"/seq_norepeat_normal.tga",m_sPicPath+"/seq_norepeat_disabled.tga");
+
+		m_pxSetCurFrame=cast<CSpinCtrlNumber>(GetControl("Top/SetCurFrame"));
+		m_pxSetCurFrame^.m_xOnChange=OnSetFrame;
+
+
+		LoadPosition("SequenceControlPanel");
+		Update(null,null,null);
+	endconstructor;
+
+	export proc void Update(^CUSLTrackCtrl p_pxTrackCtrl,^CSequence p_pxSequence,^CSeqRuler p_pxSeqRuler)
+		m_pxTrackCtrl=p_pxTrackCtrl;
+		m_pxSequence=p_pxSequence;
+		m_pxSeqRuler=p_pxSeqRuler;
+		m_pxPlay^.SetBitmap(m_sPicPath+"/seq_play_normal.tga",m_sPicPath+"/seq_play_down.tga",m_sPicPath+"/seq_play_normal.tga",m_sPicPath+"/seq_play_disabled.tga");
+		m_pxPlay^.m_xOnClick = OnPlay;
+		if(m_pxSequence!=null)then
+			if(m_pxSequence^.IsPlaying() && !m_pxSequence^.IsPaused())then
+				m_pxPlay^.SetBitmap(m_sPicPath+"/seq_pause_normal.tga",m_sPicPath+"/seq_pause_down.tga",m_sPicPath+"/seq_pause_normal.tga",m_sPicPath+"/seq_pause_normal.tga");
+				m_pxPlay^.m_xOnClick = OnPause;
+			endif;
+		endif;
+		m_pxStop^.SetDisabled(true);
+		if(m_pxSequence==null)then
+			m_pxPlay^.SetDisabled(true);
+			m_pxSkipEnd^.SetDisabled(true);
+			m_pxSkipStart^.SetDisabled(true);
+			m_pxSkipRwd^.SetDisabled(true);
+			m_pxSkipFwd^.SetDisabled(true);
+			m_pxEdit^.SetDisabled(true);
+			m_pxCam^.SetDisabled(true);
+			m_pxRepeat^.SetDisabled(true);
+			m_pxSetCurFrame^.SetDisabled(true);
+		else
+			m_pxPlay^.SetDisabled(false);
+			m_pxSkipEnd^.SetDisabled(false);
+			m_pxSkipStart^.SetDisabled(false);
+			m_pxSkipRwd^.SetDisabled(false);
+			m_pxSkipFwd^.SetDisabled(false);
+			m_pxEdit^.SetDisabled(false);
+			m_pxCam^.SetDisabled(false);
+			m_pxRepeat^.SetDisabled(false);
+			m_pxSetCurFrame^.SetDisabled(false);
+			if(m_pxSequence^.IsPlaying())then
+				m_pxStop^.SetDisabled(false);
+			endif;
+			m_pxEdit^.m_xOnClick.Clear();
+			var bool bEditMode=m_pxTrackCtrl^.GetEditMode();
+			m_pxEdit^.SetToggleButtonState(bEditMode);
+			m_pxEdit^.m_xOnClick = OnEdit;
+			
+			m_pxCam^.m_xOnClick.Clear();
+			var bool bCamMode=m_pxTrackCtrl^.GetCamMode();
+			m_pxCam^.SetToggleButtonState(bCamMode);
+			m_pxCam^.m_xOnClick = OnSwitchCam;
+
+			m_pxRepeat^.m_xOnClick.Clear();
+			var bool bRepeatMode=m_pxSequence^.IsRepeat();
+			m_pxRepeat^.SetToggleButtonState(bRepeatMode);
+			m_pxRepeat^.m_xOnClick = OnRepeat;
+
+			if(m_pxSeqRuler!=null)then
+				m_pxSetCurFrame^.m_xOnChange.Clear();
+				var int iLength=m_pxSeqRuler^.GetLength();
+				var int iCurPos=m_pxSeqRuler^.GetRulerPos();
+				m_pxSetCurFrame^.SetLimits(0,iLength,1);
+				m_pxSetCurFrame^.SetValue(iCurPos);
+				m_pxRepeat^.SetToggleButtonState(bRepeatMode);
+				m_pxSetCurFrame^.m_xOnChange=OnSetFrame;
+			endif;
+		endif;
+	endproc;
+
+	proc bool OnPlay()
+		if(m_pxSequence!=null)then
+			m_pxSequence^.Play();
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnPause()
+		if(m_pxSequence!=null)then
+			m_pxSequence^.Pause();
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnStop()
+		if(m_pxSequence!=null)then
+			m_pxSequence^.Stop();
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnRepeat()
+		if(m_pxSequence!=null)then
+			var bool bRepeat=m_pxRepeat^.GetToggleButtonState();
+			m_pxSequence^.SetRepeat(bRepeat);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnEdit()
+		if(m_pxTrackCtrl!=null)then
+			var bool bEdit=m_pxEdit^.GetToggleButtonState();
+			m_pxTrackCtrl^.SetEditMode(bEdit);
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnSwitchCam()
+		if(m_pxTrackCtrl!=null)then
+			var bool bCam=m_pxCam^.GetToggleButtonState();
+			m_pxTrackCtrl^.SetCamMode(bCam);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnSkipStart()
+		if(m_pxSeqRuler!=null)then
+			m_pxSeqRuler^.SetRulerPos(m_pxSeqRuler^.GetStartPos());
+		endif;
+		return true;
+	endproc;
+	proc bool OnSkipEnd()
+		if(m_pxSeqRuler!=null)then
+			m_pxSeqRuler^.SetRulerPos(m_pxSeqRuler^.GetEndPos());
+		endif;
+		return true;
+	endproc;
+	proc bool OnSkipFwd()
+		if(m_pxSeqRuler!=null)then
+			var int iCurPos=m_pxSeqRuler^.GetRulerPos();
+			iCurPos+=25;
+			if(iCurPos>m_pxSeqRuler^.GetEndPos())then
+				iCurPos=m_pxSeqRuler^.GetEndPos();
+			endif;
+			m_pxSeqRuler^.SetRulerPos(iCurPos);
+		endif;
+		return true;
+	endproc;
+	proc bool OnSkipRwd()
+		if(m_pxSeqRuler!=null)then
+			var int iCurPos=m_pxSeqRuler^.GetRulerPos();
+			iCurPos-=25;
+			if(iCurPos<m_pxSeqRuler^.GetStartPos())then
+				iCurPos=m_pxSeqRuler^.GetStartPos();
+			endif;
+			m_pxSeqRuler^.SetRulerPos(iCurPos);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnSetFrame()
+		if(m_pxSeqRuler!=null)then
+			var int iValue=m_pxSetCurFrame^.GetValueInt();
+			m_pxSeqRuler^.SetRulerPos(iValue);
+		endif;
+		return true;
+	endproc;
+endclass;
+
+class CSequenceControlPanelSmall inherit CWindow
+
+	var ^CButton			m_pxPlay;
+	var ^CButton			m_pxStop;
+	var ^CToggleButton		m_pxEdit;
+	var ^CToggleButton		m_pxCam;
+	var ^CToggleButton		m_pxRepeat;
+	var ^CSpinCtrlNumber	m_pxSetCurFrame;
+	var ^CSequence 			m_pxSequence;
+	var ^CSeqRuler 			m_pxSeqRuler;
+	var ^CUSLTrackCtrl 		m_pxTrackCtrl;
+	var string 				m_sPicPath;
+
+	export constructor()
+		if(!InitFromResource("sequencer/SequenceEditor","ControlPanelSmall"))then
+			CLevelEditorWrap.LogError("UI.SequenceEditor","ControlPanelSmall InitFromRessource() failed");
+			return;
+		endif;
+		m_pxSequence=null;
+		m_pxTrackCtrl=null;
+		m_sPicPath=CLevelEditorWrap.GetSEPicPath();
+		m_pxPlay=cast<CButton>(GetControl("Bottom/Play"));
+		m_pxPlay^.m_xOnClick = OnPlay;
+		m_pxStop=cast<CButton>(GetControl("Bottom/Stop"));
+		m_pxStop^.m_xOnClick = OnStop;
+		m_pxStop^.SetBitmap(m_sPicPath+"/seq_stop_normal.tga",m_sPicPath+"/seq_stop_down.tga",m_sPicPath+"/seq_stop_normal.tga",m_sPicPath+"/seq_stop_disabled.tga");
+
+		m_pxEdit=cast<CToggleButton>(GetControl("Top/Edit"));
+		m_pxEdit^.m_xOnClick = OnEdit;
+		m_pxEdit^.SetBitmap(m_sPicPath+"/seq_key_normal.tga",m_sPicPath+"/seq_key_down.tga",m_sPicPath+"/seq_key_normal.tga",m_sPicPath+"/seq_key_disabled.tga");
+
+		m_pxCam=cast<CToggleButton>(GetControl("SuperTop/SwitchCam"));
+		m_pxCam^.m_xOnClick = OnSwitchCam;
+		m_pxCam^.SetBitmap(m_sPicPath+"/seq_cam_normal.tga",m_sPicPath+"/seq_cam_down.tga",m_sPicPath+"/seq_cam_normal.tga",m_sPicPath+"/seq_cam_disabled.tga");
+
+		m_pxRepeat=cast<CToggleButton>(GetControl("Bottom/Repeat"));
+		m_pxRepeat^.m_xOnClick = OnRepeat;
+		m_pxRepeat^.SetBitmap(m_sPicPath+"/seq_norepeat_normal.tga",m_sPicPath+"/seq_repeat_normal.tga",m_sPicPath+"/seq_norepeat_normal.tga",m_sPicPath+"/seq_norepeat_disabled.tga");
+
+		m_pxSetCurFrame=cast<CSpinCtrlNumber>(GetControl("Top/SetCurFrame"));
+		m_pxSetCurFrame^.m_xOnChange=OnSetFrame;
+
+		Update(null,null);
+	endconstructor;
+
+	export proc void Update(^CUSLTrackCtrl p_pxTrackCtrl,^CSequence p_pxSequence)
+		m_pxTrackCtrl=p_pxTrackCtrl;
+		m_pxSequence=p_pxSequence;
+		if(m_pxTrackCtrl!=null)then
+			m_pxSeqRuler=m_pxTrackCtrl^.GetRuler();
+		endif;
+		m_pxPlay^.SetBitmap(m_sPicPath+"/seq_play_normal.tga",m_sPicPath+"/seq_play_down.tga",m_sPicPath+"/seq_play_normal.tga",m_sPicPath+"/seq_play_disabled.tga");
+		m_pxPlay^.m_xOnClick = OnPlay;
+		if(m_pxSequence!=null)then
+			if(m_pxSequence^.IsPlaying() && !m_pxSequence^.IsPaused())then
+				m_pxPlay^.SetBitmap(m_sPicPath+"/seq_pause_normal.tga",m_sPicPath+"/seq_pause_down.tga",m_sPicPath+"/seq_pause_normal.tga",m_sPicPath+"/seq_pause_normal.tga");
+				m_pxPlay^.m_xOnClick = OnPause;
+			endif;
+		endif;
+		m_pxStop^.SetDisabled(true);
+		if(m_pxSequence==null)then
+			m_pxPlay^.SetDisabled(true);
+			m_pxEdit^.SetDisabled(true);
+			m_pxCam^.SetDisabled(true);
+			m_pxRepeat^.SetDisabled(true);
+			m_pxSetCurFrame^.SetDisabled(true);
+		else
+			m_pxPlay^.SetDisabled(false);
+			m_pxEdit^.SetDisabled(false);
+			m_pxCam^.SetDisabled(false);
+			m_pxRepeat^.SetDisabled(false);
+			m_pxSetCurFrame^.SetDisabled(false);
+			if(m_pxSequence^.IsPlaying())then
+				m_pxStop^.SetDisabled(false);
+			endif;
+			m_pxEdit^.m_xOnClick.Clear();
+			var bool bEditMode=m_pxTrackCtrl^.GetEditMode();
+			m_pxEdit^.SetToggleButtonState(bEditMode);
+			m_pxEdit^.m_xOnClick = OnEdit;
+			
+			m_pxCam^.m_xOnClick.Clear();
+			var bool bCamMode=m_pxTrackCtrl^.GetCamMode();
+			m_pxCam^.SetToggleButtonState(bCamMode);
+			m_pxCam^.m_xOnClick = OnSwitchCam;
+
+			m_pxRepeat^.m_xOnClick.Clear();
+			var bool bRepeatMode=m_pxSequence^.IsRepeat();
+			m_pxRepeat^.SetToggleButtonState(bRepeatMode);
+			m_pxRepeat^.m_xOnClick = OnRepeat;
+
+			if(m_pxSeqRuler!=null)then
+				m_pxSetCurFrame^.m_xOnChange.Clear();
+				var int iLength=m_pxSeqRuler^.GetLength();
+				var int iCurPos=m_pxSeqRuler^.GetRulerPos();
+				m_pxSetCurFrame^.SetLimits(0,iLength,1);
+				m_pxSetCurFrame^.SetValue(iCurPos);
+				m_pxRepeat^.SetToggleButtonState(bRepeatMode);
+				m_pxSetCurFrame^.m_xOnChange=OnSetFrame;
+			endif;
+		endif;
+	endproc;
+
+	proc bool OnPlay()
+		if(m_pxSequence!=null)then
+			m_pxSequence^.Play();
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnPause()
+		if(m_pxSequence!=null)then
+			m_pxSequence^.Pause();
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnStop()
+		if(m_pxSequence!=null)then
+			m_pxSequence^.Stop();
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnRepeat()
+		if(m_pxSequence!=null)then
+			var bool bRepeat=m_pxRepeat^.GetToggleButtonState();
+			m_pxSequence^.SetRepeat(bRepeat);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnEdit()
+		if(m_pxTrackCtrl!=null)then
+			var bool bEdit=m_pxEdit^.GetToggleButtonState();
+			m_pxTrackCtrl^.SetEditMode(bEdit);
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnSwitchCam()
+		if(m_pxTrackCtrl!=null)then
+			var bool bCam=m_pxCam^.GetToggleButtonState();
+			m_pxTrackCtrl^.SetCamMode(bCam);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnSetFrame()
+		if(m_pxSeqRuler!=null)then
+			var int iValue=m_pxSetCurFrame^.GetValueInt();
+			m_pxSeqRuler^.SetRulerPos(iValue);
+		endif;
+		return true;
+	endproc;
+endclass;
+

@@ -1,0 +1,529 @@
+class CQuestListCtrl inherit CList
+	var bool m_bRestoreSettings;
+	
+	export constructor()
+	endconstructor;
+	
+	export proc void RestoreSetting()
+		m_bRestoreSettings=true;
+		InvalidateContent();
+	endproc;
+	
+	proc void OnUpdateContent()
+		super.OnUpdateContent();
+		if(m_bRestoreSettings)then
+			m_bRestoreSettings=false;
+			var int iPlayerID=CGameWrap.GetClient().GetPlayerID();
+			var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());		
+			var ^CPropDB.CNode pxQWNode=^((pxLevelInfo^.GetGenericData())["ClientSettings/"+iPlayerID.ToString()+"/QuestWindow"]);
+			var int iSelEntry=pxQWNode^.GetValueI("SelectedItem",0);
+			var int iQuestSPX=pxQWNode^.GetValueI("QuestSPX",0);
+			var int iQuestSPY=pxQWNode^.GetValueI("QuestSPY",0);
+			Select(iSelEntry);
+			ScrollToV(iQuestSPX);
+			ScrollToH(iQuestSPY);
+		endif;
+	endproc;
+	
+endclass;
+
+class CQuestDescCtrl inherit CSemlView
+	var bool m_bRestoreSettings;
+	
+	export constructor()
+	endconstructor;
+	
+	export proc void RestoreSetting()
+		m_bRestoreSettings=true;
+		InvalidateContent();
+	endproc;
+	
+	proc void OnUpdateContent()
+		super.OnUpdateContent();
+		if(m_bRestoreSettings)then
+			m_bRestoreSettings=false;		
+			var int iPlayerID=CGameWrap.GetClient().GetPlayerID();
+			var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());		
+			var ^CPropDB.CNode pxQWNode=^((pxLevelInfo^.GetGenericData())["ClientSettings/"+iPlayerID.ToString()+"/QuestWindow"]);
+			var int iDescSPX=pxQWNode^.GetValueI("DescSPX",0);
+			var int iDescSPY=pxQWNode^.GetValueI("DescSPY",0);
+			ScrollToV(iDescSPX);
+			ScrollToH(iDescSPY);
+		endif;
+	endproc;
+	
+endclass;
+
+class CQuestWindow inherit CFrameWindow
+	
+	var ^CButton				m_pxCloseButton;
+	var ^CQuestListCtrl		 	m_pxQuestList;
+	var ^CQuestDescCtrl			m_pxQuestDescription;
+	var ^CStaticCtrl			m_pxTotalPoints;
+	static var SHWND			ms_hQuestButton;
+	static var int 				ms_iFeedbackFrame;
+	
+	var int						m_iOverallBoniMax;
+	var int						m_iOverallBoniAccompl;
+	
+	const color			m_kxColorHeadline={{224,185,120,255}};
+	const color			m_kxColorAccomplished={{11,220,11,255}};
+	const color			m_kxColorAvailable={{152,133,99,255}};
+	const color			m_kxColorNew={{255,204,0,255}};
+	const color			m_kxColorFailed={{255,40,0,255}};
+
+	export constructor()
+		if(!InitFromResource("UI/QuestWindow","QuestWindow")) then
+			CGameWrap.LogError("UI.QuestWindow","InitFromResource failed");
+			return;
+		endif;
+		SetCaption(CLocalizer.Get().Translate("_UI_QuestWin_Title_Quests"));
+		m_pxQuestList=cast<CQuestListCtrl>(GetControl("QuestList"));
+		m_pxQuestList^.m_xOnSelect=OnSelect;
+		m_pxQuestDescription=cast<CQuestDescCtrl>(GetControl("Description"));
+		//m_pxQuestDescription^.SetText(" ");
+		m_pxTotalPoints=cast<CStaticCtrl>(GetControl("TotalPoints"));
+		m_pxCloseButton=cast<CButton>(GetControl("CloseButton"));
+		m_pxCloseButton^.SetText(CLocalizer.Get().Translate("_UI_QuestWin_Button_Close"));
+		m_pxCloseButton^.SetTransparent(true);
+		m_pxCloseButton^.m_xOnClick = OnBack;
+		m_pxCloseButton^.SetDisabled(false);
+		m_pxCloseButton^.SetTextAlign(0);
+		m_pxCloseButton^.SetTextIndent(6);
+		SetDisabled(false);
+		SetVisible(true);
+		//Fill();
+		var ^CDesktop pxDesktop=CClientWrap.GetDesktop();
+		var int iDW=pxDesktop^.GetSize().GetX();
+		var int iDH=pxDesktop^.GetSize().GetY();
+		var int iW=765 * CGameInst.ms_iUIScaleFactor;
+		var int iH=515 * CGameInst.ms_iUIScaleFactor;
+		SetSize(iW,iH);
+		SetPos((iDW-iW)/2,(iDH-iH)/2-95 * CGameInst.ms_iUIScaleFactor);
+		var ^CUTCmdSender pxUTCmdSender=CClientWrap.GetUTCmdSender();
+		if(pxUTCmdSender!=null)then
+			pxUTCmdSender^.WindowOpen("Quest");
+		endif;
+		Init();
+		m_pxQuestList^.RestoreSetting();
+		m_pxQuestDescription^.RestoreSetting();
+		SetCmd("Exit", OnBack );
+		AddAccelerator("F11,NONE,Exit");
+		AddAccelerator("ESCAPE,NONE,Exit");
+		SetCmd("Exit", OnBack);
+	endconstructor;
+	
+	destructor()
+		SaveSettings();
+		var int i,iC=m_pxQuestList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CQuestListData	pxItemData=cast<CQuestListData>(m_pxQuestList^.GetItemData(i));
+			delete pxItemData;
+		endfor;
+		m_pxQuestList^.Clear();
+		var ^CUTCmdSender pxUTCmdSender=CClientWrap.GetUTCmdSender();
+		if(pxUTCmdSender!=null)then
+			pxUTCmdSender^.WindowClose("Quest");
+		endif;
+		CGameWrap.Unpause();
+	enddestructor;
+
+	proc bool OnBack()
+		Destroy();
+		return true;
+	endproc;
+
+	export proc bool Init()
+		Fill();
+		CGameWrap.Pause();	
+		return(true);
+	endproc;
+	
+	static proc void RemoveFeedbackFrame()
+		CClientWrap.GetUIMgr().DelFeedbackFrame(ms_iFeedbackFrame);
+		ms_iFeedbackFrame=-1;
+	endproc;
+	
+	proc bool Fill()
+		RemoveFeedbackFrame();
+		var int iOverallBoniAccompl=0;
+		var int iOverallBoniMax=0;
+		var int iFirstNewQuest=-1;
+		var array string asGroups;
+		var array ^CQuestMgr.CQuest apxSubQuests;
+		var ^CQuestMgrClient pxQM=^(CGameWrap.GetClient().GetQuestMgr());		
+		var int i,iC=pxQM^.NumQuests();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CQuestMgr.CQuest pxQuest=^(pxQM^.GetQuest(i));
+			if(!pxQuest^.IsVisible())then continue; endif;
+			if(!pxQuest^.IsMainQuest())then
+				apxSubQuests.AddEntry(pxQuest);
+				continue;
+			endif;
+			var string sGroup=pxQuest^.GetGroup();
+			if(!sGroup.IsEmpty())then
+				asGroups.Include(sGroup);
+			endif;
+		endfor;
+		iC=asGroups.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sGroup=asGroups[i];
+			var bool bUnacomplishable=false;
+			var int iBoniMax=0;
+			var int iBoniAccompl=0;
+			begin CalcBoni;
+				var int j,jC=pxQM^.NumQuests();
+				for(j=0)cond(j<jC)iter(j++)do
+					var ^CQuestMgr.CQuest pxWalk=^(pxQM^.GetQuest(j));
+					if(!pxWalk^.IsVisible() || pxWalk^.GetGroup()!=sGroup || !pxWalk^.IsMainQuest())then
+						continue;
+					endif;
+					var int iBoni=GetQuestBoni(pxWalk);
+					iBoniMax+=iBoni;
+					iOverallBoniMax+=iBoni;
+					if(pxWalk^.IsAccomplished())then
+						iBoniAccompl+=iBoni;
+						iOverallBoniAccompl+=iBoni;
+					elseif(pxWalk^.IsUnaccomplishable())then
+						bUnacomplishable=true;
+					endif;
+				endfor;
+			end CalcBoni;
+			AddQuestGroup(sGroup,iBoniMax,iBoniAccompl,m_kxColorHeadline);
+			var int k,kC=pxQM^.NumQuests();
+			for(k=0)cond(k<kC)iter(k++)do
+				var ^CQuestMgr.CQuest pxQuest=^(pxQM^.GetQuest(k));
+				if(!pxQuest^.IsVisible())then continue; endif;
+				if(pxQuest^.GetGroup()!=sGroup)then
+					continue;
+				endif;
+				var int iItem=AddQuest(pxQuest,true);
+				if(iItem!=-1 && iFirstNewQuest==-1)then
+					iFirstNewQuest=iItem;
+				endif;
+			endfor;
+		endfor;
+		iC=pxQM^.NumQuests();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CQuestMgr.CQuest pxQuest=^(pxQM^.GetQuest(i));
+			if(!pxQuest^.IsVisible())then continue; endif;
+			if(!pxQuest^.IsMainQuest())then continue; endif;
+			if(pxQuest^.GetGroup().IsEmpty())then
+				var int iItem=AddQuest(pxQuest,false);
+				if(iItem!=-1 && iFirstNewQuest==-1)then
+					iFirstNewQuest=iItem;
+				endif;
+			endif;
+		endfor;
+		begin AddSubQuests;
+			var int i,iC=apxSubQuests.NumEntries();
+			if(iC!=0)then
+				var int iBoniMax=0;
+				var int iBoniAccompl=0;
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CQuestMgr.CQuest pxWalk=apxSubQuests[i];
+					var int iBoni=GetQuestBoni(pxWalk);
+					iBoniMax+=iBoni;
+					iOverallBoniMax+=iBoni;
+					if(pxWalk^.IsAccomplished())then
+						iBoniAccompl+=iBoni;
+						iOverallBoniAccompl+=iBoni;
+					endif;
+				endfor;
+				AddQuestGroup("SubQuestGroup",iBoniMax,iBoniAccompl,m_kxColorHeadline);
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CQuestMgr.CQuest pxWalk=apxSubQuests[i];
+					var int iItem=AddQuest(pxWalk,true);
+					if(iItem!=-1 && iFirstNewQuest==-1)then
+						iFirstNewQuest=iItem;
+					endif;
+				endfor;
+			endif;
+		end AddSubQuests;
+		/*
+		if(iFirstNewQuest!=-1)then
+			m_pxQuestList^.Select(iFirstNewQuest);
+			m_pxQuestList^.ShowSelection(false);
+		endif;
+		*/
+		
+		OnSelect();
+		//LoadSettings();
+		m_iOverallBoniMax=iOverallBoniMax;
+		m_iOverallBoniAccompl=iOverallBoniAccompl;
+		m_pxTotalPoints^.SetText(iOverallBoniAccompl.ToString()+"/"+iOverallBoniMax.ToString());
+		return(true);
+	endproc;
+	
+	proc int GetQuestBoni(^CQuestMgr.CQuest p_pxQuest)
+		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+		var int iDifficulty=pxLevelInfo^.GetGenericData()["Base/CurrentDifficulty"].ValueI();
+		var int iBoni=p_pxQuest^.GetBoniEasy();
+		if(iDifficulty==1)then
+			iBoni=p_pxQuest^.GetBoniMiddle();
+		elseif(iDifficulty==2)then
+			iBoni=p_pxQuest^.GetBoniHard();
+		endif;
+		return iBoni;
+	endproc;
+	
+	proc void AddQuestGroup(string p_sGroup, int p_iBoniMax, int p_iBoniCur,color p_xColor)
+		var int iItemHeight=20 * CGameInst.ms_iUIScaleFactor;
+		var int iOffsetX=5 * CGameInst.ms_iUIScaleFactor;
+		var ^CWindow pxItemBox=new CWindow();
+		pxItemBox^.SetSize(m_pxQuestList^.GetWidth(),iItemHeight);
+		var point xPos;
+		xPos.SetX(iOffsetX);
+		xPos.SetY(0);
+		var ^CStaticCtrlEx pxText=new CStaticCtrlEx(xPos,CLocalizer.Get().Translate("_"+p_sGroup),CStaticCtrlEx.TAH_Left.ToInt(),CStaticCtrlEx.TAV_Center.ToInt());
+		var int iBoniX=m_pxQuestList^.GetWidth()-(100 * CGameInst.ms_iUIScaleFactor+5 * CGameInst.ms_iUIScaleFactor)-iOffsetX;
+		pxText^.SetSize(iBoniX,iItemHeight);
+		xPos.SetX(iBoniX);
+		xPos.SetY(0);
+		var ^CStaticCtrlEx pxBoni=new CStaticCtrlEx(xPos,p_iBoniCur.ToString()+"/"+p_iBoniMax.ToString(),CStaticCtrlEx.TAH_Left.ToInt(),CStaticCtrlEx.TAV_Center.ToInt());
+		pxBoni^.SetSize(100 * CGameInst.ms_iUIScaleFactor,iItemHeight);
+		pxText^.SetTextColor(p_xColor);
+		pxBoni^.SetTextColor(p_xColor);
+		pxItemBox^.AddChild(pxText);
+		pxItemBox^.AddChild(pxBoni);
+		m_pxQuestList^.AddItem("",pxItemBox);
+	endproc;
+	
+	proc int AddQuest(^CQuestMgr.CQuest p_pxQuest,bool p_bGroup)
+		var string sQuestName=p_pxQuest^.GetName();
+		var CGuid xQuestGuid=p_pxQuest^.GetGuid();
+		var string sQuestHeadline=p_pxQuest^.GetHeadline();
+		var bool bUnredQuest=false;
+		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+		//var ^CPropDB.CNode pxReadedQuests=^(pxLevelInfo^.GetGenericData()["ReadedQuests"]);
+		var ^CPropDB.CNode pxQuestStates=^(pxLevelInfo^.GetGenericData()["QuestStates"]);
+		var string sStatesValue=p_pxQuest^.IsVisible().ToString()+":"+p_pxQuest^.IsAccomplished().ToString()+":"+p_pxQuest^.IsUnaccomplishable().ToString();
+		var ^CPropDB.CNode pxQuestNode=pxQuestStates^.FindNode(xQuestGuid.ToString(),true);
+		System.Assert(pxQuestNode!=null);
+		var string sReadStates=pxQuestNode^.GetValueS("ReadStates","");
+		if(sReadStates.IsEmpty())then
+			bUnredQuest=true;
+		endif;
+		CEvt_SaveGuestStates.Send(xQuestGuid,"ReadStates",sStatesValue);
+		//pxQuestNode^.SetValue("ReadStates",sStatesValue);
+		var ^CQuestListData pxItemData=new CQuestListData(xQuestGuid);
+		if(!p_pxQuest^.IsMainQuest())then
+			//sQuestState="sub - ";
+		endif;
+		var int iBoni=GetQuestBoni(p_pxQuest);
+		//---------------
+		var int iItemHeight=20 * CGameInst.ms_iUIScaleFactor;
+		var int iOffsetX=5 * CGameInst.ms_iUIScaleFactor;
+		var int iBoniX=m_pxQuestList^.GetWidth()-(100 * CGameInst.ms_iUIScaleFactor+5 * CGameInst.ms_iUIScaleFactor)-iOffsetX;
+		var ^CWindow pxItemBox=new CWindow();
+		pxItemBox^.SetSize(m_pxQuestList^.GetWidth(),iItemHeight);
+		var point xPos;
+		var ^CStaticCtrlEx pxUnreadIcon=new CStaticCtrlEx(xPos,"",0,2);
+		var ^CStaticCtrlEx pxIcon=new CStaticCtrlEx(xPos,"",0,2);
+		var ^CStaticCtrlEx pxText=new CStaticCtrlEx(xPos,sQuestHeadline,CStaticCtrlEx.TAH_Left.ToInt(),CStaticCtrlEx.TAV_Center.ToInt());
+		var ^CStaticCtrlEx pxBoni=new CStaticCtrlEx(xPos,iBoni.ToString(),CStaticCtrlEx.TAH_Left.ToInt(),CStaticCtrlEx.TAV_Center.ToInt());
+		pxUnreadIcon^.SetPos(iOffsetX,0);
+		pxUnreadIcon^.SetSize(iItemHeight,iItemHeight);
+		pxIcon^.SetPos(pxUnreadIcon^.GetPos().GetX()+pxUnreadIcon^.GetWidth(),0);
+		pxIcon^.SetSize(iItemHeight,iItemHeight);
+		pxText^.SetPos(pxIcon^.GetPos().GetX()+pxIcon^.GetWidth(),0);
+		pxText^.SetSize(iBoniX-pxText^.GetPos().GetX(),iItemHeight);
+		pxBoni^.SetPos(iBoniX,0);
+		pxBoni^.SetSize(100 * CGameInst.ms_iUIScaleFactor,iItemHeight);
+		var color xColor=m_kxColorAvailable;
+		if(p_pxQuest^.IsAccomplished())then
+			xColor=m_kxColorAccomplished;
+			pxIcon^.SetBitmap(CGameInst.GetBitmapMgr().GetBlendBitmap("24, layer questicon_accomplished")^.GetBitmap());
+		elseif(p_pxQuest^.IsUnaccomplishable())then
+			xColor=m_kxColorFailed;
+			pxIcon^.SetBitmap(CGameInst.GetBitmapMgr().GetBlendBitmap("24, layer questicon_unaccomplishable")^.GetBitmap());
+		else
+			if(bUnredQuest)then
+				xColor=m_kxColorNew;
+			endif;
+			pxIcon^.SetBitmap(CGameInst.GetBitmapMgr().GetBlendBitmap("24, layer questicon_unaccomplished")^.GetBitmap());
+		endif;
+		if(bUnredQuest)then
+			pxUnreadIcon^.SetBitmap(CGameInst.GetBitmapMgr().GetBlendBitmap("24, layer questicon_unread")^.GetBitmap());
+		endif;
+		pxUnreadIcon^.SetTextColor(xColor);
+		pxIcon^.SetTextColor(xColor);
+		pxText^.SetTextColor(xColor);
+		pxBoni^.SetTextColor(xColor);
+		pxItemBox^.AddChild(pxUnreadIcon);
+		pxItemBox^.AddChild(pxIcon);
+		pxItemBox^.AddChild(pxText);
+		pxItemBox^.AddChild(pxBoni);
+		var int iItem=m_pxQuestList^.AddItem("",pxItemBox);
+		m_pxQuestList^.SetItemData(iItem,pxItemData);
+		if(bUnredQuest)then
+			return iItem;
+		endif;
+		return -1;
+		//--------------
+	endproc;
+	
+	proc bool OnSelect()
+		//m_pxQuestDescription^.SetText("");
+		m_pxQuestDescription^.Clear();
+		var int iIndex=m_pxQuestList^.GetSelectedItem();
+		if(iIndex!=(-1))then
+			var ^CQuestListData pxTmp=cast<CQuestListData>(m_pxQuestList^.GetItemData(iIndex));
+			if(pxTmp!=null)then
+				var ^CQuestMgrClient pxQM=^(CGameWrap.GetClient().GetQuestMgr());
+				var ^CQuestMgr.CQuest pxTmpQuest=pxQM^.GetQuest(pxTmp^.GetGuid());
+				if(pxTmpQuest!=null)then
+					//m_pxQuestDescription^.SetText(pxTmpQuest^.GetDescription());
+					var string sDescPath=CClientWrap.GetUrsRelPath()+"/Data/Base/Texts/Quests/";
+					var ^CPropDB pxGenericData=^(CGameWrap.GetClient().GetLevelInfo().GetGenericData());
+					var string sLevelName=(pxGenericData^)["Base/LevelName"].Value();
+					//var string sLevelName=.GetAttribs().GetValue("LevelName");
+					sLevelName.Replace(" ","_");
+					sDescPath+=sLevelName+".seml#"+pxTmpQuest^.GetName();
+					m_pxQuestDescription^.Navigate(sDescPath);
+				endif;
+			endif;
+		endif;
+		return(true);
+	endproc;
+	
+	export static proc void OnUpdateQuest()
+		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+		//var ^CPropDB.CNode pxReadedQuests=^(pxLevelInfo^.GetGenericData()["ReadedQuests"]);
+		var ^CPropDB.CNode pxQuestStates=^(pxLevelInfo^.GetGenericData()["QuestStates"]);
+		var ^CQuestMgrClient pxQM=^(CGameWrap.GetClient().GetQuestMgr());
+		var bool bMarkButton=false;
+		var int i,iC=pxQM^.NumQuests();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CQuestMgr.CQuest pxQuest=^(pxQM^.GetQuest(i));
+			var string sStatesValue=pxQuest^.IsVisible().ToString()+":"+pxQuest^.IsAccomplished().ToString()+":"+pxQuest^.IsUnaccomplishable().ToString();
+			var ^CPropDB.CNode pxQuestNode=pxQuestStates^.FindNode(pxQuest^.GetGuid().ToString(),true);
+			System.Assert(pxQuestNode!=null);
+			/*if(pxQuestNode==null)then
+				if(pxQuest^.IsVisible())then
+					bMarkButton=true;
+					//CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("ui_quest_new","",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+				endif;
+			else
+			*/
+				var bool bVisible=false;
+				var bool bAccomlished=false;
+				var bool bUnaccomplishable=false;
+				var array string asTokens;
+				var string sReadStates=pxQuestNode^.GetValueS("ReadStates","");
+				sReadStates.Split(asTokens,":",false);
+				if(asTokens.NumEntries()==3)then
+					bVisible=(asTokens[0]=="true");
+					bAccomlished=(asTokens[1]=="true");
+					bUnaccomplishable=(asTokens[2]=="true");
+				endif;
+				if(bVisible!=pxQuest^.IsVisible())then
+					/*
+					if(pxQuest^.IsVisible())then
+						//CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("ui_quest_new","",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+					endif;
+					*/
+					bMarkButton=true;
+				endif;
+				if(bAccomlished!=pxQuest^.IsAccomplished())then
+					bMarkButton=true;
+					/*
+					if(pxQuest^.IsAccomplished()==true)then
+						//CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("ui_quest_accomplished","",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);											
+					endif;
+					*/
+				endif;
+				if(bUnaccomplishable!=pxQuest^.IsUnaccomplishable())then
+					bMarkButton=true;
+				endif;
+				if(bMarkButton)then
+					//break;
+				endif;
+			//endif;
+			var int iNTState=pxQuestNode^.GetValueI("nt_state",0);
+			var string sTribe = CGameWrap.GetClient().GetPlayer().GetPlayerSlot()^.GetTribe();
+			var bool bQuestFeedbacks = CMirageClnMgr.Get().GetFeedback(CMirageClnMgr.FB_QUEST);
+			if(iNTState==0 && pxQuest^.IsVisible())then
+				CFeedback.Print(CNewsTickerData.NTT_Quest_New,"_"+pxQuest^.GetName()+"_Headline");	
+				CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("ui_quest_new","",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+				if(bQuestFeedbacks)then
+					CGameInputController.ms_xUISoundMgr.InvokeFeedbackSoundEvent("voice_"+sTribe+"_quest_new",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+				endif;
+				CEvt_SaveGuestStates.Send(pxQuest^.GetGuid(),"nt_state","1");
+				//pxQuestNode^.SetValue("nt_state",1);
+			elseif(pxQuest^.IsAccomplished() && iNTState!=2)then
+				CFeedback.Print(CNewsTickerData.NTT_Quest_Accomplished,"_"+pxQuest^.GetName()+"_Headline");
+				CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("ui_quest_accomplished","",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+				if(bQuestFeedbacks)then
+					CGameInputController.ms_xUISoundMgr.InvokeFeedbackSoundEvent("voice_"+sTribe+"_quest_done",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+				endif;
+				//pxQuestNode^.SetValue("nt_state",2);
+				CEvt_SaveGuestStates.Send(pxQuest^.GetGuid(),"nt_state","2");
+			elseif(pxQuest^.IsUnaccomplishable() && iNTState!=3)then
+				CFeedback.Print(CNewsTickerData.NTT_Quest_Unaccomplishable,"_"+pxQuest^.GetName()+"_Headline");
+				CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("ui_quest_unaccomplishable","",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+				if(bQuestFeedbacks)then
+					CGameInputController.ms_xUISoundMgr.InvokeFeedbackSoundEvent("voice_"+sTribe+"_quest_fail",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+				endif;
+				//pxQuestNode^.SetValue("nt_state",3);
+				CEvt_SaveGuestStates.Send(pxQuest^.GetGuid(),"nt_state","3");
+			endif;
+		endfor;
+		if(bMarkButton)then
+			var ^CWindow pxQBtn=CWindowMgr.Get().GetWindow(ms_hQuestButton);			
+			if(pxQBtn!=null)then
+				RemoveFeedbackFrame();
+				var rect xRect=pxQBtn^.GetAbsRect();
+				var int iFrameWidth=5;
+				xRect.SetLeft(xRect.GetLeft()+iFrameWidth);
+				xRect.SetRight(xRect.GetRight()-iFrameWidth);
+				xRect.SetTop(xRect.GetTop()+iFrameWidth);
+				xRect.SetBottom(xRect.GetBottom()-iFrameWidth);
+				ms_iFeedbackFrame=CClientWrap.GetUIMgr().AddFeedbackButtonToggle(ms_hQuestButton.ToInt());
+//				ms_iFeedbackFrame=CClientWrap.GetUIMgr().AddFeedbackFrameScreen(xRect,iFrameWidth,{{255,0,0,255}},{{0,0,255,255}});
+//				CClientWrap.GetUIMgr().SetFeedbackFrameOwnerData(ms_iFeedbackFrame,CUIMgr.TFeedbackFrame.OT_Window,ms_hQuestButton.ToInt());
+			endif;
+		endif;
+	endproc;
+	
+	export static proc void InitFeedBack(SHWND p_hQuestButton)
+		ms_iFeedbackFrame=-1;
+		ms_hQuestButton=p_hQuestButton;
+	endproc;
+	
+	proc void SaveSettings()
+		var int iSelItem=m_pxQuestList^.GetSelectedItem();
+		var point xQuestListScrollPos;
+		xQuestListScrollPos.SetX(m_pxQuestList^.GetScrollPosV());
+		xQuestListScrollPos.SetY(m_pxQuestList^.GetScrollPosH());
+		var point xDescScrollPos;
+		xDescScrollPos.SetX(m_pxQuestDescription^.GetScrollPosV());
+		xDescScrollPos.SetY(m_pxQuestDescription^.GetScrollPosH());
+		var int iPlayerID=CGameWrap.GetClient().GetPlayerID();
+		CEvt_SaveQuestWindowSettings.Send(iPlayerID,iSelItem,xQuestListScrollPos,xDescScrollPos);
+		
+	endproc;
+endclass;
+
+class CQuestListData inherit CItemData
+
+	var CGuid m_xQuestGuid;
+
+	export constructor(CGuid p_xGuid)
+		m_xQuestGuid=p_xGuid;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc CGuid GetGuid();
+		return m_xQuestGuid;
+	endproc;
+
+	export proc bool SetGuid(CGuid p_xGuid);
+		m_xQuestGuid=p_xGuid;
+		return(true);
+	endproc;
+	
+endclass;
+

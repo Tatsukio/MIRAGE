@@ -1,0 +1,190 @@
+class CObjTime inherit CGameObj
+
+	const int INTERNAL_TIMER_ID=1177;
+	export var procref<void,int> m_xOnFire;
+
+	export constructor()
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		InitEvents();
+			if(!p_bLoad)then
+				SetType("TIME");
+			SetVisInFOW(true);
+		endif;
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs==null)then pxAttribs=InitAttribs();endif;
+	endproc;
+	
+	export proc void SetOccupant(string p_sTimerOccupant)
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs!=null)then 
+			pxAttribs^.SetValue("occupant",p_sTimerOccupant);
+		endif;
+	endproc;
+	
+	export proc string GetOccupant()
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs!=null)then 
+			return pxAttribs^.GetValue("occupant");
+		endif;
+		return "";
+	endproc;
+	
+	export static proc ^CObjTime FindTimerObj(string p_sTimerOccupant,int p_iTimerID)
+		var ^CObjMgrHost pxObjMgr=(CSrvWrap.GetObjMgr());
+		return cast<CObjTime>(pxObjMgr^.FindTimerObj(p_sTimerOccupant,p_iTimerID));
+	endproc;
+	
+	export proc void SetID(int p_iTimerID)
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs!=null)then 
+			pxAttribs^.SetValue("timer_id",p_iTimerID);
+		endif;
+	endproc;
+	
+	export proc int GetID()
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs!=null)then 
+			return pxAttribs^.GetValueInt("timer_id");
+		endif;
+		return -1;
+	endproc;
+	
+	export proc void SetIcon(string p_sIcon)
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs!=null)then 
+			pxAttribs^.SetValue("icon",p_sIcon);
+		endif;
+	endproc;
+	
+	export proc string GetIcon()
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs!=null)then 
+			return pxAttribs^.GetValue("icon");
+		endif;
+		return "default";
+	endproc;
+	
+	export proc void SetTooltip(string p_sTooltip)
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs!=null)then 
+			pxAttribs^.SetValue("tooltip",p_sTooltip);
+		endif;
+	endproc;
+	
+	export proc string GetTooltip()
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs!=null)then 
+			return pxAttribs^.GetValue("tooltip");
+		endif;
+		return "";
+	endproc;
+	
+	export proc CGameTimeSpan GetSpentTime()
+		var ^CAttribs pxAttribs=GetAttribs();
+		System.Assert(pxAttribs!=null,"pxAttribs!=null");
+		var CGameTime xStartTime=pxAttribs^.GetValueGameTime("start_time");
+		var CGameTime xEnd=CTimeMgr.Get().GetTime();
+		if(pxAttribs^.GetValueBool("paused")==true)then
+			xEnd=pxAttribs^.GetValueGameTime("pause_start");
+		endif;
+		var CGameTimeSpan xDurSpent=(xEnd-xStartTime);
+		return xDurSpent;
+	endproc;
+	
+	export proc void Pause()
+		var ^CAttribs pxAttribs=GetAttribs();
+		System.Assert(pxAttribs!=null,"pxAttribs!=null");
+		if(pxAttribs^.GetValueBool("paused")==false)then
+			pxAttribs^.SetValue("paused",true);
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			pxAttribs^.SetValue("pause_start",xNow);
+			pxAttribs^.SetValue("pause_start",xNow);
+			DeleteTimer(INTERNAL_TIMER_ID);
+		endif;
+	endproc;
+	
+	export proc void Unpause()
+		var ^CAttribs pxAttribs=GetAttribs();
+		System.Assert(pxAttribs!=null,"pxAttribs!=null");
+		if(pxAttribs^.GetValueBool("paused")==false)then
+			return;
+		endif;
+		pxAttribs^.SetValue("paused",false);
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		var CGameTime xStartTime=pxAttribs^.GetValueGameTime("start_time");
+		var CGameTime xPauseStart=pxAttribs^.GetValueGameTime("pause_start");
+		//var CGameTimeSpan xPast=(xPauseStart-xStartTime);
+		var CGameTimeSpan xPast=(xNow-xPauseStart);
+		var CGameTimeSpan xDur=pxAttribs^.GetValueFloat("duration");
+		var CGameTimeSpan xDurRest=xDur-(xPauseStart-xStartTime);
+		xStartTime+=xPast;
+		pxAttribs^.SetValue("start_time",xStartTime);
+		CreateTimer(INTERNAL_TIMER_ID,xDurRest,false);
+	endproc;
+	
+	export proc void Start(CGameTimeSpan p_xInterval,bool p_bRepeat,bool p_bShow)
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		CreateTimer(INTERNAL_TIMER_ID,p_xInterval,p_bRepeat);
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs!=null)then 
+			pxAttribs^.SetValue("start_time",xNow);
+			pxAttribs^.SetValue("duration",p_xInterval.GetSecondsF());
+			pxAttribs^.SetValue("repeat",false);
+			pxAttribs^.SetValue("show",p_bShow);
+			pxAttribs^.SetValue("paused",false);
+		endif;
+	endproc;
+	
+	export proc void Kill()
+		Delete();
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			var ^CAttribs pxAttribs=GetAttribs();
+			System.Assert(pxAttribs!=null,"pxAttribs!=null");
+			if(!m_xOnFire.IsNull())then
+				m_xOnFire.Call(GetID());
+			else
+				CheckCondition();
+			endif;
+			var bool bRepeat=pxAttribs^.GetValueBool("repeat");
+			if(bRepeat)then
+				var CGameTime xNow=CTimeMgr.Get().GetTime();
+				pxAttribs^.SetValue("start_time",xNow);
+				DeleteTimer(INTERNAL_TIMER_ID);
+				var CGameTimeSpan xDur=pxAttribs^.GetValueFloat("duration");
+				CreateTimer(INTERNAL_TIMER_ID,xDur,false);
+			else
+				Kill();
+			endif
+		endif;
+	endproc;
+	
+	proc void CheckCondition()
+		var int iTimerID=GetID();
+		var ^CTriggerMgr pxTM = ^(CSrvWrap.GetTriggerMgr());
+		var int i,iC=pxTM^.NumTrigger();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CTrigger pxWalkTrigger=pxTM^.GetTrigger(i);
+			if(pxWalkTrigger==null)then continue; endif;
+			var int k,kC=pxWalkTrigger^.NumConditions();
+			for(k=0)cond(k<kC)iter(k++)do
+				var ^CConditionTimer pxCondTimer=cast<CConditionTimer>(pxWalkTrigger^.GetCondition(k));
+				if(pxCondTimer==null)then continue;endif;
+				if(pxCondTimer^.GetTimerID()==iTimerID)then
+					var CEvtPointer xEvt;
+					pxCondTimer^.OnPush(xEvt);
+					break;
+				endif;
+			endfor;
+		endfor;
+	endproc;
+	
+endclass;

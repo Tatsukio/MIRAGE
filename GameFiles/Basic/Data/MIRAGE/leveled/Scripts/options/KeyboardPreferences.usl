@@ -1,0 +1,215 @@
+class CKeyboardPreferences inherit CEnhancedFrameWindow;
+		
+	var array string		m_asCommands;
+	var array string		m_asKeys;
+	var array string		m_asModifiers;
+	
+	var bool				m_bShortcutChange;
+	var int					m_iSelectedItem;
+	var ^CButton			m_pxDefault;
+	var ^CList				m_pxKeyList;
+	var string 				m_sOriginalShortcut;
+	
+	var string 				m_sModifier;
+	var string 				m_sKey;
+	
+	export constructor()
+		if(!InitFromResource("options/KeyboardPreferences","KeyboardPreferences")) then
+			CLevelEditorWrap.LogError("UI.KeyboardPreferences","InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxKeyList = cast<CList>(GetControl("GroupBoxLeft/KeyList"));
+		m_pxKeyList^.m_xOnSelect = OnKeyListSelect;
+		
+		InitializeKeyList();
+		
+		m_pxDefault = cast<CButton>(GetControl("RightSide/DefaultButton"));
+		m_pxDefault^.m_xOnClick = OnDefaultButton;
+		
+		var ^CButton pxChange = cast<CButton>(GetControl("RightSide/ChangeButton"));
+		pxChange^.m_xOnClick = OnChangeButton;
+		
+		var ^CButton pxCancel = cast<CButton>(GetControl("RightSide/CancelButton"));
+		pxCancel^.m_xOnClick = OnCancelButton;
+		pxCancel^.SetDisabled(true);
+		
+		m_bShortcutChange=false;
+		
+	endconstructor;
+
+	destructor()
+		
+	enddestructor;
+	
+	
+	proc bool OnKeyListSelect()
+		var ^CEdit pxEditFunction = cast<CEdit>(GetControl("RightSide/EditFunction"));
+		var ^CEdit pxEditShortcut = cast<CEdit>(GetControl("RightSide/EditShortcut"));
+		
+		if(m_pxKeyList^.GetSelectedItem()==(-1))then
+			m_pxKeyList^.Select(0);
+		endif;
+		pxEditFunction^.SetText(m_asCommands[m_pxKeyList^.GetSelectedItem()]);
+		if(m_asModifiers[m_pxKeyList^.GetSelectedItem()]=="-1")then
+			pxEditShortcut^.SetText(m_asKeys[m_pxKeyList^.GetSelectedItem()]);
+		else
+			pxEditShortcut^.SetText(m_asModifiers[m_pxKeyList^.GetSelectedItem()]+" - "+m_asKeys[m_pxKeyList^.GetSelectedItem()]);
+		endif;
+		return(true);
+	endproc;
+	
+	//Cancel shortcut change
+	
+	proc bool OnCancelButton()
+		var ^CEdit pxEditShortcut = cast<CEdit>(GetControl("RightSide/EditShortcut"));
+		m_bShortcutChange=false;
+		CMainController.Get().SetState(-1);
+		CWindowMgr.Get().BringWindowToTop(this,true);
+		m_pxDefault^.SetDisabled(false);
+		m_pxKeyList^.SetDisabled(false);
+		pxEditShortcut^.SetText(m_sOriginalShortcut);
+		return(true);
+	endproc;
+	
+	//Change shortcut for selected function
+	proc bool OnChangeButton()
+			var ^CButton pxCancel = cast<CButton>(GetControl("RightSide/CancelButton"));
+			var ^CEdit pxEditShortcut = cast<CEdit>(GetControl("RightSide/EditShortcut"));
+			if(!m_bShortcutChange)then
+				pxCancel^.SetDisabled(false);
+				m_bShortcutChange=true;
+				CMainController.Get().SetState(10);
+				CMainController.Get().GetShortcutCtrl().SetWindow(this);
+				CWindowMgr.Get().BringWindowToTop(CClientWrap.GetDesktop(),true);
+				var ^CList pxKeyList = cast<CList>(GetControl("GroupBoxLeft/KeyList"));
+				m_sOriginalShortcut=pxEditShortcut^.GetText();
+				m_pxDefault^.SetDisabled(true);
+				m_pxKeyList^.SetDisabled(true);
+				CKeyHandler.Get().DeleteAccelerators();
+			else
+				pxCancel^.SetDisabled(true);
+				m_bShortcutChange=false;
+				CMainController.Get().SetState(-1);
+				CWindowMgr.Get().BringWindowToTop(this,true);
+				m_pxDefault^.SetDisabled(false);
+				m_pxKeyList^.SetDisabled(false);
+				UpdateShortcut();
+			endif;	
+		return(true);
+	endproc;
+	
+	export proc bool UpdateShortcut()
+		var ^CEdit pxEditFunction = cast<CEdit>(GetControl("RightSide/EditFunction"));
+		var ^CEdit pxEditShortcut = cast<CEdit>(GetControl("RightSide/EditShortcut"));
+		var string sFunction=pxEditFunction^.GetText();
+		var string sNewShortcut=pxEditShortcut^.GetText();
+		var CPropDB	xDB;		
+		//if(xDB.Load(CSettings.GetUserSettingsDir()+"UserKeys.cfg"))then
+		if(xDB.Load(CLevelEditorWrap.GetUrsRelPath()+"/Data/LevelEd/Scripts/options/NewKeys.srf"))then
+			var ^CPropDB.CNode pxRoot=^(xDB.GetRoot());
+			var ^CPropDB.CNode pxKeys=^((pxRoot^)[0]);
+			var int i,j;
+			for(i=0)cond(i<pxKeys^.NumSubs())iter(i++)do
+				var ^CPropDB.CNode pxEntry=^((pxKeys^)[i]);
+				var string sEntry=pxEntry^.Value();
+				if(sEntry.Right(sEntry.GetLength()-(sEntry.FindRev(',')+2))==sFunction)then
+					var string sShortcut=m_sKey+" , "+m_sModifier+" , "+sFunction;
+					if(m_sKey==""||m_sModifier==""||sFunction=="")then break;endif;
+					pxKeys^.Remove(i);
+					pxKeys^.AddValue("Accelerator",sShortcut);
+					xDB.Save();
+					break;
+				endif;
+			endfor;
+		endif;	
+		InitializeKeyList();
+		CKeyHandler.Get().DeleteAccelerators();
+		CKeyHandler.Get().UpdateAccelerators();
+		return(true);
+	endproc;
+	
+	export proc bool SetShortcut(string p_sShift,string p_sAlt,string p_sCtrl,string p_sKey);
+		m_sModifier="NONE";
+		if(p_sCtrl!="")then
+			m_sModifier="CONTROL";
+		endif;
+		if(p_sShift!="")then
+			if(m_sModifier.GetLength()!=(-1)&&m_sModifier!="NONE")then
+				m_sModifier+="|SHIFT";
+			else
+				m_sModifier="SHIFT";
+			endif;	
+		endif;
+		if(p_sAlt!="")then
+			if(m_sModifier.GetLength()!=(-1)&&m_sModifier!="NONE")then
+				m_sModifier+="|ALT";
+			else
+				m_sModifier="ALT";
+			endif;	
+		endif;
+		m_sKey=p_sKey;
+		return(true);
+	endproc;
+	
+	export proc ^CEdit GetShortcutEdit()
+		var ^CEdit pxEditShortcut = cast<CEdit>(GetControl("RightSide/EditShortcut"));
+		return(pxEditShortcut);
+	endproc;
+	
+	//Overwrite UserKeys.srf with Keys.srf
+	proc bool OnDefaultButton()
+		var CPropDB	xDB;		
+		if(xDB.Load(CLevelEditorWrap.GetUrsRelPath()+"/Data/LevelEd/Scripts/options/NewKeys.srf"))then
+			xDB.Save(CSettings.GetUserSettingsDir()+"UserKeys.cfg");
+		endif;
+		InitializeKeyList();
+		CKeyHandler.Get().DeleteAccelerators();
+		CKeyHandler.Get().UpdateAccelerators();
+		return(true);
+	endproc;
+	
+	proc void InitializeKeyList()
+		var ^CList pxKeyList=cast<CList>(GetControl("GroupBoxLeft/KeyList"));
+		pxKeyList^.Clear();
+		var CPropDB	xDB;		
+		//if(xDB.Load(CSettings.GetUserSettingsDir()+"UserKeys.cfg"))then
+		if(xDB.Load(CLevelEditorWrap.GetUrsRelPath()+"/Data/LevelEd/Scripts/options/NewKeys.srf"))then
+			var ^CPropDB.CNode pxRoot=^(xDB.GetRoot());
+			var ^CPropDB.CNode pxKeys=^((pxRoot^)[0]);
+			var int i,j;
+			var string sKey;
+			var string sModifier;
+			var string sCommand;
+			var string sSpacer;
+
+			m_asCommands=0;
+			m_asKeys=0;
+			m_asModifiers=0;
+
+			for(i=0)cond(i<pxKeys^.NumSubs())iter(i++)do
+				var ^CPropDB.CNode pxEntry=^((pxKeys^)[i]);
+				var string sEntry=pxEntry^.Value();
+				sEntry.Remove(' ');
+				if(sEntry!="")then
+					sKey=sEntry.Left(sEntry.Find(','));
+					sModifier=sEntry.Mid(sEntry.Find(',')+1,(sEntry.FindRev(',')+1)-sEntry.Find(',')-2);
+					sModifier=CKeyHandler.Get().ConvertKey(sModifier);
+					sCommand=sEntry.Right(sEntry.GetLength()-(sEntry.FindRev(',')+1));
+					m_asModifiers.AddEntry(sModifier);
+					m_asCommands.AddEntry(sCommand);
+					m_asKeys.AddEntry(sKey);
+					//Nochmal gucken wie man das ordentlich hinbekommen könnte
+					sSpacer="                ";
+					if(sModifier=="-1")then
+						pxKeyList^.AddItem(sKey+sSpacer+sCommand);
+					else
+						pxKeyList^.AddItem(sModifier+" - "+sKey+sSpacer+sCommand);
+					endif;
+					//ca 35
+				endif;
+			endfor;	
+		endif;
+	endproc;
+
+endclass;

@@ -1,0 +1,458 @@
+class CMultiPlayerClientMgr
+	
+	static var ^CMultiPlayerClientMgr	ms_pxInst;
+	
+	var int														m_iNumPlayers;
+	var int 													m_iHostID;
+	var string												m_sLevelIsLoading;
+	var bool													m_bSkirmishMode;
+	var bool 													m_bDirectIPMode;
+	var bool													m_bHasInit;
+	var bool													m_bSinglePlayerMode;
+	
+	var ^CMapData											m_pxCurrentMapData;
+	var array ^CMapData								m_apxMaps;
+	
+	var ^CLevelInfo										m_pxLevelInfo;
+	var ^CButton											m_pxHostButton;
+	var ^CButton											m_pxJoinTabButton;
+	export var bool 									m_bProxyServerRunning;
+	
+	var CMapInfoList 									m_xMapInfoList;
+	
+	export var ^CPlayerListWindow			m_pxPlayerListWindow;
+	export var ^CNewMultiPlayerLobby	m_pxNewMultiPlayerLobbyWindow;
+	
+	export var procref <void>					m_xOnLevelInfoUpdate;
+	export var procref <void>					m_xOnPointBuyUpdate;
+		
+	export constructor()
+		//Defaults
+		m_iNumPlayers						= 0;
+		m_bSkirmishMode					= false;
+		m_bDirectIPMode					= false;
+		m_bHasInit							= false;
+		m_pxHostButton					= null; // buttons for MultiplayerLobby (GameListWindow)
+		m_pxJoinTabButton				= null; // buttons for MultiplayerLobby (GameListWindow)
+		m_bProxyServerRunning		= false;
+	endconstructor;
+
+	destructor()
+		var int i,iC=m_apxMaps.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			delete m_apxMaps[i];
+		endfor;
+	enddestructor;
+	
+	export proc ^CMapInfoList GetMapInfoList() 
+		return ^m_xMapInfoList; 
+	endproc;
+	
+	export proc void SetLevelInfo(string p_sMapFileName)
+		var bool bMapEntryFound = false;
+		var ^CMapInfoList.CMapInfo pxMapInfo;
+		if(p_sMapFileName!="") then
+			var int i, iC = m_xMapInfoList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				pxMapInfo=^(m_xMapInfoList.GetMapInfo(i));
+				if(pxMapInfo!=null) then
+					var string sTmp = pxMapInfo^.GetFile();
+					var int iTmp = sTmp.FindRev('/');
+					sTmp = sTmp.Mid(iTmp+1);
+					if(p_sMapFileName==sTmp) then
+						m_pxLevelInfo = ^(pxMapInfo^.GetLevelInfo());
+						bMapEntryFound=true;
+						break;
+					endif;
+				endif;
+			endfor;
+		endif;
+		if(!bMapEntryFound && m_xMapInfoList.NumEntries()>0) then
+			pxMapInfo=^(m_xMapInfoList.GetMapInfo(0));
+			m_pxLevelInfo = (^(pxMapInfo^.GetLevelInfo()));
+		endif;
+	endproc;
+	
+	export proc ^CLevelInfo GetLevelInfo()
+		return m_pxLevelInfo;
+	endproc;
+	
+	export static proc ref CMultiPlayerClientMgr Get()
+		if (ms_pxInst==null)then
+			ms_pxInst=new CMultiPlayerClientMgr;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+	
+	export static proc void Kill()
+		if (ms_pxInst!=null)then
+			delete ms_pxInst;
+			ms_pxInst=null;
+		endif;
+	endproc;
+	
+	export proc void Init()
+		m_pxLevelInfo=^(CGameWrap.GetClient().GetLevelPreview());
+		InitMapList();
+	endproc;
+	
+	export proc void OnLevelInfoUpdate()
+		/*
+		if(!m_sLevelIsLoading.IsEmpty())then
+			if(!CheckIsLevelLoaded())then
+				return;
+			endif;
+		endif;*/
+		UpdateGameInfoData();
+		if(!m_xOnPointBuyUpdate.IsNull())then
+			m_xOnPointBuyUpdate.Call();
+		endif;
+		if(!m_xOnLevelInfoUpdate.IsNull())then
+			m_xOnLevelInfoUpdate.Call();
+		endif;
+		if(m_pxPlayerListWindow!=null)then
+			var ^CGameInfoWindow pxGIW=m_pxPlayerListWindow^.GetGameInfoWindow();
+			if(pxGIW!=null)then
+				var ^CLevelInfo pxLI=^(CGameWrap.GetClient().GetLevelPreview());
+				var string sLevelFile=pxLI^.GetLevelCheckSumme();
+				var int iCredits=CGameWrap.GetClient().GetGame().GetCredits();
+				pxGIW^.Update(sLevelFile,iCredits);
+			endif;
+		endif;
+	endproc;
+	
+	export proc void OnGameAttribsUpdate()
+		if(m_pxPlayerListWindow!=null)then
+			m_pxPlayerListWindow^.UpdateReady(); // Henry: update ready button
+			var ^CGameInfoWindow pxGIW=m_pxPlayerListWindow^.GetGameInfoWindow();
+			if(pxGIW!=null)then
+				pxGIW^.InvalidateContent();
+				pxGIW^.UpdateHP(); // Henry: update hero pool
+				pxGIW^.UpdateFE(); // Henry: update flying enabled
+				pxGIW^.UpdateTR(); // Henry: update titans remove
+				pxGIW^.UpdateTD(); // Henry: update trading disabled
+				pxGIW^.UpdateEpochs(); // Henry: update epochs
+			endif;
+			var ^CMirageServer pxMirageServer = m_pxPlayerListWindow^.GetMirageSettings();
+			if(pxMirageServer!=null)then
+				pxMirageServer^.OnEnablePortalsEx();
+				pxMirageServer^.OnEnableTreasureSharingEx();
+				pxMirageServer^.CheckPhantomModeEx();
+			endif;
+			var ^COverViewPage pxOverViewPage = m_pxPlayerListWindow^.GetMirageOverview();
+			if(pxOverViewPage!=null)then
+				pxOverViewPage^.InvalidateContent();
+			endif;
+			var ^COverViewPage2 pxOverViewPage2 = m_pxPlayerListWindow^.GetMirageOverview2();
+			if(pxOverViewPage2!=null)then
+				pxOverViewPage2^.InvalidateContent();
+			endif;
+		endif;
+	endproc;
+	
+	export proc bool InitMapList()
+		var string sDir=CClientWrap.GetUrsRelPath()+"/Data/Base/Maps/Multiplayer/";
+		CGameWrap.GetMapInfoList(sDir,m_xMapInfoList,200,200);
+		var int i,iC=m_xMapInfoList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CMapInfoList.CMapInfo pxMapInfo=^(m_xMapInfoList.GetMapInfo(i));
+			var ^CMapData pxMapData=new CMapData();
+			pxMapData^.SetGameType(pxMapInfo^.GetGameType());
+			var CIOPath xPath;
+			var string sPath=pxMapInfo^.GetFile();
+			sPath.Replace("/BoosterPack1/","/Base/"); // Henry: on dedicated server the maps from Boosterpack and Mirage were unusable without this
+			sPath.Replace("/MIRAGE/","/Base/");
+			xPath.Init(sPath);
+			pxMapData^.SetFileName(xPath.FilePart());
+			pxMapData^.SetMapName(pxMapInfo^.GetMapName());
+			var int iPlayers=pxMapInfo^.GetMaxPlayers();
+			pxMapData^.SetPlayers(iPlayers);
+			pxMapData^.SetDescription(pxMapInfo^.GetDescription());
+			pxMapData^.SetImage(pxMapInfo^.GetPreviewBitmap());
+			if(iPlayers!=0)then
+				m_apxMaps.AddEntry(pxMapData);
+				if(m_pxCurrentMapData==null)then
+					SetMapData(pxMapData);
+				endif;
+			else
+				delete pxMapData;
+			endif;
+		endfor;		
+		return(true);
+	endproc;
+ 
+	export proc void UpdateGameInfoData()
+		if(HasInit())then
+			var int iNumPlayers = m_pxLevelInfo^.GetNumPlayers();
+			var string sPath = m_pxLevelInfo^.GetAttribs().GetValue("Name");
+			var int iLockDiplomacySettings = m_pxLevelInfo^.GetAttribs().GetValueInt("LockDiplomacySettings");
+			if(CGameWrap.GetClientID()!=GetHostID() && iNumPlayers>0)then
+				SetNumPlayers(iNumPlayers);
+			endif;
+			var CIOPath xPath;
+			xPath.Init(m_pxLevelInfo^.GetAttribs().GetValue("Name"));
+			SetMap(xPath.FilePart());
+		endif;
+	endproc;
+	
+	export proc int GetNumMaps()
+		return m_apxMaps.NumEntries();
+	endproc;
+	
+	export proc ^CMapData GetMapEntry(int p_iIndex)
+		if(p_iIndex<0 || p_iIndex>=GetNumMaps())then return null; endif;
+		return m_apxMaps[p_iIndex];
+	endproc;
+	
+	export proc void SetMap(string p_sFileName)
+		var int i, iC = GetNumMaps();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CMapData pxData = GetMapEntry(i);
+			if(pxData^.GetFileName() == p_sFileName)then
+				SetMapData(pxData);
+			endif;
+		endfor;
+	endproc;
+	
+	export proc int GetHostID()
+		return 0;
+	endproc;
+	
+	export proc void SetMapData(^CMapData p_pxMapData)
+		if(m_pxCurrentMapData!=p_pxMapData)then
+			m_pxCurrentMapData = p_pxMapData;
+		endif;
+	endproc;
+	
+	export proc ^CMapData GetMapData()
+		return m_pxCurrentMapData;
+	endproc;
+	
+	export proc void SetNumPlayers(int p_iNumPlayers)
+		if(m_iNumPlayers!=p_iNumPlayers)then
+			m_iNumPlayers = p_iNumPlayers;
+			if(m_pxLevelInfo!=null)then
+				m_pxLevelInfo^.SetNumPlayers(p_iNumPlayers);
+			endif;
+			if(m_pxPlayerListWindow!=null)then
+				m_pxPlayerListWindow^.UpdateMapList();
+				var ^CMirageServer pxMirageServer = m_pxPlayerListWindow^.GetMirageSettings();
+				if(pxMirageServer!=null)then
+					pxMirageServer^.CheckPhantomModeEx();
+				endif;
+				var ^COverViewPage pxOverViewPage = m_pxPlayerListWindow^.GetMirageOverview();
+				if(pxOverViewPage!=null)then
+					pxOverViewPage^.InvalidateContent();
+				endif;
+				var ^COverViewPage2 pxOverViewPage2 = m_pxPlayerListWindow^.GetMirageOverview2();
+				if(pxOverViewPage2!=null)then
+					pxOverViewPage2^.InvalidateContent();
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	export proc int GetNumPlayers()
+		return m_iNumPlayers;
+	endproc;
+	
+	export proc void GetPlayerList(ref array ^CPlayerInfoSlot p_rapxList)
+		p_rapxList = 0;
+		if(m_pxPlayerListWindow!=null)then
+			var int i, iC = m_pxPlayerListWindow^.NumSlots();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(m_pxPlayerListWindow^.GetSlot(i)!=null && m_pxPlayerListWindow^.GetSlot(i)^.GetType()!=0)then
+					p_rapxList.AddEntry(m_pxPlayerListWindow^.GetSlot(i));
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	export proc void GetFriends(ref array int p_raiList)
+		p_raiList = 0;
+		if(m_pxPlayerListWindow!=null)then
+			var int iMyTeam = m_pxPlayerListWindow^.GetOwnSlot()^.GetTeam();
+			var int i, iC = m_pxPlayerListWindow^.NumSlots();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(m_pxPlayerListWindow^.GetSlot(i)^.GetType()!=0 && m_pxPlayerListWindow^.GetSlot(i)^.GetTeam()==iMyTeam && m_pxPlayerListWindow^.GetSlot(i)!=m_pxPlayerListWindow^.GetOwnSlot())then
+					p_raiList.AddEntry(m_pxPlayerListWindow^.GetSlot(i)^.GetIndex());
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	export proc void GetFoes(ref array int p_raiList)
+		p_raiList = 0;
+		if(m_pxPlayerListWindow!=null)then
+			var int iMyTeam = m_pxPlayerListWindow^.GetOwnSlot()^.GetTeam();
+			var int i, iC = m_pxPlayerListWindow^.NumSlots();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(m_pxPlayerListWindow^.GetSlot(i)^.GetType()!=0 && m_pxPlayerListWindow^.GetSlot(i)^.GetTeam()!=iMyTeam)then
+					p_raiList.AddEntry(m_pxPlayerListWindow^.GetSlot(i)^.GetIndex());
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	export proc void SetPlayerListWindow(^CPlayerListWindow p_pxWindow)
+		m_pxPlayerListWindow = p_pxWindow;
+		if(m_pxPlayerListWindow==null)then return; endif;
+		if(CGameWrap.GetClient().GetPlayerSlotID()==CPlayerSlotID.First())then
+			if(m_pxPlayerListWindow!=null)then
+				WriteGameInfoDataToLevelInfo();
+				var string sPath=CClientWrap.GetUrsRelPath()+"/Data/Base/Maps/Multiplayer/";
+				LoadLevel(sPath+GetMapData()^.GetFileName());
+			endif;
+		endif;
+	endproc;
+	
+	export proc void SetNewMultiPlayerLobbyWindow(^CNewMultiPlayerLobby p_pxWindow)
+		m_pxNewMultiPlayerLobbyWindow=p_pxWindow;
+	endproc;
+	
+	export proc void WriteGameInfoDataToLevelInfo()
+		m_pxLevelInfo^.SetNumPlayers(GetNumPlayers());
+	endproc;
+	
+	export proc void LoadSkirmishGame()
+		var string sPath;
+		sPath = CClientWrap.GetUrsRelPath()+"/Data/Base/Maps/Multiplayer/";
+		var string sFile;
+		CSettings.Get("Game/RecentSettingsSkirmish/MapFileName",sFile);
+		sPath=sPath+sFile;
+		if(m_pxLevelInfo!=null) then
+			CEvt_StartGame.Send(sPath,m_pxLevelInfo^);
+		endif;
+	endproc;
+	
+	export proc void LoadLevel(string p_sPath)
+		var CIOPath xPath;
+		xPath.Init(p_sPath);
+		if(CGameWrap.GetClient().GetPlayerSlotID()==CPlayerSlotID.First())then
+			//CEvt_LoadLevelPreview.Send(p_sPath);
+			SetLevelIsLoading(xPath.FilePart());
+		else
+			SetMap(xPath.FilePart());
+		endif;
+	endproc;
+	
+	export proc bool StartCountDown()
+		var int iTmp;
+		if(!(CSettings.Get("Game/HarassingCountDown",iTmp)))then
+			iTmp=1;
+			CSettings.Set("Game/HarassingCountDown",iTmp);
+		endif;
+		if(iTmp==0)then
+			OnStart();
+		else
+			if(m_pxPlayerListWindow!=null)then
+				m_pxPlayerListWindow^.SetCountDownTimer();
+			endif;
+		endif;
+		return(true);
+	endproc;
+	
+	export proc bool StopCountDown()
+		if(m_pxPlayerListWindow==null)then return false; endif;
+		if(m_pxPlayerListWindow^.HasCountDownTimer())then
+//			CEvt_ChatMsg.Send(CLocalizer.Get().Translate("_UI_PlLiWind_Msg_Startaborted"));
+			CEvt_ChatMsg.Send(": "+"_UI_PlLiWind_Msg_Startaborted");
+			m_pxPlayerListWindow^.StopCountDownTimer();
+			m_pxPlayerListWindow^.AbortGame();
+			m_pxPlayerListWindow^.SetReadyForGame(false);
+		endif;
+		return(true);
+	endproc;
+	
+	export proc void SetLevelIsLoading(string p_sPath)
+		m_sLevelIsLoading = p_sPath;
+	endproc;
+	
+	export proc bool CheckIsLevelLoaded()
+		var CIOPath xPath;
+		xPath.Init(m_pxLevelInfo^.GetAttribs().GetValue("Name"));
+		var string sCurLevel = xPath.FilePart();
+		if(m_sLevelIsLoading==sCurLevel)then
+			m_sLevelIsLoading = "";
+			WriteGameInfoDataToLevelInfo();
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	export proc bool SetReadyForGame(bool p_bReady)
+		if(m_pxPlayerListWindow!=null)then
+			if(GetSkirmishMode())then
+				
+				p_bReady=true;
+			endif;
+			m_pxPlayerListWindow^.SetReadyForGame(p_bReady);
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool OnStart()
+		if(m_pxPlayerListWindow!=null)then
+			m_pxPlayerListWindow^.SetStartTimer();
+		endif;
+		return(true);
+	endproc;
+	
+	export proc bool Start()
+		var bool bHost=(CGameWrap.GetClientID()==GetHostID());
+		if(bHost)then
+			CEvt_StartGame.Send();
+		endif;
+		return(true);
+	endproc;
+	
+	export proc bool GetSkirmishMode()
+		return(m_bSkirmishMode);
+	endproc;
+	
+	export proc bool SetSkirmishMode(bool p_bParam)
+		m_bSkirmishMode=p_bParam;
+		if(p_bParam) then
+			CSettings.Get("Game/RecentSettingsSkirmish/NumPlayers",m_iNumPlayers);
+		endif;
+		return(true);
+	endproc;
+	
+	export proc bool GetDirectIPMode()
+		return m_bDirectIPMode;
+	endproc;
+		
+	export proc void SetDirectIPMode(bool p_bParam)
+		m_bDirectIPMode=p_bParam;
+	endproc;
+				
+	export proc bool HasInit()
+		return(m_bHasInit);
+	endproc;
+	
+	export proc bool SetInit(bool p_bParam)
+		m_bHasInit=p_bParam;
+		return(true);
+	endproc;
+	
+	export proc void SetHostButton(^CButton p_pxHostButton)
+		m_pxHostButton=p_pxHostButton;
+	endproc;
+	
+	export proc ^CButton GetHostButton()
+		return m_pxHostButton;
+	endproc;
+		
+	export proc bool HasInvalidCDKey()
+		return CGameWrap.HasInvalidCDKey();
+	endproc;
+	
+	export proc void OnGameSpyInitFailed()
+		//L KLog.LogSpam("MaSc","MultiPlayerClientMgr:: OnGameSpyInitFailed");
+		if(m_pxNewMultiPlayerLobbyWindow!=null)then
+			//L KLog.LogSpam("MaSc","MultiPlayerClientMgr:: call NewMultiPlayerLobbyWindow::OnGameSpyInitFailed()");
+			m_pxNewMultiPlayerLobbyWindow^.OnGameSpyInitFailed();
+		endif;
+	endproc;
+	
+endclass;

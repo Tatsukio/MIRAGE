@@ -1,0 +1,549 @@
+class CResurrect inherit CSpecialActionTask
+	
+	const real					SAFETY_TIME=1.5f;
+	var CObjHndl				m_xCharacter;
+	var int							m_iSpiritHandle;
+	var CGameTimeSpan		m_xDuration;
+	var CGameTime				m_xStart;
+	var string					m_sState;
+	var string					m_sNode;
+	var string					m_sTTPath;
+	var string					m_sClassName;
+	var int							m_iRetryCounter;
+	var int							m_iOwner;
+	var CObjHndl				m_xPyCO;
+	var bool						m_bResurrectModeActivated;
+	var int							m_iSupplyCount;
+	var bool						m_bLoadBreak;
+	var real						m_fProgress;
+	var real						m_fTotalLength;
+	var CGameTime				m_xOriginal;
+	var int						m_iSpiritMaxHP;
+	
+	export constructor()
+		m_iSpiritHandle=-1;
+		SetName("Resrct");
+		SetCivil(false);
+		m_iRetryCounter = 0;
+		m_iSpiritMaxHP=0;
+		m_sClassName= "";
+		m_bLoadBreak = false;
+		m_fProgress = 0.0f;
+		//m_iSupplyCount = 1;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Resu";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,6);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xCharacter.DoKArc(pxArc^);
+		(pxArc^) << m_iSpiritHandle;
+		m_xDuration.DoKArc(pxArc^);
+		m_xStart.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_sNode;
+		(pxArc^) << m_sTTPath;
+		(pxArc^) << m_iRetryCounter;
+		(pxArc^) << m_iOwner;
+		m_xPyCO.DoKArc(pxArc^);
+		(pxArc^) << m_bResurrectModeActivated;
+		(pxArc^) << m_iSupplyCount;
+		(pxArc^) << m_fProgress;
+		(pxArc^) << m_fTotalLength;
+		m_xOriginal.DoKArc(pxArc^);
+		(pxArc^) << m_iSpiritMaxHP;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Resu")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			m_xCharacter.DoKArc(pxArc^);
+			if(iVersion<2)then
+				var CObjHndl xTarget;
+				xTarget.DoKArc(pxArc^);
+			endif;
+			if(iVersion>=2)then
+				(pxArc^) << m_iSpiritHandle;
+			endif;
+			m_xDuration.DoKArc(pxArc^);
+			m_xStart.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_sNode;
+			(pxArc^) << m_sTTPath;
+			(pxArc^) << m_iRetryCounter;
+			(pxArc^) << m_iOwner;
+			if(iVersion>=3)then
+				m_xPyCO.DoKArc(pxArc^);
+			endif;
+			if(iVersion>=4)then
+				(pxArc^) << m_bResurrectModeActivated;
+			endif;
+			if(iVersion>=5)then
+				(pxArc^) << m_iSupplyCount;
+			endif;
+			if(iVersion>=6)then
+				(pxArc^) << m_fProgress;
+				(pxArc^) << m_fTotalLength;
+				m_xOriginal.DoKArc(pxArc^);
+				(pxArc^) << m_iSpiritMaxHP;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+		m_bLoadBreak=true;
+	endproc;
+	
+	export proc void SetPyCO(CObjHndl p_xPyCO)
+		m_xPyCO = p_xPyCO;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xCharacter,int p_iSpiritHandle, string p_sTTPath)
+		m_sState="goto_target";
+		var ^CSpirit pxSpirit=CSrvWrap.GetSpiritMgr().GetSpirit(p_iSpiritHandle);
+		if(!p_xCharacter.IsValid() || pxSpirit==null)then
+			m_sState="End";
+			return false;
+		endif;
+		pxSpirit^.AddResurrecter();
+		m_xCharacter = p_xCharacter;
+		m_iSpiritHandle = p_iSpiritHandle;
+		m_sTTPath = p_sTTPath;
+		m_fProgress=0.0f;
+		SetSpecialActionPath(p_sTTPath);
+		SetPrepareActionPath(p_xCharacter, p_sTTPath, true);
+		var real fDuration=pxSpirit^.GetResurrectDuration();
+		m_xDuration=fDuration;
+		m_fTotalLength=fDuration+SAFETY_TIME;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="End")then
+			EndTask();
+		endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		if(m_bLoadBreak)then
+			Break();
+			return;
+		endif;
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		var ^CSpirit pxSpirit=CSrvWrap.GetSpiritMgr().GetSpirit(m_iSpiritHandle);
+		if(pxCharacter==null || pxSpirit==null)then EndTask(); return; endif;
+		if(pxCharacter^.GetEffectFlag(CFightingObj.EFFECT_AJE_CAMOUFLAGE))then
+			pxCharacter^.SetEffectFlag(CFightingObj.EFFECT_AJE_CAMOUFLAGE, false);
+		endif;
+//		if(m_sState != "check" && m_sState != "EndAnim" && !pxCharacter^.CheckMana(p_sTTPath))then
+//			EndTask();
+//			return;
+//		endif;
+		if(m_sState == "goto_target")then
+			var real fAttackRange = 25.0;
+			fAttackRange+=pxCharacter^.GetMiscValueTT("Shaman_Cast_Resurrect");
+			if(!IsInRange())then
+				if(pxCharacter^.GetOnWall())then
+					EndTask();return;
+				endif;
+				var vec3 vSpirit = pxSpirit^.GetPos();
+				vSpirit.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vSpirit.GetX(), vSpirit.GetY()));
+				pxCharacter^.AdvanceAction(CObjHndl.Invalid(),fAttackRange,pxCharacter^.GetDefaultSpeed(),pxCharacter^.GetWalkSet(),5000000.0, pxCharacter^.GetPos(), vSpirit);
+			endif;
+			m_sState = "rotate";
+		elseif(m_sState == "rotate")then
+			if(pxSpirit^.GetRessurectMode())then
+				//somebody is already resurrecting this one
+				EndTask();
+				return;
+			endif;
+			pxSpirit^.SetRessurectMode(true);
+			m_bResurrectModeActivated=true;
+			var vec3 vDir = (pxSpirit^.GetPos()-pxCharacter^.GetPos()).GetNormalized();
+			var Quat qR; qR.FromXYDir(vDir.GetX(), vDir.GetY());
+			pxCharacter^.RotateAction(qR);
+			m_sState="resurrect";
+		elseif(m_sState == "resurrect")then
+			if(!IsInRange())then
+				if(m_iRetryCounter>3)then
+					EndTask();
+				else
+					m_iRetryCounter++;
+					m_sState = "goto_target";
+					return;
+				endif;
+			else
+				var int iLevel = pxSpirit^.GetLevel();
+				//m_iOwner = pxCharacter^.GetOwner();
+				m_iOwner = pxSpirit^.GetOwner();
+				var ^CPlayer pxPlayer = CSrvWrap.GetCurLevel()^.GetPlayer(m_iOwner);
+				if(pxPlayer==null)then
+					EndTask();
+					return;
+				endif;
+				var ^CAttribs pxPlAttr = pxPlayer^.GetAttribs();
+				if(pxPlAttr==null)then
+					EndTask();
+					return;
+				endif;
+				if(!CRequirementsMgr.Get().CheckUnits(m_iOwner,iLevel))then
+					EndTask();
+					return;
+				endif;
+				if(!CRequirementsMgr.Get().CheckSupply(m_iOwner, true, "dummy", iLevel, pxSpirit^.GetClass(), false))then
+					pxCharacter^.PayBackMana(m_sTTPath);
+					EndTask();
+					return;
+				endif;
+				if(!pxCharacter^.CheckManaAndPay(GetSpecialActionPath()))then
+					EndTask();
+					return;
+				endif;
+//				pxCharacter^.SetResurrecting(true);
+				AddVirtualUnit(pxSpirit);
+				m_sState = "check";
+				m_xStart = CTimeMgr.Get().GetTime();
+				m_xOriginal = m_xStart;
+				pxCharacter^.SetAnim("praying_wall",3);
+				return;
+			endif;
+		elseif(m_sState == "check")then
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			var CGameTimeSpan xDiff=xNow-m_xStart;
+			m_fProgress = 100.0f*(xDiff.GetSecondsF()/m_fTotalLength);
+			UpdatePyCO(m_fProgress);
+			if((xDiff)>=m_xDuration)then
+				pxCharacter^.SecureResurrector();
+				m_xStart=CTimeMgr.Get().GetTime();
+				m_xDuration=SAFETY_TIME;
+				m_sState = "EndAnim";
+				return;
+			endif;
+		elseif(m_sState=="EndAnim")then
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			m_fProgress = 100.0f*((xNow-m_xOriginal).GetSecondsF()/m_fTotalLength);
+			UpdatePyCO(m_fProgress);
+			if((xNow-m_xStart)>=m_xDuration)then
+//				Resurrect(pxSpirit);
+				if(Resurrect(pxSpirit))then
+					StartSpecialActionTimer(pxCharacter);
+				endif;
+				m_sState = "EndTask";
+				return;
+			endif;
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void AddVirtualUnit(^CSpirit p_pxSpirit)
+		if(p_pxSpirit==null)then return; endif;
+		var ^CBasePlayer pxBPl=CBasePlayer.GetPlayer(p_pxSpirit^.GetOwner());
+		if(pxBPl==null)then return; endif;
+		var int iCount=p_pxSpirit^.GetRessurectionValue();
+		var int iLevel=p_pxSpirit^.GetLevel();
+		var string sClassName=p_pxSpirit^.GetClass();
+		var int iSupplyCount = 1;
+		iSupplyCount = CMirageSrvMgr.Get().GetSupply(sClassName);
+		m_iSupplyCount = iSupplyCount;
+		m_sNode = "virtual_units_"+iLevel.ToString();
+		if(iCount<=0)then
+			var ^CAttribs pxAttr=pxBPl^.GetAttribs();
+			if(pxAttr!=null)then
+				pxAttr^.SetValue("virtual_supply", pxAttr^.GetValueInt("virtual_supply")+iSupplyCount);
+				pxAttr^.SetValue(m_sNode, pxAttr^.GetValueInt(m_sNode)+1);
+			endif;
+		endif;
+		p_pxSpirit^.SetRessurectionValue(iCount+1);
+		m_iSpiritMaxHP=p_pxSpirit^.GetMaxHP();
+		var ^CPyramidCardObject pxTmp = cast<CPyramidCardObject>(CSrvWrap.GetObjMgr()^.CreateObj("pyramid_card_object",-1,p_pxSpirit^.GetPos()));
+		if(pxTmp!=null)then
+			var string sClass= p_pxSpirit^.GetDescription();
+			var ^CAttribs pxAttr = pxTmp^.GetAttribs();
+			if(pxAttr!=null)then
+				pxAttr^.SetValue("level", iLevel);
+				pxAttr^.SetValue("hitpoints", 0);
+				pxAttr^.SetValue("maxhitpoints", m_iSpiritMaxHP);
+				pxAttr^.SetValue("CurTask", "");
+				pxAttr^.SetValue("clientpyramid_slotid", -1);
+				pxAttr^.SetValue("ObjPath", sClass);
+				pxAttr^.SetValue("dead", true);
+				pxAttr^.SetValue("TaskDescription", "");
+				pxAttr^.SetValue("unit_count", true);
+				pxAttr^.SetValue("vertical_fill", 0);
+				pxAttr^.SetValue("is_spirit", 1);
+			endif;
+			pxTmp^.InitTechTreeDef();
+			var ^CTechTreeDef pxTTDef = pxTmp^.GetTechTreeDef();
+			if(pxTTDef!=null)then
+				var CStringArray asTTFilters;
+				p_pxSpirit^.GetTTFilters(asTTFilters);
+				var int i, iC = asTTFilters.NumEntries();
+				for(i=0) cond(i<iC) iter(i++) do
+					pxTTDef^.EnableFilter(asTTFilters[i]);
+				endfor;
+			endif;
+			pxTmp^.SetOwner(p_pxSpirit^.GetOwner());
+			m_xPyCO = pxTmp^.GetHandle();
+			pxTmp^.SetResurectMod(p_pxSpirit^.GetOwner(),m_iSpiritHandle,m_sNode,m_iSupplyCount,m_xDuration.GetSecondsF());
+		endif;
+	endproc;
+	
+	proc bool IsInRange()
+		if(CMirageSrvMgr.Get().GlobalReanim())then return true; endif;
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		var ^CSpirit pxSpirit=CSrvWrap.GetSpiritMgr().GetSpirit(m_iSpiritHandle);
+		if(pxCharacter==null || pxSpirit==null)then return false; endif;
+		var vec3 vSpirit = pxSpirit^.GetPos();
+		vSpirit.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vSpirit.GetX(), vSpirit.GetY()));
+		var real fTargetRadius = pxSpirit^.GetRadius();
+		var real fAttackRange = 27.0; //pxCharacter^.GetAttackRange();
+		fAttackRange+=pxCharacter^.GetMiscValueTT("Shaman_Cast_Resurrect");
+		var real fDistance = (vSpirit - pxCharacter^.GetPos()).Abs2S();
+		return fDistance <= (fAttackRange+fTargetRadius)*(fAttackRange+fTargetRadius);
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		if(m_xCharacter.IsValid())then
+			if(m_sState!="EndTask")then
+				var ^CFightingObj pxFO = cast<CFightingObj>(m_xCharacter.GetObj());
+				if(pxFO!=null)then
+					pxFO^.ResetSpecialActionTimer(m_sTTPath);
+				endif;
+				var ^CSpirit pxSpirit=CSrvWrap.GetSpiritMgr().GetSpirit(m_iSpiritHandle);
+				if(pxSpirit!=null)then
+					pxSpirit^.RemResurrecter();
+					if(m_bResurrectModeActivated)then
+						//release resurrect mode -> others can resurrect now
+						pxSpirit^.SetRessurectMode(false);
+						m_bResurrectModeActivated=false;
+					endif;
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	proc void Reset()
+		var ^CSpirit pxSpirit=CSrvWrap.GetSpiritMgr().GetSpirit(m_iSpiritHandle);
+		var int iCount=-1;
+		if(pxSpirit!=null)then
+			iCount=pxSpirit^.GetRessurectionValue();
+			pxSpirit^.SetRessurectionValue(iCount-1);
+		endif;
+		if(iCount==1||m_bLoadBreak)then
+			var ^CPyramidCardObject pxTmp = cast<CPyramidCardObject>(m_xPyCO.GetObj());
+			if(pxTmp!=null)then
+				pxTmp^.StopTimer();
+			endif;
+			if(m_xPyCO.IsValid())then
+				CSrvWrap.GetObjMgr()^.DeleteObject(m_xPyCO.GetObj());
+			endif;
+			var ^CPlayer pxPlayer=CSrvWrap.GetCurLevel()^.GetPlayer(m_iOwner);
+			if(pxPlayer==null)then return; endif;
+			var ^CAttribs pxPlAttr=pxPlayer^.GetAttribs();
+			if(pxPlAttr==null)then return; endif;
+			pxPlAttr^.SetValue("virtual_supply", pxPlAttr^.GetValueInt("virtual_supply")-m_iSupplyCount);
+			pxPlAttr^.SetValue(m_sNode, pxPlAttr^.GetValueInt(m_sNode)-1);
+		endif;
+	endproc;
+	
+	export proc bool Break()
+		SetPrepareActionPath(m_xCharacter, GetSpecialActionPath(), false);
+		if(m_xCharacter.IsValid())then
+			m_xCharacter.GetObj()^.TerminateAction();
+		endif;
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		if(pxCharacter!=null && m_sState == "check")then
+			pxCharacter^.PayBackMana(m_sTTPath);
+		endif;
+//		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+//		if(pxCharacter!=null)then
+//			pxCharacter^.SetResurrecting(false);
+//		endif;
+		if(m_sState == "check")then
+			Reset();
+		elseif(m_sState == "abort")then
+			Reset();
+			if(CMirageSrvMgr.ms_pxPoolMixer!=null)then
+				var int iKC,iKH;
+				var string sIDs,sDurs,sStarts,sDeath;
+				CMirageSrvMgr.ms_pxPoolMixer^.DeleteSpirit(m_iSpiritHandle,iKC,iKH,sIDs,sDurs,sStarts,sDeath);
+			endif;
+			CSrvWrap.GetSpiritMgr().DeleteSpirit(m_iSpiritHandle);
+			m_sState == "EndTask";
+			EndTask();
+		endif;
+		m_bLoadBreak=false;
+		return true;
+	endproc;
+	
+	export proc void Skip()
+	endproc;
+	
+	export proc bool Resurrect(^CSpirit p_pxSpirit)
+		var string sClassName=p_pxSpirit^.GetClass();
+		var int iOwner=p_pxSpirit^.GetOwner();
+		if(CNPCMgr.Get().CheckHero(sClassName))then
+			if(CNPCMgr.Get().HasNPC(sClassName,iOwner))then
+				m_sState="abort";
+				Break();
+				return false;
+			endif;
+		endif;
+		var ^CPlayer pxPlayer = CSrvWrap.GetCurLevel()^.GetPlayer(m_iOwner);
+		if(pxPlayer==null)then return false; endif;
+		var ^CAttribs pxPlAttr = pxPlayer^.GetAttribs();
+		if(pxPlAttr==null)then return false; endif;
+		var ^CTechTreeDef pxPlrTTDef = ^(pxPlayer^.GetPlayerTechTreeDef());
+		if(pxPlrTTDef==null)then return false; endif;
+		var ^CPyramidCardObject pxTmp = cast<CPyramidCardObject>(m_xPyCO.GetObj());
+		if(pxTmp!=null)then
+			pxTmp^.StopTimer();
+		endif;
+		pxPlAttr^.SetValue("virtual_supply", pxPlAttr^.GetValueInt("virtual_supply")-m_iSupplyCount);
+		pxPlAttr^.SetValue(m_sNode, pxPlAttr^.GetValueInt(m_sNode)-1);
+//		var string sClassName=p_pxSpirit^.GetClass();
+		m_sClassName=sClassName;
+//		var int iOwner=p_pxSpirit^.GetOwner();
+		var vec3 vPos=p_pxSpirit^.GetPos(), vRot=p_pxSpirit^.GetRotation();
+		var bool bFound = false;
+		if(CMirageSrvMgr.ms_pxPoolMixer!=null)then
+			CMirageSrvMgr.ms_pxPoolMixer^.GetProperties(p_pxSpirit^.GetHandle(), bFound, vPos, vRot);
+		endif;
+//		var CObjHndl xHndl = CNPCMgr.Get().GetPlayerNPC(iOwner, sClassName);
+//		if(xHndl.IsValid())then return false; endif;
+		var ^CFightingObj pxFO;
+		if(bFound)then
+			pxFO = cast<CFightingObj>(CSrvWrap.GetObjMgr()^.CreateObj(sClassName,iOwner,vPos,vRot));
+		else
+			pxFO = cast<CFightingObj>(CSrvWrap.GetObjMgr()^.CreateObj(sClassName,iOwner,vPos,vRot));
+		endif;
+		if(pxFO!=null)then
+			var vec3 vTmp = pxFO^.GetPos();
+			vTmp.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vTmp.GetX(),vTmp.GetY()),CSrvWrap.GetScapeMgr().GetSeaLevel()));
+			pxFO^.AddFlyingHeight(vTmp,12.0f);
+			pxFO^.Reanimated(bFound);
+			var int iKC,iKH;
+			var string sIDs,sDurs,sStarts,sDeath;
+			if(CMirageSrvMgr.ms_pxPoolMixer!=null)then
+				CMirageSrvMgr.ms_pxPoolMixer^.DeleteSpirit(p_pxSpirit^.GetHandle(),iKC,iKH,sIDs,sDurs,sStarts,sDeath);
+			endif;
+			pxFO^.SetKillerNumbers(iKC,iKH);
+			pxFO^.SetLevelClean(p_pxSpirit^.GetLevel());
+			// Henry: statictic didn't get updated after resurrection...
+			CSrvWrap.GetCurLevel()^.GetStatisticMgr().AddUnit(pxFO^.GetOwner(), pxFO^.GetClassName(), pxFO^.GetType(), 1);
+			var ^CTechTreeDef pxTTDef = pxFO^.GetTechTreeDef();
+			if(pxTTDef!=null)then
+				var CStringArray asTTFilters;
+				var CStringArray asTTDisFilters;
+				p_pxSpirit^.GetTTFilters(asTTFilters);
+				var int i, iC=pxTTDef^.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var string sFilter=pxTTDef^.GetFilter(i);
+					if(asTTFilters.FindEntry(sFilter)==-1)then
+						asTTDisFilters.AddEntry(sFilter);
+					endif;
+				endfor;
+				iC=asTTDisFilters.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					pxTTDef^.DisableFilter(asTTDisFilters[i]);
+				endfor;
+				iC = asTTFilters.NumEntries();
+				for(i=0) cond(i<iC) iter(i++) do
+					if(asTTFilters[i].Find("_RemoveMe")==-1 && !pxPlrTTDef^.HasFilter(asTTFilters[i]))then
+						pxTTDef^.EnableFilter(asTTFilters[i]);
+					endif;
+				endfor;
+			endif;
+			if(m_xPyCO.IsValid())then
+				var ^CAttribs pxAttr = pxFO^.GetAttribs();
+				if(pxAttr!=null)then
+					pxAttr^.SetValue("clientpyramid_replacecard", m_xPyCO.GetObj()^.GetName());
+				endif;
+			endif;
+			if(m_xPyCO.IsValid())then
+				CSrvWrap.GetObjMgr()^.DeleteObject(m_xPyCO.GetObj());
+			endif;
+			if(sIDs!="")then
+				var array string asIDs, asDurs, asStarts;
+				sIDs.Split(asIDs, "|", true);
+				sDurs.Split(asDurs, "|", true);
+				sStarts.Split(asStarts, "|", true);
+				var CGameTime xDeath, xStart;
+				xDeath.FromString(sDeath);
+				var CGameTimeSpan xSpan=(CTimeMgr.Get().GetTime()-xDeath);
+				var int i,iC=asIDs.NumEntries();
+				if(iC==asDurs.NumEntries()&&iC==asStarts.NumEntries())then
+					for(i=0)cond(i<iC)iter(i++)do
+						var CTechTree xTT=pxFO^.GetTechTree();
+						var ^CTechTree.CNode pxAction=xTT.FindNode(CTechTree.GetPathHashPath(asIDs[i].ToInt()));
+						if(pxAction!=null)then
+							xStart.FromString(asStarts[i]);
+							xStart+=xSpan;
+							pxFO^.AddSpecialActionTimerPrecisely(pxAction^.GetAbsPath(),xStart,asDurs[i].ToReal());
+						endif;
+					endfor;
+				endif;
+			endif;
+//			var CTechTree xTT=pxFO^.GetTechTree();
+//			var ^CTechTree.CNode pxActions=xTT.FindNode("Actions/"+pxFO^.GetTribeName()+"/Moves/"+pxFO^.GetType().AsString());
+//			if(pxActions!=null)then
+//				var int i,iC=pxActions^.NumSubs();
+//				for(i=0)cond(i<iC)iter(i++)do
+//					var ^CTechTree.CNode pxAction=pxActions^.GetSub(i);
+//					if(pxAction==null)then continue; endif;
+//					if(pxAction^.GetSubValueI("duration")<=0)then continue; endif;
+//					pxFO^.AddSpecialActionTimer(pxAction^.GetAbsPath());
+//				endfor;
+//			endif;
+			if(CheckifHero(sClassName))then
+				CNPCMgr.Get().AddNPC(iOwner, pxFO^.GetHandle());
+			endif;
+		endif;
+		var int iLevel=p_pxSpirit^.GetLevel();
+		m_sNode = "virtual_units_"+iLevel.ToString();
+		var ^CAttribs pxAttr=CSrvWrap.GetCurLevel()^.GetPlayer(m_iOwner)^.GetAttribs();
+		CSrvWrap.GetSpiritMgr().DeleteSpirit(p_pxSpirit^.GetHandle());
+		//pxFO^.SetEnergy(0.0);
+		return true;
+	endproc;
+	
+	export proc void EndTask()
+		var ^CSpirit pxSpirit=CSrvWrap.GetSpiritMgr().GetSpirit(m_iSpiritHandle);
+		SetPrepareActionPath(m_xCharacter, GetSpecialActionPath(), false);
+		UpdateAggressionPos(m_xCharacter);
+//		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+//		if(pxCharacter!=null)then
+//			pxCharacter^.SetResurrecting(false);
+//		endif;
+		super.EndTask();
+	endproc;
+	
+	proc bool CheckifHero(string p_sClassName)
+		if(p_sClassName=="Stina_s0"||p_sClassName=="Bela_s0"||p_sClassName=="Cole_s0"||p_sClassName=="special_eusmilus"
+		||p_sClassName=="mayor_s0"||p_sClassName=="darwin_s0"||p_sClassName=="tesla_s0"||p_sClassName=="babbage_s0"
+		||p_sClassName=="hermit_s0"||p_sClassName=="lovelace_s0"||p_sClassName=="schliemann_s0"||p_sClassName=="livingstone_s0"
+		||p_sClassName=="Miyagi_s0"||p_sClassName=="Tarna_s0"||p_sClassName=="Larry_s0")then
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	export proc void UpdatePyCO(real p_fTaskProcess)
+		if(m_xPyCO.IsValid())then
+			var ^CPyramidCardObject pxTmp = cast<CPyramidCardObject>(m_xPyCO.GetObj());
+			if(pxTmp!=null)then
+				var ^CAttribs pxAttr = pxTmp^.GetAttribs();
+				if(pxAttr!=null)then
+					pxAttr^.SetValue("CurProcess",p_fTaskProcess.ToInt());
+					pxAttr^.SetValue("hitpoints",(m_iSpiritMaxHP.ToReal()*(p_fTaskProcess/100.0f)).ToInt());
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+endclass;

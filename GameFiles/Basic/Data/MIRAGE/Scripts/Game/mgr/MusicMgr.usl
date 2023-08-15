@@ -1,0 +1,877 @@
+class CMusicMgr
+	/*
+		Music switches
+	*/
+	
+	// ! update string array in constructor if you modify these enums !
+	const int MAINMENU_MUSIC = 0;
+	const int JOURNAL_MUSIC = 1;
+	const int BACKGROUND_MUSIC = 2;
+	const int BACKGROUND_MUSIC_LEVELED = 3;
+	const int HOMETOWN_MUSIC = 4;
+	const int REGION_MUSIC = 5;
+	const int TRIGGER_MUSIC = 6;
+	const int OPENING_MUSIC = 7;
+	const int COMBAT_MUSIC = 8;
+	const int SEQUENCE_MUSIC = 9;
+	const int GAMEEND_MUSIC = 10;
+//	const int GAMEMENU_MUSIC = 10; // 	NO_GAME_MENU_MUSIC [RT#16462]
+	const int MUSIC_SWITCH_COUNT = 11;
+	// ! update string array in constructor if you modify these enums !
+	
+	class SMusicSwitch
+		var int m_iTribeDependent;
+		var int m_iAutoSelectType;
+		var int m_iRestartOnActivate;
+		var string m_sMusicTrackID;
+		var string m_sMusicFilename;
+		export var int m_iMusic;
+		export var bool m_bState;
+		export var bool m_bLoop;
+		export var int m_iFadeInMS,m_iFadeOutMS;
+		export var string m_sName;
+		export var int m_iMusicPositionPCM;
+		
+		export proc void SetMusicTrack(string p_sName) 
+			if (p_sName.IsEmpty()) then
+				m_sMusicFilename.Empty();
+				m_sMusicTrackID.Empty();
+				return;
+			endif;
+			
+			if (m_sMusicTrackID!=p_sName) then
+				m_iMusicPositionPCM=0;
+			endif;
+			
+			p_sName.MakeLower();
+			m_sMusicTrackID=p_sName; 
+			//L KLog.LogSpam("MusicTool","SetMusicTrack "+m_sMusicTrackID);
+
+			if (m_sMusicTrackID!="-silence-") then
+				// get filename for trackid
+				if (m_sMusicTrackID.Find(".mp3")!=-1) then
+					// mp3 specified
+					m_sMusicFilename=m_sMusicTrackID;
+				else
+					// trackid specified 
+					var ^CPropDB.CNode pxNode = CMusicMgr.ms_xMusicTracksDB.FindNode("tracks/"+m_sMusicTrackID,false);
+					if (pxNode==null) then
+						KLog.LogError("MusicMgr::SetMusicTrack","SetMusicTrack "+p_sName+" node tracks/"+m_sMusicTrackID+" not found");
+					endif;
+							
+							
+					if (m_iRestartOnActivate==1) then
+						// get all start times from current node and select one
+						var array int aiStartTime;
+						aiStartTime=0;
+						var int iStartTimeID=0;
+						var bool bContinue=true;
+						while(bContinue)do
+							var int iStartTime=pxNode^.GetValueI("start_ms_"+(iStartTimeID+1).ToString(),-1);	
+							if (iStartTime==-1)then
+								bContinue=false;
+							else
+								aiStartTime.AddEntry(iStartTime);
+								iStartTimeID++;
+							endif;
+						endwhile;	
+						if (iStartTimeID > 0)then
+							Random.Seed();
+							var int iIndex=(Random.GetInt() % iStartTimeID);
+							m_iMusicPositionPCM=aiStartTime[iIndex];
+						else
+							m_iMusicPositionPCM=0;
+						endif;
+					endif;
+						
+					m_sMusicFilename=pxNode^.GetValueS("file");
+				endif;
+							
+				//L KLog.LogSpam("MusicTool","SetMusicTrack "+m_sMusicTrackID+" "+m_sMusicFilename+" at "+m_iMusicPositionPCM.ToString());
+			else
+				m_sMusicFilename="-silence-";
+				m_iMusicPositionPCM=0;
+			endif;
+		endproc;
+		
+		export proc string GetMusic() return m_sMusicTrackID; endproc;
+		export proc string GetMusicFilename() return m_sMusicFilename; endproc;
+		export proc void ClearMusic() m_sMusicTrackID.Empty(); m_sMusicFilename.Empty(); endproc;
+		
+		export constructor()
+			m_bLoop=true;
+			m_bState=false;
+			m_sName.Empty();
+			m_sMusicTrackID.Empty();
+			m_sMusicFilename.Empty();
+		endconstructor;
+		
+		export proc void OnInit(^CPropDB.CNode p_pxNode)
+			m_iFadeInMS=p_pxNode^.GetValueI("fade_in_ms",5000);
+			m_iFadeOutMS=p_pxNode^.GetValueI("fade_out_ms",0);
+			m_iTribeDependent=p_pxNode^.GetValueI("tribe_dependent",0);
+			m_iAutoSelectType=(p_pxNode^.GetValueI("autoselect_type",0));
+			m_iRestartOnActivate=(p_pxNode^.GetValueI("restart_on_activate",0));
+		endproc;
+	
+		export proc int OnActivate()
+			if (m_iAutoSelectType!=0) then
+				var ^CPropDB.CNode pxNode;
+				if (m_iAutoSelectType==3) then
+					pxNode = CMusicMgr.ms_pxLevelNode^.Get(m_sName);
+				else
+					pxNode = CMusicMgr.ms_xMusicMgrDB.GetRoot().Get(m_sName);
+				endif;
+					
+				if (pxNode==null) then
+					//L KLog.LogSpam("MusicTool","OnActivate Node "+m_sName+" not found");
+					SetMusicTrack("-silence-");
+					return 0;
+				else
+					// special case GameEnd: select "won" / "lost" node
+					if (m_iAutoSelectType==2) then
+						pxNode=pxNode^.Get(CMusicMgr.ms_sGameEnd);
+						if (pxNode==null) then
+							//L KLog.LogSpam("MusicTool","OnActivate Node_1 "+CMusicMgr.ms_sGameEnd+" not found");
+							SetMusicTrack("-silence-");
+							return 0;
+						endif;
+					endif;
+					// select TribeNode "Hu","Aje" or "Ninigi"
+					if (m_iTribeDependent==1) then
+						pxNode=pxNode^.Get(CGameInst.ms_sTribe);
+						if (pxNode==null) then
+							//L KLog.LogSpam("MusicTool","OnActivate Node_2 "+CGameInst.ms_sTribe+" not found");
+							SetMusicTrack("-silence-");
+							return 0;
+						endif;
+					endif;
+					// get all musictracks from current node and select one
+					var array string asMusic;
+					asMusic=0;
+					var int iMusic=0;
+					var bool bContinue=true;
+					while(bContinue)do
+						var string sMusic=pxNode^.GetValueS("music_track_id_"+(iMusic+1).ToString());
+						if (sMusic.IsEmpty()) then
+							bContinue=false;
+						else
+							asMusic.AddEntry(sMusic);
+							iMusic++;
+						endif;
+					endwhile;
+					Random.Seed();
+					var int iIndex=(Random.GetInt() % iMusic);
+					SetMusicTrack(asMusic[iIndex]);
+					
+					// debug output
+//					KLog.LogSpam("MusicTool","  OnActivate AutoSelect:"+GetMusic());
+//					var int i;
+//					for(i=0)cond(i<iMusic)iter(++i) do
+//						KLog.LogSpam("MusicTool","    "+(i+1).ToString()+": "+asMusic[i]);
+//					endfor;
+				endif;
+			endif;
+
+			return m_iMusicPositionPCM;
+		endproc;
+	endclass;
+
+	var array SMusicSwitch m_axMusicSwitch;
+	
+	class CAttackPosition
+		export var vec3 m_vPosition;
+		export var CGameTime m_xLastAttackTime;
+		export proc bool op_Equal(ref CMusicMgr.CAttackPosition p_rxOther) return m_vPosition==p_rxOther.m_vPosition; endproc;
+	endclass;
+
+	var array CAttackPosition m_axAttackPositions;
+
+	class SOggPlayerData
+		export var string m_sMusicTrackID;
+		export var bool m_bLoopChannel;
+	endclass;
+
+	static var int ms_iRestartSound;
+	export static var bool 		ms_bGameLoading;
+	static var ^CMusicMgr 		ms_pxInst;
+	var array SOggPlayerData	m_axOggPlayerData;
+	var CGameTime 				m_xLastAttackTime;
+	var CGameTime 				m_xHomeTownTimer;
+	var CObjQueryCln 			m_xSearchHomeTown;
+	var int						m_iSearchHomeTownTickCnt;
+	var bool					m_bInHomeTown;
+	var int						m_iActiveMusicChannel;
+	var int						m_iCurrentMusicSwitch;
+	var int						m_iHometownSwitchDelay;
+	var int						m_iHometownRange;
+	var int						m_iRegionSwitchDelay;
+	var int						m_iCombatDelay;
+	var int						m_iCombatAttackTrigger;
+
+	static var bool				ms_bSequenceIsPlaying;
+	static var array int		ms_aiVolumeBuffer;
+	
+	export static var string	ms_sGameEnd;
+	var string					m_sRegionMusicName;
+	var string					m_sOpeningMusicName;
+	var CGameTime 				m_xRegionMusicTimer;
+	export static var CPropDB	ms_xMusicMgrDB;
+	export static var CPropDB	ms_xMusicTracksDB;
+	export static var ^CPropDB.CNode ms_pxLevelNode;
+	export constructor()
+		
+		ms_bSequenceIsPlaying=false;
+		m_axOggPlayerData=2;
+		m_axOggPlayerData[0].m_bLoopChannel=false;
+		m_axOggPlayerData[1].m_bLoopChannel=false;
+
+		m_iCurrentMusicSwitch=-1;
+		
+		m_iActiveMusicChannel=0;
+		m_axMusicSwitch=MUSIC_SWITCH_COUNT;
+		ms_aiVolumeBuffer=4;
+		
+		m_bInHomeTown=false;
+		ms_sGameEnd.Empty();
+		m_sOpeningMusicName.Empty();
+		
+		m_axMusicSwitch[MAINMENU_MUSIC].m_sName="MainMenu";
+		m_axMusicSwitch[JOURNAL_MUSIC].m_sName="Loading";
+		m_axMusicSwitch[BACKGROUND_MUSIC].m_sName="Background";
+		m_axMusicSwitch[BACKGROUND_MUSIC_LEVELED].m_sName="BackgroundLeveled";
+		m_axMusicSwitch[HOMETOWN_MUSIC].m_sName="Hometown";
+		m_axMusicSwitch[REGION_MUSIC].m_sName="Region";
+		m_axMusicSwitch[TRIGGER_MUSIC].m_sName="Trigger";
+		m_axMusicSwitch[COMBAT_MUSIC].m_sName="Combat";
+		m_axMusicSwitch[SEQUENCE_MUSIC].m_sName="Sequence";
+		m_axMusicSwitch[GAMEEND_MUSIC].m_sName="GameEnd";
+		m_axMusicSwitch[OPENING_MUSIC].m_sName="Opening";
+//		m_axMusicSwitch[GAMEMENU_MUSIC].m_sName="GameMenu"; // 	NO_GAME_MENU_MUSIC [RT#16462]
+		
+		m_axMusicSwitch[TRIGGER_MUSIC].m_bLoop=false;
+		m_axMusicSwitch[OPENING_MUSIC].m_bLoop=false;
+		
+		var int i;
+		ms_xMusicTracksDB.Load(CClientWrap.GetUrsRelPath() + "/Data/Base/Audio/MusicTracks.txt");
+		ms_xMusicMgrDB.Load(CClientWrap.GetUrsRelPath() + "/Data/Base/Audio/MusicMgr.txt");
+		var ^CPropDB.CNode pxNode = ms_xMusicMgrDB.GetRoot().Get("misc");
+		m_iHometownSwitchDelay=pxNode^.GetValueI("hometown_switch_delay_in_seconds");
+		m_iHometownRange=pxNode^.GetValueI("hometown_range_in_meters");
+		m_iRegionSwitchDelay=pxNode^.GetValueI("region_switch_delay_in_seconds");
+		m_iCombatDelay=pxNode^.GetValueI("combat_delay_in_seconds");
+		m_iCombatAttackTrigger=pxNode^.GetValueI("combat_attack_trigger");
+		
+		for (i=0)cond(i<MUSIC_SWITCH_COUNT)iter(i++) do
+			var ^CPropDB.CNode pxNode = ms_xMusicMgrDB.GetRoot().Get(m_axMusicSwitch[i].m_sName);
+			if (pxNode!=null) then
+				m_axMusicSwitch[i].OnInit(pxNode);
+			endif;
+		endfor;
+	endconstructor;
+
+	destructor()
+
+	enddestructor;
+
+	export static proc ref CMusicMgr Get()
+		if (ms_pxInst==null)then
+			ms_pxInst=new CMusicMgr;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+
+	export static proc void Kill()
+		if (ms_pxInst!=null)then
+			delete ms_pxInst;
+			ms_pxInst=null;
+		endif;
+	endproc;
+
+	static proc void SetVolumeForSequence()
+//		var int iVolume=CSoundMgrCln.GetVolume(CSoundMgrCln.SOUND_VOLTRACK_CUTSCENE);
+//		CSoundMgrCln.SetVolume(CSoundMgrCln.SOUND_VOLTRACK_MUSIC,iVolume);
+//		CSoundMgrCln.SetVolume(CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK,iVolume);
+//		CSoundMgrCln.SetVolume(CSoundMgrCln.SOUND_VOLTRACK_ATMO,iVolume);
+//		CSoundMgrCln.SetVolume(CSoundMgrCln.SOUND_VOLTRACK_3DSOUND,iVolume);
+	endproc;
+
+	static proc void StoreVolume()
+//		ms_aiVolumeBuffer[0]=CSoundMgrCln.GetVolume(CSoundMgrCln.SOUND_VOLTRACK_MUSIC);
+//		ms_aiVolumeBuffer[1]=CSoundMgrCln.GetVolume(CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+//		ms_aiVolumeBuffer[2]=CSoundMgrCln.GetVolume(CSoundMgrCln.SOUND_VOLTRACK_ATMO);
+//		ms_aiVolumeBuffer[3]=CSoundMgrCln.GetVolume(CSoundMgrCln.SOUND_VOLTRACK_3DSOUND);
+	endproc;
+
+	static proc void RestoreVolume()
+//		CSoundMgrCln.SetVolume(CSoundMgrCln.SOUND_VOLTRACK_MUSIC,ms_aiVolumeBuffer[0]);
+//		CSoundMgrCln.SetVolume(CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK,ms_aiVolumeBuffer[1]);
+//		CSoundMgrCln.SetVolume(CSoundMgrCln.SOUND_VOLTRACK_ATMO,ms_aiVolumeBuffer[2]);
+//		CSoundMgrCln.SetVolume(CSoundMgrCln.SOUND_VOLTRACK_3DSOUND,ms_aiVolumeBuffer[3]);
+	endproc;
+
+	proc int FadeInMusic(string p_sFilename, int p_iFadeTimeMS,int p_iPositionPCM,bool p_bLoop)
+		if (CSoundMgrCln.UseMiles()) then
+			var string sLowerFilename;
+			if (p_sFilename!="-silence-") then
+				sLowerFilename=CClientWrap.GetUrsRelPath()+"/Data/Base/Audio/"+p_sFilename;
+			else
+				sLowerFilename="-silence-";
+			endif;
+			sLowerFilename.MakeLower();
+			return CSoundMgrCln.MilesPlayStream(sLowerFilename,p_iPositionPCM.ToReal(),p_iFadeTimeMS.ToReal(),p_bLoop);
+		else
+			// dont start track twice.
+			if ( m_axOggPlayerData[m_iActiveMusicChannel].m_sMusicTrackID==p_sFilename && m_axOggPlayerData[m_iActiveMusicChannel].m_bLoopChannel==p_bLoop) then
+				return 0;
+			endif;
+			m_iActiveMusicChannel=(m_iActiveMusicChannel+1) % 2;
+	//		KLog.LogSpam("MusicTool","FadeInMusic '"+p_sFilename+"' during "+p_iFadeTimeMS.ToString()+" MS in channel:"+m_iActiveMusicChannel.ToString());
+	//		if (!PlayMusic(m_iActiveMusicChannel,p_sFilename,p_iPositionPCM,p_bLoop)) then
+	//			return;
+			PlayMusic(m_iActiveMusicChannel,p_sFilename,p_iPositionPCM,p_bLoop);
+			CSoundMgrCln.OggCrossfadeTo(m_iActiveMusicChannel,p_iFadeTimeMS*2);
+			return 0;
+		endif;
+	endproc;
+
+	proc bool PlayMusic(int p_iMusicChannel,string p_sFilename, int p_iPositionPCM,bool p_bLoop)
+		m_axOggPlayerData[p_iMusicChannel].m_bLoopChannel = p_bLoop;
+		m_axOggPlayerData[p_iMusicChannel].m_sMusicTrackID = p_sFilename;
+//		KLog.LogSpam("MusicTool", "MusicMgr PlayMusic("+p_sFilename+","+p_bLoop.ToString()+")");	
+	
+		if (p_sFilename=="-silence-") then
+			CSoundMgrCln.OggStop(p_iMusicChannel);
+			m_axOggPlayerData[p_iMusicChannel].m_bLoopChannel=false;
+		else
+			var string sPath=CClientWrap.GetUrsRelPath()+"/Data/Base/Audio/"+p_sFilename;
+			if(!CSoundMgrCln.OggPlay(p_iMusicChannel,sPath,p_iPositionPCM))then
+				//L KLog.LogSpam("MusicTool", "MusicMgr PlayMusic cant play "+p_sFilename);	
+				CSoundMgrCln.OggStop(p_iMusicChannel);
+				m_axOggPlayerData[p_iMusicChannel].m_bLoopChannel=false;
+				return(false);
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+	export static proc void OnEnterRegion(string p_sSoundFilename)
+		//L KLog.LogSpam("MusicTool","OnEnterRegion Sound:'"+p_sSoundFilename+"'");
+		Get().m_sRegionMusicName=p_sSoundFilename;
+		Get().m_sRegionMusicName.MakeLower();
+		Get().m_xRegionMusicTimer=CTimeMgr.Get().GetTime();
+	endproc;
+
+	export static proc void OnLeaveRegion()
+		//L KLog.LogSpam("MusicTool","OnLeaveRegion");
+		Get().m_sRegionMusicName.Empty();
+		Get().m_xRegionMusicTimer=CTimeMgr.Get().GetTime();
+	endproc;
+
+	export static proc void OnStartJournalSound()
+		//L KLog.LogSpam("MusicTool","OnStartJournalSound");
+		Get().m_axMusicSwitch[JOURNAL_MUSIC].m_bState=true;
+		Get().m_axMusicSwitch[JOURNAL_MUSIC].SetMusicTrack("-silence-");
+	endproc;
+
+	export static proc void OnEndJournalSound()
+		//L KLog.LogSpam("MusicTool","OnEndJournalSound");
+		Get().m_axMusicSwitch[JOURNAL_MUSIC].m_bState=false;
+	endproc;
+	
+	// executed when sequence starts / ends
+	export static proc void OnSequenceStart( string p_sSoundFilename )
+		if (!ms_bSequenceIsPlaying) then
+			ms_bSequenceIsPlaying=true;
+			StoreVolume();
+		endif;
+		
+		// stop Dialogs
+		var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+		if(pxIngameScreen!=null)then
+			pxIngameScreen^.GetDialogSceneMgr()^.SetVisible(false);		
+		endif;
+		
+		// set several volumes to CutScene volume
+		SetVolumeForSequence();
+		
+		Get().m_axMusicSwitch[SEQUENCE_MUSIC].m_bState=!p_sSoundFilename.IsEmpty();
+		Get().m_axMusicSwitch[SEQUENCE_MUSIC].SetMusicTrack(p_sSoundFilename);
+		//L KLog.LogSpam("MusicTool","OnSequenceStart Sound:'"+p_sSoundFilename+"'");
+	endproc;
+	
+	export static proc void OnSequenceEnd()
+		if (ms_bSequenceIsPlaying) then
+			ms_bSequenceIsPlaying=false;
+			RestoreVolume();
+		endif;
+		
+		// continue Dialogs
+		var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+		if(pxIngameScreen!=null)then
+			pxIngameScreen^.GetDialogSceneMgr()^.SetVisible(true);		
+		endif;
+		
+		Get().m_axMusicSwitch[SEQUENCE_MUSIC].m_bState=false;
+		Get().m_axMusicSwitch[SEQUENCE_MUSIC].ClearMusic();
+		//L KLog.LogSpam("MusicTool","OnSequenceEnd");
+	endproc;
+
+	// executed when game finished. bWon == true if player has won, otherwise false
+	export proc void OnGameEnd( bool p_bWon )
+		if (p_bWon) then
+			ms_sGameEnd="won";
+		else
+			ms_sGameEnd="lost";
+		endif;
+		m_axMusicSwitch[GAMEEND_MUSIC].m_bState=true;
+		//L KLog.LogSpam("MusicTool","OnGameEnd won:"+p_bWon.ToString());
+	endproc;
+
+	// executed when game menu opened / closed
+// 	NO_GAME_MENU_MUSIC [RT#16462]
+//	export proc void OnOpenGameMenu( )
+//		m_axMusicSwitch[GAMEMENU_MUSIC].m_bState=true;
+//		KLog.LogSpam("MusicTool","OnOpenGameMenu");
+//	endproc;
+//	
+//	export proc void OnCloseGameMenu( )
+//		m_axMusicSwitch[GAMEMENU_MUSIC].m_bState=false;
+//		KLog.LogSpam("MusicTool","OnCloseGameMenu");
+//	endproc;
+
+	// executed when client receives „MUSI“ event 
+	export proc void OnMusicEvent( ref string p_rsSoundFilename,bool p_bLoop )
+		if (p_bLoop) then
+			m_axMusicSwitch[BACKGROUND_MUSIC_LEVELED].m_bState=true;
+			m_axMusicSwitch[BACKGROUND_MUSIC_LEVELED].SetMusicTrack(p_rsSoundFilename);
+		else
+			m_axMusicSwitch[TRIGGER_MUSIC].m_bState=true;
+			m_axMusicSwitch[TRIGGER_MUSIC].SetMusicTrack(p_rsSoundFilename);
+		endif;
+		//L KLog.LogSpam("MusicTool","OnMusicEvent '"+p_rsSoundFilename+"' loop:"+p_bLoop.ToString());
+	endproc;
+
+	// executed every tick. bAtHomeTown == true if camera is near home town, otherwise 
+	// false
+/*	export proc void OnCameraAtHomeTown( bool p_bAtHomeTown )
+	
+		if ( (m_bInHomeTown && !p_bAtHomeTown) ||
+		     (!m_bInHomeTown && p_bAtHomeTown) ) then
+		    // state toggled. reset timer.
+		    m_bInHomeTown=p_bAtHomeTown;
+		    m_xHomeTownTimer=CTimeMgr.Get().GetTime();
+		endif;
+		
+		KLog.LogSpam("MusicTool","OnCameraAtHomeTown: "+p_bAtHomeTown.ToString());
+	endproc;
+*/
+	
+	/*
+		To detect bigger battles we use an array that stores the last attacked positions (m_axAttackPositions) and 
+		the time of the last attack at every coordinate. A position will be removed If there wasn´t an attack 
+		within m_iCombatDelay seconds (removing takes place in MarkusO_E3_2005_MusicHack_Tick).
+		
+		If there are enough positions ( COMBAT_TRIGGER ) in the array we enter combat mode. Combat mode will
+		be left if the array is empty ( -> no attack in the last m_iCombatDelay seconds )
+	*/
+	export proc void OnUnderAttack(ref vec3 p_rvPos)
+		//KLog.LogSpam("MusicTool", "MusicMgr.usl OnUnderAttack at "+p_rvPos.ToString());	
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		m_xLastAttackTime = xNow;
+
+		var CAttackPosition xAttackPosition;
+		xAttackPosition.m_vPosition=p_rvPos;
+		var int iFound=m_axAttackPositions.FindEntry(xAttackPosition);
+		if(iFound!=-1) then
+			// position already known. just update time.
+			m_axAttackPositions[iFound].m_xLastAttackTime=xNow;
+		else
+			xAttackPosition.m_xLastAttackTime=xNow;
+			if (m_axAttackPositions.NumEntries()==m_iCombatAttackTrigger) then
+				// replace oldest one
+				var int i;
+				var int iMinSeconds=0x7fffffff;
+				var int iMinEntry=0;
+				
+				for(i=0)cond(i<m_iCombatAttackTrigger)iter(i++)do
+					var CGameTimeSpan xDiff=xNow-m_axAttackPositions[i].m_xLastAttackTime;
+					if (xDiff.GetSecondsI()<iMinSeconds) then
+						iMinSeconds=xDiff.GetSecondsI();
+						iMinEntry=i;
+					endif;
+				endfor;
+				m_axAttackPositions[iMinEntry]=xAttackPosition;
+			else	
+				// add new one
+				m_axAttackPositions.AddEntry(xAttackPosition);
+			endif;
+		endif;
+	endproc;
+
+	proc int DetermineActiveMusicSwitch( )
+		var int i;
+		var int iActiveSwitch=-1;
+		for(i=MUSIC_SWITCH_COUNT-1)cond(i>=0)iter(i--)do
+			var bool bState=m_axMusicSwitch[i].m_bState;
+//			KLog.LogSpam("MusicTool","test "+i.ToString()+" "+bState.ToString());
+			
+			if (bState) then
+//				KLog.LogSpam("MusicTool","active "+i.ToString());
+				iActiveSwitch=i;
+				i=-1;
+				break;
+			endif;
+		endfor;
+		/*
+		KLog.LogSpam("MusicTool", "DetermineActiveMusicSwitch "+iActiveSwitch.ToString()+" "
+			+ m_axMusicSwitch[0].m_bState.ToString()+" "
+			+ m_axMusicSwitch[1].m_bState.ToString()+" "
+			+ m_axMusicSwitch[2].m_bState.ToString()+" "
+			+ m_axMusicSwitch[3].m_bState.ToString()+" "
+			+ m_axMusicSwitch[4].m_bState.ToString()+" "
+			+ m_axMusicSwitch[5].m_bState.ToString()+" "
+			+ m_axMusicSwitch[6].m_bState.ToString()+" "
+			+ m_axMusicSwitch[7].m_bState.ToString()+" "
+			+ m_axMusicSwitch[8].m_bState.ToString()+" "
+			+ m_axMusicSwitch[9].m_bState.ToString()+" run: "+ms_bGameRunning.ToString()
+		);	
+		*/
+		return iActiveSwitch;
+	endproc;
+
+	proc void CheckOpeningMusicSwitch()
+		if (m_iCurrentMusicSwitch==OPENING_MUSIC) then
+			if (CSoundMgrCln.MilesIsPlaying(m_axMusicSwitch[OPENING_MUSIC].m_iMusic) == false) then
+				m_axMusicSwitch[OPENING_MUSIC].m_bState=false;
+			endif;
+		endif;
+	endproc;
+
+	proc void CheckTriggerSwitch()
+		if (m_iCurrentMusicSwitch==TRIGGER_MUSIC) then
+			if (CSoundMgrCln.UseMiles()) then
+				if (!CSoundMgrCln.MilesIsPlaying(m_axMusicSwitch[TRIGGER_MUSIC].m_iMusic)) then
+					m_axMusicSwitch[TRIGGER_MUSIC].m_bState=false;
+					m_axMusicSwitch[TRIGGER_MUSIC].ClearMusic();
+				endif;
+			else
+				if (CSoundMgrCln.OggGetLengthPCM(m_iActiveMusicChannel)<=CSoundMgrCln.OggGetPositionPCM(m_iActiveMusicChannel)) then
+					m_axMusicSwitch[TRIGGER_MUSIC].m_bState=false;
+					m_axMusicSwitch[TRIGGER_MUSIC].ClearMusic();
+				endif;
+			endif;
+		endif;
+	endproc;
+
+	proc void CheckRegionSwitch()
+		if (m_sRegionMusicName!=m_axMusicSwitch[REGION_MUSIC].GetMusicFilename()) then
+			
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			var CGameTimeSpan xDiff=xNow-m_xRegionMusicTimer;
+			//L KLog.LogSpam("Musictool","CheckRegionSwitch: "+(xDiff.GetSecondsI()).ToString()+"new:"+m_sRegionMusicName+" current:"+m_axMusicSwitch[REGION_MUSIC].GetMusicFilename());
+			
+			if (xDiff.GetSecondsI() > m_iRegionSwitchDelay || xDiff.GetSecondsI()<0) then
+				m_axMusicSwitch[REGION_MUSIC].m_bState=!m_sRegionMusicName.IsEmpty();
+				
+				// start new music even if switch is already active
+				if (m_iCurrentMusicSwitch==REGION_MUSIC) then
+					m_iCurrentMusicSwitch=-1;
+				endif;
+					
+				m_axMusicSwitch[REGION_MUSIC].SetMusicTrack(m_sRegionMusicName);
+			endif;
+		endif;
+	endproc;
+
+	proc void CheckCombatSwitch()
+		// remove expired attack positions
+		var int i;
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		
+		for(i=0)cond(i<m_axAttackPositions.NumEntries())iter(i++)do
+			var CGameTimeSpan xDiff=xNow-m_axAttackPositions[i].m_xLastAttackTime;
+			if (xDiff.GetSecondsI() > m_iCombatDelay) then
+				m_axAttackPositions.DeleteEntry(i);
+				i--;
+			endif;
+		endfor;
+		
+		if (m_axMusicSwitch[COMBAT_MUSIC].m_bState==false) then
+			// we enter combat if there were m_iCombatAttackTrigger attacks within the last m_iCombatDelay seconds
+			m_axMusicSwitch[COMBAT_MUSIC].m_bState=m_axAttackPositions.NumEntries()==m_iCombatAttackTrigger;
+		else
+			// we leave combat mode if there was no attack within m_iCombatDelay seconds
+			m_axMusicSwitch[COMBAT_MUSIC].m_bState=m_axAttackPositions.NumEntries()!=0;
+		endif;
+	endproc;	
+	
+	proc void CheckHomeTownSwitch()
+		m_iSearchHomeTownTickCnt++;
+		if ((m_iSearchHomeTownTickCnt % 50) == 0) then
+			var CObjList xL;
+			if (CGameInst.ms_sTribe=="SEAS") then
+				m_xSearchHomeTown.SetType("BLDG");
+				m_xSearchHomeTown.SetClass("seas_headquarters");
+			elseif (CGameInst.ms_sTribe=="Aje") then
+				m_xSearchHomeTown.SetType("ANML");
+				m_xSearchHomeTown.SetClass("aje_resource_collector");
+			elseif (CGameInst.ms_sTribe=="Hu") then
+				m_xSearchHomeTown.SetType("BLDG");
+				m_xSearchHomeTown.SetClass("hu_fireplace");
+			else
+				m_xSearchHomeTown.SetType("BLDG");
+				m_xSearchHomeTown.SetClass("ninigi_fireplace");
+			endif;
+			m_xSearchHomeTown.SetOwner(CGameWrap.GetClient().GetPlayer().GetID());
+			m_xSearchHomeTown.Execute(xL);
+			
+			var vec3 vListener;
+			var bool bInHomeTown=false;
+			var int i;
+			CSoundMgrCln.GetListenerPos(vListener);
+			for(i=0)cond(i<xL.NumEntries())iter(i++)do
+				if(xL[i].IsValid())then 
+					var vec3 vDistance=vListener-xL[i].GetObj()^.GetPos();
+					vDistance.SetZ(0.0);
+					var real fDistanceSQ=vDistance.AbsSquare();
+					if (fDistanceSQ.ToInt() < (m_iHometownRange*m_iHometownRange)) then
+						bInHomeTown=true;
+//						KLog.LogSpam("Hometown",fDistanceSQ.ToString()+" near");
+						break;
+					else
+//						KLog.LogSpam("Hometown",i.ToString()+" "+fDistanceSQ.ToString()+" "+vListener.ToString()+" "+xL[i].GetObj()^.GetPos().ToString());
+					endif;
+				endif;
+			endfor;
+			
+			if (bInHomeTown!=m_bInHomeTown) then
+				// state switched
+			    m_bInHomeTown=bInHomeTown;
+			    m_xHomeTownTimer=CTimeMgr.Get().GetTime();
+			endif;
+		endif;
+		
+		if (m_axMusicSwitch[HOMETOWN_MUSIC].m_bState!=m_bInHomeTown) then
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			var CGameTimeSpan xDiff=xNow-m_xHomeTownTimer;
+//			KLog.LogSpam("Hometown","seconds: "+(xDiff.GetSecondsI()).ToString()+" "+m_bInHomeTown.ToString()+" "+m_axMusicSwitch[HOMETOWN_MUSIC].m_bState.ToString());
+			if (xDiff.GetSecondsI() > m_iHometownSwitchDelay || xDiff.GetSecondsI()<0) then
+				m_axMusicSwitch[HOMETOWN_MUSIC].m_bState=m_bInHomeTown;
+//				KLog.LogSpam("Hometown","time > 5 ");
+//				KLog.LogSpam("Hometown","seconds: "+(xDiff.GetSecondsI()).ToString()+" "+m_bInHomeTown.ToString()+" "+m_axMusicSwitch[HOMETOWN_MUSIC].m_bState.ToString());
+			endif;
+		endif;
+	endproc;
+
+	proc void UpdateMusicSwitch()
+		var int i;
+		// main music starts when intro has been played
+		m_axMusicSwitch[MAINMENU_MUSIC].m_bState=CSoundMgrCln.IsIntroFinished();
+		// reset all flags if game is loading or in mainmenu
+		if (!CSoundMgrCln.IsGameRunning()) then
+			m_axMusicSwitch[BACKGROUND_MUSIC].m_bState=false;
+			m_axMusicSwitch[BACKGROUND_MUSIC_LEVELED].m_bState=false;
+			m_axMusicSwitch[REGION_MUSIC].m_bState=false;
+			m_axMusicSwitch[REGION_MUSIC].ClearMusic();
+			m_axMusicSwitch[HOMETOWN_MUSIC].m_bState=false;
+			m_axMusicSwitch[TRIGGER_MUSIC].m_bState=false;
+			m_axMusicSwitch[COMBAT_MUSIC].m_bState=false;
+			m_axMusicSwitch[SEQUENCE_MUSIC].m_bState=false;
+			m_axMusicSwitch[GAMEEND_MUSIC].m_bState=false;
+			m_axMusicSwitch[OPENING_MUSIC].m_bState=false;
+			m_axMusicSwitch[OPENING_MUSIC].ClearMusic();
+//			m_axMusicSwitch[GAMEMENU_MUSIC].m_bState=false; // 	NO_GAME_MENU_MUSIC [RT#16462]
+			m_xLastAttackTime=CGameTime.GetNullTime();
+			m_xHomeTownTimer=CGameTime.GetNullTime();
+			m_xRegionMusicTimer=CGameTime.GetNullTime();
+			m_sRegionMusicName.Empty();
+			m_sOpeningMusicName.Empty();
+			m_axAttackPositions=0;
+			m_bInHomeTown=false;
+			ms_sGameEnd.Empty();
+			ms_pxLevelNode = null;
+		else
+			if (m_axMusicSwitch[BACKGROUND_MUSIC].m_bState==false) then
+				// OnEnterGame
+				// search playlist
+				var ^CLevelInfoClient pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+				if (pxLevelInfo!=null) then
+					var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+					if (pxBaseNode!=null) then
+						// Code by AyCe
+						var string sSetting;
+						if(CClientWrap.GetScapeMgr().GetTerrainSetting()==0000b)then
+							sSetting = "northland";
+						elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==0001b)then
+							sSetting = "savanna";
+						elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==0010b)then
+							sSetting = "jungle";
+						elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==0011b)then
+							sSetting = "icewaste";
+						elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==0100b)then
+							sSetting = "ashvalley";
+						elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==0101b)then
+							sSetting = "Test";
+						elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==0110b)then
+							sSetting = "Cave1";
+						elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==0111b)then
+							sSetting = "Cave2";
+						elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==01000b)then
+							sSetting = "Cave3";
+						else
+							CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_ERROR"),CLocalizer.Get().Translate("_Game_Settings")+CClientWrap.GetScapeMgr().GetTerrainSetting().ToString());
+						endif;
+						// End Code
+						var string sMapName=pxBaseNode^.GetValueS("LevelName");
+						var string sSettingName=pxBaseNode^.GetValueS("material_atmos");
+						sMapName.MakeLower();
+						sSettingName.MakeLower();
+						sMapName.Replace(" ","_");
+						sSettingName.Replace(" ","_");
+						sSettingName.Replace(".","_");
+						//L KLog.LogSpam("MusicTool","Game started, level:"+sMapName+" setting:"+sSettingName);
+						ms_pxLevelNode = ms_xMusicTracksDB.FindNode("playlists/"+sMapName,false);
+						if (ms_pxLevelNode!=null) then
+							//L KLog.LogSpam("MusicTool","level playlist 'playlists/'"+sMapName+"' found");
+						else
+							ms_pxLevelNode = ms_xMusicTracksDB.FindNode("playlists/"+sSettingName,false);
+							if (ms_pxLevelNode!=null) then
+								//L KLog.LogSpam("MusicTool","setting playlist 'playlists/"+sSettingName+"' found");
+							else
+								// Start AyCe code
+								ms_pxLevelNode = ms_xMusicTracksDB.FindNode("playlists/"+sSetting,false);
+								if(ms_pxLevelNode!=null)then
+								else
+									ms_pxLevelNode = ms_xMusicTracksDB.FindNode("playlists/default",false);
+								endif;
+								// End AyCe code
+							endif;
+						endif;
+					endif;
+				endif;
+				
+				// check OpeningMusic
+				var ^CPropDB.CNode pxNode=ms_pxLevelNode^.Get("Opening");
+				if (pxNode!=null) then
+					//L KLog.LogSpam("MusicTool","Opening Music found");
+					m_axMusicSwitch[OPENING_MUSIC].m_bState=true;
+				endif;
+				
+				m_axMusicSwitch[BACKGROUND_MUSIC].m_bState=true;
+			endif;
+			CheckOpeningMusicSwitch();
+			CheckHomeTownSwitch();
+			CheckRegionSwitch();
+			CheckCombatSwitch();
+			CheckTriggerSwitch();
+		endif;
+		/*
+			Check Switch MAINMENU_MUSIC, LOADING_MUSIC, BACKGROUND_MUSIC
+		*/
+/*		if (sClientState=="menu" && !m_axMusicSwitch[MAINMENU_MUSIC].m_bState) then
+			// OnActivate Menu
+			m_axMusicSwitch[LOADING_MUSIC].m_bState=false;
+			m_axMusicSwitch[MAINMENU_MUSIC].m_bState=true;
+		endif;
+		
+		if (sClientState=="loading" && !m_axMusicSwitch[LOADING_MUSIC].m_bState) then
+			// OnActivate Loading
+			m_axMusicSwitch[MAINMENU_MUSIC].m_bState=false;
+			m_axMusicSwitch[LOADING_MUSIC].m_bState=true;
+		endif;
+*/	
+	endproc;
+	
+	export proc void Tick()
+		// loop music
+		var int i;
+		if (!CSoundMgrCln.UseMiles()) then
+			for(i=0)cond(i<2)iter(i++)do
+				if (m_axOggPlayerData[i].m_bLoopChannel) then
+					if(CSoundMgrCln.OggGetLengthPCM(i)<=CSoundMgrCln.OggGetPositionPCM(i)) then 		
+						PlayMusic(i,m_axOggPlayerData[i].m_sMusicTrackID,0,m_axOggPlayerData[i].m_bLoopChannel);
+					endif;
+				endif; 
+			endfor;
+		endif;
+//		KLog.LogSpam("MusicTool","GameIsRunning "+CSoundMgrCln.IsGameRunning().ToString());
+		UpdateMusicSwitch();
+		var int iActiveMusicSwitch=DetermineActiveMusicSwitch();
+		if (iActiveMusicSwitch==-1) then
+			return;
+		endif;
+		if (m_iCurrentMusicSwitch!=iActiveMusicSwitch) then
+			// wait till last crossfade has finished
+			var real fFadeVolume;
+			if (CSoundMgrCln.UseMiles()) then
+				fFadeVolume=0.0;
+			else
+				fFadeVolume=CSoundMgrCln.OggGetFadeVolume((m_iActiveMusicChannel+1) % 2);
+			endif;
+			//L KLog.LogSpam("MusicTool","m_iCurrentMusicSwitch!=iActiveMusicSwitch "+m_iCurrentMusicSwitch.ToString()+"!="+iActiveMusicSwitch.ToString()+" fadeVol "+fFadeVolume.ToString());
+			if (fFadeVolume<0.05) then
+				// calculate crossfade time
+				var int iFadeTime;
+				var int iFadeOut=0,iFadeIn=0;
+				if (m_iCurrentMusicSwitch!=-1) then
+					iFadeOut=m_axMusicSwitch[m_iCurrentMusicSwitch].m_iFadeOutMS;
+				endif;
+				iFadeIn=m_axMusicSwitch[iActiveMusicSwitch].m_iFadeInMS;
+				if (iFadeOut==0 && iFadeIn!=0) then
+					iFadeTime=iFadeIn;
+				elseif (iFadeOut!=0 && iFadeIn==0) then
+					iFadeTime=iFadeOut;
+				elseif (iActiveMusicSwitch>m_iCurrentMusicSwitch) then
+					iFadeTime=iFadeIn;
+				else
+					iFadeTime=iFadeOut;
+				endif;
+				// execute OnActivate ( select Track etc... )
+				var int iPositionPCM=m_axMusicSwitch[iActiveMusicSwitch].OnActivate();
+				var string sMusic=m_axMusicSwitch[iActiveMusicSwitch].GetMusicFilename();
+				//L KLog.LogSpam("MusicTool", "MusicMgr.usl Switch to '"+m_axMusicSwitch[iActiveMusicSwitch].m_sName+"' "+sMusic+":"+iFadeTime.ToString()+" at "+iPositionPCM.ToString());	
+				m_axMusicSwitch[iActiveMusicSwitch].m_iMusic = FadeInMusic(sMusic,iFadeTime,iPositionPCM,m_axMusicSwitch[iActiveMusicSwitch].m_bLoop);
+				m_iCurrentMusicSwitch=iActiveMusicSwitch;
+			endif;
+		endif;
+		// update musictrack position
+		if (m_iCurrentMusicSwitch!=-1) then
+			if (CSoundMgrCln.UseMiles()) then
+				m_axMusicSwitch[m_iCurrentMusicSwitch].m_iMusicPositionPCM=CSoundMgrCln.MilesGetStreamPosition(m_axMusicSwitch[m_iCurrentMusicSwitch].m_iMusic);
+//				KLog.LogSpam("Music", " "+m_axMusicSwitch[m_iCurrentMusicSwitch].m_iMusicPositionPCM.ToString());	
+			else
+				m_axMusicSwitch[m_iCurrentMusicSwitch].m_iMusicPositionPCM=CSoundMgrCln.OggGetPositionPCM(m_iActiveMusicChannel);
+			endif;
+		endif;
+/*
+		var real fPos0=m_axOggPlayerData[0].m_fPlayPosition;
+		var real fPos1=m_axOggPlayerData[1].m_fPlayPosition;
+		var real fVol0=CSoundMgrCln.OggGetVolume(0)*100.0;
+		var real fVol1=CSoundMgrCln.OggGetVolume(1)*100.0;
+		var real fFadeVol0=CSoundMgrCln.OggGetFadeVolume(0)*100.0;
+		var real fFadeVol1=CSoundMgrCln.OggGetFadeVolume(1)*100.0;
+		KLog.LogSpam("Music", " "+fPos0.ToString()+" "+fVol0.ToString()+"% "+fFadeVol0.ToString()+"%      "+fPos1.ToString()+" "+fVol1.ToString()+"% "+fFadeVol1.ToString()+"%");	
+*/
+/*
+		var real fVol0=CSoundMgrCln.OggGetFadeVolume(0)*100.0;
+		var real fVol1=CSoundMgrCln.OggGetFadeVolume(1)*100.0;
+		var int iPos0=CSoundMgrCln.OggGetPositionPCM(0);
+		var int iPos1=CSoundMgrCln.OggGetPositionPCM(1);
+		var int iLen0=CSoundMgrCln.OggGetLengthPCM(0);
+		var int iLen1=CSoundMgrCln.OggGetLengthPCM(1);
+		KLog.LogSpam("Music", " "+iPos0.ToString()+" "+iLen0.ToString()+" "+fVol0.ToString()+"%   " +iPos1.ToString()+" "+iLen1.ToString()+" "+fVol1.ToString()+"%");	
+*/
+	endproc;
+	
+	export proc void Stop()
+		if (!CSoundMgrCln.UseMiles()) then
+			CSoundMgrCln.OggStop(0);
+			CSoundMgrCln.OggStop(1);
+		endif;
+	endproc;
+	
+	export proc void OnLurker()
+		m_axMusicSwitch[GAMEEND_MUSIC].m_bState=false;
+	endproc;
+endclass;

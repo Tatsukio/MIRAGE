@@ -1,0 +1,287 @@
+// Click on icon
+// Right click for deleting messages
+// SetTextAlign should get an enum, not just a number...
+/**/
+class CNewsTicker inherit CWindow
+
+	var array CMessage m_axMessages;
+	var array CNewsTickerData m_axNewsTickerHistory;
+	var ^CHistoryWindow m_pxHistoryWindow;	// used to notify history window about changes
+	
+	export constructor()
+		SetSize(235 * CGameInst.ms_iUIScaleFactor,350 * CGameInst.ms_iUIScaleFactor);
+		SetPos(CWindowMgr.Get().GetDesktop(0)^.GetWidth() - 235 * CGameInst.ms_iUIScaleFactor,37 * CGameInst.ms_iUIScaleFactor);
+		//SetColor({{0,0,0,0}});
+		SetTimer(100,true);
+		m_pxHistoryWindow=null;
+	endconstructor;
+	
+	export destructor()
+		Reset();
+	enddestructor;
+	
+	export proc void SetHistoryWindow(^CHistoryWindow p_pxHistoryWindow)
+		m_pxHistoryWindow=p_pxHistoryWindow;
+	endproc;
+	
+	export proc void GetNewsTickerHistory(ref array CNewsTickerData po_raxNewsTickerHistory)
+		po_raxNewsTickerHistory=m_axNewsTickerHistory;
+	endproc;
+	
+	export proc void Reset()
+		var int i,iC=m_axMessages.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CNewsTickerWindow pxWalk=cast<CNewsTickerWindow>(CWindowMgr.Get().GetWindow(m_axMessages[i].m_hNTWindow));
+			if(pxWalk!=null)then
+				pxWalk^.RemoveFromParent();
+				delete pxWalk;
+			endif;
+		endfor;
+		m_axNewsTickerHistory=0;
+	endproc;
+	
+	export proc void Print(bitset p_dwType,string p_sMsg)
+		var CNewsTickerData xData;
+		xData.m_dwNTType=p_dwType;
+		xData.m_sMsg=p_sMsg;
+		Push(xData);
+	endproc;
+	
+	export proc void Print(CNewsTickerData p_xNTData)
+		Push(p_xNTData);
+	endproc;
+		
+	proc void Push(CNewsTickerData p_xNTData)
+		var string sText=p_xNTData.m_sMsg;
+//		if(sText.Find("_NT_")!=-1)then
+//			CMirageClnMgr.Debug("sText: '"+sText+"'");
+//		endif;
+		if(sText.Find(">MsgWhisper<")!=-1)then
+			sText.Replace(">MsgWhisper<",CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_Whispers"));
+			p_xNTData.m_sMsg=sText;
+		endif;
+		if(sText.Find(">MsgEnemies<")!=-1)then
+			sText.Replace(">MsgEnemies<",CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_To_Enemies"));
+			p_xNTData.m_sMsg=sText;
+		endif;
+		if(sText.Find(">MsgAllies<")!=-1)then
+			sText.Replace(">MsgAllies<",CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_To_Allies"));
+			p_xNTData.m_sMsg=sText;
+		endif;
+		var string sEvent;
+		var int iIdx=sText.Find("-event {");
+		if(iIdx!=-1)then
+			var int iCloseBrace=sText.Find('}',iIdx);
+			if(iCloseBrace!=-1)then
+				var int iOpenBrace=iIdx+7;
+				sEvent=sText.Mid(iOpenBrace+1,iCloseBrace-iOpenBrace-1);
+				sText.Delete(iIdx,(iCloseBrace-iIdx)+1);
+			endif;
+		endif;
+		if(p_xNTData.m_dwNTType != CNewsTickerData.NTT_Chat) then
+			p_xNTData.m_sMsg=CUIMgr.GetLocalizedNewstickerMsg(p_xNTData.m_sMsg);
+		endif;
+		var bool bMsgExist=false;
+		var int i,iC=m_axMessages.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_axMessages[i].MessageExist(sText)) then	
+				DeleteMessage(m_axMessages[i].GetIdent());
+				break;
+			endif;
+		endfor;
+		var ^CNewsTickerWindow pxNewsTickerWindow=new CNewsTickerWindow(p_xNTData);
+		var ^CMessage pxMessage=^(m_axMessages.NewEntryRef());
+		pxMessage^.m_xDuration=CGameTimeSpan.OneSecond()*(p_xNTData.m_iTimeOut.ToReal()/1000.0f);
+		pxMessage^.m_xStartTime=CTimeMgr.Get().GetTime();
+		pxMessage^.m_hNTWindow=pxNewsTickerWindow^.GetSHWND();
+		pxMessage^.m_sMessage=sText;
+		pxNewsTickerWindow^.SetVisible(false);
+		pxNewsTickerWindow^.m_xOnActivateNewtickerLink=OnActivateNewtickerLink;
+		pxNewsTickerWindow^.SetSize(235 * CGameInst.ms_iUIScaleFactor,350 * CGameInst.ms_iUIScaleFactor);
+		pxNewsTickerWindow^.SetPos(CWindowMgr.Get().GetDesktop(0)^.GetWidth() - 235 * CGameInst.ms_iUIScaleFactor,37 * CGameInst.ms_iUIScaleFactor);
+		AddChild(pxNewsTickerWindow);
+		InvalidateContent();
+		CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("ui_message","",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+		begin NewTickerHistory;
+			m_axNewsTickerHistory.AddEntry(p_xNTData);
+			if(m_pxHistoryWindow!=null)then
+				m_pxHistoryWindow^.AddNewEntry(p_xNTData);
+			endif;
+		end NewTickerHistory;
+	endproc;
+	
+	export proc void PushDialogScene(string p_sString, string p_sIcon,int p_iTimeOut, vec3 p_vPos)
+		var string sText=p_sString;
+		var string sEvent;
+		var CNewsTickerData xNTData;
+		xNTData.m_dwNTType=CNewsTickerData.NTT_DialogScene;
+		xNTData.m_sMsg=sText;
+		xNTData.m_sUserData=p_sIcon;
+		xNTData.m_vPos=p_vPos;
+		var ^CNewsTickerWindow pxNewsTickerWindow=new CNewsTickerWindow(xNTData);
+		var ^CMessage pxMessage=^(m_axMessages.NewEntryRef());
+		pxMessage^.m_xDuration=CGameTimeSpan.OneSecond()*(p_iTimeOut.ToReal()/1000.0f);		
+		pxMessage^.m_xStartTime=CTimeMgr.Get().GetTime();
+		pxMessage^.m_hNTWindow=pxNewsTickerWindow^.GetSHWND();
+		pxNewsTickerWindow^.SetVisible(false);
+		pxNewsTickerWindow^.m_xOnActivateNewtickerLink=OnActivateNewtickerLink;
+		pxNewsTickerWindow^.SetSize(235 * CGameInst.ms_iUIScaleFactor,350 * CGameInst.ms_iUIScaleFactor);
+		pxNewsTickerWindow^.SetPos(CWindowMgr.Get().GetDesktop(0)^.GetWidth() - 235 * CGameInst.ms_iUIScaleFactor,37 * CGameInst.ms_iUIScaleFactor);
+		AddChild(pxNewsTickerWindow);
+		InvalidateContent();
+		CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("ui_message","",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+		begin NewTickerHistory;
+			m_axNewsTickerHistory.AddEntry(xNTData);
+			if(m_pxHistoryWindow!=null)then
+				m_pxHistoryWindow^.AddNewEntry(xNTData);
+			endif;
+		end NewTickerHistory;
+	endproc;
+	
+	proc void OnUpdateContent()
+		super.OnUpdateContent();
+		var array ^CNewsTickerWindow apxVisibleNewsTickers;
+		var int iW=0;
+		var int i,iC=m_axMessages.NumEntries();
+		for(i=iC-1)cond(i>=0)iter(i--)do
+			var ^CNewsTickerWindow pxWalk=cast<CNewsTickerWindow>(CWindowMgr.Get().GetWindow(m_axMessages[i].m_hNTWindow));
+			if(pxWalk==null)then continue; endif;
+			pxWalk^.SetVisible(false);
+			if(!pxWalk^.IsInitialized()) then continue; endif;
+			iW+=pxWalk^.GetHeight();
+			if(iW>GetHeight())then break; endif;
+			apxVisibleNewsTickers.AddEntry(pxWalk);
+		endfor;
+		var int iY=0;
+		iC=apxVisibleNewsTickers.NumEntries();
+		for(i=iC-1)cond(i>=0)iter(i--)do
+			var ^CNewsTickerWindow pxWalk=apxVisibleNewsTickers[i];
+			pxWalk^.SetPos(0,iY);
+			iY+=pxWalk^.GetHeight();
+			pxWalk^.SetVisible(true);
+		endfor;
+		InvalidateWindow();
+	endproc;
+	
+	proc bool OnTimer(int p_iID)
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		var int i;
+		for(i=0)cond(i<m_axMessages.NumEntries())iter(i++)do
+			var ^CMessage pxWalk=^(m_axMessages[i]);
+			var CGameTime xWalkET=pxWalk^.m_xStartTime+pxWalk^.m_xDuration;
+			if(xNow>=xWalkET)then
+				DeleteMessage(pxWalk^.GetIdent());
+				i--;
+			endif;
+		endfor;
+		return false;
+	endproc;
+	
+	export proc void DeleteMessage(CGuid p_xMsgID)
+		var int i,iC=m_axMessages.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_axMessages[i].GetIdent()==p_xMsgID)then
+				var ^CNewsTickerWindow pxContainer=cast<CNewsTickerWindow>(CWindowMgr.Get().GetWindow(m_axMessages[i].m_hNTWindow));
+				if(pxContainer!=null)then
+					pxContainer^.RemoveFromParent();
+					delete pxContainer;
+				endif;
+				m_axMessages.DeleteEntry(i);
+				InvalidateContent();
+				break;
+			endif;
+		endfor;
+	endproc;
+	
+	class CMessage
+		var CGuid						m_xIdent;
+		export var CGameTimeSpan		m_xDuration;
+		export var CGameTime			m_xStartTime;
+		export var SHWND				m_hNTWindow;
+		export var string				m_sMessage;
+				
+		export constructor()
+			m_xIdent.Generate();
+		endconstructor;
+		
+		export proc CGuid GetIdent()
+			return m_xIdent;
+		endproc;
+		
+		export proc bool MessageExist (string p_sMessage)
+			if(m_sMessage==p_sMessage) then
+				return true;
+			else
+				return false;
+			endif;
+		endproc;
+	endclass;	
+	
+	proc bool OnActivateNewtickerLink(vec3 p_vPos)
+		if(p_vPos != {0.0,0.0,0.0})then
+			CMultiCameraController.Get().SetCameraTarget(p_vPos,true);
+			CMultiCameraController.Get().SnapOnGround();
+			return true;
+		endif;
+		return true;
+	endproc;
+	
+endclass;
+
+class CNewsTickerButton inherit CButton
+
+	var ^CNewsTicker	m_pxNewsTicker;
+	var CGuid 			m_xMessageID;
+	var string 			m_sEvent;
+	var vec3 			m_vPos;
+	
+	export constructor(vec3 p_vPos,string p_sEvent,string p_sIcon,CGuid p_xMessageID,^CNewsTicker p_pxNewsTicker)
+		m_vPos=p_vPos;
+		m_pxNewsTicker=p_pxNewsTicker;
+		m_xMessageID=p_xMessageID;
+		SetFrame(false);
+		m_sEvent=p_sEvent;
+		if(p_sIcon.IsEmpty())then
+			p_sIcon="info";
+		endif;
+		var ^CCardBitmapMgr pxBmpMgr=^(CGameInst.GetBitmapMgr());
+		var CBitmapPtr pxBmpNormal=pxBmpMgr^.GetBlendBitmap("24, layer nticon_"+p_sIcon+"_normal")^.GetBitmap();
+		var CBitmapPtr pxBmpHover=pxBmpMgr^.GetBlendBitmap("24, layer nticon_"+p_sIcon+"_hover")^.GetBitmap();
+		var CBitmapPtr pxBmpDown=pxBmpMgr^.GetBlendBitmap("24, layer nticon_"+p_sIcon+"_down")^.GetBitmap();
+		SetBitmap(pxBmpNormal,pxBmpDown,pxBmpHover,pxBmpNormal);
+	endconstructor;
+	
+	proc bool OnClick()
+		var string sCommand=m_sEvent;
+		var int iSpaceIdx=m_sEvent.Find(" ");
+		if(iSpaceIdx!=-1)then
+			sCommand=m_sEvent.Left(iSpaceIdx);
+			m_sEvent.Delete(0,iSpaceIdx+1);
+		else
+			m_sEvent.Empty();
+		endif;
+		if(sCommand=="pos")then
+			var vec3 vPos=vec3.CreateFromString(m_sEvent);
+			CMultiCameraController.Get().SetCameraTarget(vPos,true);
+			CMultiCameraController.Get().SnapOnGround();
+		elseif(sCommand=="showhelp")then
+			if(m_sEvent.IsEmpty())then
+				CGameInst.ShowHelp();
+			else
+				CGameInst.ShowHelpAndNav(m_sEvent);
+			endif;
+		endif;
+		if(m_vPos.Abs()>0.0f)then
+			CMultiCameraController.Get().SetCameraTarget(m_vPos,true);
+			CMultiCameraController.Get().SnapOnGround();
+		endif;
+		OnRightClick();
+		return true;
+	endproc;
+	
+	proc bool OnRightClick()
+		m_pxNewsTicker^.DeleteMessage(m_xMessageID);
+		return true;
+	endproc;
+	
+endclass;

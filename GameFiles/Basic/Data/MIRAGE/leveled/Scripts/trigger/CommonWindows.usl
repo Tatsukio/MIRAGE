@@ -1,0 +1,1494 @@
+class CObjectTreeCtrl inherit CTreeCtrl
+
+	class CObjectItem inherit CItemData
+		export var ^CTechTree.CNode m_pxNode;
+	endclass;
+	
+	class CAllObjItem inherit CItemData
+		export var string m_sClass;
+	endclass;
+
+	export const bitset SHOW_BLDG 			= 01h;
+	export const bitset SHOW_CHAR 			= 02h;
+	export const bitset SHOW_ANML 			= 04h;
+	export const bitset SHOW_VHCL 			= 08h;
+	export const bitset SHOW_SHIP 			= 010h;
+	export const bitset SHOW_NEST 			= 020h;
+	export const bitset SHOW_ITEM 			= 040h;
+	export const bitset SHOW_REST 			= 080h;
+	export const bitset SHOW_ALL_TYPES		= 0FFh;
+	
+	export const bitset	SHOW_HU				= 00100h;
+	export const bitset	SHOW_AJE			= 00200h;
+	export const bitset	SHOW_NINIGI			= 00400h;
+	export const bitset	SHOW_WORLD			= 00800h;
+	export const bitset	SHOW_SPECIAL		= 01000h;
+	export const bitset	SHOW_SEAS			= 02000h;
+	export const bitset	SHOW_ALL_TRIBES		= 03F00h;
+	
+	export const bitset	SHOW_ALL 			= 0FFFFFFFFh;
+	
+	var bitset	m_dwShow;
+	var array CObjectItem m_axItems;
+	var array CAllObjItem m_axAllObjItems;
+
+	static var array string ms_asFlagMap;
+	static var array bitset ms_adwFlagMap;
+
+	export constructor()
+		if(ms_asFlagMap.NumEntries()==0) then
+			ms_asFlagMap.AddEntry("BLDG");
+			ms_adwFlagMap.AddEntry(SHOW_BLDG);
+			ms_asFlagMap.AddEntry("CHTR");
+			ms_adwFlagMap.AddEntry(SHOW_CHAR);
+			ms_asFlagMap.AddEntry("ANML");
+			ms_adwFlagMap.AddEntry(SHOW_ANML);
+			ms_asFlagMap.AddEntry("VHCL");
+			ms_adwFlagMap.AddEntry(SHOW_VHCL);
+			ms_asFlagMap.AddEntry("SHIP");
+			ms_adwFlagMap.AddEntry(SHOW_SHIP);
+			ms_asFlagMap.AddEntry("NEST");
+			ms_adwFlagMap.AddEntry(SHOW_NEST);
+			ms_asFlagMap.AddEntry("ITEM");
+			ms_adwFlagMap.AddEntry(SHOW_ITEM);
+			
+			ms_asFlagMap.AddEntry("Hu");
+			ms_adwFlagMap.AddEntry(SHOW_HU);
+			ms_asFlagMap.AddEntry("Aje");
+			ms_adwFlagMap.AddEntry(SHOW_AJE);
+			ms_asFlagMap.AddEntry("Ninigi");
+			ms_adwFlagMap.AddEntry(SHOW_NINIGI);
+			ms_asFlagMap.AddEntry("World");
+			ms_adwFlagMap.AddEntry(SHOW_WORLD);
+			ms_asFlagMap.AddEntry("SEAS");
+			ms_adwFlagMap.AddEntry(SHOW_SEAS);
+			ms_asFlagMap.AddEntry("Special");
+			ms_adwFlagMap.AddEntry(SHOW_SPECIAL);
+		endif;
+		
+		FillTree(SHOW_ALL);
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	export proc void InitForPlayer(int p_iOwner)
+		InitForPlayer(p_iOwner, SHOW_ALL_TYPES);
+	endproc;
+	
+	export proc void InitForPlayer(int p_iOwner, bitset p_dwTypes)
+		var bitset dwTribe = 0b;
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		
+		var string sTribe = "";
+		var ^CPropDB.CNode pxNode = pxGenericDB^.FindNode("PlayerSettings/Player_"+p_iOwner.ToString()+"/Restrictions/Base/Tribes", false);
+		if(pxNode!=null) then
+			sTribe = pxNode^.Value();
+		endif;
+		KLog.LogSpam("MaZi", "Tribes: "+sTribe);
+		if(sTribe.Find("Hu")>=0) then
+			dwTribe |= CObjectTreeCtrl.SHOW_HU;
+		endif;
+		if(sTribe.Find("Aje")>=0) then
+			dwTribe |= CObjectTreeCtrl.SHOW_AJE;
+		endif;
+		if(sTribe.Find("Ninigi")>=0) then
+			dwTribe |= CObjectTreeCtrl.SHOW_NINIGI;
+		endif;
+		if(sTribe.Find("SEAS")>=0) then
+			dwTribe |= CObjectTreeCtrl.SHOW_SEAS;
+		endif;
+		FillTree(dwTribe | p_dwTypes);
+	endproc;
+	
+	export proc void FillTree(bitset p_dwShowType)
+		FillTreeTT(p_dwShowType);
+		
+		if((p_dwShowType&SHOW_REST)!=0b) then
+			var ^CObjClassMgrBase pxObjClassMgr=^(CLevelEditorWrap.GetObjClassMgr());
+			
+			var ^CClassNode pxRoot=pxObjClassMgr^.GetRoot();
+			if(pxRoot!=null)then
+				var int iParent = AddItem(0, "All Objects");
+				
+				var int i,iC=pxRoot^.m_axSubs.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CClassNode pxNode=pxRoot^.m_axSubs[i];
+					FillTreeAll(pxNode, iParent);
+				endfor;
+			endif;
+		endif;
+	endproc;
+	
+	proc void FillTreeTT(bitset p_dwFlags)
+		m_dwShow = p_dwFlags;
+		Clear();
+		m_axItems=0;
+		var CTechTreeDef xTTDef;
+		var ^CTechTreeMgr pxTTMgr=^(CLevelEditorWrap.GetClient().GetTechTreeMgr());
+		var CTechTree xTT=pxTTMgr^.GetTechTree(xTTDef);
+		
+		var ^CTechTree.CNode pxObjNode = xTT.FindNode("/Objects");
+		if(pxObjNode!=null) then
+			var int i, iC = pxObjNode^.NumSubs();
+			for(i=0) cond(i<iC) iter(++i) do
+				var ^CTechTree.CNode pxChild = pxObjNode^.GetSub(i);
+				var string sTribe = pxChild^.GetName();
+				var int iIdx = ms_asFlagMap.FindEntry(sTribe);
+				if(iIdx>=0) then
+					if((m_dwShow&ms_adwFlagMap[iIdx])==0b) then continue; endif;
+				endif;
+				FillTreeTribes(pxChild, AddItem(0, sTribe));
+			endfor;
+		endif;
+		
+		if((m_dwShow&SHOW_ITEM)!=0b) then
+			pxObjNode = xTT.FindNode("/Items/Objects");
+			if(pxObjNode!=null) then
+				var int iParent = AddItem(0, "Items");
+				var int i, iC = pxObjNode^.NumSubs();
+				for(i=0) cond(i<iC) iter(++i) do
+					var ^CTechTree.CNode pxItem = pxObjNode^.GetSub(i);
+					if(pxItem!=null) then
+						m_axItems.NewEntryRef().m_pxNode = pxItem;
+						AddItem(iParent, pxItem^.GetName(), ^(m_axItems[m_axItems.NumEntries()-1]));
+					endif;
+				endfor;
+			endif;
+		endif;
+	endproc;
+	
+	proc void FillTreeTribes(^CTechTree.CNode p_pxNode, int p_iItem)
+		var int i, iC = p_pxNode^.NumSubs();
+		for(i=0) cond(i<iC) iter(++i) do
+			var ^CTechTree.CNode pxTypeNode = p_pxNode^.GetSub(i);
+			if(pxTypeNode!=null) then
+				var int iIdx = ms_asFlagMap.FindEntry(pxTypeNode^.GetName());
+				var bitset dwFlag = SHOW_REST;
+				if(iIdx>=0) then
+					dwFlag = ms_adwFlagMap[iIdx];
+				endif;
+				if((m_dwShow&dwFlag)==0b) then continue; endif;
+				var int iItem = AddItem(p_iItem, pxTypeNode^.GetName());
+				var int j, iJC = pxTypeNode^.NumSubs();
+				for(j=0) cond(j<iJC) iter(++j) do
+					var ^CTechTree.CNode pxObj = pxTypeNode^.GetSub(j);
+					if(pxObj!=null) then
+						m_axItems.NewEntryRef().m_pxNode = pxObj;
+						AddItem(iItem, pxObj^.GetName(), ^(m_axItems[m_axItems.NumEntries()-1]));
+					endif;
+				endfor;
+			endif;
+		endfor;
+	endproc;
+	
+	export proc bool IsObjSelected()
+		var int iSel = GetSelectedItem();
+		return ItemNumChildren(iSel)==0;
+	endproc;
+	
+	export proc ^CTechTree.CNode GetSelectedTTNode()
+		var int iSel = GetSelectedItem();
+		if(iSel>0) then
+			var ^CItemData pxID = GetItemData(iSel);
+			if(pxID!=null) then
+				var ^CObjectItem pxI = cast<CObjectItem>(pxID);
+				if(pxI!=null) then
+					return pxI^.m_pxNode;
+				endif;
+			endif;
+		endif;
+		return null;
+	endproc;
+	
+	export proc string GetSelectedClass()
+		var ^CTechTree.CNode pxNode = GetSelectedTTNode();
+		if(pxNode!=null) then
+			return pxNode^.GetName();
+		else
+			var int iSel = GetSelectedItem();
+			if(iSel>0) then
+				var ^CItemData pxID = GetItemData(iSel);
+				if(pxID!=null) then
+					var ^CAllObjItem pxI = cast<CAllObjItem>(pxID);
+					if(pxI!=null) then
+						return pxI^.m_sClass;
+					endif;
+				endif;
+			endif;
+		endif;
+		return "";
+	endproc;
+	
+	export proc string GetSelectedTribe()
+		var int iSel = GetSelectedItem();
+		if(iSel>=0) then
+			var int iWalk = iSel;
+			while(GetParentItem(iSel)!=0) do
+				iSel = GetParentItem(iSel);
+			endwhile;
+			return GetItemText(iSel);
+		endif;
+		return "";
+	endproc;
+	
+	/*proc int GetParentItem(string p_sName, string p_sParent, int p_iItem)
+		var int iItem = p_iItem;
+		if(p_sName.Find("hu_")>=0) then
+			iItem=FindItem(p_iItem, "Hu");
+			if(iItem<=0) then
+				iItem=AddItem(p_iItem, "Hu");
+			endif;
+		elseif(p_sName.Find("aje_")>=0) then
+			iItem=FindItem(p_iItem, "Aje");
+			if(iItem<=0) then
+				iItem=AddItem(p_iItem, "Aje");
+			endif;
+		elseif(p_sName.Find("ninigi_")>=0) then
+			iItem=FindItem(p_iItem, "Ninigi");
+			if(iItem<=0) then
+				iItem=AddItem(p_iItem, "Ninigi");
+			endif;
+		elseif(p_sName.Find("seas_")>=0) then
+			iItem=FindItem(p_iItem, "Seas");
+			if(iItem<=0) then
+				iItem=AddItem(p_iItem, "Seas");
+			endif;
+		else
+			iItem=FindItem(p_iItem, "Other");
+			if(iItem<=0) then
+				iItem=AddItem(p_iItem, "Other");
+			endif;
+		endif;
+		if(m_dwShow==SHOW_ALL) then
+			var int iSub = FindItem(iItem, p_sParent);
+			if(iSub<=0) then
+				iSub = AddItem(iItem, p_sParent);
+			endif;
+			return iSub;
+		endif;
+		return iItem;
+	endproc;
+	*/
+	proc void FillTreeAll(^CClassNode p_pxWalk, int p_iItem)
+		if(p_pxWalk!=null) then
+			var int iItem = AddItem(p_iItem, p_pxWalk^.m_sName);
+			var int i,iC=p_pxWalk^.m_axSubs.NumEntries();
+			if(iC==0) then
+				var ^CAllObjItem pxItem = ^(m_axAllObjItems.NewEntryRef());
+				pxItem^.m_sClass = p_pxWalk^.m_sName;
+				SetItemData(iItem, pxItem);
+				return;
+			endif;
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CClassNode pxWalk=p_pxWalk^.m_axSubs[i];
+				FillTreeAll(p_pxWalk^.m_axSubs[i],iItem);
+			endfor;
+		endif;
+	endproc;
+	
+	export proc void OnInit(string p_sObject)
+		var int iItem = FindItem(0, p_sObject);
+		if(iItem>0) then 
+			Select(iItem);
+			EnsureVisible(iItem);
+		endif;
+	endproc;
+endclass;
+
+class CObjSelector inherit CWindow
+
+	var ^CCheckBox		m_pxCheckObject,m_pxCheckClass,m_pxCheckExcludeClass;
+//	var ^CDropList		m_pxRegions,m_pxOwner,m_pxObject,m_pxClass;
+	var ^CDropList		m_pxRegions,m_pxOwner,m_pxObject;
+	var ^CDropList		m_pxTribe,m_pxCaste,m_pxLevel;
+	var ^CList			m_pxTypes,m_pxExcludeClass,m_pxClass;
+	var ^CStaticCtrl	m_pxTextTest, m_pxTextTest1, m_pxTextRight1, m_pxTextRight2, m_pxTextLeft2, m_pxTextExcludeClassSelectionInfo, m_pxTextClassSelectionInfo;
+	var ^CGroupBox		m_pxBoxObjSelector;
+
+	var string			m_sAttrPrefix;
+
+	export var procref<bool>	m_xOnStateChange;
+
+	export constructor()
+		if(!InitFromResource("Trigger/CommonWindows","ObjSelector_1"))then return; endif;
+
+		m_pxRegions=cast<CDropList>(GetControl("Drop_Region"));
+		m_pxRegions^.AddItem("UniqueWorldRegion");
+		var ^CRegionMgrClient pxRgnMgr=CClientWrap.GetRegionMgr();
+		if(pxRgnMgr!=null)then
+			var int i,iC=pxRgnMgr^.NumRegions();
+			for(i=0)cond(i<iC)iter(++i)do
+				m_pxRegions^.AddItem(pxRgnMgr^[i]^.GetName());
+			endfor;
+		endif;
+
+		m_pxRegions^.QSort();
+		m_pxRegions^.SetText("UniqueWorldRegion");
+		m_pxTypes=cast<CList>(GetControl("ObjSelector/List_Type"));
+		m_pxTypes^.m_xOnSelect=OnTypesChanged;
+		m_pxTypes^.AllowMultiSelection(true);
+		m_pxTypes^.AllowScrollBar(true);
+		m_pxTypes^.AddItem("All");
+		m_pxTypes^.AddItem("AllNC");
+		m_pxTypes^.AddItem("CHTR");
+		m_pxTypes^.AddItem("ANML");
+		m_pxTypes^.AddItem("BLDG");
+		m_pxTypes^.AddItem("SHIP");
+		m_pxTypes^.AddItem("VHCL");
+		m_pxTypes^.AddItem("NEST");
+		m_pxTypes^.AddItem("FGHT");
+		m_pxTypes^.AddItem("GROU");
+		m_pxTypes^.AddItem("TREE");
+		m_pxTypes^.AddItem("WOOD");
+		m_pxTypes^.AddItem("VGNT");
+		m_pxTypes^.AddItem("ITEM");
+		m_pxTypes^.AddItem("STON");
+		m_pxTypes^.AddItem("FOOD");
+		m_pxTypes^.AddItem("FRUI");
+		
+		m_pxOwner=cast<CDropList>(GetControl("ObjSelector/Drop_Owner"));
+		m_pxOwner^.m_xOnChange=InitObjList;
+		m_pxOwner^.AddItem("All");
+		var int i=-1;
+		for(i=-1)cond(i<8)iter(i++)do
+			m_pxOwner^.AddItem(i.ToString());
+		endfor;
+
+		m_pxCheckObject=cast<CCheckBox>(GetControl("ObjSelector/Check_Object"));
+		m_pxCheckObject^.m_xOnStateChange=OnObjectChecked;
+
+		m_pxObject=cast<CDropList>(GetControl("ObjSelector/Drop_Object"));
+//		m_pxObject^.SetAllowAnyText(true);
+		m_pxObject^.m_xOnChange = StateChanged;
+
+		m_pxCheckClass=cast<CCheckBox>(GetControl("ObjSelector/Check_Class"));
+		m_pxCheckClass^.m_xOnStateChange=OnClassChecked;
+
+		m_pxClass=cast<CList>(GetControl("ObjSelector/Drop_Class"));
+		m_pxClass^.AllowMultiSelection(true);
+		m_pxClass^.AllowScrollBar(true);
+//		m_pxClass^.m_xOnChange = StateChanged;
+		m_pxClass^.m_xOnSelect = StateChanged;
+		
+		m_pxCheckExcludeClass=cast<CCheckBox>(GetControl("ObjSelector/Check_ExcludeClass"));
+		m_pxCheckExcludeClass^.m_xOnStateChange=OnExcludeClassChecked;
+
+		m_pxExcludeClass=cast<CList>(GetControl("ObjSelector/Drop_ExcludeClass"));
+		m_pxExcludeClass^.AllowMultiSelection(true);
+		m_pxExcludeClass^.AllowScrollBar(true);
+		m_pxExcludeClass^.m_xOnSelect = StateChanged;
+
+		m_pxTribe=cast<CDropList>(GetControl("Drop_Tribe"));
+		m_pxTribe^.AddItem("All");
+		m_pxTribe^.AddItem("Hu");
+		m_pxTribe^.AddItem("Aje");
+		m_pxTribe^.AddItem("Ninigi");
+
+		m_pxCaste=cast<CDropList>(GetControl("Drop_Caste"));
+		m_pxCaste^.AddItem("All");
+		m_pxCaste^.AddItem("Res");
+		m_pxCaste^.AddItem("Nat");
+		m_pxCaste^.AddItem("Tec");
+
+		m_pxLevel=cast<CDropList>(GetControl("Drop_Level"));
+		m_pxLevel^.AddItem("All");
+		m_pxLevel^.AddItem("0");
+		m_pxLevel^.AddItem("1");
+		m_pxLevel^.AddItem("2");
+		m_pxLevel^.AddItem("3");
+		m_pxLevel^.AddItem("4");
+
+		
+		m_pxTextTest = cast<CStaticCtrl>(GetControl("ObjSelector/Text_Test"));
+		m_pxTextTest1 = cast<CStaticCtrl>(GetControl("ObjSelector/Text_Test1"));
+		m_pxBoxObjSelector = cast<CGroupBox>(GetControl("ObjSelector"));
+		m_pxTextRight1 = cast<CStaticCtrl>(GetControl("Txt_Right1"));
+		m_pxTextRight2 = cast<CStaticCtrl>(GetControl("Txt_right2"));
+		m_pxTextLeft2 = cast<CStaticCtrl>(GetControl("Txt_Left2"));
+		m_pxTextExcludeClassSelectionInfo = cast<CStaticCtrl>(GetControl("ObjSelector/Text_ExcludeClassSelectionInfo"));
+		m_pxTextClassSelectionInfo = cast<CStaticCtrl>(GetControl("ObjSelector/Text_ClassSelectionInfo"));
+		
+		OnObjectChecked();
+		OnClassChecked();
+		OnExcludeClassChecked();
+		//OnTypeChanged();
+		OnTypesChanged();
+		FillClassList();
+
+		m_sAttrPrefix = "";
+		
+	endconstructor;
+	
+	export proc void OnlyRegionVisible()
+		m_pxLevel^.SetVisible(false);
+		m_pxTypes^.SetVisible(false);
+		m_pxCheckObject^.SetVisible(false);
+		m_pxObject^.SetVisible(false);
+		m_pxCheckClass^.SetVisible(false);
+		m_pxClass^.SetVisible(false);
+		m_pxCheckExcludeClass^.SetVisible(false);
+		m_pxExcludeClass^.SetVisible(false);
+		m_pxOwner^.SetVisible(false);
+		m_pxTextTest^.SetVisible(false);
+		m_pxTextTest1^.SetVisible(false);
+		m_pxBoxObjSelector^.SetVisible(false);
+		m_pxTribe^.SetVisible(false);
+		m_pxCaste^.SetVisible(false);
+		m_pxTextRight1^.SetVisible(false);
+		m_pxTextRight2^.SetVisible(false);
+		m_pxTextLeft2^.SetVisible(false);
+	endproc;
+
+	export proc void SetAttribsPrefix(string p_sPrefix)
+		m_sAttrPrefix = p_sPrefix;
+	endproc;
+
+	export proc string GetAttribsPrefix()
+		return m_sAttrPrefix;
+	endproc;
+
+	export proc bool IsObjectChecked()
+		return (m_pxCheckObject!=null && !m_pxCheckObject^.GetDisabled() && m_pxCheckObject^.GetCheckMark());
+	endproc;
+
+	export proc bool IsClassChecked()
+		return (m_pxCheckClass!=null && !m_pxCheckClass^.GetDisabled() && m_pxCheckClass^.GetCheckMark());
+	endproc;
+
+	export proc bool IsExcludeClassChecked()
+		return (m_pxCheckExcludeClass!=null && !m_pxCheckExcludeClass^.GetDisabled() && m_pxCheckExcludeClass^.GetCheckMark());
+	endproc;
+
+	export proc string GetType()
+		var string sClasses;
+
+		if(m_pxTypes!=null)then
+			var int i, iC = m_pxTypes^.NumItems();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!m_pxTypes^.IsItemSelected(i))then continue; endif;
+				sClasses += m_pxTypes^.GetItem(i)+"|";
+			endfor;
+		endif;
+
+		if(sClasses=="")then
+			sClasses = "All";
+		endif;
+
+		return sClasses;
+	endproc;
+
+	export proc int GetOwner()
+		if((m_pxOwner!=null) && (m_pxOwner^.GetText()!="All"))then
+			return m_pxOwner^.GetText().ToInt();
+		endif;
+		return -2;
+	endproc;
+
+	proc bool StateChanged()
+		if(m_pxTextClassSelectionInfo!=null)then
+			var string sTmp = GetSelectedClass();
+			sTmp.TrimRight('|');
+			if(sTmp=="")then
+				sTmp="NA";
+			endif;
+			m_pxTextClassSelectionInfo^.SetText(sTmp);
+		endif;
+		if(m_pxTextExcludeClassSelectionInfo!=null)then
+			var string sTmp = GetSelectedExcludeClasses();
+			sTmp.TrimRight('|');
+			m_pxTextExcludeClassSelectionInfo^.SetText(sTmp);
+		endif;
+		if(!m_xOnStateChange.IsNull())then
+			return m_xOnStateChange.Call();
+		endif;
+		return false;
+	endproc;
+
+	export proc void OnInit(ref CAttribs p_rxParams)
+		m_pxRegions^.SetText("UniqueWorldRegion");
+		if(m_pxRegions!=null)then
+			var string sGuid=p_rxParams.GetValue(m_sAttrPrefix+"rgn_guid");
+			if(sGuid.IsEmpty() || (sGuid=="NA"))then
+				sGuid="UniqueWorldRegion";
+			endif;
+			if(sGuid!="UniqueWorldRegion")then
+				var CGuid xGuid;
+				xGuid.FromString(sGuid);
+				var ^CRegionBase pxRgn=CLevelEditorWrap.GetRegionMgr()^.GetRegion(xGuid);
+				if(pxRgn!=null)then
+					sGuid=pxRgn^.GetName();
+				else
+					sGuid="UniqueWorldRegion";
+				endif;
+			endif;
+			m_pxRegions^.SetText(sGuid);
+		endif;
+		
+		if(m_pxTypes!=null)then
+			var string sTypes = p_rxParams.GetValue(m_sAttrPrefix+"obj_type");
+			var array string asTok;
+			sTypes.Split(asTok,"|",true);
+			var int i, iC = asTok.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var int iIdx = m_pxTypes^.FindItem(asTok[i]);
+				if(iIdx!=-1)then
+					m_pxTypes^.Select(iIdx, i==0);
+				endif;
+			endfor;
+			if(m_pxTypes^.GetNumberOfSelectedItems()<=0)then
+				m_pxTypes^.SelectItemBeginningWithString("All");
+			endif;
+		endif;
+		
+		if(m_pxOwner!=null)then
+			var int iOwner=p_rxParams.GetValueInt(m_sAttrPrefix+"obj_owner");
+			if(iOwner==-2)then
+				m_pxOwner^.Select(m_pxOwner^.FindItem("All"));
+			else
+				m_pxOwner^.Select(m_pxOwner^.FindItem(iOwner.ToString()));
+			endif;
+		endif;
+				
+		if((m_pxCheckObject!=null) && (m_pxObject!=null))then
+			var string sObjName=p_rxParams.GetValue(m_sAttrPrefix+"obj_name");
+			if(sObjName.IsEmpty())then sObjName="NA"; endif;
+			if(sObjName=="NA")then
+				var string sObjGuid=p_rxParams.GetValue(m_sAttrPrefix+"obj_guid");
+				if(sObjGuid!="NA")then
+					var CGuid xGuid;
+					xGuid.FromString(sObjGuid);
+					var ^CObj pxObj=CClientWrap.GetObjMgr().GetObj(xGuid);
+					if(pxObj!=null)then
+						sObjName=pxObj^.GetName();
+					endif;
+				endif;
+			endif;
+			if(sObjName!="NA")then
+				m_pxCheckObject^.SetChecked(1);
+				m_pxObject^.SetText(sObjName);
+			else
+				m_pxCheckObject^.SetChecked(0);
+				m_pxObject^.SetText("");
+			endif;
+		endif;
+		
+		if((m_pxCheckClass!=null) && (m_pxClass!=null))then
+			var string sObjClass=p_rxParams.GetValue(m_sAttrPrefix+"obj_class");
+			var array string asClass;
+			sObjClass.Split(asClass,"|",true);
+			var int i, iC = asClass.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var int iIdx = m_pxClass^.FindItem(asClass[i]);
+				if(iIdx!=-1)then
+					m_pxClass^.Select(iIdx, i==0);
+					m_pxCheckClass^.SetChecked(1);
+				endif;
+			endfor;
+//			if(!sObjClass.IsEmpty() && (sObjClass!="NA"))then
+//				m_pxCheckClass^.SetChecked(1);
+//				m_pxClass^.SetText(sObjClass);
+//			else
+//				m_pxCheckClass^.SetChecked(0);
+//				m_pxClass^.SetText("");
+//			endif;
+		endif;
+		
+		if((m_pxCheckExcludeClass!=null) && (m_pxExcludeClass!=null))then
+			var string sObjClasses = p_rxParams.GetValue(m_sAttrPrefix+"exclude_class");
+			var array string asTok;
+			sObjClasses.Split(asTok,"|",true);
+			var int i, iC = asTok.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var int iIdx = m_pxExcludeClass^.FindItem(asTok[i]);
+				if(iIdx!=-1)then
+					m_pxExcludeClass^.Select(iIdx, i==0);
+					m_pxCheckExcludeClass^.SetChecked(1);
+				endif;
+			endfor;
+		endif;
+		
+		if(m_pxTribe!=null)then
+			m_pxTribe^.SetText(p_rxParams.GetValue(m_sAttrPrefix+"char_tribe"));
+		endif;
+		if(m_pxCaste!=null)then
+			m_pxCaste^.SetText(p_rxParams.GetValue(m_sAttrPrefix+"char_caste").Left(3));
+		endif;
+		if(m_pxLevel!=null)then
+			var int iLvl=p_rxParams.GetValueInt(m_sAttrPrefix+"char_level");
+			var string sLvl="All";
+			if(iLvl>=0)then
+				sLvl=iLvl.ToString();
+			endif;
+			m_pxLevel^.SetText(sLvl);
+		endif;
+
+	endproc;
+	
+	export proc void LoadFromNode(ref CPropDB.CNode p_rxNode)
+		m_pxRegions^.SetText("UniqueWorldRegion");
+		var string sGuid=p_rxNode.GetValueS("rgn_guid","UniqueWorldRegion");
+		if(sGuid.IsEmpty() || (sGuid=="NA"))then
+			sGuid="UniqueWorldRegion";
+		endif;
+		if(sGuid!="UniqueWorldRegion")then
+			var CGuid xGuid;
+			xGuid.FromString(sGuid);
+			var ^CRegionBase pxRgn=CLevelEditorWrap.GetRegionMgr()^.GetRegion(xGuid);
+			if(pxRgn!=null)then
+				sGuid=pxRgn^.GetName();
+			else
+				sGuid="UniqueWorldRegion";
+			endif;
+		endif;
+		m_pxRegions^.SetText(sGuid);	
+		
+		var string sTypes = p_rxNode.GetValueS("obj_type","");
+		var array string asTok;
+		sTypes.Split(asTok,"|",true);
+		var int i, iC = asTok.NumEntries();		
+		for(i=0)cond(i<iC)iter(i++)do
+			var int iIdx = m_pxTypes^.FindItem(asTok[i]);
+			if(iIdx!=-1)then
+				m_pxTypes^.Select(iIdx, i==0);
+			endif;
+		endfor;
+		if(m_pxTypes^.GetNumberOfSelectedItems()<=0)then
+			m_pxTypes^.SelectItemBeginningWithString("All");
+		endif;		
+		
+		var int iOwner=p_rxNode.GetValueI("obj_owner",-2);
+		if(iOwner==-2)then
+			m_pxOwner^.Select(m_pxOwner^.FindItem("All"));
+		else
+			m_pxOwner^.Select(m_pxOwner^.FindItem(iOwner.ToString()));
+		endif;	
+		
+		var string sObjName=p_rxNode.GetValueS("obj_name","NA");
+		if(sObjName.IsEmpty())then sObjName="NA"; endif;
+		if(sObjName=="NA")then
+			var string sObjGuid=p_rxNode.GetValueS("obj_guid","NA");
+			if(sObjGuid!="NA")then
+				var CGuid xGuid;
+				xGuid.FromString(sObjGuid);
+				var ^CObj pxObj=CClientWrap.GetObjMgr().GetObj(xGuid);
+				if(pxObj!=null)then
+					sObjName=pxObj^.GetName();
+				endif;
+			endif;
+		endif;
+		if(sObjName!="NA")then
+			m_pxCheckObject^.SetChecked(1);
+			m_pxObject^.SetText(sObjName);
+		else
+			m_pxCheckObject^.SetChecked(0);
+			m_pxObject^.SetText("");
+		endif;	
+		
+		var string sObjClass=p_rxNode.GetValueS("obj_class","");
+		if(!sObjClass.IsEmpty() && (sObjClass!="NA"))then
+			var array string asClass;
+			sObjClass.Split(asClass,"|",true);
+			var int i, iC = asClass.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var int iIdx = m_pxClass^.FindItem(asClass[i]);
+				if(iIdx!=-1)then
+					m_pxClass^.Select(iIdx, i==0);
+					m_pxCheckClass^.SetChecked(1);
+				endif;
+			endfor;
+		else
+			m_pxCheckClass^.SetChecked(0);
+		endif;
+//			m_pxCheckClass^.SetChecked(1);
+//			m_pxClass^.SetText(sObjClass);
+//		else
+//			m_pxCheckClass^.SetChecked(0);
+//			m_pxClass^.SetText("");
+//		endif;
+
+		var string sExcludeClass = p_rxNode.GetValueS("exclude_class","");
+		if(!sExcludeClass.IsEmpty() && (sExcludeClass!="NA"))then
+			var array string asTok;
+			sExcludeClass.Split(asTok,"|",true);
+			var int i, iC = asTok.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var int iIdx = m_pxExcludeClass^.FindItem(asTok[i]);
+				if(iIdx!=-1)then
+					m_pxExcludeClass^.Select(iIdx, i==0);
+					m_pxCheckExcludeClass^.SetChecked(1);
+				endif;
+			endfor;
+		else
+			m_pxCheckExcludeClass^.SetChecked(0);
+		endif;
+		
+		if(m_pxTribe!=null)then
+			m_pxTribe^.SetText(p_rxNode.GetValueS("char_tribe","All"));
+		endif;
+		if(m_pxCaste!=null)then
+			m_pxCaste^.SetText(p_rxNode.GetValueS("char_caste","All").Left(3));
+		endif;
+		if(m_pxLevel!=null)then
+			var int iLvl=p_rxNode.GetValueI("char_level",-1);
+			var string sLvl="All";
+			if(iLvl>=0)then
+				sLvl=iLvl.ToString();
+			endif;
+			m_pxLevel^.SetText(sLvl);
+		endif;
+	endproc;
+
+	export proc void OnFinish(ref CAttribs po_rxParams)
+		var string sGuid="UniqueWorldRegion";
+		if((m_pxRegions!=null) && (m_pxRegions^.GetText()!=sGuid))then
+			var ^CRegionBase pxRgn=CLevelEditorWrap.GetRegionMgr()^.GetRegion(m_pxRegions^.GetText());
+			if(pxRgn!=null)then
+				sGuid=pxRgn^.GetGUID().ToString();
+			endif;
+		endif;
+		po_rxParams.SetValue(m_sAttrPrefix+"rgn_guid", sGuid);
+
+		var string sType=GetType();
+		po_rxParams.SetValue(m_sAttrPrefix+"obj_type",sType);
+		po_rxParams.SetValue(m_sAttrPrefix+"obj_owner",GetOwner());
+
+		var string sObjGuid="NA";
+		var string sObjName="NA";
+		if((m_pxObject!=null) && IsObjectChecked())then
+			sObjName=m_pxObject^.GetText();
+			var ^CObj pxObj=CClientWrap.GetObjMgr().FindObjByName(sObjName);
+			if(pxObj!=null)then
+				sObjGuid=pxObj^.GetGuid().ToString();
+			endif;
+		endif;
+		po_rxParams.SetValue(m_sAttrPrefix+"obj_guid",sObjGuid);
+		po_rxParams.SetValue(m_sAttrPrefix+"obj_name",sObjName);
+
+		var string sClass="NA";
+		if((m_pxClass!=null) && IsClassChecked())then
+//			sClass=m_pxClass^.GetText();
+			sClass=GetSelectedClass();
+		endif;
+		po_rxParams.SetValue(m_sAttrPrefix+"obj_class",sClass);
+
+		var string sExcludeClass="NA";
+		if((m_pxExcludeClass!=null) && IsExcludeClassChecked())then
+			sExcludeClass=GetSelectedExcludeClasses();
+		endif;
+		po_rxParams.SetValue(m_sAttrPrefix+"exclude_class",sExcludeClass);
+
+		var bool bChtr=(sType=="CHTR");
+		var string sTribe="All";
+		if(bChtr && (m_pxTribe!=null))then
+			sTribe=m_pxTribe^.GetText();
+		endif;
+		po_rxParams.SetValue(m_sAttrPrefix+"char_tribe",sTribe);
+
+		var string sCaste="All";
+		if(bChtr && (m_pxCaste!=null))then
+			sCaste=m_pxCaste^.GetText();
+		endif;
+		po_rxParams.SetValue(m_sAttrPrefix+"char_caste",sCaste);
+
+		var int iLvl=-1;
+		if(bChtr && (m_pxLevel!=null) && (m_pxLevel^.GetText()!="All"))then
+			iLvl=m_pxLevel^.GetText().ToInt();
+		endif;
+		po_rxParams.SetValue(m_sAttrPrefix+"char_level",iLvl);
+	endproc;
+	
+	export proc void SaveToNode(ref CPropDB.CNode p_rxNode)
+		p_rxNode.Clear();
+		var string sGuid="UniqueWorldRegion";
+		if((m_pxRegions!=null) && (m_pxRegions^.GetText()!=sGuid))then
+			var ^CRegionBase pxRgn=CLevelEditorWrap.GetRegionMgr()^.GetRegion(m_pxRegions^.GetText());
+			if(pxRgn!=null)then
+				sGuid=pxRgn^.GetGUID().ToString();
+			endif;
+		endif;
+		p_rxNode.SetValue("rgn_guid", sGuid);
+
+		var string sType=GetType();
+		p_rxNode.SetValue("obj_type",sType);
+		p_rxNode.SetValue("obj_owner",GetOwner());
+
+		var string sObjGuid="NA";
+		var string sObjName="NA";
+		if((m_pxObject!=null) && IsObjectChecked())then
+			sObjName=m_pxObject^.GetText();
+			var ^CObj pxObj=CClientWrap.GetObjMgr().FindObjByName(sObjName);
+			if(pxObj!=null)then
+				sObjGuid=pxObj^.GetGuid().ToString();
+			endif;
+		endif;
+		p_rxNode.SetValue("obj_guid",sObjGuid);
+		p_rxNode.SetValue("obj_name",sObjName);
+
+		var string sClass="NA";
+		if((m_pxClass!=null) && IsClassChecked())then
+//			sClass=m_pxClass^.GetText();
+			sClass=GetSelectedClass();
+		endif;
+		p_rxNode.SetValue("obj_class",sClass);
+
+		var string sExcludeClass="NA";
+		if((m_pxExcludeClass!=null) && IsExcludeClassChecked())then
+			sExcludeClass=GetSelectedExcludeClasses();
+		endif;
+		p_rxNode.SetValue("exclude_class",sExcludeClass);
+
+		var bool bChtr=(sType=="CHTR");
+		var string sTribe="All";
+		if(bChtr && (m_pxTribe!=null))then
+			sTribe=m_pxTribe^.GetText();
+		endif;
+		p_rxNode.SetValue("char_tribe",sTribe);
+
+		var string sCaste="All";
+		if(bChtr && (m_pxCaste!=null))then
+			sCaste=m_pxCaste^.GetText();
+		endif;
+		p_rxNode.SetValue("char_caste",sCaste);
+
+		var int iLvl=-1;
+		if(bChtr && (m_pxLevel!=null) && (m_pxLevel^.GetText()!="All"))then
+			iLvl=m_pxLevel^.GetText().ToInt();
+		endif;
+		p_rxNode.SetValue("char_level",iLvl);
+	endproc;
+
+	proc bool OnTypeChanged()
+		var bool bChtr=(GetType()=="CHTR");
+		if(m_pxTribe!=null)then m_pxTribe^.SetDisabled(!bChtr); endif;
+		if(m_pxCaste!=null)then m_pxCaste^.SetDisabled(!bChtr); endif;
+		if(m_pxLevel!=null)then m_pxLevel^.SetDisabled(!bChtr); endif;
+		FillClassList();
+		return InitObjList();
+	endproc;
+
+	proc bool OnTypesChanged()
+		var bool bChtr=(GetType()=="CHTR");
+		if(m_pxTribe!=null)then m_pxTribe^.SetDisabled(!bChtr); endif;
+		if(m_pxCaste!=null)then m_pxCaste^.SetDisabled(!bChtr); endif;
+		if(m_pxLevel!=null)then m_pxLevel^.SetDisabled(!bChtr); endif;
+		FillClassList();
+		return InitObjList();
+	endproc;
+
+	proc bool InitObjList()
+		if(m_pxObject==null)then return true; endif;
+		m_pxObject^.Clear();
+
+// we have no objquery on client, so we must do it by hand
+		var ^CViewObjFinder pxFinder=CEnhancedMenu.Get().GetObjFinder();
+		if(pxFinder==null)then return true; endif;
+		var ^CList pxList=pxFinder^.GetObjList();
+		if(pxList==null)then return true; endif;
+
+		var string sType=GetType();
+		var array string asTypes;
+		sType.Split(asTypes,"|",false);
+		var int iOwner=GetOwner();
+
+		var int i,iC=pxList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CFinderItemObject pxItem=cast<CFinderItemObject>(pxList^.GetItemData(i));
+			if(pxItem==null)then continue; endif;
+			var CClntHndl xObjHndl=pxItem^.GetHndl();
+			var ^CObj pxObj=xObjHndl.GetObj();
+			if(pxObj==null)then continue; endif;
+			var bool bType=((asTypes.FindEntry("All")!=-1) || (asTypes.FindEntry(pxObj^.GetType().AsString())!=-1));
+			if(	bType &&	((iOwner==-2) || (pxObj^.GetOwner()==iOwner)))then
+				m_pxObject^.AddItem(pxObj^.GetName());
+			endif;
+		endfor;
+
+		m_pxObject^.QSort();
+		StateChanged();
+		return true;
+	endproc;
+
+	export proc ^CObj GetSelectedObj()
+		if (m_pxCheckObject!=null && m_pxObject!=null && m_pxCheckObject^.GetCheckMark()) then
+			var CClntHndl xHndl = CObjHelper.GetObjByName(m_pxObject^.GetSelectedItemAsString());
+			if (xHndl.IsValid()) then return xHndl.GetObj(); endif;
+		endif;
+		return null;
+	endproc;
+
+	export proc string GetSelectedClass()
+//		if (m_pxCheckClass!=null && m_pxClass!=null && m_pxCheckClass^.GetCheckMark()) then
+//			return m_pxClass^.GetText();
+//		endif;
+//		return "";
+		var string sClasses;
+		if(m_pxCheckClass!=null && m_pxClass!=null && m_pxCheckClass^.GetCheckMark())then
+			var int i, iC = m_pxClass^.NumItems();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!m_pxClass^.IsItemSelected(i))then continue; endif;
+				sClasses += m_pxClass^.GetItem(i)+"|";
+			endfor;
+		endif;
+		return sClasses;
+	endproc;
+
+	export proc string GetSelectedExcludeClasses()
+		var string sClasses;
+		if(m_pxExcludeClass!=null)then
+			var int i, iC = m_pxExcludeClass^.NumItems();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!m_pxExcludeClass^.IsItemSelected(i))then continue; endif;
+				sClasses += m_pxExcludeClass^.GetItem(i)+"|";
+			endfor;
+		endif;
+		if(sClasses=="")then
+			sClasses = "NA";
+		endif;
+		return sClasses;
+	endproc;
+
+	export proc CFourCC GetSelectedType()
+		var CFourCC xT = m_pxTypes^.GetSelectedItemAsString();
+		return xT;
+	endproc;
+
+	var array string m_asTmpClassParents,m_asTmpExcludeClassParents;
+
+	proc void FillClassList()
+		m_asTmpClassParents=0;
+
+		var int i, iC = m_pxTypes^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_pxTypes^.IsItemSelected(i))then continue; endif;
+			var string sType=m_pxTypes^.GetItem(i);
+			if(sType=="All" || sType=="AllNC") then
+				m_asTmpClassParents=0;
+			elseif(sType=="CHTR") then
+				m_asTmpClassParents.AddEntry("Character");
+				m_asTmpClassParents.AddEntry("Characters");
+			elseif(sType=="ANML") then
+				m_asTmpClassParents.AddEntry("Animals");
+				m_asTmpClassParents.AddEntry("Products");
+			elseif(sType=="VHCL") then
+				m_asTmpClassParents.AddEntry("Products");
+				m_asTmpClassParents.AddEntry("Vehicles");
+			elseif(sType=="SHIP") then
+				m_asTmpClassParents.AddEntry("Products");
+			elseif(sType=="BLDG") then
+				m_asTmpClassParents.AddEntry("Buildings");
+				m_asTmpClassParents.AddEntry("Walls");
+			elseif(sType=="ITEM") then
+				m_asTmpClassParents.AddEntry("Items");
+			endif;
+		endfor;
+
+		if(m_pxClass==null)then return; endif;
+		m_pxClass^.Clear();
+		var ^CObjClassMgrBase pxObjClassMgr=^(CLevelEditorWrap.GetObjClassMgr());
+		if(pxObjClassMgr==null)then return; endif;
+		FillClassListRec(pxObjClassMgr^.GetRoot());
+		m_pxClass^.QSort();
+
+		if(m_pxExcludeClass==null)then return; endif;
+		m_pxExcludeClass^.Clear();
+		if(pxObjClassMgr==null)then return; endif;
+		FillExcludeClassListRec(pxObjClassMgr^.GetRoot());
+		m_pxExcludeClass^.QSort();
+	endproc;
+
+	proc void FillClassListRec(^CClassNode p_pxWalk)
+		if(m_pxClass==null) then return; endif;
+		if(p_pxWalk==null) then return; endif;
+		var int i,iC=p_pxWalk^.m_axSubs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CClassNode pxWalk=p_pxWalk^.m_axSubs[i];
+			FillClassListRec(p_pxWalk^.m_axSubs[i]);
+		endfor;
+		if(p_pxWalk^.m_iType==1)then
+			if(m_asTmpClassParents.NumEntries()==0 || m_asTmpClassParents.FindEntry(p_pxWalk^.m_pxParent^.m_sName)>=0) then				
+				m_pxClass^.AddItem(p_pxWalk^.m_sName);
+			endif;
+		endif;
+	endproc;
+
+	proc void FillExcludeClassListRec(^CClassNode p_pxWalk)
+		if(m_pxExcludeClass==null) then return; endif;
+		if(p_pxWalk==null) then return; endif;
+		var int i,iC=p_pxWalk^.m_axSubs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CClassNode pxWalk=p_pxWalk^.m_axSubs[i];
+			FillExcludeClassListRec(p_pxWalk^.m_axSubs[i]);
+		endfor;
+		if(p_pxWalk^.m_iType==1)then
+			if(m_asTmpExcludeClassParents.NumEntries()==0 || m_asTmpExcludeClassParents.FindEntry(p_pxWalk^.m_pxParent^.m_sName)>=0) then				
+				m_pxExcludeClass^.AddItem(p_pxWalk^.m_sName);
+			endif;
+		endif;
+	endproc;
+
+	proc bool OnObjectChecked()
+		var bool bOn=IsObjectChecked();
+		if(m_pxObject!=null)then m_pxObject^.SetDisabled(!bOn); endif;
+		if(bOn && (m_pxCheckClass!=null))then m_pxCheckClass^.SetChecked(0); endif;
+		StateChanged();
+		return true;
+	endproc;
+
+	proc bool OnClassChecked()
+		var bool bOn=IsClassChecked();
+		if(m_pxClass!=null)then m_pxClass^.SetDisabled(!bOn); endif;
+		if(bOn && (m_pxCheckObject!=null))then  m_pxCheckObject^.SetChecked(0); endif;
+		StateChanged();
+		return true;
+	endproc;
+
+	proc bool OnExcludeClassChecked()
+		var bool bOn=IsExcludeClassChecked();
+		if(m_pxExcludeClass!=null)then m_pxExcludeClass^.SetDisabled(!bOn); endif;
+		StateChanged();
+		return true;
+	endproc;
+	
+endclass;
+
+class CActionObjSelector inherit CWindow
+	var ^CDropList				m_pxCondition;
+	export var ^CObjSelector	m_pxSelector;
+
+	export var procref<bool>	m_xOnChange;
+
+	export constructor()
+		if(!InitFromResource("Trigger/CommonWindows","ObjSelector_2"))then return; endif;
+
+		m_pxCondition=cast<CDropList>(GetControl("Drop_Condition"));
+		m_pxCondition^.m_xOnChange=OnCondChange;
+
+		m_pxSelector=cast<CObjSelector>(GetControl("ObjSelector"));
+	endconstructor;
+
+	export proc void Init(CGuid p_xGuid)
+		m_pxCondition^.Clear();
+		m_pxCondition^.AddItem("None");
+		var int iIdx=CLevelEditorWrap.GetTriggerDescMgr()^.FindTrigger(p_xGuid);
+		if(iIdx==-1)then return; endif;
+		var ^CTriggerDesc pxTrigger=CLevelEditorWrap.GetTriggerDescMgr()^.GetTrigger(iIdx);
+		if(pxTrigger==null)then return; endif;
+		var int i,iC=pxTrigger^.NumConditions();
+		for(i=0)cond(i<iC)iter(++i)do
+			var ^CTriggerDesc.CCondition pxCond=pxTrigger^.GetCondition(i);
+			if(pxCond^.GetType()=="REGN"||pxCond^.GetType()=="GREG")then
+				var string sCondName=(i+1).ToString()+": "+" ( "+pxCond^.GetType().AsString()+" )  "+pxCond^.GetName();
+				m_pxCondition^.AddItem(sCondName);
+			endif;
+		endfor;
+
+		m_pxSelector^.m_xOnStateChange = m_xOnChange;
+	endproc;
+
+	export proc void Init(CGuid p_xGuid, string p_sAttrPrefix)
+		Init(p_xGuid);
+		m_pxSelector^.SetAttribsPrefix(p_sAttrPrefix);
+	endproc;
+
+	export proc void OnInit(ref CAttribs p_rxParams)
+		var string sCond=(p_rxParams.GetValueInt(m_pxSelector^.GetAttribsPrefix()+"from_condition")+1).ToString();
+		var string sCondText="None";
+		var int i,iC=m_pxCondition^.NumItems();
+		for(i=0)cond(i<iC)iter(++i)do
+			if(m_pxCondition^.GetItem(i).Left(1)==sCond)then
+				sCondText=m_pxCondition^.GetItem(i);
+			endif;
+		endfor;
+		m_pxCondition^.SetText(sCondText);
+
+		m_pxSelector^.OnInit(p_rxParams);
+	endproc;
+
+	export proc void OnFinish(ref CAttribs po_rxParams)
+		var string sCondText=m_pxCondition^.GetText();
+		var int iCondIdx=-1;
+		if(sCondText!="None")then
+			iCondIdx=sCondText.Left(1).ToInt()-1;
+		endif;
+		po_rxParams.SetValue(m_pxSelector^.GetAttribsPrefix()+"from_condition",iCondIdx);
+
+		m_pxSelector^.OnFinish(po_rxParams);
+	endproc;
+
+	proc bool OnCondChange()
+		m_pxSelector^.SetDisabled(m_pxCondition^.GetText()!="None");
+		if (!m_xOnChange.IsNull()) then
+			m_xOnChange.Call();
+		endif;
+		return true;
+	endproc;
+
+	// Returned ob is _only_ valid, if a static object (placed in LE) is selected.
+	export proc ^CObj GetSelectedObj()
+		return m_pxSelector^.GetSelectedObj();
+	endproc;
+
+	export proc string GetSelectedClass()
+		return m_pxSelector^.GetSelectedClass();
+	endproc;
+
+	export proc CFourCC GetSelectedType()
+		return m_pxSelector^.GetSelectedType();
+	endproc;
+
+endclass;
+
+class CObjSelectionList inherit CWindow
+
+	var ^CList				m_pxSelectionList;
+	var ^CButton			m_pxSelectionAdd;
+	var ^CButton			m_pxSelectionDel;
+	var ^CButton			m_pxSelectionClr;
+	var array ^CObj			m_apxSelection;
+
+	export constructor()
+		if(!InitFromResource("Trigger/CommonWindows","ObjSelectionList"))then return; endif;
+		m_pxSelectionList=cast<CList>(GetControl("SelectionList"));
+		m_pxSelectionAdd=cast<CButton>(GetControl("SelectionAdd"));
+		m_pxSelectionDel=cast<CButton>(GetControl("SelectionDel"));
+		m_pxSelectionClr=cast<CButton>(GetControl("SelectionClr"));
+
+
+		// set up list control
+		m_pxSelectionList^.AllowMultiSelection(true);
+		m_pxSelectionList^.AllowScrollBar(true);
+		m_pxSelectionList^.AllowScrollBarHor(false);
+
+		// set up event handlers
+		m_pxSelectionAdd^.m_xOnClick = OnAddSelection;
+		m_pxSelectionDel^.m_xOnClick = OnDelSelection;
+		m_pxSelectionClr^.m_xOnClick = OnClrSelection;
+	endconstructor;
+
+	export proc void OnInit(ref CAttribs p_rxParams, string p_sAttribString)
+		var string sUnits = p_rxParams.GetValue(p_sAttribString);
+		var array string asUnits;
+		sUnits.Split(asUnits,"\n",true);
+		var int i,iC=asUnits.NumEntries();
+		var CGuid xGUID;
+		var ^CObjMgr pxOMgr=^(CClientWrap.GetObjMgr());
+		for(i=0)cond(i<iC)iter(i++)do
+			xGUID.FromString(asUnits[i]);
+			var ^CObj pxObj=pxOMgr^.GetObj(xGUID);
+			if(pxObj!=null)then
+				m_apxSelection.AddEntry(pxObj);
+			endif;
+		endfor;		
+		UpdateSelectionList();
+	endproc;
+
+	export proc void OnFinish(ref CAttribs po_rxParams, string p_sAttribString)
+		// construct unit GUIDs
+		var string sUnits;
+		var int i,iC=m_apxSelection.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CObj pxObj=m_apxSelection[i];
+			if(pxObj!=null)then
+				sUnits += pxObj^.GetGuid().ToString();
+				sUnits += "\n";
+			endif;
+		endfor;
+		po_rxParams.SetValue(p_sAttribString,sUnits);
+	endproc;
+
+	proc bool OnAddSelection()
+		var ^CObjSelection pxSel = ^(CClientWrap.GetSelection());
+		var int i,iC=pxSel^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CObj pxObj=pxSel^[i].GetObj();
+			if(pxObj!=null)then
+				m_apxSelection.AddEntry(pxObj);
+			endif;
+		endfor;
+		UpdateSelectionList();
+		return true;
+	endproc;
+
+	proc bool OnDelSelection()
+		var int i,iC=m_pxSelectionList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_pxSelectionList^.IsItemSelected(i)==true)then
+				var ^CObjListData pxOLD=cast<CObjListData>(m_pxSelectionList^.GetItemData(i));
+				if(pxOLD!=null)then
+					m_apxSelection.RemEntry(pxOLD^.m_pxObj);
+				endif;
+			endif;
+		endfor;
+		UpdateSelectionList();
+		return true;
+	endproc;
+
+	proc bool OnClrSelection()
+		m_apxSelection=0;
+		UpdateSelectionList();
+		return true;
+	endproc;
+
+	proc void UpdateSelectionList()
+		// clear selection list
+		var int i,iC=m_pxSelectionList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CObjListData pxOLD=cast<CObjListData>(m_pxSelectionList^.GetItemData(i));
+			if(pxOLD!=null)then
+				delete pxOLD;
+			endif;
+		endfor;
+		m_pxSelectionList^.Clear();
+		// re-fill selection list
+		iC=m_apxSelection.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CObj pxObj=m_apxSelection[i];
+			if(pxObj!=null)then
+				var int iIdx=m_pxSelectionList^.AddItem(pxObj^.GetName());
+				m_pxSelectionList^.SetItemData(iIdx,new CObjListData(pxObj));
+			endif;
+		endfor;
+	endproc;
+
+endclass;
+
+
+class CObjsInWorldTreeCtrl inherit CTreeCtrl
+	
+	export const int		SORT_OWNER_FIRST	= 1;
+	export const int		SORT_FOURCC_FIRST	= 2;
+	
+	const int				SORT_DEFAULT		= 2;
+	
+	class CObjItem inherit CItemData
+		export var CClntHndl m_xHndl;
+	endclass;
+	
+	var array CObjItem 	m_axItems;
+	var int				m_iSortType;
+	
+	export constructor()
+		m_iSortType = SORT_DEFAULT;
+		InitObjList(m_iSortType);
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	
+	export proc void SetSortType(int p_iType)
+		m_iSortType = p_iType;
+		InitObjList(m_iSortType);
+	endproc;
+	
+	export proc void OnInit(string p_sObject)
+		var int iItem = FindItem(0, p_sObject);
+		if(iItem>0) then 
+			Select(iItem);
+			EnsureVisible(iItem);
+		endif;
+	endproc;
+	
+	proc bool InitObjList(int p_iType)
+		m_axItems=0;
+		Clear();
+		
+		var int iRoot = AddItem(0, "Objects");
+		
+		var ^CViewObjFinder pxFinder=CEnhancedMenu.Get().GetObjFinder();
+		if(pxFinder==null)then return true; endif;
+		var ^CList pxList=pxFinder^.GetObjList();
+		if(pxList==null)then return true; endif;
+
+		var int i,iC=pxList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CFinderItemObject pxItem=cast<CFinderItemObject>(pxList^.GetItemData(i));
+			if(pxItem==null)then continue; endif;
+			var CClntHndl xObjHndl=pxItem^.GetHndl();
+			var ^CObj pxObj=xObjHndl.GetObj();
+			if(pxObj==null)then continue; endif;
+			
+			var string sParent;
+			if(p_iType==SORT_OWNER_FIRST) then
+				sParent = pxObj^.GetOwner().ToString();
+			elseif(p_iType==SORT_FOURCC_FIRST) then
+				sParent = pxObj^.GetType().AsString();
+			endif;
+			
+			var int iItem=0;
+			iItem = FindItem(iRoot, sParent);
+			if(iItem<=0) then
+				iItem = AddItem(iRoot, sParent);
+			endif;
+			
+			var ^CObjItem pxI = ^(m_axItems.NewEntryRef());
+			pxI^.m_xHndl=xObjHndl;
+			AddItem(iItem, pxObj^.GetName(), pxI);			
+		endfor;
+		return true;
+	endproc;
+	
+	export proc CClntHndl GetSelectedObject()
+		var int iSel = GetSelectedItem();
+		if(iSel>0) then
+			var ^CObjItem pxItem = cast<CObjItem>(GetItemData(iSel));
+			if(pxItem!=null) then
+				return pxItem^.m_xHndl;
+			endif;
+		endif;
+		var CClntHndl xInvalid;
+		return xInvalid;
+	endproc;
+	
+endclass;
+
+class CVarEdit inherit CEdit
+	
+	export const bitset NUMERIC_INPUT 		= 01h;
+	export const bitset ALPHABETIC_INPUT 	= 02h;
+	export const bitset ALPHANUMERIC_INPUT 	= 03h;
+	
+	var bitset m_dwAllowedInput;
+	var string m_sLastText;
+	
+	class CVarInfo
+		export var string m_sName;
+		export var string m_sType;
+	endclass;
+	
+	var array CVarInfo m_axVars;
+	
+	export constructor()
+		m_dwAllowedInput = ALPHANUMERIC_INPUT;
+		m_xOnChange = OnEnterChar;
+		LoadVars();
+	endconstructor;
+	
+	export proc void SetAllowedInput(bitset p_dwAllowed)
+		m_dwAllowedInput = p_dwAllowed;
+	endproc;
+	
+	proc bool FindPossibleVar(string p_sNamepart, ref string po_rsName, ref string po_rsType)
+		var int iNPChars = p_sNamepart.GetLength();
+		var int i, iC = m_axVars.NumEntries();
+		for(i=0) cond(i<iC) iter(++i) do
+			var ^CVarInfo pxVI = ^(m_axVars[i]);
+			if(pxVI^.m_sName.Left(iNPChars).CompareNoCase(p_sNamepart)==0) then
+				var string sType = pxVI^.m_sType;
+				if((m_dwAllowedInput&ALPHANUMERIC_INPUT)!=ALPHANUMERIC_INPUT) then
+					if((m_dwAllowedInput&NUMERIC_INPUT)!=0b) then
+						if(sType!="int" && sType!="float" && sType!="bool") then
+							
+							continue;
+						endif;
+					elseif((m_dwAllowedInput&ALPHABETIC_INPUT)!=0b) then
+						if(sType!="string") then
+							KLog.LogSpam("MaZi", " * ... "+sType);
+							continue;
+						endif;
+					endif;
+				endif;
+				po_rsName = pxVI^.m_sName;
+				po_rsType = sType;
+				return true;
+			endif;
+		endfor;
+		po_rsName = "";
+		po_rsType = "";
+		return false;
+	endproc;
+	
+	proc void LoadVars()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxNode = pxLevelInfo^.GetGenericData().FindNode("Variables", false);
+		if(pxNode!=null)then
+			var int i, iC = pxNode^.NumSubs();
+			for(i=0) cond(i<iC) iter(++i) do
+				var ^CPropDB.CNode pxSub = ^(pxNode^.Get(i));
+				var ^CVarInfo pxVI = ^(m_axVars.NewEntryRef());
+				pxVI^.m_sName = pxSub^.Name();
+				pxVI^.m_sType = pxSub^.GetValueS("type");
+			endfor;
+		endif;
+	endproc;
+	
+	proc bool CheckVar(string p_sVarName, ref string po_rsMsg)
+		var int i, iC = m_axVars.NumEntries();
+		for(i=0) cond(i<iC) iter(++i) do
+			var ^CVarInfo pxVI = ^(m_axVars[i]);
+			if(pxVI^.m_sName == p_sVarName) then
+				var string sType = pxVI^.m_sType;
+				if((m_dwAllowedInput&ALPHANUMERIC_INPUT)!=ALPHANUMERIC_INPUT) then
+					if((m_dwAllowedInput&NUMERIC_INPUT)!=0b) then
+						if(sType!="int" && sType!="float" && sType!="bool") then
+							po_rsMsg = "Wrong variable type. Numeric type expected.";
+							return false;
+						endif;
+					elseif((m_dwAllowedInput&ALPHABETIC_INPUT)!=0b) then
+						if(sType!="string") then
+							po_rsMsg = "Wrong variable type. String type expected.";
+							return false;
+						endif;
+					endif;
+				endif;
+				return true;
+			endif;
+		endfor;
+		po_rsMsg = "No Variable '" + p_sVarName + "' found";
+		return false;
+	endproc;
+	
+	export proc void SetText(string p_sText)
+		m_xOnChange.Clear();
+		super.SetText(p_sText);
+		m_xOnChange = OnEnterChar;
+	endproc;
+	
+	proc bool OnEnterChar()
+		
+		var string sText = GetText();
+		var int iIdx = sText.Find("$(");
+		if(iIdx<0) then return true; endif;
+		if(sText.GetLength()==iIdx+2) then return true; endif;
+		
+		var string sNamePart = sText.Mid(iIdx+2);
+		if(sNamePart.GetLength()<3) then return true; endif;
+		
+		m_xOnChange.Clear();	
+		var string sVar, sType;
+		if(FindPossibleVar(sNamePart, sVar, sType)) then
+			KLog.LogSpam("MaZi", "Possible = "+sVar);
+			//sVar+=")";
+			
+			var int iCursorPos = GetCursorIndex();
+			
+			var string sNewText = sText.Left(iCursorPos);
+			sNewText += sVar.Mid(sNamePart.GetLength());
+			var int iTextLen = sNewText .GetLength();
+			super.SetText(sNewText);
+			SetCursorIndex(iCursorPos);
+			SetSelection(iCursorPos, iTextLen - iCursorPos);
+		endif;			
+		m_xOnChange = OnEnterChar;
+		return true;
+	endproc;
+	
+	export proc bool Validate(ref string po_rsMsg)
+		var	string sT = GetText();
+		var int iIdx = sT.Find("$("); 
+		if(iIdx<0) then return true; endif;
+		iIdx+=2;
+		var int iEnd = sT.Find(')');
+		if(iEnd<0) then
+			po_rsMsg = "No closing parenthesis found.";
+			return false;
+		endif;
+		
+		var string sV = sT.Mid(iIdx, iEnd-iIdx);
+		KLog.LogSpam("MaZi", "Var = "+sV);
+		return CheckVar(sV, po_rsMsg);
+	endproc;
+	
+endclass;

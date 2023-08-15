@@ -1,0 +1,232 @@
+class CBabbageMinigun inherit CSpecialActionTask
+	
+	//Badgun Tuning: Babbage Special Move
+	const real				RANGE = 35.0;
+	const real				ANGLE = 30.0;
+	const real				DAMAGE_PERCENT = 30.0;
+	const real				DAMAGE_MINIMAL = 150.0;
+	const real				DAMAGE_MAXIMAL = 3000.0;
+	
+	var CObjHndl			m_xCharacter;
+	var CObjHndl			m_xTarget;
+	var string				m_sState;
+	var int						m_iRetryCounter;
+	var array string	m_asValidTargets;
+	var vec3					m_vPos;
+	
+	export constructor()
+		SetName("BabbageM");
+		SetCivil(false);
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="BBMG";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xCharacter.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_iRetryCounter;
+		var int i,iC=m_asValidTargets.NumEntries();
+		(pxArc^) << iC;
+		for(i=0) cond(i<iC) iter(i++) do
+			(pxArc^) << m_asValidTargets[i];
+		endfor;
+		(pxArc^) << m_vPos;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="BBMG")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xCharacter.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_iRetryCounter;
+			var int i,iC;
+			(pxArc^) << iC;
+			m_asValidTargets=iC;
+			for(i=0) cond(i<iC) iter(i++) do
+				(pxArc^) << m_asValidTargets[i];
+			endfor;
+			if(p_pxReaderNode^.GetVersion()>=2)then
+				(pxArc^) << m_vPos;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xCharacter,CObjHndl p_xTarget, vec3 p_vPos, string p_sPath)
+		m_sState="goto_target";
+		if(!p_xCharacter.IsValid()||(!p_xTarget.IsValid() && p_vPos=={0.0,0.0,0.0}))then
+			m_sState="EndTask";
+			return false;
+		endif;
+		if(p_xTarget.IsValid() && p_xTarget.GetObj()^.GetOwner()==p_xCharacter.GetObj()^.GetOwner())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xCharacter = p_xCharacter;
+		m_xTarget = p_xTarget;
+		m_vPos = p_vPos;
+		SetSpecialActionPath(p_sPath);
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xCharacter.GetObj());
+		if(pxFightingObj==null || !pxFightingObj^.CheckSpecialActionTimer(GetSpecialActionPath()))then
+			EndTask();
+			return;
+		endif;
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		var ^CFightingObj pxTarget = cast<CFightingObj>(m_xTarget.GetObj());
+		if(pxCharacter==null)then EndTask(); return; endif;
+		if(m_sState == "goto_target")then
+			var real fAttackRange = pxCharacter^.GetAttackRange();
+			var bool bInvalid;
+			var CObjHndl xInvalid;
+			if(pxTarget!=null)then
+				if(!pxCharacter^.IsInCombatRange(pxTarget, bInvalid, xInvalid))then
+					if(pxCharacter^.GetOnWall())then
+						EndTask();return;
+					endif;
+					pxCharacter^.AdvanceAction(pxTarget^.GetHandle(),fAttackRange,pxCharacter^.GetDefaultSpeed());
+				endif;
+			else
+				if(!pxCharacter^.IsInScapeCombatRange(m_vPos, bInvalid))then
+					if(pxCharacter^.GetOnWall())then
+						EndTask();return;
+					endif;
+					pxCharacter^.AdvanceAction(CObjHndl.Invalid(),fAttackRange,pxCharacter^.GetDefaultSpeed(),pxCharacter^.GetWalkSet(),99999.9,pxCharacter^.GetPos(),m_vPos);
+				endif;
+			endif;
+			m_sState = "rotate";
+			var CFourCC xLink = "HndR";
+			pxCharacter^.SetLinkGFX(xLink, "babbage_minigun");
+		elseif(m_sState == "rotate")then
+			var bool bInvalid;
+			var CObjHndl xInvalid;
+			var bool bContinue=false;
+			if(pxTarget!=null)then
+				if(!pxCharacter^.IsInCombatRange(pxTarget, bInvalid, xInvalid))then
+					if(m_iRetryCounter>3)then
+						EndTask();
+						return;
+					else
+						m_iRetryCounter++;
+						m_sState = "goto_target";
+						return;
+					endif;
+				else
+					m_vPos=pxTarget^.GetPos();
+					bContinue=true;
+				endif;
+			else
+				if(!pxCharacter^.IsInScapeCombatRange(m_vPos, bInvalid))then
+					if(m_iRetryCounter>3)then
+						EndTask();
+						return;
+					else
+						m_iRetryCounter++;
+						m_sState = "goto_target";
+						return;
+					endif;
+				else
+					bContinue=true;
+				endif;
+			endif;
+			if(bContinue)then
+				var vec3 vDir=m_vPos-pxCharacter^.GetPos();
+				var Quat qTRot;
+				qTRot.FromXYDir(vDir.GetX(),vDir.GetY());
+				pxCharacter^.RotateAction(qTRot);
+				m_sState = "throw";
+				m_iRetryCounter = 0;
+				if(!StartSpecialActionTimer(pxCharacter))then EndTask();return;endif;
+				pxCharacter^.MemorizeCurrentFightState(m_xTarget,true,false);
+				SetUnStoppable(true);
+				return;
+			endif;
+		elseif(m_sState == "throw")then
+			if(m_iRetryCounter>=7)then
+				m_sState = "finished";
+				pxCharacter^.SetSLEAnim("babbage_minigun", 4, false, true);
+			else
+				m_iRetryCounter++;
+				pxCharacter^.SetSLEAnim("babbage_minigun", 4, m_iRetryCounter==0, false);
+			endif;
+			var CObjList xList;
+			var real fHitDelay=pxCharacter^.GetHitDelay();
+			pxCharacter^.GetPenetratedObjs(m_vPos, RANGE, xList, ANGLE);
+			var int i, iC = xList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxFight = cast<CFightingObj>(xList[i].GetObj());
+				if(pxFight!=null)then
+					var real fDamageFactor = (Math.Clamp((pxFight^.GetHitpoints()*0.01)*DAMAGE_PERCENT,DAMAGE_MINIMAL,DAMAGE_MAXIMAL) / pxCharacter^.GetDmg())*0.125;
+					pxFight^.ClearDamageCache();
+					pxFight^.TakeDmg(pxCharacter, true, fDamageFactor, fHitDelay, 100.0);
+				endif;
+			endfor;
+
+/*			var ^CArrow pxArrow=cast<CArrow>(CSrvWrap.GetObjMgr()^.CreateObj("babbage_pistol_arrow",pxCharacter^.GetOwner(),pxCharacter^.GetProjectileStartPos()));
+			if(pxArrow!=null)then
+				pxArrow^.SetXtraDelay(pxCharacter, pxTarget, 0.0f);
+				pxArrow^.LinkAction(pxCharacter^.GetHandle(),pxCharacter^.GetProjectileLink());
+			endif;
+*/
+		elseif(m_sState == "finished")then
+			SetUnStoppable(false);
+			pxCharacter^.ShowWeapons();
+			m_sState="EndTask";
+			pxCharacter^.ReturnToFight();
+			return;
+		elseif(m_sState == "finished")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CFightingObj pxFighter = cast<CFightingObj>(m_xCharacter.GetObj());
+		if(pxFighter!=null)then
+			pxFighter^.ShowWeapons();
+		endif;
+	endproc;
+	
+	export proc bool Break()
+		if(GetUnStoppable())then
+			return false;
+		endif;
+		if (m_xCharacter.IsValid()) then
+			m_xCharacter.GetObj()^.TerminateAction();
+			var ^CFightingObj pxFighter = cast<CFightingObj>(m_xCharacter.GetObj());
+			if(pxFighter!=null)then
+				pxFighter^.ShowWeapons();
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	export proc void Skip()
+	endproc;
+	
+	export proc void EndTask()
+		UpdateAggressionPos(m_xCharacter);
+		var ^CFightingObj pxFighter = cast<CFightingObj>(m_xCharacter.GetObj());
+		if(pxFighter!=null)then
+			pxFighter^.ShowWeapons();
+		endif;
+		super.EndTask();
+	endproc;
+	
+endclass;

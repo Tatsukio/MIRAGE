@@ -1,0 +1,238 @@
+
+class CTimerWnd inherit CStaticCtrl
+
+	const int	HIDE_DELAY 		= 5000;
+	const color STD_COLOR  		= {{225,225,225,255}};
+	const color PASSED_COLOR  	= {{200,50,50,255}};
+
+	var int	m_iWIDTH;
+	var int	m_iHEIGHT;
+
+	var ^CProgressBar 	m_pxProgress;
+	var ^CStaticCtrl	m_pxTimeText;
+	var ^CStaticCtrl	m_pxAdditionalText;
+	var SHWND			m_hAddText;
+	/*
+	var int				m_iCurTime;
+	var int				m_iStartTime;
+	var int				m_iEndTime;
+	
+	*/
+	var CGameTime m_xCurTime;
+	var real	m_fTotalDuration;
+	var real	m_fRemDuration;
+	var bool 	m_bCountUp;
+	var int		m_iUpdateTimerID;
+	var int		m_iHideTimerID;
+	var bool 	m_bTimerNoHide;
+	
+	export constructor()
+		m_iWIDTH = 60 * CGameInst.ms_iUIScaleFactor;
+		m_iHEIGHT = 35 * CGameInst.ms_iUIScaleFactor;
+		m_iUpdateTimerID=-1;
+		m_iHideTimerID=-1;
+		
+		SetSize(m_iWIDTH, m_iHEIGHT);
+		m_pxProgress = new CProgressBar();
+		AddChild(m_pxProgress);
+		m_pxProgress^.SetSize(m_iWIDTH, m_iHEIGHT/2);
+		m_pxProgress^.SetPos(0,0);
+		
+		// TODO: SetBitmaps
+		var string sPath = CGameWrap.GetUrsRelPath()+"/Data/Base/UI/";
+		m_pxProgress^.SetBitmaps(CBitmapPtr.Create(sPath+"bar_a.tga"), CBitmapPtr.Create(sPath+"bar_c.tga"));
+				
+		m_pxTimeText = new CStaticCtrl();
+		m_pxProgress^.AddChild(m_pxTimeText);
+		m_pxTimeText^.SetPos(0,0);
+		m_pxTimeText^.SetSize(m_iWIDTH, m_iHEIGHT/2);
+		m_pxTimeText^.SetTextAlign(1);
+		m_pxTimeText^.SetText("");
+		
+		var ^CDesktop	pxDesktop=CClientWrap.GetDesktop();
+		
+		m_pxAdditionalText = new CStaticCtrl();
+		pxDesktop^.AddChild(m_pxAdditionalText);
+		m_pxAdditionalText^.SetPos(GetPos().GetX(), GetPos().GetY());
+		m_pxAdditionalText^.SetSize(m_iWIDTH*2, m_iHEIGHT);
+		m_pxAdditionalText^.SetTextAlign(1);
+		m_pxAdditionalText^.SetText("");
+		m_pxAdditionalText^.SetTextColor(STD_COLOR);
+		m_pxAdditionalText^.SetVisible(false);
+		m_pxAdditionalText^.SetTextAlign(0);
+		m_hAddText=m_pxAdditionalText^.GetSHWND();
+	endconstructor;
+		
+	export destructor()
+		UnsetTimer(m_iUpdateTimerID);
+		UnsetTimer(m_iHideTimerID);
+		
+		if(m_pxTimeText!=null) then
+			m_pxTimeText^.Destroy();
+		endif;
+		if(m_pxProgress!=null) then
+			m_pxProgress^.Destroy();
+		endif;
+		if(m_pxAdditionalText!=null) then
+			if(CWindowMgr.Get().GetWindow(m_hAddText)!=null)then
+				m_pxAdditionalText=null;
+			endif;
+		endif;
+	enddestructor;
+	
+	export proc void SetPos(int p_iX, int p_iY)
+		super.SetPos(p_iX * CGameInst.ms_iUIScaleFactor, p_iY * CGameInst.ms_iUIScaleFactor);
+		m_pxAdditionalText^.SetPos(p_iX * CGameInst.ms_iUIScaleFactor, p_iY * CGameInst.ms_iUIScaleFactor+(m_iHEIGHT/2));
+	endproc;
+	/*
+	proc int SetTimer(int p_iMS, bool p_bRepeat)
+		var ^CTimerObj pxTimer = CTimeMgr.Get().CreateTimer(CGameTimeSpan.OneMilliSecond()*p_iMS.ToReal(), p_bRepeat);
+		if(pxTimer!=null) then
+			pxTimer^.m_xOnTimer = OnTimerFire;
+			return pxTimer^.GetHndl();
+		endif;
+		return -1;
+	endproc;
+	
+	proc void UnsetTimer(int p_iID)
+		CTimeMgr.Get().DeleteTimer(p_iID);
+	endproc;*/
+	
+	export proc void SetTimerNoHide(bool p_bNoHide)
+		m_bTimerNoHide = p_bNoHide;
+	endproc;
+	
+	export proc void Start(CGameTime p_xCurTime, real p_fTotalDuration, real p_fRemDuration,bool p_bCountUp, bool p_bHold)
+		m_xCurTime=p_xCurTime;
+		m_fTotalDuration=p_fTotalDuration;
+		m_fRemDuration=p_fRemDuration;
+		m_bCountUp=p_bCountUp;
+		UnsetTimer(m_iUpdateTimerID);
+		UnsetTimer(m_iHideTimerID);
+		if(!p_bHold) then
+			m_iUpdateTimerID=SetTimer(100,true);
+		endif;
+		m_pxTimeText^.SetTextColor(STD_COLOR);
+		SetVisible(true);
+		InvalidateContent();
+	endproc;
+	
+	export proc void Stop()
+		UnsetTimer(m_iUpdateTimerID);
+		UnsetTimer(m_iHideTimerID);
+		if(!m_bTimerNoHide) then
+			m_iHideTimerID = SetTimer(HIDE_DELAY, false);		
+		endif;
+	endproc;
+	
+	proc bool OnTimer(int p_iID)
+		if(p_iID==m_iUpdateTimerID)then
+			InvalidateContent();
+			return true;
+		elseif(p_iID==m_iHideTimerID)then
+			SetVisible(false);
+		endif;
+		return super.OnTimer(p_iID);
+	endproc;
+	
+	export proc void SetAdditionalText(string p_sText)
+		m_pxAdditionalText^.SetText(p_sText);
+		m_pxAdditionalText^.SetVisible(!p_sText.IsEmpty());
+	endproc;
+	
+	proc void OnUpdateContent()		
+		var CGameTime xStart=m_xCurTime-(CGameTimeSpan.OneSecond()*(m_fTotalDuration-m_fRemDuration));
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		var real fCur=(xNow-xStart).GetSecondsF();
+		var real fProg=(fCur*100.0f)/m_fTotalDuration;
+		fProg = Math.Clamp(fProg, 0.0f, 100.0f);
+		m_pxProgress^.SetProgress(fProg);
+		
+		
+		var int iValue=fCur.ToInt();
+		if(!m_bCountUp)then
+			iValue=(m_fTotalDuration-fCur).ToInt();
+		endif;		
+		var int iS=iValue%60;
+		var int iM=iValue/60;
+		var int iH=iM/60;
+		iM-=iH*60;
+		var string sText;
+		if(iH>0) then sText+=iH.ToString()+":"; endif;
+		if(iM<10) then sText+="0"; endif;
+		sText+=iM.ToString()+":";
+		if(iS<10) then sText+="0"; endif;
+		sText+=iS.ToString();
+		m_pxTimeText^.SetText(sText);
+		
+		super.OnUpdateContent();		
+	endproc;
+	/*
+	export proc void StopCounter(bool p_bHide)
+		if(m_iUpdateTimerID>=0) then
+			UnsetTimer(m_iUpdateTimerID);
+			m_iUpdateTimerID=-1;
+		endif;
+		if(p_bHide) then
+			SetVisible(false);
+		endif;
+	endproc;
+	
+	export proc void ResumeCounter()
+		if(m_iUpdateTimerID<0) then
+			m_iUpdateTimerID = SetTimer(1000, true);
+		endif;
+	endproc;
+	
+	proc void OnTimerFire(int p_iID)
+		if(p_iID==m_iUpdateTimerID) then
+			if(m_iStartTime>m_iEndTime) then
+				--m_iCurTime;
+			else
+				++m_iCurTime;
+			endif;
+			//Update();
+		elseif(p_iID==m_iHideTimerID) then
+			SetVisible(false);
+			UnsetTimer(m_iHideTimerID);
+			m_iHideTimerID = -1;
+		endif;
+	endproc;
+
+	export proc void Update()
+		var bool bEnd=false;
+		var real fProg = 0.0f;
+		if(m_iStartTime>m_iEndTime) then
+			bEnd = m_iCurTime<=m_iEndTime;
+			var real fOne = (m_iStartTime-m_iEndTime).ToReal()*0.01f;
+			fProg = (m_iStartTime-m_iCurTime).ToReal()/fOne;
+		else
+			bEnd = m_iCurTime>=m_iEndTime;
+			var real fOne = (m_iEndTime-m_iStartTime).ToReal()*0.01f;
+			fProg = (m_iCurTime-m_iStartTime).ToReal()/fOne;
+		endif;
+		fProg = Math.Clamp(fProg, 0.0f, 100.0f);
+		m_pxProgress^.SetProgress(fProg);
+		
+		var int iS=m_iCurTime%60;
+		var int iM=m_iCurTime/60;
+		var int iH=iM/60;
+		iM-=iH*60;
+				
+		var string sText;
+		if(iH>0) then sText+=iH.ToString()+":"; endif;
+		if(iM<10) then sText+="0"; endif;
+		sText+=iM.ToString()+":";
+		if(iS<10) then sText+="0"; endif;
+		sText+=iS.ToString();
+		m_pxTimeText^.SetText(sText);
+		
+		if(bEnd) then
+			UnsetTimer(m_iUpdateTimerID);
+			m_iUpdateTimerID=-1;
+			m_iHideTimerID = SetTimer(HIDE_DELAY, false);
+			m_pxTimeText^.SetTextColor(PASSED_COLOR);
+		endif;
+	endproc;
+	*/
+endclass;

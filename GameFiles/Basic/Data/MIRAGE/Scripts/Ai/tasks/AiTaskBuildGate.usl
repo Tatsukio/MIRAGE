@@ -1,0 +1,337 @@
+///CAiTaskBuildGate
+class CAiTaskBuildGate inherit CAiTask
+
+	var ^CAiBrain				m_pxBrain;
+	var ^CAiSensor				m_pxSensor;
+	var	^CAiWallDef				m_pxWallDef;
+
+	var	vec3					m_vPos;
+	var	int						m_iDir;
+
+	var string					m_sClassName;
+	var	string					m_sSubState;
+
+	var bool					m_bIsWorking;
+
+	var CAiObjWrapList 			m_xWorkers;
+	var CAiObjWrap				m_xGate;
+
+	var string					m_sPlayerID;
+	var int						m_iPlayerID;
+
+	var int						m_iDifficulty;
+	var string					m_sDifficulty;
+
+	export constructor( ^CAiWallDef p_pxWallDef )
+		m_pxBrain				= null;
+		m_pxSensor				= null;
+		m_pxWallDef				= p_pxWallDef;
+
+		m_vPos					= { 0.0f, 0.0f, 0.0f };
+		m_iDir					= -1;
+
+		m_sClassName			= "";
+		m_sSubState				= "Constructed";
+
+		m_bIsWorking			= false;
+
+		m_xWorkers.Clear();
+		m_xGate.FromInt( -1 );
+
+		m_sPlayerID				= "-1";
+		m_iPlayerID				= -1;
+
+		m_sDifficulty			= "0";
+		m_iDifficulty			= 0;
+	endconstructor;
+
+	
+	export destructor()
+		m_sSubState				= "Destructed";
+	enddestructor;
+
+	
+	export proc void Init( ^CAiGoal p_pxGoal )
+		super.Init( p_pxGoal );
+
+		if ( p_pxGoal == null ) then
+			return;
+		endif;
+
+		m_pxBrain = GetGoal()^.GetAiBrain();
+
+		if ( m_pxBrain == null ) then
+			return;
+		endif;
+
+		m_pxSensor = ^(m_pxBrain^.GetSensor());
+
+		if ( m_pxSensor == null ) then
+			return;
+		endif;
+
+		var	^CAiGoalBuildVillageWalls	pxVWGoal = cast<CAiGoalBuildVillageWalls>( p_pxGoal );
+
+		if ( pxVWGoal != null ) then
+			m_sClassName = pxVWGoal^.GetBestGateClass();
+		endif;
+
+		m_sPlayerID 	= ( m_iPlayerID = m_pxBrain^.GetPlayerId() ).ToString();
+
+//		var int iPlayerCount = 1 + m_pxSensor^.GetNumPlayers();
+//		var int iType = 1 + Random.GetInt() % iPlayerCount;
+		var int iType = 1;
+
+		var	^CAiModuleControlDefault	pxCM = cast<CAiModuleControlDefault>( m_pxBrain^.GetControlModule() );
+
+		if ( pxCM == null ) then
+			return;
+		endif;
+
+		if ( pxCM^.GetDifficulty() == "Easy" ) then
+			m_sDifficulty = ( m_iDifficulty = 30 ).ToString();
+		elseif( pxCM^.GetDifficulty() == "Medium" ) then
+			m_sDifficulty = ( m_iDifficulty = 20 ).ToString();
+		else
+			m_sDifficulty = ( m_iDifficulty = 10 ).ToString();
+		endif;
+
+		SetThinkWait( m_iDifficulty + iType );
+
+		var	^CAiTechTree pxTT = GetAiTechTree();
+		var	^CAiNodeInstance pxGateNI = pxTT^.GetNodeInstanceFromPartialName( "BLDG/" + m_sClassName );
+
+		if ( pxGateNI == null ) then
+			return;
+		endif;
+
+		var	^CAiSolution pxGateSol = pxGateNI^.GetSolution( 0 );
+
+		if ( pxGateSol == null ) then
+			return;
+		endif;
+
+		SetSolution( pxGateSol );
+
+		m_sSubState = "Initialized";
+
+		DumpAll();
+	endproc;
+
+	export proc void Shut()
+		super.Shut();
+		m_bIsWorking	= false;
+		m_sSubState		= "Shut";
+	endproc;
+
+	export proc bool Start()
+		if ( GetSolution() == null ) then
+			return( false );
+		endif;
+
+		if ( FindBestGatePosition() == false ) then
+			Abort();
+			return( false );
+		endif;
+
+		if ( IsGateNear( m_vPos, 24.0 ) == true ) then
+			Abort();
+			return( false );
+		endif;
+		
+		SetStarted();
+
+		if ( TryAllocate( GetSolution(), 0, 10, true ) == false ) then
+			Abort();
+			return( false );
+		endif;
+
+		m_bIsWorking = true;
+		m_sSubState = "Started";
+		return true;
+	endproc;
+
+	export proc bool Abort( )
+		m_bIsWorking = false;
+		return( super.Abort() );
+	endproc;
+
+	export proc void EvtAllocationComplete( ^CAiAllocation p_pxAllocation )
+		var	CAiObjWrapList	xWorkers 	= p_pxAllocation^.GetAllObjs();
+		var	int 			iI,
+							iC			= xWorkers.NumEntries();
+
+		m_xWorkers.Clear();
+
+		for(iI=0) cond(iI<iC) iter(++iI)do
+			if ( xWorkers[iI].IsValid() ) then
+				m_xWorkers.AddEntry( xWorkers[iI] );
+			endif;
+		endfor;
+
+		iC = m_xWorkers.NumEntries();
+
+		if ( m_xWorkers.NumEntries() == 0 ) then
+			Abort();
+			return;
+		endif;
+
+		if ( m_pxSensor == null ) then
+			Abort();
+			return;
+		endif;
+
+		if ( m_pxBrain == null ) then
+			Abort();
+			return;
+		endif;
+
+		m_pxSensor^.AddCheckpoint( this, 0, "nobj:" + m_sClassName, 0.0 );
+
+		if ( m_pxSensor^.PlaceGate( m_xWorkers, m_sClassName, m_vPos, m_iDir ) == false ) then
+			Abort();
+			return;
+		endif;
+
+		m_sSubState = "Placing";
+	endproc;
+
+
+	export proc void EvtAllocationFailed( ^CAiAllocation p_pxAllocation )
+		Abort();
+		Start();
+	endproc;
+
+
+	export proc void EvtAllocationDestroyed( ^CAiAllocation p_pxAllocation,int p_iUnitHandle )
+		Abort();
+		Start();
+	endproc;
+
+
+	export proc void EvtCheckpointReached( int p_iCheckpointId, int p_iObjHandle )
+		if ( m_pxSensor == null ) then
+			return;
+		endif;
+
+		if ( p_iCheckpointId == 0 ) then
+			m_xGate.FromInt( p_iObjHandle );
+
+			if ( m_xGate.IsValid() == false ) then
+				Abort();
+				return;
+			endif;
+			m_pxWallDef^.AddGate(m_xGate);
+
+			var	int	iI,
+					iC	= m_xWorkers.NumEntries();
+
+			for(iI=0) cond(iI<iC) iter(++iI)do
+				if ( m_xWorkers[iI].IsValid() && ( m_xWorkers[iI].GetAttribValue( "CurTask" ) == "Idle" ) ) then
+					m_pxSensor^.ExecuteGamePlayCommand( m_xWorkers[iI].GetHandle(), "Build", m_xGate.GetHandle(), m_xGate.GetPos(), "" );
+				endif;
+			endfor;
+			m_pxSensor^.RemoveCheckpoint( this, 0 );
+			m_pxSensor^.AddCheckpoint( this, 1, "atto:" + m_xGate.GetHandle().ToString() + ",CurTask,!=,BuildUpB", 120.0 );
+			m_sSubState = "Building";
+		elseif( p_iCheckpointId == 1 ) then
+			SetCompleted();
+			Shut();
+			m_bIsWorking = false;
+			m_sSubState = "Done";
+			m_pxSensor^.RemoveCheckpoint( this, 1 );
+		else
+			m_pxSensor^.RemoveCheckpoint( this, p_iCheckpointId );
+		endif;
+	endproc;
+
+
+	///EvtAllocationTimeout
+	export proc void EvtCheckpointTimeout(int p_iCheckpointId)
+		if ( m_pxSensor == null ) then
+			return;
+		endif;
+
+		if ( p_iCheckpointId == 0 ) then
+			Abort();
+			m_bIsWorking = false;
+			m_sSubState = "NotPlaced";
+		elseif ( p_iCheckpointId == 1 ) then
+			SetCompleted();
+			Shut();
+			m_bIsWorking = false;
+			m_sSubState = "DoneUnfinished";
+		endif;
+
+		m_pxSensor^.RemoveCheckpoint( this, p_iCheckpointId );
+	endproc;
+
+	export proc bool IsWorking()
+		return m_bIsWorking;
+	endproc;
+
+
+	export proc vec3 GetPosition( )
+		return m_vPos;
+	endproc;
+
+	export proc string GetClassName()
+		return m_sClassName;
+	endproc;
+
+	proc bool FindBestGatePosition()
+		if ( m_pxSensor == null ) then
+			return false;
+		endif;
+
+		if ( m_pxSensor^.GetFirstValidGatePoint( m_sClassName, m_pxWallDef, m_vPos, m_iDir ) == false ) then
+			return false;
+		endif;
+		return true;
+	endproc;
+
+	proc vec3 GetOffset( int p_iDir, real p_fLength )
+		var vec3 vResult;
+		switch(p_iDir)
+			case(0)do vResult.SetXYZ( -p_fLength, -p_fLength, 0.0 ); endcase;
+			case(1)do vResult.SetXYZ( 0.0, -p_fLength, 0.0 ); endcase;
+			case(2)do vResult.SetXYZ( p_fLength, -p_fLength, 0.0 ); endcase;
+			case(3)do vResult.SetXYZ( p_fLength, 0.0, 0.0 ); endcase;
+			case(4)do vResult.SetXYZ( p_fLength, p_fLength, 0.0 ); endcase;
+			case(5)do vResult.SetXYZ( 0.0, p_fLength, 0.0 ); endcase;
+			case(6)do vResult.SetXYZ( -p_fLength, p_fLength, 0.0 ); endcase;
+			case(7)do vResult.SetXYZ( -p_fLength, 0.0, 0.0 ); endcase;
+			case default do endcase;
+		endswitch;
+		return( vResult );
+	endproc;
+
+	proc bool IsGateNear( vec3 p_vPosition, real p_fDistance )
+		var CAiObjQuery xQuery;
+		var CAiObjWrapList xObjList;
+
+		xQuery.SetOwner( m_iPlayerID );
+		xQuery.SetType( "BLDG" );
+		xQuery.SetClass( "hu_palisade_gate", false );
+		xQuery.SetClass( "hu_small_wall_gate", true );
+		xQuery.SetClass( "hu_re_enforced_wall_gate", true );
+		xQuery.SetClass( "aje_bone_palisade_gate", true );
+		xQuery.SetClass( "aje_clay_wall_gate", true );
+		xQuery.SetClass( "ninigi_defense_skewer_gate", true );
+		xQuery.SetClass( "ninigi_palisade_gate", true );
+		xQuery.SetClass( "seas_gate", true );
+		xQuery.SetClass( "seas_wall_gate", true );
+
+		xQuery.RegionCircle( p_vPosition + GetOffset( m_iDir, 4.0f ), p_fDistance );
+		xQuery.Execute( xObjList );
+
+		return( xObjList.NumEntries() > 0 );
+	endproc;
+
+	export proc CAiObjWrap	GetGate( )
+		return( m_xGate );
+	endproc;
+
+	proc void DumpAll( )
+	endproc;
+endclass;

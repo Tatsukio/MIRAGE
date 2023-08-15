@@ -1,0 +1,125 @@
+class CVegetation inherit CDecoObj
+
+	constructor()
+		//Für den ForrestMgr
+		//CSrvWrap.LogError("Vegetation","Tree:  "+GetName()+" Size:	"+GetSize().ToString());
+	endconstructor;
+
+	destructor()
+	enddestructor;
+
+	export proc void OnInit(bool p_bLoad)
+		if(!p_bLoad)then
+			SetType("VGTN");
+		endif;
+	endproc;
+
+endclass;
+
+
+class CTree inherit CVegetation
+
+	var bool m_bChopped;
+	var bool m_bAlive;
+
+	constructor()
+		m_bChopped=false;
+		SetHitable(true);
+	endconstructor;
+
+	destructor()
+	enddestructor;
+
+	export proc void OnInit(bool p_bLoad)
+		//super.OnInit(p_bLoad);
+		var bool bTypeChanged=SetType("TREE");
+
+		if(!p_bLoad||bTypeChanged)then
+			var ^CAttribs pxAttr = InitAttribs();
+			pxAttr^.SetValue("hitpoints",30.0);
+		else
+		endif;
+		//SetSelectable(true);
+		//SetHitable(true);
+		SetPlaceBlocker(true);
+		CSrvWrap.GetPathfinder().AddPFBlocker(this);
+		var ^CAttribs pxAttribs = GetAttribs();
+		if(pxAttribs!=null)then
+			pxAttribs^.SetValue("Plant", true);
+		endif;
+	endproc;
+
+	export proc bool Hit(real p_fHP)
+		var ^CAttribs pxAttr=GetAttribs();
+		var real fValNew=pxAttr^.GetValueFloat("hitpoints")-p_fHP;
+		pxAttr^.SetValue("hitpoints",fValNew);
+		m_bAlive=(fValNew>0.0f);
+//		KLog.LogError("CHP","TreeHP "+fValNew.ToString());
+		return m_bAlive;
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		super.HandleEvent(p_rxEvtPtr);
+		if(p_rxEvtPtr.GetClass()=="Delete")then
+			Delete();
+		elseif(p_rxEvtPtr.GetClass()=="Chop")then
+			Chop();
+		elseif(p_rxEvtPtr.GetClass()=="Bash")then
+			Fall(p_rxEvtPtr.GetBool(0));
+		endif;
+	endproc;
+
+	proc void Chop()
+		if(m_bAlive&&!HasAction()) then
+			AnimAction("treeshake");
+		endif;
+	endproc;
+
+	proc void Fall(bool p_bCreateStump)
+		if(!m_bChopped)then
+			m_bChopped=true;
+			var vec3 vTreePos = GetPos();
+			var string sTreeName = GetClassName();
+			//var string sSetting=CSrvWrap.GetCurLevel()^.GetLevelInfo().GetAttribs().GetValue("Setting");
+			//CSrvWrap.LogError("Vegetation","Setting:  "+sTreeName);
+
+			var ^CGameObj pxTempTree, pxTrunk;
+			pxTempTree=CSrvWrap.GetObjMgr()^.CreateObj(sTreeName+"_Timber",(-1),vTreePos);
+			if (pxTempTree != null) then
+				pxTempTree^.SetRot(GetRot());
+			endif;
+			if(p_bCreateStump) then
+				pxTrunk=CSrvWrap.GetObjMgr()^.CreateObj(sTreeName+"_Stump",(-1),vTreePos);
+				if (pxTrunk != null) then
+					pxTrunk^.SetRot(GetRot());
+					endif;
+			endif;
+
+			Delete();
+		endif;
+	endproc;
+
+	export proc void Fall( ref CObjHndl po_rxLog )
+		if (!m_bChopped) then
+			m_bChopped=true;
+			var vec3 vTreePos 	 = GetPos();
+			var string sTreeName = GetClassName();
+
+			var vec3 vTrunkRot={0.0,0.0,0.0};
+			var ^CGameObj pxTempTree, pxTrunk;
+			pxTempTree=CSrvWrap.GetObjMgr()^.CreateObj(sTreeName+"_Timber",(-1),vTreePos);
+			if (pxTempTree != null) then
+				pxTempTree^.SetRotation(vTrunkRot);
+				po_rxLog = pxTempTree^.GetHandle();
+			endif;
+			pxTrunk=CSrvWrap.GetObjMgr()^.CreateObj(sTreeName+"_Stump",(-1),vTreePos);
+			if (pxTrunk != null) then
+					pxTrunk^.SetRotation(vTrunkRot);
+				endif;
+
+			Delete();
+		endif;
+	endproc;
+
+endclass;
+

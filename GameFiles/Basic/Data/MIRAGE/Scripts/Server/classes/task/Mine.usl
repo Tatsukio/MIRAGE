@@ -1,0 +1,519 @@
+class CMine inherit CGenericHarvest
+
+	var CGameTimeSpan	m_xDuration;
+	var CGameTimeSpan	m_xPickUpDuration;
+	var CGameTimeSpan	m_xDropDuration;
+	var CGameTime		m_xStart;
+	var real			m_fTargetRadius;
+	var int				m_iTick;
+
+	var CFourCC 		m_xFCCWeaponLink;
+	var CObjQuery		m_xDeliverSearch;
+	var CObjQuery		m_xHarvestSiteSearch;
+
+	var CObjList		m_xInvalidHarvestSites;
+	var bool			m_bAllHarvestSitesInvalid;
+
+	var CObjList		m_xInvalidDeliverySites;
+	var bool			m_bAllDeliverySitesInvalid;
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Mine";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xDuration.DoKArc(pxArc^);
+		m_xPickUpDuration.DoKArc(pxArc^);
+		m_xDropDuration.DoKArc(pxArc^);
+		m_xStart.DoKArc(pxArc^);
+		(pxArc^) << m_fTargetRadius;
+		(pxArc^) << m_iTick;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Mine")then
+			if(p_pxReaderNode^.GetVersion()<2) then return; endif;
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xDuration.DoKArc(pxArc^);
+			m_xPickUpDuration.DoKArc(pxArc^);
+			m_xDropDuration.DoKArc(pxArc^);
+			m_xStart.DoKArc(pxArc^);
+			(pxArc^) << m_fTargetRadius;
+			(pxArc^) << m_iTick;
+			m_xFCCWeaponLink="HndR";
+			var ^CFightingObj pxWorker=cast<CFightingObj>(m_xWorker.GetObj());
+			if (pxWorker == null) then return; endif;
+			pxWorker^.AnnounceState("mine");
+			if(pxWorker^.GetClassName().Find("arry_s0")!=-1)then
+				m_sWeapon = "hu_pick";
+			else
+				m_sWeapon = pxWorker^.GetClassName().Left(pxWorker^.GetClassName().Find("_"))+"_pick";
+			endif;
+			m_xDeliverSearch.SetOwner(pxWorker^.GetOwner());
+			m_xDeliverSearch.SetAttribsNeg("CurTask","BuildUpB");
+			m_xDeliverSearch.SetAttribsNeg("ReadyForWork",0);
+			m_xDeliverSearch.SetAttribsPos("stoneDelivery",true);
+			m_xHarvestSiteSearch.SetType("STON");
+			m_xHarvestSiteSearch.SetVisibility(pxWorker^.GetOwner(),true);
+			//KLog.LogWarn("CHP","Mine");
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xWorker,CObjHndl p_xTarget)
+		if(!p_xWorker.IsValid()||(!p_xTarget.IsValid()))then
+			return false;
+		endif;
+		SetName("Mine");
+		m_xWorker=p_xWorker;
+		m_xHarvestSite=p_xTarget;
+		//ChPe: Link Test mit Langschwert
+		m_xFCCWeaponLink="HndR";
+		m_sState="goto_stone";
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if (pxWorker == null) then return false; endif;
+		if(pxWorker^.GetClassName().Find("arry_s0")!=-1)then
+			m_sWeapon = "hu_pick";
+		else
+			m_sWeapon = pxWorker^.GetClassName().Left(pxWorker^.GetClassName().Find("_"))+"_pick";
+		endif;
+		//Check if unit may harvest
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(pxWorker);
+		if(!pxFightingObj^.CanHarvest())then return false;endif;
+		if(pxWorker^.GetClassName().Find("arry_s0")!=-1)then
+			m_sThing = "aje_clay_jug";
+			m_xThingLink = "HndR";
+			m_sWaitAnim = "standing";
+		else
+			SetThing(pxFightingObj^.GetTribeName());
+		endif;
+		var ^CAttribs pxAttr = pxWorker^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+		endif;
+		m_xDeliverSearch.SetOwner(pxWorker^.GetOwner());
+		m_xDeliverSearch.SetAttribsNeg("CurTask","BuildUpB");
+		m_xDeliverSearch.SetAttribsNeg("ReadyForWork",0);
+		m_xDeliverSearch.SetAttribsPos("stoneDelivery",true);
+		m_xHarvestSiteSearch.SetType("STON");
+		m_xHarvestSiteSearch.SetVisibility(pxWorker^.GetOwner(),true);
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel!=null)then
+			var ^CPlayer pxPlayer = pxLevel^.GetPlayer(pxWorker^.GetOwner());
+			var ^CPropDB pxRes;
+			var ^CPropDB.CNode pxResTable;
+			if(pxPlayer!=null)then
+				//If Player exists, take its DB
+				var ^CBasePlayer pxBasePlayer = cast<CBasePlayer>(pxPlayer);
+				pxRes = pxBasePlayer^.GetResourceTable();
+			endif;
+			if(pxRes!=null)then
+				pxResTable = pxRes^.GetRoot().Get("STON");
+			endif;
+			//get all available resources for this tribe
+			m_asResources=0;
+			var int i;
+			if(pxResTable!=null)then
+				for(i=0)cond(i<pxResTable^.NumSubs())iter(i++)do
+					m_asResources.AddEntry((pxResTable^)[i].Name());
+					//KLog.LogError("CHP","MineRes: "+(pxResTable^)[i].Name());
+				endfor;
+			endif;
+			m_afMineVal=m_asResources.NumEntries();
+		endif;
+		m_xDuration = 0.3;
+		m_xPickUpDuration = 0.2;
+		m_xDropDuration = 0.2;
+		m_vCurDelivery = pxWorker^.GetPos();
+		return true;
+	endproc;
+
+	export proc bool OnActionEnd(bool p_bBroken)
+		if(p_bBroken)then
+			ResetCounter();
+		endif;
+		if(m_sState=="drop_stones")then
+			SetWaitAnim();
+		endif;
+		return false;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker==null)then EndTask();return; endif;
+		if(pxWorker^.GetType()!="CHTR")then EndTask();return; endif;
+		var ^CGameObj pxStone=m_xHarvestSite.GetObj();
+		if(pxStone==null)then EndTask();return; endif;
+		if(pxStone^.GetType()!="STON")then EndTask();return; endif;
+		(cast<CFightingObj>(pxWorker)^.HideWeapons());
+		pxWorker^.SetLinkGFX(m_xFCCWeaponLink, m_sWeapon);
+		var ^CCharacter pxChar = cast<CCharacter>(m_xWorker.GetObj());
+		if(pxChar==null)then EndTask(); return; endif;
+		// RT#8432
+		var ^CAttribs pxAttr = pxChar^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+		endif;
+		if(m_asResources.NumEntries()>0)then
+			pxChar^.SetTaskDescription(m_asResources[0]);
+		endif;
+		SetMaxCounter(2);
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		if(m_bAllDeliverySitesInvalid)then
+			EndTask();
+			return;
+		endif;
+		var ^CCharacter	pxWorker;
+		begin CheckWorker;
+			var ^CGameObj pxTmp=m_xWorker.GetObj();
+			if(pxTmp==null)then EndTask();return; endif;
+			pxWorker=cast<CCharacter>(pxTmp);
+		end CheckWorker;
+		var ^CStone pxStone;
+		begin CheckStone;
+			var ^CGameObj pxTmp=m_xHarvestSite.GetObj();
+			if(pxTmp!=null)then
+				pxStone=cast<CStone>(pxTmp);
+			endif;
+		end CheckStone;
+		var int i;
+		begin CheckInventory;
+			var bool bResFull = true;
+			var bool bResEmpty = true;
+			for(i=0)cond(i<m_asResources.NumEntries())iter(i++)do
+				if(!(pxWorker^.ResInvIsFull(m_asResources[i])))then
+					bResFull = false;
+				endif;
+				if(!pxWorker^.ResInvIsEmpty(m_asResources[i]))then
+					bResEmpty = false;
+				endif;
+			endfor;
+			if(m_sState!="drop_stones" && m_sState!="wait_drop_stones")then
+				if(bResFull)then
+					m_sState="goto_deliver";
+				endif;
+				if(pxStone==null)then
+					if(!bResEmpty)then
+						m_sState="goto_deliver";
+					endif;
+				endif;
+			endif;
+		end CheckInventory;
+		//L CSrvWrap.LogSpam("Mine","state: "+m_sState);
+		if(m_sState == "wait_pickup_stones")then
+			var CGameTime xNow = CTimeMgr.Get().GetTime();
+			if((xNow-m_xStart) < m_xPickUpDuration)then
+				return;
+			elseif((xNow-m_xStart) < m_xDuration)then
+				var string sSetting = CSrvWrap.GetCurLevel()^.GetLevelInfo().GetAttribs().GetValue("Setting");
+				pxWorker^.SetLinkGFX(m_xThingLink, m_sThing);
+				return;
+			else
+				pxWorker^.SetLinkGFX(m_xThingLink, m_sThing);
+				m_sState = "goto_deliver";
+			endif;
+		endif;
+		if(m_sState == "wait_drop_stones")then
+			var CGameTime xNow = CTimeMgr.Get().GetTime();
+			if((xNow-m_xStart) < m_xDropDuration)then
+				return;
+			elseif((xNow-m_xStart) < m_xDuration)then
+				pxWorker^.RemLinkGFX(m_xThingLink);
+				return;
+			else
+				pxWorker^.RemLinkGFX(m_xThingLink);
+				if(pxStone!=null)then
+					m_sState = "goto_stone";
+				else
+					m_sState = "find_next_stone";
+				endif;
+			endif;
+		endif;
+		if(m_sState=="goto_stone")then
+			if(pxStone!=null)then
+				m_vCurTarget=pxStone^.GetPos();
+				pxWorker^.GetFreePos(m_vCurTarget);
+				SetCurrentTarget(m_vCurTarget);
+				//CSrvWrap.GetObjMgr()^.GetFreePos(m_vCurTarget,pxWorker,pxStone^.GetPos());
+				if(!IsAlreadyAtTargetPos(pxWorker^.GetPos(), 5.0))then
+					if(pxWorker^.GetOnWall())then
+						pxWorker^.WallWalkAction(m_vCurTarget,true,pxWorker^.GetDefaultSpeed(),false);
+					else
+						pxWorker^.WalkAction(m_vCurTarget,pxWorker^.GetDefaultSpeed(),true);
+					endif;
+				else
+					m_sState="rotate_to_target";
+					USLOnTick(0);
+					return;
+				endif;
+			else
+				m_sState="find_next_stone";
+				return;
+			endif;
+			m_sState="rotate_to_target";
+		elseif(m_sState=="rotate_to_target")then
+			if(pxStone==null)then
+				m_sState="find_next_stone";
+				return;
+			endif;
+			if(!HasArrivedTarget(pxWorker^.GetPos(), 5.0))then
+				if(!CanFollow())then
+					ResetCounter();
+					m_xInvalidHarvestSites.Include(pxStone^.GetHandle());
+					m_sState="find_next_stone";
+					return;
+				else
+					m_sState="goto_stone";
+					return;
+				endif;
+			else
+				var vec3 vDir=pxStone^.GetPos()-pxWorker^.GetPos();
+				var Quat qTRot;
+				qTRot.FromXYDir(vDir.GetX(),vDir.GetY());
+				pxWorker^.SetLinkGFX(m_xFCCWeaponLink,m_sWeapon);
+				pxWorker^.RotateAction(qTRot);
+				m_fProgressStep=pxWorker^.GetResourceInventorySize(m_asResources[0]) / (5.0 /*<-number of loops per full charge*/ * pxWorker^.GetTimeFactor(m_xHarvestSite));
+				m_sState="mine_stone";
+			endif;
+		elseif(m_sState=="mine_stone")then
+			if(pxStone==null)then
+				m_sState="find_next_stone";
+				return;
+			endif;
+			var real fMineAll;
+			for(i=0)cond(i<m_asResources.NumEntries())iter(i++)do
+				m_afMineVal[i]=pxWorker^.GetResInvSpace(m_asResources[i]);
+				fMineAll+=m_afMineVal[i];
+			endfor;
+			var int iNumSteps=Math.F2I(fMineAll/m_fProgressStep);
+			m_sState="add_stone_to_inv";
+			if(fMineAll==0.0f) then
+				m_sState="pickup_stones";
+				return;
+			endif;
+			pxWorker^.AnimAction("hacking_stone",iNumSteps,true,true);
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			m_xLastTick=xNow;
+		elseif(m_sState=="add_stone_to_inv")then
+			if(pxStone==null)then
+				m_sState="find_next_stone";
+				return;
+			else
+				var real fMinedAll=0.0f;
+				for(i=0)cond(i<m_asResources.NumEntries())iter(i++)do
+					var real fMined=pxStone^.Mine(m_afMineVal[i]);
+					pxWorker^.ResInvAdd(m_asResources[i],fMined);
+					fMinedAll+=fMined;
+				endfor;
+				pxStone^.OnUpdateFlags();
+			endif;
+			m_sState="pickup_stones";
+		elseif(m_sState=="find_next_stone")then
+			var CObjList xStones;
+			m_xHarvestSiteSearch.RegionCircle(m_vCurDelivery,100.0);
+			if(m_xHarvestSiteSearch.Execute(xStones))then
+				xStones.SortDistance(pxWorker^.GetPos());
+				while(xStones.NumEntries()>0)do
+					if(m_xInvalidHarvestSites.FindEntry(xStones[0])!=-1)then
+						xStones.DeleteEntry(0);
+						continue;
+					endif;
+					if(!pxWorker^.CheckMaxAutoprodDist(xStones[0])) then
+						xStones.DeleteEntry(0);
+						continue;
+					endif;
+					break;
+				endwhile;
+				if(xStones.NumEntries()>0)then
+					m_xHarvestSite = xStones[0];
+					m_xInvalidHarvestSites.Clear();
+					m_sState = "goto_stone";
+				else
+					if(m_bAllHarvestSitesInvalid)then
+						CSrvWrap.SendGenericEvtToPlayer(pxWorker^.GetOwner(), "NoMoreStone");
+						EndTask();
+						return;
+					else
+						m_bAllHarvestSitesInvalid = true;
+						m_xInvalidHarvestSites.Clear();
+						return;
+					endif;
+				endif;
+			else
+				CSrvWrap.SendGenericEvtToPlayer(pxWorker^.GetOwner(), "NoMoreStone");
+				var bool bResInvEmtpy=true;
+				var int i,iC=m_asResources.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					bResInvEmtpy=bResInvEmtpy&&pxWorker^.ResInvIsEmpty(m_asResources[i]);
+				endfor;
+				if(!bResInvEmtpy)then
+					m_sState="goto_deliver";
+					return;
+				else
+					EndTask();
+					return();
+				endif;
+			endif;
+		elseif(m_sState=="pickup_stones")then
+			pxWorker^.RemLinkGFX(m_xFCCWeaponLink);
+			pxWorker^.SetAnim("pick_up",1);
+			m_xStart = CTimeMgr.Get().GetTime();
+			m_sState = "wait_pickup_stones";
+		elseif(m_sState=="goto_deliver")then
+			var CObjList xDeliveries;
+			CSrvWrap.GetDiplomacyMgr().AddOtherFriendsToSearch(pxWorker^.GetOwner(), m_xDeliverSearch);
+			if(m_xDeliverSearch.Execute(xDeliveries))then
+				xDeliveries.SortDistance(pxWorker^.GetPos());
+				while(xDeliveries.NumEntries()>0)do
+					if(m_xInvalidDeliverySites.FindEntry(xDeliveries[0])!=-1)then
+						xDeliveries.DeleteEntry(0);
+						continue;
+					endif;
+					if(xDeliveries.NumEntries()>1&&!pxWorker^.CheckMaxAutoprodDist(xDeliveries[0])) then
+						xDeliveries.DeleteEntry(0);
+						continue;
+					endif;
+					break;
+				endwhile;
+				if(xDeliveries.NumEntries()<=0)then
+					if(m_bAllDeliverySitesInvalid)then
+						EndTask();
+						return;
+					else
+						m_xInvalidDeliverySites.Clear();
+						m_bAllDeliverySitesInvalid=true;
+						return;
+					endif;
+				endif;
+				var ^CGameObj pxDel=xDeliveries[0].GetObj();
+				m_vCurDelivery = pxDel^.GetPos();
+				m_xCurDelivery = xDeliveries[0];
+				m_vCurTarget=m_vCurDelivery;
+				//L CSrvWrap.LogSpam("Mine","new delivery "+m_vCurTarget.ToString()+" gefunden");
+				m_fTargetRadius = pxDel^.GetRadius();
+				//CSrvWrap.GetObjMgr()^.GetFreePos(m_vCurDelivery,pxWorker,pxDel^.GetPos());
+				if(pxDel!=null)then
+					var string sClass=pxDel^.GetClassName();
+					if(sClass!="aje_resource_collector"&&sClass.Find("_zeppelin")==-1&&sClass!="seas_small_tent")then
+						pxWorker^.GetFreePos(m_vCurDelivery);
+					endif;
+				endif;
+				var CGameObj.CAdvanceActionParams xAWAP;
+				xAWAP.m_fMinDistance=0.0;
+				xAWAP.m_iPrefSpeed=pxWorker^.GetDefaultSpeed();
+				xAWAP.m_xWalkSet="cary";
+				xAWAP.m_vGoalOffset=m_vCurDelivery;
+				var ^CFightingObj pxDelivery=cast<CFightingObj>(m_xCurDelivery.GetObj()^.GetGroupedRootParentObj());
+				if(pxDelivery!=null)then
+					if(pxDelivery^.CanWalk() || pxDelivery^.CanSwim())then
+						SetCurrentTarget(m_xCurDelivery);
+					endif;
+				else
+					SetCurrentTarget(CObjHndl.Invalid());
+				endif;
+				pxWorker^.RemLinkGFX(m_xFCCWeaponLink);
+				pxWorker^.SetLinkGFX(m_xThingLink, m_sThing);
+				SetCurrentTarget(m_vCurDelivery);
+				m_sState="drop_stones";
+				if(!IsAlreadyAtTargetPos(pxWorker^.GetPos(), 5.0))then
+					if(pxWorker^.GetOnWall())then
+						pxWorker^.AdvanceWallAction(CObjHndl.Invalid(),xAWAP,true,false);
+					else
+						pxWorker^.AdvanceAction(CObjHndl.Invalid(),xAWAP);
+					endif;
+				else
+					USLOnTick(0);
+					return;
+				endif;
+			else
+				//L CSrvWrap.LogWarning("Mine","no delivery target found!");
+				EndTask();
+				return;
+			endif;
+		elseif(m_sState=="drop_stones")then
+				if(!m_xCurDelivery.IsValid())then
+					m_sState="goto_deliver";
+					return;
+				endif;
+//			if(!HasArrivedTarget(pxWorker^.GetPos(), 5.0))then
+			if(!HasArrivedTarget(pxWorker^.GetPos(), m_xCurDelivery.GetObj()^.GetRadius()*3.0))then
+				if(!CanFollow())then
+					ResetCounter();
+					m_xInvalidDeliverySites.Include(m_xCurDelivery);
+					m_sState="goto_deliver";
+					return;
+				else
+					m_sState="goto_deliver";
+					return;
+				endif;
+			else
+				var bool bContinue=false;
+				var int i;
+				for(i=0)cond(i<m_asResources.NumEntries())iter(i++)do
+					if(!pxWorker^.ResInvIsEmpty(m_asResources[i]))then
+						bContinue=true;
+						break;
+					endif;
+				endfor;
+				if(!bContinue)then
+					m_sState="search_for_jobs";
+					return;
+				endif;
+				m_xInvalidDeliverySites.Clear();
+				var bool bPutSomethingDown = pxWorker^.CheckInResInvAllPossible(m_xCurDelivery.GetObj());
+/*				var bool bPutSomethingDown = false;
+				for(i=0)cond(i<m_asResources.NumEntries())iter(i++)do
+					if(pxWorker^.ResInvIsEmpty(m_asResources[i]))then
+						bPutSomethingDown = true;
+					elseif(pxWorker^.CheckInResInv(m_asResources[i]))then
+						bPutSomethingDown = true;
+					endif;
+				endfor;
+*/				//L CSrvWrap.LogInfo("Mine","bPutSomethingDown="+bPutSomethingDown.ToString());
+				if(bPutSomethingDown)then
+					var ^CFightingObj pxDelivery = cast<CFightingObj>(m_xCurDelivery.GetObj());
+					if(pxDelivery!=null)then
+						pxDelivery^.AcceptDeliveries();
+					endif;
+					
+					var string sSetting=CSrvWrap.GetCurLevel()^.GetLevelInfo().GetAttribs().GetValue("Setting");
+					pxWorker^.SetLinkGFX(m_xThingLink, m_sThing);
+					pxWorker^.SetAnim("put_down",1);
+					m_xStart = CTimeMgr.Get().GetTime();
+					m_sState="wait_drop_stones";
+					SetCurrentTarget(CObjHndl.Invalid());
+				else
+					pxWorker^.WaitAction(2.0f); //wait 2 secs for free checkin
+					return;
+				endif;
+			endif;
+		else
+			//L CSrvWrap.LogWarning("Mine","invalid state: "+m_sState);
+			EndTask();
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CFightingObj pxWorker=cast<CFightingObj>(m_xWorker.GetObj());
+		if(pxWorker!=null) then 
+			pxWorker^.RemLinkGFX(m_xFCCWeaponLink);
+			pxWorker^.RemLinkGFX(m_xThingLink);
+			pxWorker^.ShowWeapons();
+		endif;
+		var ^CCharacter pxChar = cast<CCharacter>(m_xWorker.GetObj());
+		if(pxChar==null)then return; endif;
+		pxChar^.SetTaskDescription("");
+	endproc;
+
+	export proc bool Break()
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker!=null)then pxWorker^.TerminateAction(); endif;
+		return true;
+	endproc;
+
+endclass;

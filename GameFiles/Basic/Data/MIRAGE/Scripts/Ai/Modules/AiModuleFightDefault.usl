@@ -1,0 +1,1205 @@
+///class CAiModuleFightDefault inherit IAiModuleFight
+class CAiModuleFightDefault inherit IAiModuleFight
+
+	//class CAiAttack
+	class CAiAttack
+		export var ^CAiGoal			m_pxGoal;
+		export var ^CAiAttackInfo	m_pxInfo;
+	endclass;
+
+	var array CAiAttack				m_axAttacks;
+	var ^CAiBrain					m_pxBrain;
+	var ^CAiSensor					m_pxSensor;
+	var CAiGoalKindergarten			m_xKindergarten;
+	var CAiGoalDisturbAttack		m_xDisturbAttack;
+	var CAiGoalKotH					m_xGoalKotH;
+	var CAiObjWrapList				m_xKotHList;
+	var CAiObjWrapList				m_xDefList;
+	var ^CAiModuleDefenseDefault 	m_pxDM;
+	
+	var real						m_fAggressiveness;
+	var real						m_fRiskiness;
+	
+	var string						m_sAttackType;	
+	var string						m_sPlayerID;
+	var string						m_sGameType;
+	var	string						m_sLevelName;
+	
+	var bool						m_bFinished;
+	var bool						m_bIsActive;
+	var bool						m_bKotH;
+	var bool						m_bTimerAttack;
+	
+	var int							m_iPlayerID;
+	var int							m_iAttackerID;
+	var int							m_iMaxAttacks;
+	var int							m_iDifficulty;
+	
+	
+	///constructor
+	export constructor()
+		m_fAggressiveness=100.0;
+		m_fRiskiness=100.0;
+		m_iMaxAttacks=3;
+		SetAttackHasFinished(true);
+		m_bTimerAttack=false;
+	endconstructor;
+
+
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain,bool p_bReInit)
+		super.Init(p_pxBrain,p_bReInit);
+		if(p_pxBrain==null)then return false; endif;
+		
+		m_pxBrain=p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null)then return false; endif;
+				
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(pxCM^.GetDifficultyInt()+iType);
+		
+		m_iDifficulty=pxCM^.GetOldDifficultyInt();
+		
+		m_pxDM=cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		
+		m_sGameType=CAiUtilityMgr.Get()^.GetGameType(m_pxBrain);
+		m_bKotH=CAiUtilityMgr.Get()^.GetKothSectors(m_pxBrain, m_xKotHList);
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		
+		m_xDisturbAttack.Init(m_pxBrain);
+		AddGoal(^m_xDisturbAttack);
+		m_xDisturbAttack.Activate();
+		
+		m_xKindergarten.Init(m_pxBrain);
+		AddGoal(^m_xKindergarten);
+		m_xKindergarten.Activate();
+						
+		m_xGoalKotH.Init(m_pxBrain,m_xKotHList);
+		AddGoal(^m_xGoalKotH);
+		m_xGoalKotH.Activate();
+		m_xDisturbAttack.SetKotHGoal(^m_xGoalKotH);
+		
+		var CAiObjQuery xDefenderObjQuery;
+		xDefenderObjQuery.SetClass("defender_object");
+		xDefenderObjQuery.Execute(m_xDefList);
+		
+		m_bIsActive = true;
+		return true;
+	endproc;
+
+
+	///SetActive
+	export proc void SetActive(bool p_bIsActive)
+		m_bIsActive = p_bIsActive;
+	endproc;
+	
+
+	///shut
+	export proc void Shut()
+		if(m_pxBrain==null)then return; endif;
+		m_xDisturbAttack.Shut();
+		RemoveGoal(^m_xDisturbAttack);
+
+		m_xKindergarten.Shut();
+		RemoveGoal(^m_xKindergarten);
+		
+		m_xGoalKotH.Shut();
+		RemoveGoal(^m_xGoalKotH);
+
+		while(NumGoals()>0)do
+			var ^CAiGoal pxGoal=GetGoal(0);
+			pxGoal^.Shut();
+			RemoveGoal(pxGoal);
+			delete pxGoal;
+		endwhile;
+		
+		m_axAttacks=0;
+		super.Shut();
+	endproc;
+
+
+	///set behavior
+	export proc bool SetBehavior(string p_sBehavior)
+		var array string asTokens;
+		p_sBehavior.Split(asTokens," ",false);
+		if(asTokens.NumEntries() < 1)then
+			return false;
+		endif;
+		if(asTokens[0]=="enable")then
+			return true;
+		elseif(asTokens[0]=="disable")then
+			m_bIsActive=false;
+			m_xKindergarten.Deactivate();
+			m_xDisturbAttack.Deactivate();
+			m_xGoalKotH.Deactivate();
+			return true;
+		elseif(asTokens[0]=="aggressiveness")then
+			if(asTokens.NumEntries() < 2)then
+				return false;
+			endif;
+			m_fAggressiveness = Math.Clamp(asTokens[1].ToReal(),0.0,100.0);
+			if(m_fAggressiveness>50.0)then m_xDisturbAttack.Activate(); endif;
+			SetExtraData("Aggressiveness: "+m_fAggressiveness.ToString()+"\nRiskiness: "+m_fRiskiness.ToString()+"\nAI type: "+m_sAttackType);
+			return true;
+		elseif(asTokens[0]=="riskiness")then
+			if(asTokens.NumEntries() < 2)then
+				return false;
+			endif;
+			m_fRiskiness = Math.Clamp(asTokens[1].ToReal(),0.0,100.0);
+			SetExtraData("Aggressiveness: "+m_fAggressiveness.ToString()+"\nRiskiness: "+m_fRiskiness.ToString()+"\nAI type: "+m_sAttackType);
+			return true;
+		elseif(asTokens[0]=="tactics")then
+			if(asTokens.NumEntries() < 2)then
+				return false;
+			endif;
+			m_sAttackType = asTokens[1];
+			m_xDisturbAttack.SetTactics(asTokens[1]);
+		elseif(asTokens[0]=="EnableDisturbAttack")then
+			m_xDisturbAttack.Activate();
+		elseif(asTokens[0]=="EnableAiKotH")then
+			if(asTokens.NumEntries()<2)then
+				return false;
+			endif;
+			var bool bEnable = (asTokens[0] == "true");
+			m_bKotH = bEnable;
+			m_xDisturbAttack.SetKotHMode(bEnable);
+			m_xGoalKotH.SetAiKotHTriggerMode(bEnable);
+		endif;
+		
+		return true;
+	endproc;
+
+
+	///RequestPestPatrol
+	export proc bool RequestPestPatrol(vec3 p_vDeathPos)
+		if(p_vDeathPos=={0.0, 0.0, 0.0})then return false; endif;
+		return m_xDisturbAttack.RequestPestPatrol(p_vDeathPos);
+	endproc;
+	
+	
+	
+	///start attack
+	proc ^CAiGoal StartAttack(^CAiAttackInfo p_pxAttackInfo)
+		if(m_pxSensor==null)then return null; endif;
+		if(m_pxBrain==null)then return null; endif;
+		if(p_pxAttackInfo==null)then return null; endif;
+		if(m_pxDM==null)then return null; endif;
+				
+		if(m_pxDM^.IsDefending())then 
+			if(p_pxAttackInfo^.GetStrategy()!="pyramid"&&p_pxAttackInfo^.GetStrategy()!="quick"&&p_pxAttackInfo^.GetStrategy()!="getitem")then
+				return null; 
+			endif;
+		endif;
+		
+		var string sTargetObjOnly, sSpawn, sAttackOnTheWay;
+		var int i,iCurAttacks=m_axAttacks.NumEntries();
+		var string sStrategy=p_pxAttackInfo^.GetStrategy();
+		
+		for(i=0)cond(i<iCurAttacks)iter(i++)do
+			if(m_axAttacks[i].m_pxGoal==null)then 
+				return null; 
+			endif;	
+			if(!m_axAttacks[i].m_pxGoal^.IsActive())then continue; endif;
+			
+			if(m_axAttacks[i].m_pxInfo^==p_pxAttackInfo^)then
+				p_pxAttackInfo^.GetResult()="repeating attack request ignored";
+				return null;
+			
+			elseif((m_axAttacks[i].m_pxInfo^.GetStrategy()==sStrategy)&&(sStrategy!="pyramid"))then	
+				p_pxAttackInfo^.GetResult()="repeating attack request ignored";
+				return null;
+			endif;
+		
+		endfor;
+		
+		if(iCurAttacks>=m_iMaxAttacks)then
+			p_pxAttackInfo^.GetResult()="maximum attack count reached";
+			return null;
+		endif;
+			
+		var ^CAiGoal pxReturn;		
+		var array vec3 avWaypoints;
+
+		if(sStrategy=="siege")then
+			var int iL, iLC = m_axAttacks.NumEntries();
+			for(iL=0)cond(iL<iLC)iter(iL++)do
+				if(m_axAttacks[iL].m_pxInfo^.GetStrategy()=="siege")then
+					var ^CAiGoalSiegeAttack pxGoal = cast<CAiGoalSiegeAttack>(m_axAttacks[iL].m_pxGoal);
+					if(pxGoal!=null)then
+						RemoveGoal(pxGoal);
+						pxGoal^.Shut();
+						delete pxGoal;
+						m_axAttacks.DeleteEntry(iL);
+						iL--; iLC--;
+					endif;
+				endif;
+			endfor;
+		endif;
+		
+		if(!m_pxSensor^.GetMultimap()&&(sStrategy=="auto"||sStrategy==""))then
+			p_pxAttackInfo^.SetStrategy("quick");
+		elseif((m_sLevelName=="Single 01"||m_sLevelName=="Single 02"||m_sLevelName=="Single 03"||m_sLevelName=="Single 04"||
+		m_sLevelName=="Single 05"||m_sLevelName=="Single 06"||m_sLevelName=="Single 07"||m_sLevelName=="Single 08"||
+		m_sLevelName=="Single 09"||m_sLevelName=="Single 10"||m_sLevelName=="Single 11"||m_sLevelName=="Single 12"||
+		m_sLevelName=="Single 13"||m_sLevelName=="Single 14"||m_sLevelName=="Single 15"||m_sLevelName=="Single 16"||
+		m_sLevelName=="Single B41"||m_sLevelName=="Single B42"||m_sLevelName=="Single B43")&&(sStrategy=="auto"||sStrategy==""))then
+			p_pxAttackInfo^.SetStrategy("quick");
+		endif;
+				
+		if(sStrategy!="quick"&&sStrategy!="pyramid")then
+			var int iWarpgateOwner=m_xDisturbAttack.GetWarpgateHuntOwner();	
+			if((iWarpgateOwner!=(-1)))then
+				var CAiObjWrapList xList=p_pxAttackInfo^.GetTargets();
+				var int k, iC=xList.NumEntries();
+				var int iTargetOwner=(-1);
+				if(iC>0)then
+					for(k=0)cond(k<iC)iter(k++)do
+						if(xList[k].IsValid())then
+							iTargetOwner=xList[k].GetOwner();
+							break;
+						endif;
+					endfor;
+								
+					if(iWarpgateOwner!=iTargetOwner)then
+						if(iWarpgateOwner!=m_iPlayerID)then
+							return null;	
+						endif;
+					endif;
+				endif;
+			endif;
+		endif;
+				
+		if(sStrategy=="blitz")then
+			var ^CAiGoalBlitzAttack pxAttack = new CAiGoalBlitzAttack;
+			pxAttack^.Init(m_pxBrain);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="rider")then
+			var ^CAiGoalRiderAttack pxAttack = new CAiGoalRiderAttack;
+			pxAttack^.Init(m_pxBrain);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="quick")then
+			var ^CAiGoalQuickAttack pxAttack = new CAiGoalQuickAttack;
+			pxAttack^.Init(m_pxBrain);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="SpecialSEASAttack")then
+			var ^CAiGoalSpecialSEASAttack pxAttack = new CAiGoalSpecialSEASAttack;
+			pxAttack^.Init(m_pxBrain);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="auto")then
+			var ^CAiGoalAttackGroup pxAttack = new CAiGoalAttackGroup;
+			pxAttack^.Init(m_pxBrain);
+			pxAttack^.SetKindergarten(false);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="KotH Pyramid")then
+			var ^CAiGoalPyramidAttack pxAttack = new CAiGoalPyramidAttack;
+			pxAttack^.Init(m_pxBrain);
+			pxAttack^.SetKotH(true);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="KotH Violence")then
+			var ^CAiGoalPureViolenceAttack pxAttack = new CAiGoalPureViolenceAttack;
+			pxAttack^.Init(m_pxBrain);
+			pxAttack^.SetKotH(true);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			m_xDisturbAttack.GetWaypoints(p_pxAttackInfo^.GetPos(), Random.GetInt()%4, avWaypoints);
+			pxAttack^.SetWaypoints(avWaypoints);
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;	
+		
+		elseif(sStrategy=="KotH Suicide")then
+			var ^CAiGoalSuicideAttack pxAttack = new CAiGoalSuicideAttack;
+			pxAttack^.Init(m_pxBrain);
+			pxAttack^.SetKotH(true);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			m_xDisturbAttack.GetWaypoints(p_pxAttackInfo^.GetPos(), Random.GetInt()%4, avWaypoints);
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;	
+		
+		elseif(sStrategy=="KotH Siege")then
+			var ^CAiGoalSiegeAttack pxAttack = new CAiGoalSiegeAttack;
+			pxAttack^.Init(m_pxBrain);
+			pxAttack^.SetKotH(true);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;	
+		
+		elseif(sStrategy=="getitem")then
+			var ^CAiGoalGetItem pxAttack = new CAiGoalGetItem;
+			pxAttack^.Init(m_pxBrain);
+			pxAttack^.SetKindergarten(false);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="MarketPlace")then
+			var ^CAiGoalMarketPlaceAttack pxAttack = new CAiGoalMarketPlaceAttack;
+			pxAttack^.Init(m_pxBrain);
+			pxAttack^.SetKindergarten(false);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="skulls")then
+			var ^CAiGoalAttackGroup pxAttack = new CAiGoalAttackGroup;
+			pxAttack^.Init(m_pxBrain);
+			pxAttack^.SetKindergarten(false);
+			var int iAge = CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain);
+			if(iAge<3)then
+				pxAttack^.SetArmyModifier(3);
+			elseif(iAge==3)then
+				pxAttack^.SetArmyModifier(2);
+			elseif(iAge>3)then
+				pxAttack^.SetArmyModifier(1);
+			endif;
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="ship")then
+			var ^CAiGoalAttackShips pxAttack = new CAiGoalAttackShips;
+			pxAttack^.Init(m_pxBrain, true);
+			pxAttack^.Set("", sAttackOnTheWay=="true", {0.0,0.0,0.0}, sSpawn=="true", {0.0, 0.0, 0.0}, false, sTargetObjOnly=="false");
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="pyramid")then
+			var ^CAiGoalPyramidAttack pxAttack = new CAiGoalPyramidAttack;
+			pxAttack^.Init(m_pxBrain);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="traps")then
+			var ^CAiGoalDetectTraps pxAttack = new CAiGoalDetectTraps;
+			pxAttack^.Init(m_pxBrain);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="siege")then
+			var ^CAiGoalSiegeAttack pxAttack = new CAiGoalSiegeAttack;
+			pxAttack^.Init(m_pxBrain);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="towersiege")then
+			var ^CAiGoalSiegeAttack pxAttack = new CAiGoalSiegeAttack;
+			pxAttack^.Init(m_pxBrain);
+			pxAttack^.GetSiegeOQ().Clear();
+			pxAttack^.GetSiegeOQ().SetClass("hu_small_tower");
+			pxAttack^.GetSiegeOQ().SetClass("hu_large_tower",true);
+			pxAttack^.GetSiegeOQ().SetClass("aje_small_tower",true);
+			pxAttack^.GetSiegeOQ().SetClass("aje_medium_tower",true);
+			pxAttack^.GetSiegeOQ().SetClass("aje_tesla_tower",true);
+			pxAttack^.GetSiegeOQ().SetClass("ninigi_small_tower",true);
+			pxAttack^.GetSiegeOQ().SetClass("ninigi_large_tower",true);
+			pxAttack^.GetSiegeOQ().SetClass("seas_turret_tower", true);
+			pxAttack^.GetSiegeOQ().SetClass("seas_mg_nest", true);
+			pxAttack^.GetSiegeOQ().SetClass("seas_small_cannon", true);
+			pxAttack^.GetSiegeOQ().SetClass("ninigi_defense_skewer", true);
+			pxAttack^.GetSiegeOQ().SetClass("ninigi_snare_trap", true);
+			pxAttack^.GetSiegeOQ().SetClass("ninigi_smoke_tower", true);
+			pxAttack^.GetSiegeOQ().SetClass("ninigi_rocket_ramp", true);
+			pxAttack^.SetWaitForPointReached(false);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="siege_warpgate")then
+			var ^CAiGoalSiegeAttack pxAttack = new CAiGoalSiegeAttack;
+			pxAttack^.Init(m_pxBrain);
+			pxAttack^.SetWarpGateHuntMode(true);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="guerilla")then
+			var ^CAiGoalGuerillaAttack pxAttack = new CAiGoalGuerillaAttack;
+			pxAttack^.Init(m_pxBrain);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			var string sTribe = GetBrain()^.GetSensor().GetTechTree().GetTribe();
+			if(sTribe=="Hu")then
+				pxAttack^.SetOrder("insects");
+			elseif(sTribe=="Aje")then
+				pxAttack^.SetOrder("termites");
+			elseif(sTribe=="Ninigi")then
+				pxAttack^.SetOrder("lockpicking");
+			endif;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="violence")then
+			var ^CAiGoalPureViolenceAttack pxAttack = new CAiGoalPureViolenceAttack;
+			pxAttack^.Init(m_pxBrain);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			m_xDisturbAttack.GetWaypoints(p_pxAttackInfo^.GetPos(), Random.GetInt()%4, avWaypoints);
+			pxAttack^.SetWaypoints(avWaypoints);
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="stealth")then
+			var ^CAiGoalStealthAttack pxAttack = new CAiGoalStealthAttack;
+			pxAttack^.Init(m_pxBrain);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		elseif(sStrategy=="suicide")then
+			var ^CAiGoalSuicideAttack pxAttack = new CAiGoalSuicideAttack;
+			pxAttack^.Init(m_pxBrain);
+			AddGoal(pxAttack);
+			pxAttack^.SetKindergarten(false);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		
+		else
+			var ^CAiGoalAttackGroup pxAttack = new CAiGoalAttackGroup;
+			pxAttack^.Init(m_pxBrain);
+			AddGoal(pxAttack);
+			pxAttack^.SetKindergarten(false);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=p_pxAttackInfo;
+			pxAttack^.Activate();
+			if(pxAttack^.Start(p_pxAttackInfo)) then pxReturn=pxAttack; endif;
+		endif;		
+		return pxReturn;
+	endproc;
+
+
+	//RequestXtraUnits
+	proc void RequestXtraUnits()
+		var ^CAiTechTree pxTT=^(m_pxSensor^.GetTechTree());
+		
+		var string sTribe=pxTT^.GetTribe();
+		//Henry: outcommented to make seas like other tribes
+		//if(sTribe=="SEAS")then return; endif;
+		if(sTribe == "SEAS" && (!m_pxSensor^.GetMultimap()||(m_sLevelName=="Single 01"||
+		m_sLevelName=="Single 02"||m_sLevelName=="Single 03"||m_sLevelName=="Single 04"||
+		m_sLevelName=="Single 05"||m_sLevelName=="Single 06"||m_sLevelName=="Single 07"||
+		m_sLevelName=="Single 08"||m_sLevelName=="Single 09"||m_sLevelName=="Single 10"||
+		m_sLevelName=="Single 11"||m_sLevelName=="Single 12"||m_sLevelName=="Single 13"||
+		m_sLevelName=="Single 14"||m_sLevelName=="Single 15"||m_sLevelName=="Single 16"||
+		m_sLevelName=="Single B41"||m_sLevelName=="Single B42"||m_sLevelName=="Single B43")))then
+			return;
+		endif;
+		
+		if(m_iDifficulty==0||m_iDifficulty==1)then return; endif;
+		
+		var int iStone, iWood, iFood;
+		var int iAmount=1;
+		var string sClassName;
+		var vec3 vPos={0.0,0.0,0.0};
+		
+		var ^CAiNodeInstance pxNIStone;
+		pxNIStone=pxTT^.GetNodeInstanceFromPartialName("stone");
+		if(pxNIStone!=null)then
+			iStone=(pxNIStone^.GetInstanceCount()-pxNIStone^.GetLockCount(0));	
+		endif;
+		
+		var ^CAiNodeInstance pxNIWood;
+		pxNIWood=pxTT^.GetNodeInstanceFromPartialName("wood");
+		if(pxNIWood!=null)then
+			iWood=(pxNIWood^.GetInstanceCount()-pxNIWood^.GetLockCount(0));	
+		endif;
+		
+		var ^CAiNodeInstance pxNIFood;
+		pxNIFood=pxTT^.GetNodeInstanceFromPartialName("food");
+		if(pxNIFood!=null)then
+			iFood=(pxNIFood^.GetInstanceCount()-pxNIFood^.GetLockCount(0));
+		endif;
+		
+		if((iStone>100)&&(iWood>200)&&(iFood>200))then	
+			sClassName=m_pxSensor^.SelectBestProdUnit();
+			if(sClassName!="")then
+				CreateRequest(sClassName, "", iAmount, vPos);
+			endif;
+		endif;
+
+	endproc;
+	
+	
+	///CreateRequest
+	proc void CreateRequest(string p_sName, string p_sObjFlag, int p_iNumber, vec3 p_vBuildPos)
+		var CAiConstructionInfoPtr pxCI;
+		var CAiNeedPtr pxNd;
+		var ^CAiNodeInstance pxNI;
+		
+		var ^CAiTechTree pxTT=^(m_pxSensor^.GetTechTree());
+		pxNI = pxTT^.GetNodeInstanceFromPartialName(p_sName, p_sObjFlag);
+		
+		if(pxNI!=null)then
+			var ^CAiModuleEconomyDefault pxEMod=cast<CAiModuleEconomyDefault>(m_pxBrain^.GetEconomyModule());
+			if(pxEMod^.IsNodeInstanceQed(pxNI))then return; endif;
+			pxNd = CAiNeed.Create(true,p_iNumber);
+			pxNd.GetNeed()^.AddEntry(pxNI);
+			pxCI = CAiConstructionInfo.Create();
+			pxCI.GetConstructionInfo()^.SetNeed(pxNd);
+			pxCI.GetConstructionInfo()^.SetPos(p_vBuildPos);
+			pxCI.GetConstructionInfo()^.SetUnique(false);
+			pxEMod^.ExternalRequestConstruction(pxCI);
+		endif;		
+	endproc;
+
+
+	///Save
+	export proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var int i,iC=m_axAttacks.NumEntries();
+		var CFourCC xType="atks";
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiGoal pxGoal=m_axAttacks[i].m_pxGoal;
+			if(pxGoal==null) then continue; endif;
+			var string sSaveName=pxGoal^.GetSaveName();
+			if(sSaveName.IsEmpty()) then continue; endif;
+			var ^CUOFWriterNode pxNodeAttack=p_pxNode^.AddSubChunk(xType,1);
+			var ^CArc pxArc=^(pxNodeAttack^.GetArc());
+			(pxArc^) << sSaveName;
+			m_axAttacks[i].m_pxInfo^.DoKArc(pxArc^);
+			pxNodeAttack^.Close();
+			m_axAttacks[i].m_pxGoal^.Save(pxNodeAttack);
+		endfor;
+	endproc;
+
+
+	///Load
+	export proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="atks") then
+			var ^CArc pxArc=^(p_pxNode^.GetArc());
+			var string sSaveName;
+			(pxArc^) << sSaveName;
+			var ^CAiAttackInfo pxInfo=new CAiAttackInfo();
+			pxInfo^.DoKArc(pxArc^);
+			var ^CAiGoal pxAttack=StartAttack(pxInfo);
+			if(pxAttack!=null) then
+				pxAttack^.LoadData(p_pxNode);
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+	
+	
+	///think
+	export proc void Think()				
+		if(!m_bIsActive)then return; endif;
+			
+		if(!m_bTimerAttack)then
+			CheckForTimers();
+		endif;
+		
+		if(GetAttackHasFinished())then
+			m_bTimerAttack=false;
+		endif;
+		
+		RequestXtraUnits();
+		
+		var int i,iC=m_axAttacks.NumEntries();
+		if(iC>0)then
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CAiGoal pxGoal=m_axAttacks[i].m_pxGoal;
+				if(pxGoal==null)then return; endif;
+				if(!pxGoal^.IsActive())then
+					RemoveGoal(pxGoal);
+					pxGoal^.Shut();
+					delete pxGoal;
+					m_axAttacks.DeleteEntry(i);
+					i--;iC--;
+				endif;
+			endfor;
+		endif;
+		
+		var ^CAiAttackInfo pxAttackInfo=GetTopRequestedAttack();
+		while(pxAttackInfo!=null)do
+			if(StartAttack(pxAttackInfo)!=null)then
+				pxAttackInfo^.NotifyOnAccepted();
+			else
+				pxAttackInfo^.NotifyOnRejected();
+			endif;
+			RemoveTopRequestedAttack();
+			pxAttackInfo=GetTopRequestedAttack();
+		endwhile;
+	
+	endproc;
+	
+	
+	///CancelAttacksCloseToSpot
+	export proc void CancelAttacksCloseToSpot(vec3 p_vSpot, real p_fSqrRadius)	
+		var int i, iC = m_axAttacks.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			var ^CAiGoalGeneralAttack pxGoal = cast<CAiGoalGeneralAttack>(m_axAttacks[0].m_pxGoal);
+
+			if(pxGoal == null)then
+				continue;
+			endif;
+			
+			//var vec3 vAtckPos	= pxGoal^.GetAttackPos();
+			var vec3 vFightPos	= pxGoal^.GetFightersPos();
+			
+			if(vFightPos == {0.0, 0.0, 0.0})then
+				continue;
+			endif;
+			
+			var real fCurSqrDist = (vFightPos - p_vSpot).Abs2S();	
+			if(fCurSqrDist > p_fSqrRadius)then
+				continue;
+			endif;
+			
+			RemoveGoal(pxGoal);
+			pxGoal^.Shut();
+			delete pxGoal;
+			m_axAttacks.DeleteEntry(0);
+			i--;
+			iC--;
+		endfor;
+		
+		var ^CAiAttackInfo pxAttackInfo=GetTopRequestedAttack();
+		while(pxAttackInfo!=null)do
+			pxAttackInfo^.NotifyOnRejected();
+			RemoveTopRequestedAttack();
+			pxAttackInfo=GetTopRequestedAttack();
+		endwhile;
+	
+	endproc;
+	
+	
+	///ClearAllAttacks
+	export proc void ClearAllAttacks()
+		var int i,iC=m_axAttacks.NumEntries();
+		while(m_axAttacks.NumEntries()>0)do
+			var ^CAiGoal pxGoal=m_axAttacks[0].m_pxGoal;
+			RemoveGoal(pxGoal);
+			pxGoal^.Shut();
+			delete pxGoal;
+			m_axAttacks.DeleteEntry(0);
+		endwhile;
+		
+		var ^CAiAttackInfo pxAttackInfo=GetTopRequestedAttack();
+		while(pxAttackInfo!=null)do
+			pxAttackInfo^.NotifyOnRejected();
+			RemoveTopRequestedAttack();
+			pxAttackInfo=GetTopRequestedAttack();
+		endwhile;
+	endproc;
+	
+	//called to make a AttackRequest from a Trigger
+	export proc bool SetTriggerAttack(string p_sAttack)
+		var string sLongrange, sShortrange, sInfantry, sCavalry, sMachines, sShips, sHndls;
+		var array string asAttack,asHndls;
+				
+		p_sAttack.Split(asAttack, "/", false);
+		var int i,iC=asAttack.NumEntries();
+		if(iC<7)then
+			return false;
+		endif;
+		sLongrange=asAttack[0];
+		sShortrange=asAttack[1];
+		sInfantry=asAttack[2];
+		sCavalry=asAttack[3];
+		sMachines=asAttack[4];
+		sShips=asAttack[5];
+		sHndls=asAttack[6];
+		sHndls.Split(asHndls, ":", true);
+		var CAiObjWrap xObj;
+		var CAiObjWrapList xObjList;
+		for(i=0)cond(i<asHndls.NumEntries())iter(i++)do
+			xObj.FromInt(asHndls[i].ToInt());
+			if(xObj.IsValid())then
+				xObjList.AddEntry(xObj);
+			endif;
+		endfor;
+		if(xObjList.NumEntries()>0)then
+			var ^CAiAttackInfo pxAttackInfo=new CAiAttackInfo;
+			pxAttackInfo^.SetCanUse(CAiAttackInfo.AT_Ranged,!sLongrange.IsEmpty());
+			pxAttackInfo^.SetCanUse(CAiAttackInfo.AT_Closed,!sShortrange.IsEmpty());
+			pxAttackInfo^.SetCanUse(CAiAttackInfo.AT_Infantry,!sInfantry.IsEmpty());
+			pxAttackInfo^.SetCanUse(CAiAttackInfo.AT_Cavalry,!sCavalry.IsEmpty());
+			pxAttackInfo^.SetCanUse(CAiAttackInfo.AT_Vehicles,!sMachines.IsEmpty());
+			pxAttackInfo^.SetCanUse(CAiAttackInfo.AT_Ships,!sShips.IsEmpty());
+
+			pxAttackInfo^.GetTargets().CopyFrom(xObjList);
+			
+			if(m_pxSensor==null)then return false; endif;
+			pxAttackInfo^.SetIslandID(m_pxSensor^.ComputeIslandId(m_pxSensor^.GetStartLocation()));
+			RequestAttack(pxAttackInfo);
+		endif;
+		return true;
+	endproc;
+
+
+	//called to make a CustomAttackRequest from a Trigger
+	export proc bool SetCustomAttack(int p_iPlayerID, string p_sAttack);
+		var string sUnitType, sPosition, sAttackType, sAttackOnTheWay, sSpawn, sIgnoreLocation, sTargetObjOnly, sShip, sShipLand, sSpawnPosition, sTargetHndls;
+		
+		var array string asAttack, asTargetHndls;
+		p_sAttack.Split(asAttack, "/", false);
+		var int i,iC=asAttack.NumEntries();
+		if(iC<10)then
+			return false;
+		endif;
+
+		sAttackType=asAttack[0];
+		sAttackOnTheWay=asAttack[1];
+		sSpawn=asAttack[2];
+		sIgnoreLocation=asAttack[3];
+		sPosition=asAttack[4];
+		sTargetObjOnly=asAttack[5];
+		sShip=asAttack[6];
+		sShipLand=asAttack[7];
+		sSpawnPosition=asAttack[8];
+
+		//TargetUnits
+		sTargetHndls=asAttack[9];
+		sTargetHndls.Split(asTargetHndls, ":", true);
+		
+		var CAiObjWrap xObj;
+		var CAiObjWrapList xObjList;
+		var vec3 vPos;
+		
+		for(i=0)cond(i<asTargetHndls.NumEntries())iter(i++)do
+			xObj.FromInt(asTargetHndls[i].ToInt());
+			
+			if(!xObj.IsValid())then continue; endif;
+			if(xObj.GetAttribValueBool("is_riding") == true)then continue; endif;
+			if(xObj.GetClassName() == "Virtual_Produce_Unit")then continue; endif;
+			
+			xObjList.AddEntry(xObj);
+			vPos += xObj.GetPos();
+		endfor;
+		
+		//AttackPosition
+		var array string	asPosition;
+		var vec3			vPosition;
+		sPosition.Split(asPosition, " ", true);	
+		if(asPosition.NumEntries() < 3)then
+		else
+			vPosition.SetX(asPosition[0].ToReal());
+			vPosition.SetY(asPosition[1].ToReal());
+			vPosition.SetZ(asPosition[2].ToReal());
+		endif;
+		
+		//SpawnPosition
+		var array string	asSpawnPosition;
+		var vec3			vSpawnPosition;
+		sSpawnPosition.Split(asSpawnPosition, " ", true);	
+		if(asSpawnPosition.NumEntries() < 3)then
+		else
+			vSpawnPosition.SetX(asSpawnPosition[0].ToReal());
+			vSpawnPosition.SetY(asSpawnPosition[1].ToReal());
+			vSpawnPosition.SetZ(asSpawnPosition[2].ToReal());
+		endif;
+		
+		if(xObjList.NumEntries()<=0)then return false; endif;
+		
+		vPos = vPos / xObjList.NumEntries().ToReal();
+		
+		var ^CAiAttackInfo pxAttackInfo = new CAiAttackInfo();
+		pxAttackInfo^.SetCanUse(CAiAttackInfo.AT_Ships,false);
+		
+		if(xObjList.NumEntries()<=0)then return false; endif;
+
+		pxAttackInfo^.GetTargets().CopyFrom(xObjList);
+		pxAttackInfo^.SetPos(vPosition);
+		
+		if(m_pxBrain==null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;
+	
+		if(sAttackType=="PyramidAttack")then
+			var ^CAiGoalPyramidAttack pxAttack = new CAiGoalPyramidAttack;
+			pxAttack^.Init(m_pxBrain);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=pxAttackInfo;
+			pxAttack^.Activate();
+			pxAttack^.Start(pxAttackInfo);
+		
+		elseif(sShip=="true")then
+			var ^CAiGoalAttackShips pxAttack = new CAiGoalAttackShips;
+			pxAttack^.Init(m_pxBrain, false);
+			pxAttack^.Set(sAttackType, sAttackOnTheWay=="true", vPosition, sSpawn=="true", vSpawnPosition, sIgnoreLocation=="true", sTargetObjOnly=="true");
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=pxAttackInfo;
+			pxAttack^.Activate();
+			pxAttack^.Start(pxAttackInfo);
+		
+		elseif(sAttackType=="RessourceOutpost"||sAttackType=="AttackOutpost")then
+			var ^CAiModuleEconomyDefault pxCE=cast<CAiModuleEconomyDefault>(m_pxBrain^.GetEconomyModule());
+			var int iIslandID=m_pxSensor^.ComputeIslandId(vPosition);
+			pxCE^.StartOutpost(iIslandID, vPosition, sAttackType);
+		
+		elseif(sAttackType=="Item_Attack")then
+			var string sMap=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+			if(sMap=="_CU_MP_6_CRASH_RPG")then return false; endif;
+			var int i, iC = xObjList.NumEntries();
+			pxAttackInfo^.GetTargets().Clear();
+			for(i=0)cond(i<iC)iter(++i)do
+				var CAiObjWrap xCpt;
+				var bool bFound = false;
+				if(!xObjList[i].IsValid())then continue; endif;
+				if(xObjList[i].GetAttribValue("inventory_item_name").IsEmpty())then
+					continue;
+				endif;
+				pxAttackInfo^.GetTargets().AddEntry(xObjList[i]);
+				break;
+			endfor;
+			if(pxAttackInfo^.GetTargets().NumEntries() <= 0)then
+				return false;
+			endif;
+			
+			var ^CAiGoalItemAttack pxAttack = new CAiGoalItemAttack;
+			pxAttack^.Init(m_pxBrain);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=pxAttackInfo;
+			pxAttack^.Activate();
+			pxAttack^.Start(pxAttackInfo);
+		
+		else
+			var ^CAiGoalSingleplayerAttack pxAttack = new CAiGoalSingleplayerAttack;
+			var int iOutpostId = m_pxSensor^.ComputeOutpostId(vSpawnPosition);
+			
+			if(iOutpostId < 0)then
+				iOutpostId = 0;
+			endif;
+			
+			if(sShipLand == "true")then
+				pxAttackInfo^.SetPos(vPos);
+				vPos = vPosition;
+			endif;
+			
+			pxAttackInfo^.SetOutpostID(iOutpostId);
+			pxAttack^.SetPriority(1000.0);
+			pxAttack^.Init(m_pxBrain);
+			pxAttack^.Set(sAttackType, sAttackOnTheWay=="true", vPos, sSpawn=="true", sIgnoreLocation=="true", sTargetObjOnly=="true", sShipLand=="true", vSpawnPosition);
+			AddGoal(pxAttack);
+			var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+			pxA^.m_pxGoal=pxAttack;
+			pxA^.m_pxInfo=pxAttackInfo;
+			pxAttack^.Activate();
+			pxAttack^.Start(pxAttackInfo);
+		endif;
+		return true;
+	endproc;
+	
+	
+	///ComputeTargetsAtPosition
+	proc bool ComputeTargetsAtPosition(ref CAiObjWrapList p_rxTargets, vec3 p_vPos)
+		if(m_pxSensor==null)then return false; endif;
+		
+		var ^CAiMaps	pxMaps			= ^(m_pxSensor^.GetAiMaps());
+		var ^CAiMap		pxEnemyMap		= ^(pxMaps^.GetAiMap("Enemy",m_iPlayerID));
+		var CAiMap		xDangerMap;
+		var CAiMap		xRangeMap;
+
+		xDangerMap.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID);
+		xDangerMap.ClearToFast(0.0);
+
+		var int	iX;
+		var int	iY;
+
+		CAiArea.Vec3ToArea(p_vPos, iX, iY);
+		xDangerMap.AddInfluenceFast(iX, iY, 5.0, 0.0, 10.0);
+		xDangerMap.MultiplyFast(pxEnemyMap^);
+		xDangerMap.MultMosaicFast(p_vPos);
+
+		var CAiArea xMostDangerArea		= xDangerMap.FindMinArea();
+		var real	fMostDangerValue	= xDangerMap.GetValue(xMostDangerArea);
+
+		if(fMostDangerValue >= 0.0)then
+			return false;
+		endif;
+
+		var int i, iC = 8;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_pxSensor^.GetDiplomacyMyOpinion(i) != 0)then 
+				continue; 
+			endif;
+			m_pxSensor^.GetObjectGroupInArea(i,xMostDangerArea,true,false,false,false,p_rxTargets);
+		endfor;
+		
+		if(p_rxTargets.NumEntries() <= 0)then
+			return false;
+		endif;
+		return true;
+	endproc;
+
+
+	///InitiateCoopSupportAttac
+	export proc bool InitiateCoopSupportAttack(ref int p_riWantedAttackers, int p_iPlayerID)
+		if(m_pxBrain==null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;
+
+		var ^CAiAttackInfo pxAttackInfo = new CAiAttackInfo();
+		pxAttackInfo^.SetCanUse(CAiAttackInfo.AT_Ships,false);
+
+		var CAiObjQuery		xQuery;
+		var CAiObjWrapList	xSLs;
+		
+		xQuery.SetType("SLOC");
+		xQuery.SetOwner(p_iPlayerID);
+		if((xQuery.Execute(xSLs) == false) || (xSLs.NumEntries() <= 0))then
+			KLog.LogWarn("AiModuleFightDefault", "No Startlocation found forplayer  PlayerID: "+m_sPlayerID);
+			return false;
+		endif;
+		if(xSLs.NumEntries() > 1)then
+			KLog.LogWarn("AiModuleFightDefault", "More than one Startlocations ("+xSLs.NumEntries().ToString()+") found forplayer  PlayerID: "+m_sPlayerID);
+		endif;
+		
+		var vec3 vPos = xSLs[0].GetPos();
+		pxAttackInfo^.SetPos(vPos);
+		if(ComputeTargetsAtPosition(pxAttackInfo^.GetTargets(), vPos) == false)then
+			return false;
+		endif;
+		pxAttackInfo^.SetIslandID(m_pxSensor^.ComputeIslandId(vPos));
+
+		var ^CAiGoalCoopSupportAttack pxAttack = new CAiGoalCoopSupportAttack();
+		pxAttack^.SetPriority(1000000.0);
+		pxAttack^.Init(m_pxBrain);
+		AddGoal(pxAttack);
+		
+		var ^CAiAttack pxA = ^(m_axAttacks.NewEntryRef());
+		pxA^.m_pxGoal=pxAttack;
+		pxA^.m_pxInfo=pxAttackInfo;
+		pxAttack^.Activate();
+		pxAttack^.Start(pxAttackInfo);
+		pxAttack^.QueryUnits(p_riWantedAttackers);
+		return true;
+	endproc;
+	
+	
+	///AddToKindergarten
+	export proc void AddToKindergarten(CAiObjWrap p_xWrap)
+		AddToKindergarten(p_xWrap, false);
+	endproc;
+
+
+	///AddToKindergarten
+	export proc void AddToKindergarten(CAiObjWrap p_xWrap, bool p_bFortuneCookie)
+		m_xKindergarten.Add(p_xWrap);
+		if(p_bFortuneCookie)then // npc, that has been choosen to be leveled up forfree
+			m_xKindergarten.SetFortuneCookie(p_xWrap);
+		endif;
+	endproc;
+	
+	
+	///AddToKindergarten
+	export proc void AddToKindergarten(CAiObjWrapList p_xWrapList)
+		var int i, iC = p_xWrapList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			AddToKindergarten(p_xWrapList[i]);
+		endfor;
+	endproc;
+
+
+	///RemoveFromKindergarten
+	export proc void RemoveFromKindergarten(CAiObjWrap p_xWrap)
+		m_xKindergarten.Remove(p_xWrap);
+	endproc;
+	
+	
+	///RemoveFromKindergarten
+	export proc void RemoveFromKindergarten(CAiObjWrapList p_xWrapList)
+		var int i, iC = p_xWrapList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			RemoveFromKindergarten(p_xWrapList[i]);
+		endfor;
+	endproc;
+	
+	
+	///SetAttackHasFinished
+	export proc void SetAttackHasFinished(bool p_bFinished)
+		m_bFinished=p_bFinished;
+	endproc;
+	
+	
+	///GetAttackHasFinished
+	export proc bool GetAttackHasFinished()
+		return m_bFinished;
+	endproc;
+	
+	
+	///SetLastAttacker
+	export proc void SetLastAttacker(int p_iAttackerID)
+		m_iAttackerID=p_iAttackerID;
+	endproc;
+	
+	
+	///GetLastAttacker
+	export proc int GetLastAttacker()
+		return m_iAttackerID;
+	endproc;
+	
+	
+	///CheckForTimers
+	export proc int CheckForTimers()
+		if(m_pxSensor==null)then return -1; endif;
+		var real fSecondsLeft=(-1.0);
+		var int iTimerOwner=(-1);
+		var vec3 vTimerPos={0.0,0.0,0.0};
+		
+		if(m_sGameType=="KingOfTheHill")then
+			if(m_xKotHList.Validate()>0)then
+				iTimerOwner=m_xKotHList[0].GetOwner();
+				vTimerPos=m_xKotHList[0].GetPos();
+				if(iTimerOwner!=(-1))then
+					fSecondsLeft=m_pxSensor^.GetTimeLeft("GameOverMgr/Domination",0);
+				endif;
+			endif;
+		
+		elseif(m_sGameType=="Defender")then
+			if(m_xDefList.Validate()>0)then
+				iTimerOwner=m_xDefList[0].GetOwner();
+				vTimerPos=m_xDefList[0].GetPos();
+				fSecondsLeft=m_pxSensor^.GetTimeLeft("GameOverMgr/Defender", iTimerOwner);
+			endif;
+		endif;
+		
+		if((fSecondsLeft<300.0)&&(fSecondsLeft!=(-1.0)))then
+			var CAiObjWrapList xEnemyList;
+			var CAiObjQuery xEnemyQuery;
+			
+			xEnemyList.Clear();
+			xEnemyQuery.SetOwner(iTimerOwner);
+			xEnemyQuery.SetType("CHTR");
+			xEnemyQuery.SetType("ANML",true);
+			xEnemyQuery.SetType("VHCL",true);
+			xEnemyQuery.SetType("BLDG",true);
+			xEnemyQuery.RegionCircle(vTimerPos, 60.0);
+			xEnemyQuery.Execute(xEnemyList);
+						
+			if(xEnemyList.Validate()>0)then
+				var ^CAiAttackInfo pxAttackInfo = new CAiAttackInfo;
+				pxAttackInfo^.GetTargets().CopyFrom(xEnemyList);
+				pxAttackInfo^.SetIslandID(m_pxSensor^.ComputeIslandId(vTimerPos));
+				pxAttackInfo^.SetStrategy("pyramid");
+				m_bTimerAttack=true;
+	
+				var ^CAiGoalPyramidAttack pxAttack = new CAiGoalPyramidAttack;
+				pxAttack^.Init(m_pxBrain);
+				AddGoal(pxAttack);	
+				var ^CAiAttack pxA=^(m_axAttacks.NewEntryRef());
+				pxA^.m_pxGoal=pxAttack;
+				pxA^.m_pxInfo=pxAttackInfo;
+				pxAttack^.Activate();
+				pxAttack^.Start(pxAttackInfo);
+			endif;
+		endif;
+		return iTimerOwner;
+	endproc;
+	
+	export proc ^CAiGoal GetGoalByName(string p_sGoal)
+		var int i,iC=NumGoals();
+		if(iC<1)then return null; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiGoal pxGoal=GetGoal(i);
+			if(pxGoal==null)then continue; endif;
+			if(pxGoal^.GetDbgString()==p_sGoal)then
+				return pxGoal;
+			endif;
+		endfor;
+		return null;
+	endproc;
+	
+endclass;

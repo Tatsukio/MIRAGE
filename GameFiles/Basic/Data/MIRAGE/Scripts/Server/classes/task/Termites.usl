@@ -1,0 +1,147 @@
+class CTermites inherit CSpecialActionTask
+	
+	var CObjHndl		m_xCharacter;
+	var CObjHndl		m_xTarget;
+	var string			m_sState;
+	var int					m_iRetryCounter;
+	
+	export constructor()
+		SetName("Termites");
+		SetCivil(false);
+		m_iRetryCounter = 0;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Term";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xCharacter.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_iRetryCounter;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Term")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xCharacter.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_iRetryCounter;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xCharacter,CObjHndl p_xTarget, string p_sPath)
+		m_sState="goto_target";
+		if(!p_xCharacter.IsValid() || !p_xTarget.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		if(p_xTarget.GetObj()^.GetType()!="BLDG" || p_xTarget.GetObj()^.GetOwner()==p_xCharacter.GetObj()^.GetOwner())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(p_xCharacter, p_sPath, true);
+		m_xCharacter = p_xCharacter;
+		m_xTarget = p_xTarget;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xCharacter.GetObj());
+		if(pxFightingObj==null || !pxFightingObj^.CheckSpecialActionTimer(GetSpecialActionPath()))then
+			EndTask();
+			return;
+		endif;
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		var ^CGameObj pxTarget = m_xTarget.GetObj();
+		if(pxCharacter==null || pxTarget==null)then EndTask(); return; endif;
+		if(pxCharacter^.GetEffectFlag(CFightingObj.EFFECT_AJE_CAMOUFLAGE))then
+			pxCharacter^.SetEffectFlag(CFightingObj.EFFECT_AJE_CAMOUFLAGE, false);
+		endif;
+		if(m_sState == "goto_target")then
+			var real fAttackRange = 20.0; //pxCharacter^.GetAttackRange();
+			fAttackRange+=pxCharacter^.GetMiscValueTT("Shaman_Cast_Termites");
+			if(!IsInRange())then
+				if(pxCharacter^.GetOnWall())then
+					EndTask();return;
+				endif;
+				pxCharacter^.AdvanceAction(pxTarget^.GetHandle(),fAttackRange,pxCharacter^.GetDefaultSpeed());
+			endif;
+			m_sState = "throw";
+		elseif(m_sState == "throw")then
+			if(!StartSpecialActionTimer(pxCharacter))then EndTask();return;endif;
+			SetUnStoppable(true);
+			if(!IsInRange())then
+				if(m_iRetryCounter>3)then
+					EndTask();
+				else
+					m_iRetryCounter++;
+					m_sState = "goto_target";
+					return;
+				endif;
+			else
+				//create Insects-Object and throw it...
+				var ^CTermitesObj pxInsects = cast<CTermitesObj>(CSrvWrap.GetObjMgr()^.CreateObj("TermitesObj",pxTarget^.GetOwner(),pxCharacter^.GetPos()));
+				if(pxInsects!=null)then
+					pxInsects^.Set(m_xTarget,CGameTimeSpan.OneSecond() * 120.0, 25,m_xCharacter,false,3);
+				endif;
+				pxCharacter^.AnimAction("termites");
+				m_sState = "EndTask";
+				return;
+			endif;
+		elseif(m_sState == "EndTask")then
+			SetUnStoppable(false);
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc bool IsInRange()
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		var ^CGameObj pxTarget = m_xTarget.GetObj();
+		if(pxCharacter==null || pxTarget==null)then return false; endif;
+		var real fTargetRadius = pxTarget^.GetRadius();
+		var real fSelfRadius = pxCharacter^.GetRadius();
+		var real fAttackRange = 20.0+fSelfRadius+fTargetRadius; //pxCharacter^.GetAttackRange();
+		fAttackRange += pxCharacter^.GetMiscValueTT("Shaman_Cast_Termites");
+		var real fDistance = (pxTarget^.GetPos() - pxCharacter^.GetPos()).Abs2S();
+		return fDistance <= (fAttackRange+fTargetRadius)*(fAttackRange+fTargetRadius);
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+	
+	export proc bool Break()
+		if(GetUnStoppable())then
+			return false;
+		endif;
+		SetPrepareActionPath(m_xCharacter, GetSpecialActionPath(), false);
+		if (m_xCharacter.IsValid()) then
+			m_xCharacter.GetObj()^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+	
+	export proc void Skip()
+	endproc;
+	
+	export proc void EndTask()
+		SetPrepareActionPath(m_xCharacter, GetSpecialActionPath(), false);
+		UpdateAggressionPos(m_xCharacter);
+		super.EndTask();
+	endproc;
+	
+endclass;

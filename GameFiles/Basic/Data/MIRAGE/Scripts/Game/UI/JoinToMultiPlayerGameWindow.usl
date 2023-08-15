@@ -1,0 +1,106 @@
+class CJoinToMultiPlayerGameWindow inherit CStateUIWnd
+
+	var ^CDesktop		m_pxDesktop;
+	var ^CStaticCtrl	m_pxConnectingText;		
+	var ^CStaticCtrl 	m_pxErrorText;
+	var ^CButton		m_pxBack;
+
+	var int 			m_iState; // state from where the window came
+	// ToDo: MaSc: a stop connecting button???
+
+	var int 			m_iTimerID;					// timer
+	var int 			m_iWaitForConnectTimeOut;	// counter
+	var int 			m_iWaitForProxyServerShut;	// timer
+	
+	var int 			m_iMaxWaitTime;
+		
+	export constructor()
+		if(!InitFromResource("UI/JoinToMultiPlayerGameWindow","JoinToMultiPlayerGameWindow")) then
+			return;
+		endif;
+		m_pxDesktop=CClientWrap.GetDesktop();
+		SetPos(m_pxDesktop^.GetWidth()/2 - GetWidth()/2,m_pxDesktop^.GetHeight()/2 - GetHeight()/2);
+		
+		m_pxConnectingText=cast<CStaticCtrl>(GetControl("ConnectText"));		
+		m_pxConnectingText^.SetVisible(true);		
+		m_pxConnectingText^.SetText(CLocalizer.Get().Translate("_JoinToMultiPlayerGameWindow_Connecting"));				
+		
+		SetCaption(CLocalizer.Get().Translate("_JoinToMultiPlayerGameWindow_ConnectWindowCaption"));		
+
+		m_pxBack=cast<CButton>(GetControl("Ack"));
+		m_pxBack^.SetVisible(true);
+		m_pxBack^.SetText(CLocalizer.Get().Translate("OK"));
+		m_pxBack^.m_xOnClick=OnBack;
+		SetCmd("Exit", OnBack );
+		AddAccelerator("ESCAPE,NONE,Exit");
+		m_pxBack^.SetDisabled(true);
+		m_pxBack^.SetVisible(false);
+		
+		m_iMaxWaitTime=0;
+	endconstructor;				
+	
+	export destructor()
+		UnsetTimer(m_iTimerID);
+	enddestructor;
+	
+	export proc void Init(int p_iUIState)
+		m_iState = p_iUIState;				
+		m_iTimerID=SetTimer(1000,true);
+		m_iWaitForConnectTimeOut=0;
+		if(CGameWrap.IsInternetGame()==true)then
+			m_iMaxWaitTime=60;
+		else
+			m_iMaxWaitTime=20;	
+		endif;		
+	endproc;
+	
+	export proc bool OnBack()
+		//L KLog.LogSpam("MaSc","AckServerLostWindow:: OnAck");
+						
+		if(m_iState==CUIStateMgr.STATE_NEWMULTIPLAYERLOBBY)then
+			// shut the proxy server to start a clean one, wait with the UI change until proxy server was shut
+			//L KLog.LogSpam("MaSc","call ShutProxyServer in OnTimer of JoinToMultiPlayerGameWindow 1");
+			m_iWaitForProxyServerShut=SetTimer(50,true); // LAN/Internet shutdown takes longer because of shuting GameSpy threads
+		else
+			//L KLog.LogSpam("MaSc","call ShutProxyServer in OnTimer of JoinToMultiPlayerGameWindow 2");						
+			CUIStateMgr.Get().SetState(m_iState); // directIP, singleplayer
+		endif;		
+		return true;
+	endproc;
+	
+	proc bool OnTimer(int p_iTimerID)
+		//L KLog.LogSpam("MaSc","JoinToMultiPLayerGameWindow:: CGameWrap.IsConnectFailure()="+CGameWrap.IsConnectFailure().ToString());
+		
+		if(m_iTimerID==p_iTimerID) then
+			// check connection success in GameWrap
+			if(CGameWrap.IsConnectSuccessful()==true)then
+				//L KLog.LogSpam("MaSc","CGameWrap.IsConnectSuccessful()==true");
+				CUIStateMgr.Get().SetState(CUIStateMgr.STATE_NEWMULTIPLAYERPREGAME,"");
+			elseif ((CGameWrap.IsConnectFailure()==true)||(++m_iWaitForConnectTimeOut>m_iMaxWaitTime))then
+				//L KLog.LogSpam("MaSc"," CGameWrap.IsConnectFailure()=="+CGameWrap.IsConnectFailure().ToString() +"State="+m_iState.ToString());
+				//L KLog.LogSpam("MaSc","m_iWaitForConnectTimeOut="+m_iWaitForConnectTimeOut.ToString());
+				CGameWrap.ShutProxyServer();
+				m_pxConnectingText^.SetText(CLocalizer.Get().Translate("_UI_JoinTMPG_Button_Connectfailed"));
+				m_pxBack^.SetDisabled(false);
+				m_pxBack^.SetVisible(true);
+				UnsetTimer(m_iTimerID);												
+			else 
+				m_pxConnectingText^.SetText(CLocalizer.Get().Translate("_JoinToMultiPlayerGameWindow_Connecting")+" "+m_iWaitForConnectTimeOut.ToString()+"/"+m_iMaxWaitTime.ToString());
+				//L KLog.LogSpam("MaSc","connection state unknown WaitForConnectionTimeout="+m_iWaitForConnectTimeOut.ToString());
+			endif;
+		elseif(m_iWaitForProxyServerShut==p_iTimerID)then // the proxyserver should be shut now			
+			if(!CGameWrap.IsServerExeRunning())then
+				UnsetTimer(m_iWaitForProxyServerShut);
+				var string sParam="";
+				if(CGameWrap.IsInternetGame()==true)then
+					sParam="Internet";
+				else
+					sParam="LAN";
+				endif;
+				CUIStateMgr.Get().SetState(m_iState,sParam); // internet, LAN 
+			endif;
+		endif;
+		return true;
+	endproc;
+endclass;
+

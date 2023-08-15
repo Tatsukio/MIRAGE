@@ -1,0 +1,1720 @@
+class CGameOverMgr inherit CEvtSink
+	
+	static var ^CGameOverMgr ms_pxInstance;
+	var ^CLevel m_pxLevel;
+	var bool m_bEnabled;
+	var bool m_bCoOpReplace;
+	var bool m_bInstantDrawWarpgate;
+	var bool m_bInstantDrawDomination;
+	var bool m_bInstantDrawHQ;
+	var bool m_bInstantDrawSandGlass;
+	var array int m_aiStartedPlayers;
+	var array int m_aiStartedTeams;
+	
+	const bitset	CHECK_UNITS					=01h;
+	const bitset	CHECK_HEADQUATER		=02h;
+	const bitset	CHECK_WARPGATE			=04h;
+	const bitset	CHECK_DOMINATIONS		=08h;
+	const bitset	CHECK_DEFENDEROBJS	=016h;
+	
+	var bitset		m_dwCheckStates;
+	
+	const bitset	UF_UNITS=01h;
+	const bitset	UF_DOMINATION_POINTS=02h;
+	const bitset	UF_WIN_LOSE=04h;
+	const bitset	UF_DEFENDER_OBJ=08h;
+	const bitset	UF_ALL=0ffffffffh;
+	var bitset		m_dwUpdateFlags;
+	
+	var CObjHndl	m_xDominationTimer;
+	var CObjHndl	m_xDefenderTimer;
+	var CGameTime	m_xLastTickTime;
+	var CObjHndl	m_xSandGlassTimer;
+	
+	export const int PHANTOM_NONE				= 0;
+	export const int PHANTOM_CONQUEROR	= 1;
+	export const int PHANTOM_PALADIN		= 2;
+	export const int PHANTOM_DEFENDER		= 3;
+	export const int PHANTOM_SLAVE			= 4;
+	var int m_iConquerors;
+	var int m_iGuardians;
+	
+	class CPlayerState
+	
+		export const int STATE_SKIP			=-2;
+		export const int STATE_INVALID	=-1;
+		export const int STATE_ALIVE		= 0;
+		export const int STATE_KILLED		= 1;
+		export const int STATE_WIN			= 2;
+		export const int STATE_DRAW			= 3;
+		export const int STATE_SLAVE		= 4;
+		export const int STATE_WARP_N		= 5; // Henry: warpgate win in standard game
+		export const int STATE_WARP_P		= 6; // Henry: warpgate win in phantom mode
+		
+		export var int m_iState;
+		export var bool m_bGoodSide;
+		export var int m_iPhantomRole;
+		export var bool m_bMasterMyself;
+		export var int m_iMaster;
+		export var string m_sMaster;
+//		export var array int m_aiSlaves;
+		export var bool m_bLostUnit;
+//		export var int m_iPlayerID;
+		export var bool m_bAlreadyDead;
+		export var CObjHndl m_xHQTimer;
+		export var CObjHndl m_xWarpGateTimer;
+	
+		export constructor()
+			m_iState=STATE_INVALID;
+			m_iMaster=-1;
+			m_iPhantomRole=CGameOverMgr.PHANTOM_NONE;
+			m_bLostUnit=false;
+			m_bMasterMyself=false;
+			m_bAlreadyDead=false;
+			m_bGoodSide=false;
+		endconstructor;
+		
+	endclass;
+	
+	var array CPlayerState m_axPlayerStates;
+	var CObjList m_xDominationPoints;
+	var CObjList m_xDefenderObjects;
+	
+	export constructor()
+		//SubscribeObjChDel
+		m_xLastTickTime=CGameTime.GetInvalidTime();
+		m_bEnabled=false;
+		m_bCoOpReplace=false;
+		m_dwCheckStates=0h;
+		m_dwUpdateFlags=0h;
+		m_iConquerors=0;
+		m_iGuardians=0;
+	endconstructor;
+	
+	export destructor()
+		m_iConquerors=0;
+		m_iGuardians=0;
+	enddestructor;
+	
+	export static proc ref CGameOverMgr Get()
+		if(ms_pxInstance==null)then
+			ms_pxInstance=new CGameOverMgr;
+		endif;
+		return ms_pxInstance^;
+	endproc;
+	
+	export static proc void ShutStatic()
+		delete ms_pxInstance;
+	endproc;
+	
+	export proc void Purify()
+		m_iConquerors=0;
+		m_iGuardians=0;
+	endproc;
+	
+	export proc void GetDominationPoints(ref CObjList po_rxDominationPoints)
+		po_rxDominationPoints=m_xDominationPoints;
+	endproc;
+	
+	export proc void InvalidateContent(bitset p_dwUpdateFlags)
+		m_dwUpdateFlags|=p_dwUpdateFlags;
+	endproc;
+	
+	export proc void Init(^CLevel p_pxLevel)
+		if(p_pxLevel^.IsEditable())then return; endif;
+		m_pxLevel=p_pxLevel;
+		m_bEnabled=false;
+		m_bCoOpReplace=false;
+		m_dwCheckStates=0h;
+		m_dwUpdateFlags=0h;
+		m_aiStartedPlayers=0;
+		m_aiStartedTeams=0;
+		m_xDominationPoints=0;
+		var CObjQuery xOQ;
+		xOQ.SetType("DOFL");
+		xOQ.Execute(m_xDominationPoints);
+		var ^CLevelInfoHost pxLevelInfo=^(m_pxLevel^.GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		begin CheckMultiplayer;
+			var ^CPropDB.CNode pxMapType=pxGenericDB^.FindNode("Base/MapType",false);
+			if(pxMapType!=null)then
+				if(pxMapType^.Value()=="multiplayer")then
+					m_bEnabled=true;
+				endif;
+			endif;
+		end CheckMultiplayer;
+		if(CCrashRPGMgr.GetCrashRPGMgrNC()!=null)then
+			m_bEnabled=CCrashRPGMgr.GetCrashRPGMgr()^.GOMEnabled();
+		endif;
+		if(!m_bEnabled)then return; endif;
+		var bool bBfPW=CMirageSrvMgr.Get().GetMapNameSimple()=="_CU_MP_6_BFPW_HIGHLAND";
+		var int i,iC=8;
+		if(m_axPlayerStates.NumEntries()!=8)then
+			m_axPlayerStates=iC;
+		endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPlayer pxPlayer=m_pxLevel^.GetPlayer(i);
+			var int iState=CPlayerState.STATE_INVALID;
+			var int iRole;
+			if(pxPlayer!=null)then
+				if((GetNumUnits(i)>0||HasProducedBuilding(i))&&!bBfPW)then
+					iState=CPlayerState.STATE_ALIVE;
+				endif;
+			endif;
+			if(m_axPlayerStates[i].m_iState!=CPlayerState.STATE_SKIP)then
+				m_axPlayerStates[i].m_iState=iState;
+			endif;
+			m_axPlayerStates[i].m_bLostUnit=false;
+			m_axPlayerStates[i].m_xHQTimer=CObjHndl.Invalid();
+			m_axPlayerStates[i].m_xWarpGateTimer=CObjHndl.Invalid();
+			var ^CObjTime pxHQTimer=CObjTime.FindTimerObj("GameOverMgr/HQ",i);
+			if(pxHQTimer!=null)then
+				m_axPlayerStates[i].m_xHQTimer=pxHQTimer^.GetHandle();
+				pxHQTimer^.m_xOnFire=OnFireHQTimer;
+			endif;
+			var ^CObjTime pxWarpGateTimer=CObjTime.FindTimerObj("GameOverMgr/WarpGate",i);
+			if(pxWarpGateTimer!=null)then
+				pxWarpGateTimer^.m_xOnFire=OnFireWarpGateTimer;
+				m_axPlayerStates[i].m_xWarpGateTimer=pxWarpGateTimer^.GetHandle();
+			endif;
+			if(pxPlayer==null)then continue; endif;
+			m_aiStartedPlayers.Include(pxPlayer^.GetID());
+			m_aiStartedTeams.Include(pxPlayer^.GetTeamID());
+			pxPlayer^.Unsubscribe(this);
+			pxPlayer^.Subscribe(this);
+		endfor;
+		m_dwCheckStates=CHECK_UNITS|CHECK_WARPGATE;//gillt für alle states
+		var bool bLastManStanding=false;
+		begin CheckLastManStanding;
+			var ^CPropDB.CNode pxNode=^((pxGenericDB^)["Base/LastManStanding"]);
+			if(pxNode^.ValueI()==1)then
+				bLastManStanding=true;
+			endif;
+		end CheckLastManStanding;
+		if(!bLastManStanding)then
+			m_dwCheckStates|=CHECK_HEADQUATER;
+		endif;
+		var int iGameType=CSrvWrap.GetGame().GetType();
+		if(pxLevelInfo^.IsSaveGame())then
+			iGameType=pxLevelInfo^.GetAttribs().GetValueInt("SavedGameType");
+		else
+			pxLevelInfo^.GetAttribs().SetValue("SavedGameType",iGameType);
+		endif;
+		//CSrvWrap.GetGame().DumpAttribs();
+		if(iGameType==0)then
+			//m_dwCheckStates|=CHECK_WARPGATE;
+		elseif(iGameType==1)then
+			m_dwCheckStates|=CHECK_DOMINATIONS;
+		elseif(iGameType==2)then//Defender
+			m_dwCheckStates|=CHECK_DEFENDEROBJS;
+			InitDefenderMode();
+		endif;
+		if(iGameType!=2&&CMirageSrvMgr.Get().SandGlass())then
+			InitSandCountdown();
+		endif;
+		if((m_dwCheckStates&CHECK_DOMINATIONS)==0h)then//domnation points unsichtbar machen
+			var int i,iC=m_xDominationPoints.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CGameObj pxWalk=m_xDominationPoints[i].GetObj();
+				if(pxWalk!=null)then
+					pxWalk^.Delete();
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	export proc void Shut()
+		if(m_pxLevel!=null)then
+			var int iOwner,iC=8;
+			for(iOwner=0)cond(iOwner<iC)iter(iOwner++)do
+				var ^CPlayer pxPlayer=m_pxLevel^.GetPlayer(iOwner);
+				if(pxPlayer==null)then continue; endif;
+				pxPlayer^.Unsubscribe(this);
+			endfor;
+		endif;
+		m_pxLevel=null;
+		m_bEnabled=false;
+	endproc;
+	
+	export proc void CheckHQ(string p_sClass, bool p_bAdd, int p_iOwner, CObjHndl p_xHndl)
+		if(ms_pxInstance==null)then return; endif;
+		if(!m_bEnabled)then return; endif;
+		if(!p_xHndl.IsValid())then return; endif;
+		if((m_dwCheckStates&CHECK_HEADQUATER)!=0h)then
+			if(p_sClass=="aje_resource_collector")then
+				if(!p_bAdd)then
+					OnHeadQuaterLost(p_iOwner,p_sClass);
+				else
+					OnHeadQuaterAdd(p_iOwner,p_sClass);
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	proc bool OnPush(ref CEvtPointer p_rxEP)
+		if(!m_bEnabled)then return true; endif;
+		if(p_rxEP.GetClass()==CPlayer.GetEvtClass_UnitLost())then
+			var int iOwner;
+			var CFourCC xUnitType;
+			var string sUnitClass;
+			CPlayer.EvtGetData_UnitLost(p_rxEP,iOwner,xUnitType,sUnitClass);
+			System.Assert(iOwner>=0 && iOwner<=7,"iOwner>=0 && iOwner<=7");
+			if((m_dwCheckStates&CHECK_UNITS)!=0h)then
+				m_axPlayerStates[iOwner].m_bLostUnit=true;
+				InvalidateContent(UF_UNITS);
+			endif;
+			if((m_dwCheckStates&CHECK_HEADQUATER)!=0h)then
+				if(sUnitClass=="hu_fireplace"||sUnitClass=="ninigi_fireplace"||sUnitClass=="aje_resource_collector"||sUnitClass=="seas_headquarters"||sUnitClass=="aje_amazon_temple")then
+					OnHeadQuaterLost(iOwner,sUnitClass);
+				endif;
+			endif;
+			if((m_dwCheckStates&CHECK_DOMINATIONS)!=0h)then
+				if(xUnitType=="DOFL")then
+					InvalidateContent(UF_DOMINATION_POINTS);
+				endif;
+			endif;
+			if((m_dwCheckStates&CHECK_DEFENDEROBJS)!=0h)then
+				if(sUnitClass=="defender_object")then
+					InvalidateContent(UF_DEFENDER_OBJ);
+				endif;
+			endif;
+			if((m_dwCheckStates&CHECK_WARPGATE)!=0h)then
+				if(sUnitClass.Find("_warpgate")!=-1)then
+					var ^CPlayerState pxPS=^(m_axPlayerStates[iOwner]);
+					var ^CObjTime pxWarpGateTimer=cast<CObjTime>(pxPS^.m_xWarpGateTimer.GetObj());
+					if(pxWarpGateTimer!=null)then
+						pxWarpGateTimer^.Kill();
+						pxPS^.m_xWarpGateTimer=CObjHndl.Invalid();
+						if(m_bInstantDrawSandGlass)then
+							CheckWarpgateTimers();
+						endif;
+					endif;
+				endif;
+			endif;
+		elseif(p_rxEP.GetClass()==CPlayer.GetEvtClass_UnitAdd())then
+			var CObjHndl xObjHndl;
+			CPlayer.EvtGetData_UnitAdd(p_rxEP,xObjHndl);
+			var ^CGameObj pxObj=xObjHndl.GetObj();
+			if(pxObj!=null)then
+				var string sUnitClass=pxObj^.GetClassName();
+				var CFourCC xUnitType=pxObj^.GetType();
+				if(sUnitClass=="aje_resource_collector")then
+					OnHeadQuaterAdd(pxObj^.GetOwner(),sUnitClass);
+				endif;
+				if((m_dwCheckStates&CHECK_DOMINATIONS)!=0h)then
+					if(xUnitType=="DOFL")then
+						InvalidateContent(UF_DOMINATION_POINTS);
+					endif;
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	export proc void OnPlayerDisconnect(int p_iOwner)
+		if(p_iOwner>=0 && p_iOwner<m_axPlayerStates.NumEntries())then
+			var ^CPlayerState pxPS=^(m_axPlayerStates[p_iOwner]);
+			pxPS^.m_iState=CPlayerState.STATE_KILLED;
+			InvalidateContent(UF_WIN_LOSE);
+			var ^CBasePlayer pxBP=CBasePlayer.GetPlayer(p_iOwner);
+			if(pxBP!=null)then
+				if(m_bCoOpReplace)then
+					pxBP^.Replace();
+				endif;
+				pxBP^.SetDead(true);
+			endif;
+			if(CCrashRPGMgr.GetCrashRPGMgrNC()!=null)then
+				CCrashRPGMgr.GetCrashRPGMgr()^.KillRespawnTimer(p_iOwner);
+			endif;
+			if(CMirageSrvMgr.Get().PhantomMode()&&CMirageSrvMgr.ms_pxPoolMixer!=null&&CMirageSrvMgr.ms_pxPoolMixer^.IsTheReapingOver())then
+				var bool bC, bP=false, bD=false, bS=false;
+				var string sLoss="", sName;
+				var ^CBasePlayer pxTemp=CBasePlayer.GetPlayer(p_iOwner);
+				var ^CLevelInfo.CPlayerSlot pxSlot;
+				if(pxTemp!=null)then
+					pxSlot=pxTemp^.GetPlayerSlot();
+					if(pxSlot!=null)then
+						sName=pxSlot^.GetName();
+					else
+						sName=pxTemp^.GetPName();
+					endif;
+					bC=pxTemp^.IsConqueror();
+					pxTemp^.IsGuardian(bP,bD,bS);
+				endif;
+				if(bC)then
+					sLoss="_MIRAGE_NT_DiplConquerorLeft";
+				elseif(bP)then
+					sLoss="_MIRAGE_NT_DiplPaladinLeft";
+				elseif(bD)then
+					sLoss="_MIRAGE_NT_DiplDefenderLeft";
+				elseif(bS)then
+					sLoss="_MIRAGE_NT_DiplSlaveLeft";
+				endif;
+				if(pxSlot!=null && !pxSlot^.IsFree() && !sLoss.IsEmpty())then
+					CFeedback.Print(CFeedback.ALL, CFeedback.GAMEPLAY,sLoss+"\t"+sName);
+				endif;
+			endif;
+		endif;
+		if(p_iOwner==-1)then //replay
+			CSrvWrap.SendGenericEvtToClients(0FFFFh,"MainMenu");
+		endif;
+	endproc;
+	
+	export proc void OnAbandonGame(int p_iOwner)
+		OnPlayerDisconnect(p_iOwner);
+	endproc;
+	
+	export proc void Tick()
+		if(!m_bEnabled)then return; endif;
+		if(m_pxLevel==null)then return; endif;
+		var CGameTime xCur=CTimeMgr.Get().GetTime();
+		if(m_xLastTickTime!=CGameTime.GetInvalidTime() && (xCur-m_xLastTickTime).GetSecondsF()<5.0f)then
+			InvalidateContent(UF_WIN_LOSE);
+		endif;
+		m_xLastTickTime=xCur;
+		if(m_dwUpdateFlags!=0h)then
+			OnUpdateContent();
+		endif;
+	endproc;
+	
+	proc int GetNumUnits(int p_iOwner)
+		var int iNumUnits=0;
+		var ^CPlayer pxPlayer=m_pxLevel^.GetPlayer(p_iOwner);
+		if(pxPlayer!=null)then
+			var CObjList xUnits=pxPlayer^.GetUnits();
+			var int i,iC=xUnits.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxUnit=cast<CFightingObj>(xUnits[i].GetObj());
+				if(pxUnit==null)then
+					continue;
+				endif;
+				if(pxUnit^.DoesCountInUnitLimit())then
+					iNumUnits++;
+				endif;
+			endfor;
+		endif;
+		return iNumUnits;
+	endproc;
+	
+	proc bool HasProducedBuilding(int p_iOwner)
+		var bool bHasProducedBuilding=false;
+		var ^CPlayer pxPlayer=m_pxLevel^.GetPlayer(p_iOwner);
+		if(pxPlayer!=null)then 
+			var CObjList xBuildings=pxPlayer^.GetBuildings();
+			var int i,iC=xBuildings.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CGameObj pxBldg=xBuildings[i].GetObj();
+				if(pxBldg==null)then continue; endif;
+				if(pxBldg^.GetConstructLevel()<4)then continue; endif;
+				if(pxPlayer^.CanProduceUnit(pxBldg))then
+					bHasProducedBuilding=true;
+					break;
+				endif;
+			endfor;
+		endif;
+		return bHasProducedBuilding;
+	endproc;
+	
+	proc void CheckUnits(int p_iOwner)
+		var ^CPlayer pxPlayer=m_pxLevel^.GetPlayer(p_iOwner);
+		if(pxPlayer==null)then
+			return; 
+		endif;
+		var ^CPlayerState pxPlayerState=^(m_axPlayerStates[p_iOwner]);
+		if(pxPlayerState^.m_iState!=CPlayerState.STATE_ALIVE)then
+			return; 
+		endif;
+		if(pxPlayerState^.m_bLostUnit==false)then
+			return; 
+		endif;
+		var int iNumUnits=GetNumUnits(p_iOwner);
+		if(iNumUnits==0)then
+			if(HasProducedBuilding(p_iOwner)==false)then
+				var ^CBasePlayer pxTemp=cast<CBasePlayer>(pxPlayer);
+				if(CMirageSrvMgr.Get().PhantomMode()&&CMirageSrvMgr.Get().SoulKeepers()&&CMirageSrvMgr.ms_pxPoolMixer!=null&&CMirageSrvMgr.ms_pxPoolMixer^.IsTheReapingOver()&&pxPlayerState^.m_iPhantomRole==PHANTOM_DEFENDER&&!pxPlayerState^.m_bMasterMyself&&m_iGuardians>1)then
+					if(pxTemp!=null)then
+						var string sMaster;
+						var int iMaster;
+						pxTemp^.CheckBlood();
+						if(!pxTemp^.GoToMaster(sMaster,iMaster))then
+							pxPlayerState^.m_iPhantomRole=PHANTOM_NONE;
+							pxTemp^.SetPhantomRole(PHANTOM_NONE);
+							pxPlayerState^.m_iState=CPlayerState.STATE_KILLED;
+						else
+							pxPlayerState^.m_iState=CPlayerState.STATE_SLAVE;
+							pxPlayerState^.m_iPhantomRole=PHANTOM_SLAVE;
+							pxTemp^.SetPhantomRole(PHANTOM_SLAVE);
+							pxPlayerState^.m_sMaster=sMaster;
+							pxPlayerState^.m_iMaster=iMaster;
+							CFeedback.Print(CFeedback.ALL, CFeedback.GAMEPLAY,"_MIRAGE_NT_IntoSlavery\t"+pxTemp^.GetPName()+"\t"+sMaster);
+							m_iGuardians-=1;
+						endif;
+					endif;
+				else
+					if(pxTemp!=null)then
+						pxTemp^.CheckBlood();
+					endif;
+					pxPlayerState^.m_iState=CPlayerState.STATE_KILLED;
+				endif;
+				InvalidateContent(UF_WIN_LOSE);
+			endif;
+			return;
+		endif;
+	endproc;
+	
+	proc void OnHeadQuaterLost(int p_iOwner,string p_sHQClass)
+		if(CMirageSrvMgr.Get().PhantomMode() && CMirageSrvMgr.ms_pxPoolMixer!=null && CMirageSrvMgr.ms_pxPoolMixer^.IsTheReapingOver())then
+			var ^CPlayerState pxPlayerState=^(m_axPlayerStates[p_iOwner]);
+			if(pxPlayerState^.m_iState!=CPlayerState.STATE_ALIVE)then
+				return;
+			endif;
+		endif;
+		var CObjList xList;
+		var CObjQuery xQuery;
+		xQuery.SetOwner(p_iOwner);
+		xQuery.SetClass("aje_resource_collector");
+		xQuery.SetClass("hu_fireplace",true);
+		xQuery.SetClass("ninigi_fireplace",true);
+		xQuery.SetClass("seas_headquarters",true);
+		xQuery.SetClass("aje_amazon_temple",true);
+//		xQuery.SetType("ANML");
+//		xQuery.SetType("BLDG",true);
+		xQuery.SetAttribsNeg("count_as_hq",false);
+		xQuery.Execute(xList);
+		if(xList.NumEntries()<=0)then
+			if(CMirageSrvMgr.Get().NoHQTimer())then
+				var ^CBasePlayer pxPlayer=CBasePlayer.GetPlayer(p_iOwner);
+				if(pxPlayer!=null)then
+					pxPlayer^.SetRevealed(true);
+					var CObjList xAllObj=pxPlayer^.GetAllObjects();
+					var int i, iC=xAllObj.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						if(!xAllObj[i].IsValid())then continue; endif;
+						var ^CFightingObj pxFO=cast<CFightingObj>(xAllObj[i].GetObj());
+						if(pxFO==null)then continue; endif;
+						pxFO^.PlayerRevealed(true);
+					endfor;
+				endif;
+				return;
+			endif;
+			var ^CPlayerState pxPS=^(m_axPlayerStates[p_iOwner]);
+			if(pxPS^.m_iState==CPlayerState.STATE_ALIVE)then
+				var ^CObjTime pxHQTimer=cast<CObjTime>(pxPS^.m_xHQTimer.GetObj());
+				if(pxHQTimer==null)then
+					pxHQTimer=CObjTime.FindTimerObj("GameOverMgr/HQ",p_iOwner);
+					if(pxHQTimer!=null)then
+						pxPS^.m_xHQTimer=pxHQTimer^.GetHandle();
+						pxHQTimer^.m_xOnFire=OnFireHQTimer;
+						return;
+					endif;
+				endif;
+				if(pxHQTimer==null)then
+					pxHQTimer=cast<CObjTime>(CSrvWrap.GetObjMgr()^.CreateObj("ObjTime",0));
+					if(pxHQTimer!=null)then
+						pxHQTimer^.SetID(p_iOwner);
+						pxHQTimer^.SetOccupant("GameOverMgr/HQ");
+						pxHQTimer^.SetOwner(p_iOwner);
+						pxHQTimer^.SetIcon("headquater");
+						var string sPlayerName;
+						var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_pxLevel^.GetLevelInfo().GetOwnerPlayerSlot(p_iOwner);
+						if(pxPlayerSlot!=null)then
+							sPlayerName=pxPlayerSlot^.GetName();
+						endif;
+						pxHQTimer^.SetTooltip("_Timer_TT_HeadQuater\t"+sPlayerName);
+						pxHQTimer^.m_xOnFire=OnFireHQTimer;
+						pxPS^.m_xHQTimer=pxHQTimer^.GetHandle();
+						var CConfig xConf;
+//						var real fMin=xConf.GetSetF("Game/MPSettings/HQTimer",5.0f);
+//						var CGameTimeSpan xInterval=(CGameTimeSpan.OneSecond()*60.0f)*fMin;
+						var CGameTimeSpan xInterval=(CGameTimeSpan.OneSecond()*60.0f)*CMirageSrvMgr.ms_fHQTimer;
+						pxHQTimer^.Start(xInterval,false,true);
+					else
+						KLog.LogError("GameOverMgr","TimerObj create failed");
+					endif;
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	proc void OnHeadQuaterAdd(int p_iOwner,string p_sHQClass)
+		if(CMirageSrvMgr.Get().NoHQTimer())then
+			var ^CBasePlayer pxPlayer=CBasePlayer.GetPlayer(p_iOwner);
+			if(pxPlayer!=null)then
+				pxPlayer^.SetRevealed(false);
+				var CObjList xAllObj=pxPlayer^.GetAllObjects();
+				var int i, iC=xAllObj.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					if(!xAllObj[i].IsValid())then continue; endif;
+					var ^CFightingObj pxFO=cast<CFightingObj>(xAllObj[i].GetObj());
+					if(pxFO==null)then continue; endif;
+					pxFO^.PlayerRevealed(false);
+				endfor;
+			endif;
+			return;
+		endif;
+		if(p_iOwner<0||p_iOwner>7)then
+			return;
+		endif;
+		var ^CPlayerState pxPS=^(m_axPlayerStates[p_iOwner]);
+		var ^CObjTime pxHQTimer=cast<CObjTime>(pxPS^.m_xHQTimer.GetObj());
+		if(pxHQTimer!=null)then
+			pxHQTimer^.Kill();
+			pxPS^.m_xHQTimer=CObjHndl.Invalid();
+		endif;
+	endproc;
+	
+	export proc void OnReadyBuild(^CBuilding p_pxBuilding)
+		if(!m_bEnabled)then return; endif;
+		if(p_pxBuilding==null)then return; endif;
+		var string sUnitClass=p_pxBuilding^.GetClassName();
+		if(sUnitClass=="hu_fireplace"||sUnitClass=="ninigi_fireplace"||sUnitClass=="seas_headquarters"||sUnitClass=="aje_amazon_temple")then
+			OnHeadQuaterAdd(p_pxBuilding^.GetOwner(),sUnitClass);
+			return;
+		endif;
+		if((m_dwCheckStates&CHECK_WARPGATE)!=0h)then
+			var ^CWarpGate pxWarpGate=cast<CWarpGate>(p_pxBuilding);
+			if(pxWarpGate!=null)then
+				var int iOwner=pxWarpGate^.GetOwner();
+				var ^CPlayerState pxPS=^(m_axPlayerStates[iOwner]);
+				var ^CObjTime pxWarpGateTimer=cast<CObjTime>(pxPS^.m_xWarpGateTimer.GetObj());
+				
+				if(pxWarpGateTimer==null)then
+					pxWarpGateTimer=CObjTime.FindTimerObj("GameOverMgr/WarpGate",iOwner);
+					if(pxWarpGateTimer!=null)then
+						pxWarpGateTimer^.m_xOnFire=OnFireWarpGateTimer;
+						pxPS^.m_xWarpGateTimer=pxWarpGateTimer^.GetHandle();
+						return;
+					endif;
+				endif;
+				if(pxWarpGateTimer==null)then
+					pxWarpGateTimer=cast<CObjTime>(CSrvWrap.GetObjMgr()^.CreateObj("ObjTime",0));
+					if(pxWarpGateTimer!=null)then
+						pxWarpGateTimer^.SetID(iOwner);
+						pxWarpGateTimer^.SetOccupant("GameOverMgr/WarpGate");
+						pxWarpGateTimer^.SetOwner(iOwner);
+						pxWarpGateTimer^.SetIcon("warpgate");
+						var string sPlayerName;
+						var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_pxLevel^.GetLevelInfo().GetOwnerPlayerSlot(iOwner);
+						if(pxPlayerSlot!=null)then
+							sPlayerName=pxPlayerSlot^.GetName();
+						endif;
+						pxWarpGateTimer^.SetTooltip("_Timer_TT_WarpGate\t"+sPlayerName);
+						pxWarpGateTimer^.m_xOnFire=OnFireWarpGateTimer;
+						pxPS^.m_xWarpGateTimer=pxWarpGateTimer^.GetHandle();
+						var CConfig xConf;
+//						var real fMin=xConf.GetSetF("Game/MPSettings/WarpGateTimer",10.0f);
+						var real fMin=Math.Max(CMirageSrvMgr.ms_fWGTimer,0.001f);
+						var CGameTimeSpan xInterval=(CGameTimeSpan.OneSecond()*60.0f)*fMin;
+						pxWarpGateTimer^.Start(xInterval,false,true);
+					else
+						KLog.LogError("GameOverMgr","create warpgate timer failed");
+					endif;
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	proc void OnFireHQTimer(int p_iID)
+		if(!m_bEnabled)then return; endif;
+		if(p_iID<0||p_iID>7)then
+			return;
+		endif;
+		var ^CPlayerState pxPS=^(m_axPlayerStates[p_iID]);
+		pxPS^.m_xHQTimer=CObjHndl.Invalid();
+//		pxPS^.m_iState=CPlayerState.STATE_KILLED;
+		var ^CPlayer pxPlayer=m_pxLevel^.GetPlayer(p_iID);
+		if(pxPlayer==null)then
+			pxPS^.m_iState=CPlayerState.STATE_KILLED;
+			return; 
+		endif;
+		var ^CBasePlayer pxTemp=cast<CBasePlayer>(pxPlayer);
+		if(CMirageSrvMgr.Get().PhantomMode()&&CMirageSrvMgr.Get().SoulKeepers()&&CMirageSrvMgr.ms_pxPoolMixer!=null&&CMirageSrvMgr.ms_pxPoolMixer^.IsTheReapingOver()&&pxPS^.m_iPhantomRole==PHANTOM_DEFENDER&&!pxPS^.m_bMasterMyself&&m_iGuardians>1)then
+			if(pxTemp!=null)then
+				var string sMaster;
+				var int iMaster;
+				pxTemp^.CheckBlood();
+				if(!pxTemp^.GoToMaster(sMaster,iMaster))then
+					pxPS^.m_iPhantomRole=PHANTOM_NONE;
+					pxTemp^.SetPhantomRole(PHANTOM_NONE);
+					pxPS^.m_iState=CPlayerState.STATE_KILLED;
+				else
+					pxPS^.m_iState=CPlayerState.STATE_SLAVE;
+					pxPS^.m_iPhantomRole=PHANTOM_SLAVE;
+					pxTemp^.SetPhantomRole(PHANTOM_SLAVE);
+					pxPS^.m_sMaster=sMaster;
+					pxPS^.m_iMaster=iMaster;
+					CFeedback.Print(CFeedback.ALL, CFeedback.GAMEPLAY,"_MIRAGE_NT_IntoSlavery\t"+pxTemp^.GetPName()+"\t"+sMaster);
+					m_iGuardians-=1;
+				endif;
+			endif;
+		else
+			if(pxTemp!=null)then
+				pxTemp^.CheckBlood();
+			endif;
+			pxPS^.m_iState=CPlayerState.STATE_KILLED;
+		endif;
+		//L KLog.LogWarn("GameOverMgr","HQ Lost:"+p_iID.ToString());
+		InvalidateContent(UF_WIN_LOSE);
+	endproc;
+	
+	proc void OnFireWarpGateTimer(int p_iID)
+		if(!m_bEnabled)then return; endif;
+		if(p_iID<0||p_iID>7)then return; endif;
+		var ^CPlayerState pxPS=^(m_axPlayerStates[p_iID]);
+		pxPS^.m_xWarpGateTimer=CObjHndl.Invalid();
+		var int i,iC=m_axPlayerStates.NumEntries();
+		if(CMirageSrvMgr.Get().PhantomMode()&&CMirageSrvMgr.ms_pxPoolMixer!=null&&CMirageSrvMgr.ms_pxPoolMixer^.IsTheReapingOver())then
+			var bool bGoodSideVictory=pxPS^.m_bGoodSide;
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPlayerState pxPS=^(m_axPlayerStates[i]);
+				if(pxPS^.m_iState==CPlayerState.STATE_ALIVE || pxPS^.m_iState==CPlayerState.STATE_SLAVE)then
+					var bool bFriend = bGoodSideVictory==pxPS^.m_bGoodSide;
+					if(bFriend)then
+						pxPS^.m_iState=CPlayerState.STATE_WIN;
+					else
+						pxPS^.m_iState=CPlayerState.STATE_KILLED;
+					endif;
+				endif;
+			endfor;
+		else
+			var ^CDiplomacySrvMgr pxDiplMgr=^(CSrvWrap.GetDiplomacyMgr());
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPlayerState pxPS=^(m_axPlayerStates[i]);
+				if(pxPS^.m_iState==CPlayerState.STATE_ALIVE)then
+					var bool bFriend=pxDiplMgr^.GetIsFriend(p_iID,i);
+					if(bFriend)then
+						pxPS^.m_iState=CPlayerState.STATE_WIN;
+					else
+						pxPS^.m_iState=CPlayerState.STATE_KILLED;
+					endif;
+				endif;
+			endfor;
+		endif;
+		//L KLog.LogWarn("GameOverMgr","Warpgate Win:"+p_iID.ToString());
+		InvalidateContent(UF_WIN_LOSE);
+	endproc;
+	
+	proc void OnFireDominationTimer(int p_iID)
+		if(!m_bEnabled)then return; endif;
+		var ^CObjTime pxDominationTimer=cast<CObjTime>(m_xDominationTimer.GetObj());
+		if(pxDominationTimer==null)then KLog.LogError("GameOverMgr","invalid domination timer"); return; endif;
+		var int iOwner=pxDominationTimer^.GetOwner();
+		if(iOwner<0||iOwner>7)then KLog.LogError("GameOverMgr","invalid domination owner"); return; endif;
+		var int iWinTeam=-1;
+		var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_pxLevel^.GetLevelInfo().GetOwnerPlayerSlot(iOwner);
+		if(pxPlayerSlot!=null)then
+			iWinTeam=pxPlayerSlot^.GetTeam();
+		endif;
+		var int i,iC=m_axPlayerStates.NumEntries();
+		if(CMirageSrvMgr.Get().PhantomMode()&&CMirageSrvMgr.ms_pxPoolMixer!=null&&CMirageSrvMgr.ms_pxPoolMixer^.IsTheReapingOver())then
+			var bool bGoodSideVictory=m_axPlayerStates[p_iID].m_bGoodSide;
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPlayerState pxPS=^(m_axPlayerStates[i]);
+				if(pxPS^.m_iState==CPlayerState.STATE_ALIVE || pxPS^.m_iState==CPlayerState.STATE_SLAVE)then
+					var bool bFriend = bGoodSideVictory==pxPS^.m_bGoodSide;
+					if(bFriend)then
+						pxPS^.m_iState=CPlayerState.STATE_WIN;
+					else
+						pxPS^.m_iState=CPlayerState.STATE_KILLED;
+					endif;
+				endif;
+			endfor;
+		else
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPlayerState pxPS=^(m_axPlayerStates[i]);
+				if(pxPS^.m_iState==CPlayerState.STATE_ALIVE)then
+					var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_pxLevel^.GetLevelInfo().GetOwnerPlayerSlot(i);
+					if(pxPlayerSlot==null)then
+						continue;
+					endif;
+					var int iTeam=pxPlayerSlot^.GetTeam();
+					if(iTeam==iWinTeam)then
+						pxPS^.m_iState=CPlayerState.STATE_WIN;
+					else
+						pxPS^.m_iState=CPlayerState.STATE_KILLED;
+					endif;
+				endif;
+			endfor;
+		endif;
+		//L KLog.LogWarn("GameOverMgr","Domination Win:"+iWinTeam.ToString());
+		InvalidateContent(UF_WIN_LOSE);
+	endproc;
+	
+	proc void OnFireDefenderTimer(int p_iID)
+		if(!m_bEnabled)then return; endif;
+		var int i,iC=m_axPlayerStates.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPlayerState pxPS=^(m_axPlayerStates[i]);
+			if(pxPS^.m_iState==CPlayerState.STATE_ALIVE)then
+				var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_pxLevel^.GetLevelInfo().GetOwnerPlayerSlot(i);
+				if(pxPlayerSlot==null)then
+					continue;
+				endif;
+//				var int iOwner=pxPlayerSlot^.GetOwner();
+//				if(iOwner==p_iID)then
+				var int iTeam=pxPlayerSlot^.GetTeam();
+				if(iTeam==1)then
+					pxPS^.m_iState=CPlayerState.STATE_WIN;
+				else
+					pxPS^.m_iState=CPlayerState.STATE_KILLED;
+				endif;
+			endif;
+		endfor;
+		//L KLog.LogWarn("GameOverMgr","Defender Win:"+p_iID.ToString());
+		InvalidateContent(UF_WIN_LOSE);
+	endproc;
+	
+	proc void OnUpdateContent()
+		if((m_dwUpdateFlags&UF_UNITS)!=0h)then
+			if((m_dwCheckStates&CHECK_UNITS)!=0h)then
+				var int i,iC=8;
+				for(i=0)cond(i<iC)iter(i++)do
+					CheckUnits(i);
+				endfor;
+			endif;
+		endif;
+		if((m_dwUpdateFlags&UF_DOMINATION_POINTS)!=0h)then
+			if((m_dwCheckStates&CHECK_DOMINATIONS)!=0h)then
+				CheckDominationPoints();
+			endif;
+		endif;
+		if((m_dwUpdateFlags&UF_DEFENDER_OBJ)!=0h)then
+			if((m_dwCheckStates&CHECK_DEFENDEROBJS)!=0h)then
+				CheckDefenderObjs();
+			endif;
+		endif;
+		if((m_dwUpdateFlags&UF_WIN_LOSE)!=0h)then
+			var ^CLevelInfoHost pxLevelInfo=^(m_pxLevel^.GetLevelInfo());
+			var bool bConquerorTerminated, bGuardianTerminated;
+			var array int aiAlivePlayers, aiSlaves, aiMasters, aiRecentDeaths;
+			var int j,iK,i,iC=m_axPlayerStates.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPlayerState pxPS=^(m_axPlayerStates[i]);
+				if(pxPS^.m_iState==CPlayerState.STATE_KILLED)then
+					OnPlayerLose(i,bGuardianTerminated,bConquerorTerminated);
+					aiRecentDeaths.AddEntry(i);
+					pxPS^.m_iState=CPlayerState.STATE_INVALID;
+				elseif(pxPS^.m_iState==CPlayerState.STATE_DRAW)then
+					OnPlayerDraw(i);
+					pxPS^.m_iState=CPlayerState.STATE_INVALID;
+				elseif(pxPS^.m_iState==CPlayerState.STATE_WIN)then
+					OnPlayerWin(i);
+					pxPS^.m_iState=CPlayerState.STATE_INVALID;
+				elseif(pxPS^.m_iState==CPlayerState.STATE_SLAVE)then
+					aiSlaves.AddEntry(i);
+//					aiMasters.AddEntry(pxPS^.m_iMaster);
+				elseif(pxPS^.m_iState==CPlayerState.STATE_ALIVE)then
+					aiAlivePlayers.AddEntry(i);
+				endif;
+			endfor;
+			iC=aiAlivePlayers.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CLevelInfo.CPlayerSlot pxPlayerSlot=pxLevelInfo^.GetOwnerPlayerSlot(aiAlivePlayers[i]);
+				if(pxPlayerSlot==null)then
+					continue;
+				endif;
+			endfor;
+			var ^CPlayerState pxPlrStt;
+			iK=aiSlaves.NumEntries();
+			for(i=0)cond(i<iK)iter(i++)do
+				j=aiSlaves[i];
+				pxPlrStt=^(m_axPlayerStates[j]);
+				if(aiRecentDeaths.FindEntry(pxPlrStt^.m_iMaster)!=-1)then
+					OnSlaveDie(j);
+					pxPlrStt^.m_iState=CPlayerState.STATE_INVALID;
+					aiSlaves.DeleteEntry(i);
+				endif;
+			endfor;
+			if(aiAlivePlayers.NumEntries()==1)then
+				if(m_aiStartedPlayers.NumEntries()>1)then
+					iK=aiSlaves.NumEntries();
+					for(i=0)cond(i<iK)iter(i++)do
+						j=aiSlaves[i];
+						pxPlrStt=^(m_axPlayerStates[j]);
+						if(pxPlrStt^.m_iMaster==aiAlivePlayers[0])then
+							OnSlaveWin(j);
+						endif;
+					endfor;
+					OnPlayerWin(aiAlivePlayers[0],bConquerorTerminated,bGuardianTerminated);
+				endif;
+			else
+				iC=aiAlivePlayers.NumEntries();
+				var bool bCheck=false;
+				if(bConquerorTerminated&&m_iConquerors<1)then
+					bCheck=true;
+					for(i=0)cond(i<iC)iter(i++)do
+						OnPlayerWin(aiAlivePlayers[i],true,false);
+					endfor;
+				elseif(bGuardianTerminated&&m_iGuardians<1)then
+					bCheck=true;
+					for(i=0)cond(i<iC)iter(i++)do
+						OnPlayerWin(aiAlivePlayers[i],false,true);
+					endfor;
+				elseif(!CMirageSrvMgr.Get().PhantomMode())then // Henry: all players can be on the same team in phantom mode, so if someone dies the rest shouldn't just win
+//					bCheck=false;
+					var array int aiAliveTeams;
+					var ^CPlayer pxPlayer;
+					for(i=0)cond(i<iC)iter(i++)do
+						pxPlayer=m_pxLevel^.GetPlayer(aiAlivePlayers[i]);
+						if(pxPlayer==null)then
+							continue;
+						endif;
+						aiAliveTeams.Include(pxPlayer^.GetTeamID());
+					endfor;
+					// for(i=0)cond(i<iC)iter(i++)do
+						// var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_pxLevel^.GetLevelInfo().GetOwnerPlayerSlot(aiAlivePlayers[i]);
+						// if(pxPlayerSlot==null)then
+							// continue;
+						// endif;
+						// aiAliveTeams.Include(pxPlayerSlot^.GetTeam());
+					// endfor;
+					if(aiAliveTeams.NumEntries()==1 && m_aiStartedTeams.NumEntries()>1)then
+						iC=aiAlivePlayers.NumEntries();
+						for(i=0)cond(i<iC)iter(i++)do
+							OnPlayerWin(aiAlivePlayers[i]);
+						endfor;
+					endif;
+				endif;
+				if(bCheck)then
+					iK=aiSlaves.NumEntries();
+					for(i=0)cond(i<iK)iter(i++)do
+						j=aiSlaves[i];
+						pxPlrStt=^(m_axPlayerStates[j]);
+						if(aiAlivePlayers.FindEntry(pxPlrStt^.m_iMaster)!=-1)then
+							OnSlaveWin(j);
+						else
+							OnSlaveDie(j);
+						endif;
+					endfor;
+				endif;
+			endif;
+		endif;
+		m_dwUpdateFlags=0h;
+	endproc;
+	
+	proc void OnPlayerWin(int p_iOwner)
+		OnPlayerWin(p_iOwner, false, false);
+	endproc;
+	
+	proc void OnPlayerWin(int p_iOwner, bool p_bGuardianWin, bool p_bConquerorWin)
+		CAiInterface.PlayerWin(p_iOwner);
+		var string sSend="GameOver\tMultiplayer\tWin";
+//		var string sSend="GameOver\tMultiplayer\tDraw";
+		if(p_bGuardianWin)then
+			sSend = "GameOver\tMultiplayer\tLose\t_GAOV_Guardians_Win";
+		elseif(p_bConquerorWin)then
+			sSend = "GameOver\tMultiplayer\tLose\t_GAOV_Conqueror_Win";
+		endif;
+		CSrvWrap.SendGenericEvtToPlayer(p_iOwner, sSend);
+		if(m_pxLevel != null)then
+			m_pxLevel^.GetStatisticMgr().AddSample( CStatisticSample.OutOfGame.ToInt(), p_iOwner, 1 );
+			KLog.LogSpam("AnTr","Set Winner "+p_iOwner.ToString());
+			m_pxLevel^.GetStatisticMgr().SetWinner(p_iOwner,true);
+		endif;
+		//Ende
+		m_bEnabled=false;
+		KillWarpgateTimers();
+		KillHQTimers();
+		KillSandGlassTimer();
+		KillDominationTimer();
+		KillDefenderTimer();
+		CMirageSrvMgr.Get().Endscreen();
+		Purify();
+	endproc;
+	
+	proc void OnPlayerLose(int p_iOwner, ref bool p_rbGuardianDead, ref bool p_rbConquerorDead)
+		var ^CPlayerState pxPS=^(m_axPlayerStates[p_iOwner]);
+		if(pxPS^.m_bAlreadyDead==true)then return; endif;
+		pxPS^.m_bAlreadyDead=true;
+		var ^CObjTime pxHQTimer=cast<CObjTime>(pxPS^.m_xHQTimer.GetObj());
+		if(pxHQTimer!=null)then
+			pxHQTimer^.Kill();
+			pxPS^.m_xHQTimer=CObjHndl.Invalid();
+		endif;
+		var bool bP=false, bD=false, bS=false;
+		PlayerDeath(p_iOwner);
+		CAiInterface.PlayerLose(p_iOwner);
+		var ^CBasePlayer pxTemp=CBasePlayer.GetPlayer(p_iOwner);
+		if(pxTemp!=null)then
+			pxTemp^.SetDead(true);
+		endif;
+		if(CMirageSrvMgr.Get().PhantomMode()&&CMirageSrvMgr.ms_pxPoolMixer!=null&&CMirageSrvMgr.ms_pxPoolMixer^.IsTheReapingOver())then
+			if(pxTemp!=null)then
+//				pxTemp^.SetDead(true);
+				pxTemp^.CheckBlood();
+				p_rbConquerorDead=pxTemp^.IsConqueror();
+				p_rbGuardianDead=pxTemp^.IsGuardian(bP,bD,bS);
+			else
+				p_rbConquerorDead=false;
+				p_rbGuardianDead=false;
+			endif;
+		else
+			p_rbConquerorDead=false;
+			p_rbGuardianDead=false;
+		endif;
+		var string sSend="GameOver\tMultiplayer\tLose";
+		if(p_rbGuardianDead)then
+			sSend = "GameOver\tMultiplayer\tLose\t_GAOV_Guardians_Dead";
+			m_iGuardians-=1;
+		elseif(p_rbConquerorDead)then
+			sSend = "GameOver\tMultiplayer\tLose\t_GAOV_Conqueror_Dead";
+			m_iConquerors-=1;
+		endif;
+		CSrvWrap.SendGenericEvtToPlayer(p_iOwner, sSend);
+		if( m_pxLevel != null )then
+			m_pxLevel^.GetStatisticMgr().AddSample( CStatisticSample.OutOfGame.ToInt(), p_iOwner, -1 );
+		endif;
+		//var ^CPlayer pxPlayer=m_pxLevel^.GetPlayer(p_iOwner);
+		var ^CPlayer pxPlayer=m_pxLevel^.GetPlayer(p_iOwner);
+		if(pxPlayer==null)then return; endif;
+		var ^CLevelInfo.CPlayerSlot pxSlot=pxPlayer^.GetPlayerSlot();
+		var string sLoss="_NT_DiplPlayerKilled";
+		if(p_rbConquerorDead)then
+			sLoss="_MIRAGE_NT_DiplConquerorKilled";
+		elseif(bP)then
+			sLoss="_MIRAGE_NT_DiplPaladinKilled";
+		elseif(bD)then
+			sLoss="_MIRAGE_NT_DiplDefenderKilled";
+		elseif(bS)then
+			sLoss="_MIRAGE_NT_DiplSlaveKilled";
+		endif;
+		if(pxSlot!=null && !pxSlot^.IsFree())then
+			CFeedback.Print(CFeedback.ALL, CFeedback.GAMEPLAY,sLoss+"\t"+pxSlot^.GetName());
+		endif;
+		var CObjList xUnits=pxPlayer^.GetUnits();
+		var int i,iC=xUnits.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CFightingObj pxFO=cast<CFightingObj>(xUnits[i].GetObj());
+			if(pxFO!=null && !pxFO^.IsMarkedForDelete())then
+//				if(pxFO^.DoesCountInUnitLimit())then
+//					pxFO^.Die();
+					pxFO^.GameOverKill(ToInt(m_bCoOpReplace&&p_iOwner!=0));
+//				endif;
+			endif;
+		endfor;
+		var CObjList xBuildings=pxPlayer^.GetBuildings();
+		iC=xBuildings.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CBuilding pxBldg=cast<CBuilding>(xBuildings[i].GetObj());
+			if(pxBldg!=null && !pxBldg^.IsMarkedForDelete())then 
+//				if(pxPlayer^.CanProduceUnit(pxBldg))then
+					pxBldg^.Die();
+//				endif;
+			endif;
+		endfor;
+	endproc;
+	
+	proc void OnSlaveWin(int p_iOwner)
+		CAiInterface.PlayerWin(p_iOwner);
+		var string sSend="GameOver\tMultiplayer\tLose\t_GAOV_Slave_Win";
+		CSrvWrap.SendGenericEvtToPlayer(p_iOwner, sSend);
+		if(m_pxLevel!=null)then
+			m_pxLevel^.GetStatisticMgr().AddSample(CStatisticSample.OutOfGame.ToInt(), p_iOwner, 1);
+			m_pxLevel^.GetStatisticMgr().SetWinner(p_iOwner,true);
+		endif;
+		m_bEnabled=false;
+		Purify();
+	endproc;
+	
+	proc void OnSlaveDie(int p_iOwner)
+		var ^CPlayerState pxPS=^(m_axPlayerStates[p_iOwner]);
+		if(pxPS^.m_bAlreadyDead==true)then return; endif;
+		pxPS^.m_bAlreadyDead=true;
+		PlayerDeath(p_iOwner);
+		var ^CBasePlayer pxTemp=CBasePlayer.GetPlayer(p_iOwner);
+		if(pxTemp!=null)then
+			pxTemp^.SetDead(true);
+		endif;
+		CAiInterface.PlayerLose(p_iOwner);
+		var string sSend="GameOver\tMultiplayer\tLose\t_GAOV_Slave_Dead";
+		CSrvWrap.SendGenericEvtToPlayer(p_iOwner, sSend);
+		if(m_pxLevel!=null)then
+			m_pxLevel^.GetStatisticMgr().AddSample(CStatisticSample.OutOfGame.ToInt(), p_iOwner, -1);
+		endif;
+		var ^CPlayer pxPlayer=m_pxLevel^.GetPlayer(p_iOwner);
+		if(pxPlayer==null)then return; endif;
+		var ^CLevelInfo.CPlayerSlot pxSlot=pxPlayer^.GetPlayerSlot();
+		var string sLoss="_MIRAGE_NT_DiplSlaveKilled";
+		if(pxSlot!=null && !pxSlot^.IsFree())then
+			CFeedback.Print(CFeedback.ALL, CFeedback.GAMEPLAY,sLoss+"\t"+pxSlot^.GetName());
+		endif;
+		var CObjList xUnits=pxPlayer^.GetUnits();
+		var int i,iC=xUnits.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CFightingObj pxFO=cast<CFightingObj>(xUnits[i].GetObj());
+			if(pxFO!=null && !pxFO^.IsMarkedForDelete())then
+//				if(pxFO^.DoesCountInUnitLimit())then
+					pxFO^.GameOverKill(ToInt(m_bCoOpReplace&&p_iOwner!=0));
+//				endif;
+			endif;
+		endfor;
+		var CObjList xBuildings=pxPlayer^.GetBuildings();
+		iC=xBuildings.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CBuilding pxBldg=cast<CBuilding>(xBuildings[i].GetObj());
+			if(pxBldg!=null && !pxBldg^.IsMarkedForDelete())then 
+//				if(pxPlayer^.CanProduceUnit(pxBldg))then
+					pxBldg^.Die();
+//				endif;
+			endif;
+		endfor;
+	endproc;
+	
+	proc void OnPlayerDraw(int p_iOwner)
+		CAiInterface.PlayerLose(p_iOwner);
+		PlayerDeath(p_iOwner);
+		var string sSend="GameOver\tMultiplayer\tDraw";
+		CSrvWrap.SendGenericEvtToPlayer(p_iOwner, sSend);
+		if(m_pxLevel != null)then
+			m_pxLevel^.GetStatisticMgr().AddSample(CStatisticSample.OutOfGame.ToInt(), p_iOwner, 1);
+		endif;
+		m_bEnabled=false;
+		KillWarpgateTimers();
+		KillHQTimers();
+		KillSandGlassTimer();
+		KillDominationTimer();
+		KillDefenderTimer();
+		Purify();
+	endproc;
+	
+	proc void CheckDominationPoints()
+		if(!m_bEnabled)then return; endif;
+		var bool bTeamOccupied=true;
+		var int iTeamOccupied=-1;
+		var array int aiOwnerMap;
+		var array int aiOccupyTeams;
+		aiOwnerMap=8;
+		var int i,iC=m_xDominationPoints.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxWalk=m_xDominationPoints[i].GetObj();
+			if(pxWalk==null)then continue; endif;
+			var int iOwner=pxWalk^.GetOwner();
+			if(iOwner==-1)then
+				bTeamOccupied=false;
+				continue;
+			endif;
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_pxLevel^.GetLevelInfo().GetOwnerPlayerSlot(iOwner);
+			if(pxPlayerSlot==null)then
+				bTeamOccupied=false;
+				continue;
+			endif;
+			aiOwnerMap[iOwner]++;
+			var int iTeam=pxPlayerSlot^.GetTeam();
+			if(iTeamOccupied==-1)then
+				iTeamOccupied=iTeam;
+			elseif(iTeamOccupied!=iTeam)then
+				bTeamOccupied=false;
+			endif;
+			System.Assert(iTeam!=-1);
+			aiOccupyTeams.Include(iTeam);
+		endfor;
+		var ^CObjTime pxDominationTimer=cast<CObjTime>(m_xDominationTimer.GetObj());
+		if(pxDominationTimer==null)then
+			pxDominationTimer=CObjTime.FindTimerObj("GameOverMgr/Domination",0);
+			if(pxDominationTimer!=null)then
+				pxDominationTimer^.m_xOnFire=OnFireDominationTimer;
+				m_xDominationTimer=pxDominationTimer^.GetHandle();
+			endif;
+		endif;
+		var int iTimerTeam=-1;
+		if(pxDominationTimer!=null)then
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_pxLevel^.GetLevelInfo().GetOwnerPlayerSlot(pxDominationTimer^.GetOwner());
+			if(pxPlayerSlot!=null)then
+				iTimerTeam=pxPlayerSlot^.GetTeam();
+			endif;
+		endif;
+		if(bTeamOccupied)then//alle domination points sind von einem Team besetzt
+			var int iMostOwner=-1;//Owner, der die meisten dominations besitzt
+			var int iTmp=0;
+			var int i,iC=aiOwnerMap.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(aiOwnerMap[i]>iTmp)then
+					iMostOwner=i;
+				endif;
+			endfor;
+			var string sMostOwnerName;
+			if(iMostOwner!=-1)then
+				var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_pxLevel^.GetLevelInfo().GetOwnerPlayerSlot(iMostOwner);
+				if(pxPlayerSlot!=null)then
+					sMostOwnerName=pxPlayerSlot^.GetName();
+				endif;
+			endif;
+			if(pxDominationTimer==null)then
+				//falls noch kein Timer vorhanden, eins erzeugen
+				pxDominationTimer=cast<CObjTime>(CSrvWrap.GetObjMgr()^.CreateObj("ObjTime",0));
+				if(pxDominationTimer==null)then
+					KLog.LogWarn("GameOverMgr","Create domination timer failed");
+					return;
+				endif;
+				pxDominationTimer^.m_xOnFire=OnFireDominationTimer;
+				m_xDominationTimer=pxDominationTimer^.GetHandle();
+				var CConfig xConf;
+//				var real fMin=xConf.GetSetF("Game/MPSettings/DominationTimer",10.0f);
+				var real fTime=CMirageSrvMgr.ms_fDFTimer*60.0f;
+				var ^CBasePlayer pxPlayer=cast<CBasePlayer>(m_pxLevel^.GetPlayer(iMostOwner));
+				if(pxPlayer!=null)then
+					fTime-=pxPlayer^.GetSpentTime().GetSecondsF();
+				endif;
+				var CGameTimeSpan xInterval=(CGameTimeSpan.OneSecond()*fTime);
+				pxDominationTimer^.Start(xInterval,false,true);
+				pxDominationTimer^.SetID(0); //unique!
+				pxDominationTimer^.SetOccupant("GameOverMgr/Domination");
+				pxDominationTimer^.SetOwner(iMostOwner);
+				pxDominationTimer^.SetIcon("domination");
+				pxDominationTimer^.SetTooltip("_Timer_TT_Domination\t"+sMostOwnerName);
+			else
+				//timer schon vorhanden
+				System.Assert(iTeamOccupied!=-1);
+				if(iTimerTeam==iTeamOccupied)then
+					//timer gehört immer noch dem gleichen Team -> Unpause
+					pxDominationTimer^.Unpause();
+					pxDominationTimer^.SetID(0);
+					pxDominationTimer^.SetOwner(iMostOwner);
+				else
+					//timer wechselt Team -> alten Timer Killen, neuen erzeugen
+					SetSpentTime(pxDominationTimer^.GetSpentTime(), iTimerTeam);
+					pxDominationTimer^.Kill();
+					if(m_bInstantDrawSandGlass)then
+						PostSandGlass(true);
+						return;
+					endif;
+					pxDominationTimer=cast<CObjTime>(CSrvWrap.GetObjMgr()^.CreateObj("ObjTime",0));
+					if(pxDominationTimer==null)then
+						KLog.LogWarn("GameOverMgr","Create domination timer failed");
+						return;
+					endif;
+					pxDominationTimer^.m_xOnFire=OnFireDominationTimer;
+					m_xDominationTimer=pxDominationTimer^.GetHandle();
+					var CConfig xConf;
+//					var real fMin=xConf.GetSetF("Game/MPSettings/DominationTimer",10.0f);
+					var real fMin=CMirageSrvMgr.ms_fDFTimer;
+					var CGameTimeSpan xInterval=(CGameTimeSpan.OneSecond()*60.0f)*fMin;
+					pxDominationTimer^.Start(xInterval,false,true);
+					pxDominationTimer^.SetID(iMostOwner);
+					pxDominationTimer^.SetOwner(iMostOwner);
+					pxDominationTimer^.SetIcon("domination");
+					pxDominationTimer^.SetTooltip("_Timer_TT_Domination\t"+sMostOwnerName);
+				endif;
+			endif;
+		else//domination points sind von keinem Team bzw. von mehreren Teams besetzt
+			if(aiOccupyTeams.NumEntries()==0)then
+				//kein Team -> Timer löschen (falls vorhanden)
+				if(pxDominationTimer!=null)then
+					SetSpentTime(pxDominationTimer^.GetSpentTime(), iTimerTeam);
+					pxDominationTimer^.Kill();
+					if(m_bInstantDrawSandGlass)then
+						PostSandGlass(true);
+						return;
+					endif;
+				endif;
+			else
+				var int i,iC=aiOccupyTeams.NumEntries();
+				//mehrere teams -> Timer löschen, falls vorhanden und deren Team nicht in der Liste steht, ansonsten pause
+				if(pxDominationTimer!=null)then
+					if(aiOccupyTeams.FindEntry(iTimerTeam)==-1)then
+						SetSpentTime(pxDominationTimer^.GetSpentTime(), iTimerTeam);
+						pxDominationTimer^.Kill();
+						if(m_bInstantDrawSandGlass)then
+							PostSandGlass(true);
+							return;
+						endif;
+					else
+						pxDominationTimer^.Pause();
+					endif;
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	proc void SetSpentTime(CGameTimeSpan p_xSpent, int p_iTeam)
+		if(!CMirageSrvMgr.Get().DominationContinue())then return; endif;
+		var int i,iC=8;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_pxLevel^.GetLevelInfo().GetOwnerPlayerSlot(i);
+			if(pxPlayerSlot==null)then
+				continue;
+			endif;
+			var int iTeam=pxPlayerSlot^.GetTeam();
+			if(p_iTeam!=iTeam)then
+				continue;
+			endif;
+			var ^CBasePlayer pxPlayer=cast<CBasePlayer>(m_pxLevel^.GetPlayer(i));
+			if(pxPlayer!=null)then
+				pxPlayer^.SetSpentTime(p_xSpent);
+			endif;
+		endfor;
+	endproc;
+	
+	proc void InitDefenderMode()
+		//KLog.LogSpam("AnTr","InitDefenderMode");
+		var ^CLevelInfoHost pxLevelInfo=^(m_pxLevel^.GetLevelInfo());
+		var CPlayerSlotID xSlotID;
+		var int iDefaultDef=0;
+		begin CheckDefenders;
+			var ^CBasePlayer pxOwner=CBasePlayer.GetPlayer(iDefaultDef);
+			if(pxOwner==null)then
+				var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+				var ^CPropDB.CNode pxTeams=pxGenericDB^.FindNode("ClientSettings/DefendTeams",false);
+				if(pxTeams!=null)then
+					var array string asTeams;
+					var array int aiDefenders;
+					var string sTeams=pxTeams^.Value();
+					if(sTeams!="")then
+						sTeams.Split(asTeams,":",true);
+						var int j, jC=Math.Clamp(asTeams.NumEntries(),1,8);
+						for(j=0)cond(j<jC)iter(j++)do
+							if(Math.Clamp(asTeams[j].ToInt(),1,2)==1)then
+								aiDefenders.AddEntry(j);
+							endif;
+						endfor;
+						jC=aiDefenders.NumEntries();
+						for(j=0)cond(j<jC)iter(j++)do
+							if(aiDefenders[j]!=iDefaultDef)then
+								pxOwner=CBasePlayer.GetPlayer(aiDefenders[j]);
+								if(pxOwner!=null)then
+									iDefaultDef=aiDefenders[j];
+									break;
+								endif;
+							endif;
+						endfor;
+					endif;
+				endif;
+			endif;
+		end CheckDefenders;
+		for(xSlotID=CPlayerSlotID.First())cond(xSlotID<=CPlayerSlotID.Last())iter(xSlotID.Incr())do
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(xSlotID));
+			if(pxPlayerSlot==null)then continue; endif;
+			var int iHQ=pxPlayerSlot^.GetHeadQuater();
+			if(iHQ==iDefaultDef)then //defender
+				//KLog.LogSpam("AnTr","Slot Set Team1");
+				//pxPlayerSlot^.SetTeam(1);
+				var int iDefenderOwner=pxPlayerSlot^.GetOwner();
+				var ^CObjTime pxDefenderTimer=CObjTime.FindTimerObj("GameOverMgr/Defender",iDefenderOwner);
+				if(pxDefenderTimer!=null)then
+					pxDefenderTimer^.m_xOnFire=OnFireDefenderTimer;
+					m_xDefenderTimer=pxDefenderTimer^.GetHandle();
+					continue;
+				endif;
+				pxDefenderTimer=cast<CObjTime>(CSrvWrap.GetObjMgr()^.CreateObj("ObjTime",0));
+				if(pxDefenderTimer==null)then
+					KLog.LogWarn("GameOverMgr","Create defender timer failed");
+				else
+					pxDefenderTimer^.SetOccupant("GameOverMgr/Defender");
+					pxDefenderTimer^.SetID(iDefenderOwner);
+					pxDefenderTimer^.SetOwner(iDefenderOwner);
+					pxDefenderTimer^.SetIcon("defender");
+					pxDefenderTimer^.SetTooltip("_Timer_TT_Defender\t"+pxPlayerSlot^.GetName());
+					pxDefenderTimer^.m_xOnFire=OnFireDefenderTimer;
+					m_xDefenderTimer=pxDefenderTimer^.GetHandle();
+					var int iMin=CSrvWrap.GetGame().GetDefenderTimer();
+					if(iMin<=0)then KLog.LogWarn("GameOverMgr","Invalid defender time"); continue; endif;
+					var CGameTimeSpan xInterval=(CGameTimeSpan.OneSecond()*60.0f)*iMin.ToReal();
+					pxDefenderTimer^.Start(xInterval,false,true);
+				endif;
+			else
+				//KLog.LogSpam("AnTr","Slot Set Team2");
+				//pxPlayerSlot^.SetTeam(2);
+			endif;
+		endfor;
+		m_xDefenderObjects=0;
+		var CObjQuery xOQ;
+		xOQ.SetClass("defender_object");
+		xOQ.Execute(m_xDefenderObjects);
+	endproc;
+	
+	proc void CheckDefenderObjs()
+		var int i,iC=m_xDefenderObjects.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CDefenderObj pxDO=cast<CDefenderObj>(m_xDefenderObjects[i].GetObj());
+			if(pxDO==null)then
+				m_xDefenderObjects.DeleteEntry(i);
+				i--;
+				iC--;
+			endif;
+		endfor;
+		if(m_xDefenderObjects.NumEntries()==0)then
+			var ^CObjTime pxTimer=cast<CObjTime>(m_xDefenderTimer.GetObj());
+			if(pxTimer==null)then
+				pxTimer=CObjTime.FindTimerObj("GameOverMgr/Defender",0);
+			endif;
+			if(pxTimer!=null)then
+				pxTimer^.Kill();
+				m_xDefenderTimer=CObjHndl.Invalid();
+			endif;
+			var int i,iC=m_axPlayerStates.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPlayerState pxPS=^(m_axPlayerStates[i]);
+				if(pxPS^.m_iState==CPlayerState.STATE_ALIVE)then
+					var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_pxLevel^.GetLevelInfo().GetOwnerPlayerSlot(i);
+					if(pxPlayerSlot==null)then
+						continue;
+					endif;
+//					var bool bDefender=(i==0);
+					var bool bDefender=pxPlayerSlot^.GetTeam()==1;
+					if(bDefender)then
+						pxPS^.m_iState=CPlayerState.STATE_KILLED;
+					else
+						pxPS^.m_iState=CPlayerState.STATE_WIN;
+					endif;
+				endif;
+			endfor;
+			//L KLog.LogWarn("GameOverMgr","Defender Loose:0");
+			InvalidateContent(UF_WIN_LOSE);
+		endif;
+	endproc;
+	
+	export proc bool CheckPlayerState(int p_iID, int p_iState)
+		if(p_iID<0||p_iID>7)then return false; endif;
+		if(p_iID>=m_axPlayerStates.NumEntries())then return false; endif;
+		return m_axPlayerStates[p_iID].m_iState==p_iState;
+	endproc;
+	
+	export proc void AddPhantomMember(int p_iID, int p_iRole, int p_iMaster)
+		AddPhantomMember(p_iID, p_iRole, p_iMaster, false);
+	endproc;
+	
+	export proc void AddPhantomMember(int p_iID, int p_iRole, int p_iMaster, bool p_bMaster)
+		if(m_axPlayerStates.NumEntries()==0)then
+			m_axPlayerStates=8;
+		endif;
+		if(p_iID<0||p_iID>=m_axPlayerStates.NumEntries())then return; endif;
+		if(p_iRole==PHANTOM_CONQUEROR)then
+			m_iConquerors+=1;
+		elseif(p_iRole==PHANTOM_PALADIN)then
+			m_iGuardians+=1;
+		elseif(p_iRole==PHANTOM_DEFENDER)then
+			m_iGuardians+=1;
+		endif;
+		if(p_iRole==PHANTOM_SLAVE)then
+			// do nothing
+		else
+			m_axPlayerStates[p_iID].m_bGoodSide=(p_iRole!=PHANTOM_CONQUEROR);
+		endif;
+		m_axPlayerStates[p_iID].m_iPhantomRole=p_iRole;
+		m_axPlayerStates[p_iID].m_iMaster=p_iMaster;
+		m_axPlayerStates[p_iID].m_bMasterMyself=p_bMaster;
+	endproc;
+	
+	export proc void SetMaster(int p_iID, bool p_bMaster)
+		if(m_axPlayerStates.NumEntries()==0)then
+			m_axPlayerStates=8;
+		endif;
+		if(p_iID<0||p_iID>7)then return; endif;
+		if(p_iID>=m_axPlayerStates.NumEntries())then return; endif;
+		m_axPlayerStates[p_iID].m_bMasterMyself=p_bMaster;
+	endproc;
+	
+	export proc void SetGoodSide(int p_iID, bool p_bGoodSide)
+		if(m_axPlayerStates.NumEntries()==0)then
+			m_axPlayerStates=8;
+		endif;
+		if(p_iID<0||p_iID>7)then return; endif;
+		if(p_iID>=m_axPlayerStates.NumEntries())then return; endif;
+		m_axPlayerStates[p_iID].m_bGoodSide=p_bGoodSide;
+	endproc;
+	
+//	export proc void AddSlave(int p_iID, int p_iSlaveID)
+//		if(m_axPlayerStates.NumEntries()==0)then
+//			m_axPlayerStates=8;
+//		endif;
+//		if(p_iID<0||p_iID>=m_axPlayerStates.NumEntries())then return; endif;
+//		m_axPlayerStates[p_iID].m_aiSlaves.Include(p_iSlaveID);
+//	endproc;
+	
+	export proc int GetStateCode(string p_sState)
+		if(p_sState=="skip")then
+			return CPlayerState.STATE_SKIP;
+		elseif(p_sState=="invalid")then
+			return CPlayerState.STATE_INVALID;
+		elseif(p_sState=="alive")then
+			return CPlayerState.STATE_ALIVE;
+		elseif(p_sState=="killed")then
+			return CPlayerState.STATE_KILLED;
+		elseif(p_sState=="win")then
+			return CPlayerState.STATE_WIN;
+		elseif(p_sState=="draw")then
+			return CPlayerState.STATE_DRAW;
+		elseif(p_sState=="slave")then
+			return CPlayerState.STATE_SLAVE;
+		else
+			return CPlayerState.STATE_INVALID;
+		endif;
+	endproc;
+	
+	export proc void SetPlayerState(int p_iID, int p_iState)
+		if(m_axPlayerStates.NumEntries()==0)then
+			m_axPlayerStates=8;
+		endif;
+		if(p_iID<0||p_iID>7)then return; endif;
+		if(p_iID>=m_axPlayerStates.NumEntries())then return; endif;
+		m_axPlayerStates[p_iID].m_iState=p_iState;
+	endproc;
+	
+	export proc void SetEnabled(bool p_bOn)
+		m_bEnabled=p_bOn;
+	endproc;
+	
+	export proc bool GetEnabled()
+		return m_bEnabled;
+	endproc;
+	
+	export proc void SetReplace(bool p_bOn)
+		m_bCoOpReplace=p_bOn;
+	endproc;
+	
+	export proc void AddConqueror()
+		m_iConquerors+=1;
+	endproc;
+	
+	export proc void AddGuardian()
+		m_iGuardians+=1;
+	endproc;
+	
+	proc void InitSandCountdown()
+		var int iTime=CMirageSrvMgr.Get().SandGlassTime();
+		if(iTime<=0)then return; endif;
+		var ^CObjTime pxSandGlassTimer=CObjTime.FindTimerObj("GameOverMgr/SandGlass",-1);
+		if(pxSandGlassTimer!=null)then
+			pxSandGlassTimer^.m_xOnFire=OnFireSandGlassTimer;
+			m_xSandGlassTimer=pxSandGlassTimer^.GetHandle();
+			return;
+		endif;
+		pxSandGlassTimer=cast<CObjTime>(CSrvWrap.GetObjMgr()^.CreateObj("ObjTime",0));
+		if(pxSandGlassTimer!=null)then
+			pxSandGlassTimer^.SetOccupant("GameOverMgr/SandGlass");
+			pxSandGlassTimer^.SetID(-1);
+			pxSandGlassTimer^.SetOwner(-1);
+			pxSandGlassTimer^.SetIcon("hourglass");
+			pxSandGlassTimer^.SetTooltip("_MIRAGE_Timer_TT_SandGlass");
+			pxSandGlassTimer^.m_xOnFire=OnFireSandGlassTimer;
+			m_xSandGlassTimer=pxSandGlassTimer^.GetHandle();
+			var CGameTimeSpan xInterval=(CGameTimeSpan.OneSecond()*60.0f)*iTime.ToReal();
+			pxSandGlassTimer^.Start(xInterval,false,true);
+			if(CMirageSrvMgr.Get().PhantomMode() && CMirageSrvMgr.ms_pxPoolMixer!=null)then
+				CMirageSrvMgr.ms_pxPoolMixer^.StartUnveilTimer(iTime);
+			endif;
+		endif;
+	endproc;
+	
+	proc void OnFireSandGlassTimer(int p_iID)
+		if(!m_bEnabled)then return; endif;
+		var int i,iC=m_axPlayerStates.NumEntries();
+		m_bInstantDrawSandGlass=true;
+		SaveOrLoadSandGlassOver(false);
+		var bool bWarpgate=(m_dwCheckStates&CHECK_WARPGATE)!=0h;
+		var ^CObjTime pxTimer;
+		if((m_dwCheckStates&CHECK_DOMINATIONS)!=0h)then
+			pxTimer=cast<CObjTime>(m_xDominationTimer.GetObj());
+			if(pxTimer==null)then
+				pxTimer=CObjTime.FindTimerObj("GameOverMgr/Domination",0);
+			endif;
+			if(pxTimer!=null)then
+//				pxTimer^.Kill();
+//				m_xDominationTimer=CObjHndl.Invalid();
+				m_bInstantDrawDomination=true;
+			endif;
+		endif;
+		if(bWarpgate)then
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPlayerState pxPS=^(m_axPlayerStates[i]);
+				pxTimer=cast<CObjTime>(pxPS^.m_xWarpGateTimer.GetObj());
+				if(pxTimer!=null)then
+					m_bInstantDrawWarpgate=true;
+					break;
+				endif;
+			endfor;
+		endif;
+		if(m_bInstantDrawWarpgate||m_bInstantDrawDomination)then return; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPlayerState pxPS=^(m_axPlayerStates[i]);
+//			if(bKillW)then // Henry: kill possible warpgate timers
+//				pxTimer=cast<CObjTime>(pxPS^.m_xWarpGateTimer.GetObj());
+//				if(pxTimer!=null)then
+//					pxTimer^.Kill();
+//					pxPS^.m_xWarpGateTimer=CObjHndl.Invalid();
+//				endif;
+//			endif;
+			if(pxPS^.m_iState==CPlayerState.STATE_ALIVE)then
+				pxPS^.m_iState=CPlayerState.STATE_DRAW;
+			endif;
+		endfor;
+		InvalidateContent(UF_WIN_LOSE);
+	endproc;
+	
+	proc void PostSandGlass(bool p_bKillDomination)
+		if(p_bKillDomination)then
+			m_bInstantDrawDomination=false;
+		else
+			m_bInstantDrawWarpgate=false;
+		endif;
+		if(m_bInstantDrawWarpgate||m_bInstantDrawDomination)then return; endif;
+		var int i,iC=m_axPlayerStates.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPlayerState pxPS=^(m_axPlayerStates[i]);
+			if(pxPS^.m_iState==CPlayerState.STATE_ALIVE)then
+				pxPS^.m_iState=CPlayerState.STATE_DRAW;
+			endif;
+		endfor;
+		m_bInstantDrawSandGlass=false;
+		InvalidateContent(UF_WIN_LOSE);
+	endproc;
+	
+	export proc void SetPlayerWinExt(int p_iOwner, string p_sReason)
+		var ^CPlayerState pxPS=^(m_axPlayerStates[p_iOwner]);
+		if(pxPS^.m_bAlreadyDead==true)then return; endif;
+		pxPS^.m_bAlreadyDead=true;
+		CAiInterface.PlayerWin(p_iOwner);
+		if(p_sReason=="")then
+			p_sReason="GameOver\tMultiplayer\tWin";
+		endif;
+		CSrvWrap.SendGenericEvtToPlayer(p_iOwner, p_sReason);
+		if(m_pxLevel!=null)then
+			m_pxLevel^.GetStatisticMgr().AddSample(CStatisticSample.OutOfGame.ToInt(), p_iOwner, 1);
+			m_pxLevel^.GetStatisticMgr().SetWinner(p_iOwner,true);
+		endif;
+	endproc;
+	
+	export proc void SetPlayerLoseExt(int p_iOwner, string p_sReason)
+		var ^CPlayerState pxPS=^(m_axPlayerStates[p_iOwner]);
+		if(pxPS^.m_bAlreadyDead==true)then return; endif;
+		pxPS^.m_bAlreadyDead=true;
+		CAiInterface.PlayerLose(p_iOwner);
+		if(p_sReason=="")then
+			p_sReason="GameOver\tMultiplayer\tLose";
+		endif;
+		CSrvWrap.SendGenericEvtToPlayer(p_iOwner, p_sReason);
+		if(m_pxLevel!=null)then
+			m_pxLevel^.GetStatisticMgr().AddSample(CStatisticSample.OutOfGame.ToInt(), p_iOwner, 1);
+			m_pxLevel^.GetStatisticMgr().SetWinner(p_iOwner,false);
+		endif;
+	endproc;
+	
+	export proc void SaveOrLoadSandGlassOver(bool p_bLoad)
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel==null)then return; endif;
+		var ^CLevelInfoHost pxLevelInfo=^(pxLevel^.GetLevelInfo());
+		if(pxLevelInfo==null)then return; endif;
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		var ^CPropDB.CNode pxCSNode=pxGenericDB^.FindNode("ClientSettings",false);
+		if(pxCSNode==null)then return; endif;
+		var ^CPropDB.CNode pxSGO=^(pxCSNode^.Get("SandGlassOver"));
+		var int iInstantDrawSandGlass=0;
+		if(p_bLoad)then
+			m_bInstantDrawSandGlass=false;
+			if(pxSGO==null)then return; endif;
+			iInstantDrawSandGlass=pxCSNode^.GetValueI("SandGlassOver");
+			m_bInstantDrawSandGlass=iInstantDrawSandGlass==1;
+		else
+			pxSGO=^(pxCSNode^.AddValue("SandGlassOver",1));
+		endif;
+	endproc;
+	
+	proc void CheckWarpgateTimers()
+		var bool bNone=true;
+		var ^CObjTime pxWarpGateTimer;
+		var int i,iC=m_axPlayerStates.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPlayerState pxPS=^(m_axPlayerStates[i]);
+			pxWarpGateTimer=cast<CObjTime>(pxPS^.m_xWarpGateTimer.GetObj());
+			if(pxWarpGateTimer!=null)then
+				bNone=false;
+				break;
+			endif;
+		endfor;
+		if(bNone)then
+			PostSandGlass(false);
+		endif;
+	endproc;
+	
+	proc void KillWarpgateTimers()
+		var ^CObjTime pxWarpGateTimer;
+		var int i,iC=m_axPlayerStates.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPlayerState pxPS=^(m_axPlayerStates[i]);
+			pxWarpGateTimer=cast<CObjTime>(pxPS^.m_xWarpGateTimer.GetObj());
+			if(pxWarpGateTimer!=null)then
+				pxWarpGateTimer^.Kill();
+				m_axPlayerStates[i].m_xWarpGateTimer=CObjHndl.Invalid();
+			endif;
+		endfor;
+	endproc;
+	
+	proc void KillHQTimers()
+		var ^CObjTime pxHQTimer;
+		var int i,iC=m_axPlayerStates.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPlayerState pxPS=^(m_axPlayerStates[i]);
+			pxHQTimer=cast<CObjTime>(pxPS^.m_xHQTimer.GetObj());
+			if(pxHQTimer!=null)then
+				pxHQTimer^.Kill();
+				m_axPlayerStates[i].m_xHQTimer=CObjHndl.Invalid();
+			endif;
+		endfor;
+	endproc;
+	
+	proc void KillDefenderTimer()
+		if((m_dwCheckStates&CHECK_DEFENDEROBJS)!=0h)then
+			var ^CObjTime pxTimer=cast<CObjTime>(m_xDefenderTimer.GetObj());
+			if(pxTimer==null)then
+				pxTimer=CObjTime.FindTimerObj("GameOverMgr/Defender",0);
+			endif;
+			if(pxTimer!=null)then
+				pxTimer^.Kill();
+				m_xDefenderTimer=CObjHndl.Invalid();
+			endif;
+		endif;
+	endproc;
+	
+	proc void KillDominationTimer()
+		if((m_dwCheckStates&CHECK_DOMINATIONS)!=0h)then
+			var ^CObjTime pxTimer=cast<CObjTime>(m_xDominationTimer.GetObj());
+			if(pxTimer==null)then
+				pxTimer=CObjTime.FindTimerObj("GameOverMgr/Domination",0);
+			endif;
+			if(pxTimer!=null)then
+				pxTimer^.Kill();
+				m_xDominationTimer=CObjHndl.Invalid();
+			endif;
+		endif;
+	endproc;
+	
+	proc void KillSandGlassTimer()
+		var ^CObjTime pxSandGlassTimer=cast<CObjTime>(m_xSandGlassTimer.GetObj());
+		if(pxSandGlassTimer!=null)then
+			pxSandGlassTimer^.Kill();
+			m_xSandGlassTimer=CObjHndl.Invalid();
+		endif;
+	endproc;
+	
+	proc void PlayerDeath(int p_iID)
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel!=null)then
+			var ^CPlayer pxP=pxLevel^.GetPlayer(p_iID);
+			if(pxP!=null)then
+				var ^CAiPlayer pxAi=cast<CAiPlayer>(pxP);
+				if(pxAi!=null)then
+					return;
+				endif;
+			endif;
+			var int i;
+			for(i=0)cond(i<8)iter(i++)do
+				var ^CPlayer pxPlayer=pxLevel^.GetPlayer(i);
+				if(pxPlayer!=null)then
+					var ^CAiPlayer pxAiPl=cast<CAiPlayer>(pxPlayer);
+					if(pxAiPl==null)then
+						CSrvWrap.SendGenericEvtToPlayer(i, "player_death\t"+p_iID.ToString());
+					endif;
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	proc int ToInt(bool p_bB)
+		if(p_bB)then
+			return 1;
+		else
+			return 0;
+		endif;
+	endproc;
+	
+endclass;

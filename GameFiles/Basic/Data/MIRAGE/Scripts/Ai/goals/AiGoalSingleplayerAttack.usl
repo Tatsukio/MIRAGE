@@ -1,0 +1,937 @@
+class CAiGoalSingleplayerAttack inherit CAiGoalGeneralAttack
+
+	var CAiObjWrap			m_xLastEnemy;
+	var CAiObjWrap			m_xShip;
+	var CAiObjWrap			m_xProtectorShip;
+	var string					m_sArmy;
+	var bool						m_bAttackOnWay;
+	var bool						m_bSpawn;
+	var bool						m_bIgnoreLocation;
+	var bool						m_bLanding;
+	var vec3						m_vWayPoint;
+	var vec3						m_vSpawnPos;
+	var vec3						m_vLastShipPos;
+	var int							m_iOldThinkWait;
+	var bool						m_bUpdate;
+	var bool						m_bSpawnProtector;
+	var bool						m_bMultimap;
+
+	///constructor
+	export constructor()
+		m_bAttackOnWay=true;
+	endconstructor;
+
+	///destructor
+	export destructor()
+	enddestructor;
+
+	///Set
+	export proc void Set(string p_sArmy, bool p_bAttackOnWay, vec3 p_vWayPoint, bool p_bSpawn, bool p_bIgnoreLocation, bool p_bAttackOnlyTargets, bool p_bLanding, vec3 p_vSpawnPos)
+		m_sArmy = p_sArmy;
+		m_bAttackOnWay = p_bAttackOnWay;
+		m_vWayPoint = p_vWayPoint;
+		m_bSpawn = p_bSpawn;
+		m_bIgnoreLocation = p_bIgnoreLocation;
+		m_bLanding = p_bLanding;
+		if(p_vSpawnPos!={0.0,0.0,0.0})then
+			m_vSpawnPos = p_vSpawnPos;
+		else
+			m_vSpawnPos = GetAiSensor()^.GetStartLocation();
+		endif;
+		m_bAttackOnlyTargets = p_bAttackOnlyTargets;
+	endproc;
+
+	///Init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		super.Init(p_pxBrain);
+		m_sState = "new";
+		if(p_pxBrain==null)then return false; endif;
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		m_bMultimap=m_pxSensor^.GetMultimap();
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(pxCM^.GetDifficultyInt()+iType);
+		m_xOnEnemiesFound = OnEnemiesFound;
+		m_xOnCalculateEnemyValue = OnCalculateValue;
+		GetEnemyQuery().AddMyEnemiesToSearch(m_iPlayerID, true);
+		GetEnemyQuery().SetOwner(-1, true);
+		GetEnemyQuery().SetType("CHTR");
+		GetEnemyQuery().SetType("ANML", true);
+		GetEnemyQuery().SetType("VHCL", true);
+		GetEnemyQuery().SetType("BLDG", true);
+		m_bUpdate=true;
+		var ^CAiModuleAreaDefault pxAM=cast<CAiModuleAreaDefault>(GetAiBrain()^.GetAreaModule());
+		if(pxAM != null)then
+			m_bSpawnProtector = pxAM^.IsProtectedTransport();
+		else
+			m_bSpawnProtector = false;
+		endif;
+		return true;
+	endproc;
+
+	///OnEnemiesFound()
+	proc void OnEnemiesFound(ref CAiObjWrapList p_rxList)
+		m_xEnemies.CopyFrom(p_rxList);
+		if(m_xEnemies.NumEntries()>0)then
+			m_xLastEnemy = m_xEnemies[0];
+		endif;
+	endproc;
+
+	///UpdateEnemiesInArea();
+	proc void UpdateEnemiesInArea()
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		if(m_bUpdate)then
+			var int iOwner = m_pxBrain^.GetPlayerId();
+			var CAiObjQuery xQuery;
+			xQuery.SetType("ANML");
+			xQuery.SetOwner(-1);
+			xQuery.RegionCircle(m_pxAttackInfo^.GetPos(), 100.0);
+			var CAiObjWrapList xList;
+			xQuery.Execute(xList);
+			var int i, iC=xList.NumEntries();
+			if(xList.NumEntries()>0)then
+				for(i=0)cond(i<iC)iter(i++)do
+					m_xEnemies.AddEntry(xList[i]);
+					UpdateAllAttacks();
+				endfor;
+			endif;
+			m_bUpdate=false;
+		endif;
+	endproc;
+
+	///OnCalculateValue
+	proc void OnCalculateValue(ref CAiObjWrap p_rxEnemy, ref real p_rfValue)
+		if(p_rxEnemy.GetOwner()==-1)then
+			if(!IsAttackingOurGroup(p_rxEnemy))then
+				p_rfValue-=99999.0;
+				return;
+			else
+				p_rfValue-=0.9;
+			endif;
+		endif;
+		if(p_rxEnemy.GetType()=="BLDG" || p_rxEnemy.GetClassName()=="aje_resource_collector")then
+			p_rfValue-=0.5;
+		elseif(p_rxEnemy.IsSameAs(m_xLastEnemy))then
+			p_rfValue+=0.1;
+		endif;
+	endproc;
+
+	///Think
+	export proc void Think()
+		super.Think();
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		var ^CAiGoalMinistryOfDefense pxMOD = GetMOD();
+		if(pxMOD == null)then return; endif;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		var string sDifficulty=pxCM^.GetDifficulty();
+		var int iMinUnits, iMaxUnits;
+		var real fBad;
+		if(m_sState=="new")then
+			if(m_bSpawn)then
+				if(!FindUnits(m_sArmy, m_vSpawnPos, m_bIgnoreLocation))then
+					m_pxAttackInfo^.GetResult()="squad spawning failed!";
+					m_pxAttackInfo^.NotifyOnFailed();
+					Deactivate();
+					return;
+				endif;
+				if(m_bLanding) then BoardUnits(); endif;
+				SeparateUnits();
+				m_xEnemies.CopyFrom(m_pxAttackInfo^.GetTargets());
+				m_xOnlyEnemies.CopyFrom(m_pxAttackInfo^.GetTargets());
+				if(!m_bLanding)then
+					StartSitOn();
+					m_sState = "sit_on";
+				else
+					if(m_vWayPoint!={0.0,0.0,0.0})then
+						var CAiObjWrapList xDummy;
+						if(!m_xShip.IsValid())then return; endif;
+						xDummy.Include(m_xShip);
+						m_pxSensor^.ExecuteGamePlayCommand(xDummy, "Action", -1, m_vWayPoint, "/Walk");
+						if((m_bSpawnProtector == true) && (m_xProtectorShip.IsValid() == true))then
+							m_pxSensor^.ExecuteGamePlayCommand(m_xProtectorShip.GetHandle(), "Action", -1, m_vWayPoint, "/AggressiveTarget");
+						endif;
+						m_sState = "swim";
+						m_vLastShipPos = m_xShip.GetPos();
+						m_iOldThinkWait = GetThinkWait();
+						SetThinkWait(50);
+					else
+						m_sState = "transfering";
+					endif;
+				endif;
+				return;
+			endif;
+			if(!GetUnits(m_sArmy))then
+				var CAiObjWrapList xUnits;
+				m_xAllocator.StartAsSupervisor();
+				if(sDifficulty=="Easy")then
+					iMinUnits=1;  iMaxUnits=4; fBad=1.0;
+				elseif(sDifficulty=="Medium")then
+					iMinUnits=1;  iMaxUnits=6; fBad=0.75;
+				else
+					iMinUnits=2;  iMaxUnits=8; fBad=0.5;
+				endif;
+				if(pxMOD^.QueryUnits(xUnits, iMinUnits, iMaxUnits, fBad, 0, m_xEnemies) == false)then
+					m_pxAttackInfo^.GetResult()="squad allocation failed (impossible)";
+					m_pxAttackInfo^.NotifyOnFailed();
+					Deactivate();
+				else
+					m_xAllocator.AddUnits(xUnits);
+					m_xAllocator.AddUnits(m_xEssentialUnitsFromMOD);
+					m_xOnlyEnemies.CopyFrom(m_pxAttackInfo^.GetTargets());
+					m_xEssentialUnitsFromMOD.Clear();
+					SeparateUnits();
+					m_xEnemies.CopyFrom(m_pxAttackInfo^.GetTargets());
+					if(TransferUnits() == true)then
+						m_sState = "transfering";
+					else
+						StartSitOn();
+						m_sState = "sit_on";
+					endif;
+				endif;
+				return;
+			endif;
+			m_sState="waiting";
+		elseif(m_sState=="waiting")then
+			if(m_xAllocator.IsRunning())then
+				var CAiObjWrapList xUnits;
+				if(sDifficulty=="Easy")then
+					iMinUnits=0;  iMaxUnits=4; fBad=1.0;
+				elseif(sDifficulty=="Medium")then
+					iMinUnits=0;  iMaxUnits=6; fBad=0.75;
+				else
+					iMinUnits=0;  iMaxUnits=8; fBad=0.75;
+				endif;
+				if(pxMOD^.QueryUnits(xUnits, iMinUnits, iMaxUnits, fBad, 0, m_xEnemies) == false)then
+					m_pxAttackInfo^.GetResult()="squad allocation failed (impossible)";
+					m_pxAttackInfo^.NotifyOnFailed();
+					Deactivate();
+				else
+					m_xAllocator.AddUnits(xUnits);
+					m_xAllocator.AddUnits(m_xEssentialUnitsFromMOD);
+					m_xEssentialUnitsFromMOD.Clear();
+					SeparateUnits();
+					m_xEnemies.CopyFrom(m_pxAttackInfo^.GetTargets());
+					if(TransferUnits() == true)then
+						m_sState = "transfering";
+					else
+						StartSitOn();
+						m_sState = "sit_on";
+					endif;
+				endif;
+			elseif(m_xAllocator.IsNotPossible())then
+				m_pxAttackInfo^.GetResult()="squad allocation failed!";
+				m_pxAttackInfo^.NotifyOnFailed();
+				Deactivate();
+				return;
+			elseif(m_xAllocator.IsAborted())then
+				m_pxAttackInfo^.GetResult()="squad dead";
+				m_pxAttackInfo^.NotifyOnFailed();
+				Deactivate();
+				return;
+			endif;
+		elseif(m_sState=="swim")then
+			SetThinkWait(m_iOldThinkWait);
+			if(!m_xShip.IsValid())then
+				m_pxAttackInfo^.GetResult()="squad allcation failed!";
+				m_pxAttackInfo^.NotifyOnFailed();
+				Deactivate();
+				return;
+			endif;
+			if(!m_xShip.IsValid())then return; endif;
+			if((m_xShip.GetPos()-m_vWayPoint).Abs2S()<400.0 || m_xShip.GetPos()==m_vLastShipPos)then
+				m_sState="transfering";
+				TransferBoardedUnits();
+				return;
+			endif;
+		elseif(m_sState=="transfering")then
+			if(m_bTransferSucceeded == true)then
+				StartSitOn();
+				m_sState = "sit_on";
+			endif;
+		elseif(m_sState=="sit_on")then
+			if(m_bTransportersReady == true)then
+				if(m_bLanding)then
+					if(!m_xShip.IsValid())then return; endif;
+					var CAiObjWrapList xDummy; xDummy.Include(m_xShip);
+					m_pxSensor^.ExecuteGamePlayCommand(xDummy, "Action", -1, m_xShip.GetPos(), "/Kill");
+				endif;
+				StartAllAttacks();
+				m_sState = "fighting_walk";
+			endif;
+		elseif(m_sState=="fighting_walk")then
+			if(!UpdateFighters())then
+				m_pxAttackInfo^.GetResult()="all fighters are dead!";
+				m_pxAttackInfo^.NotifyOnFailed();
+				Deactivate();
+				return;
+			endif;
+			if(CheckCompletion())then
+				m_pxAttackInfo^.GetResult()="attack succeded!";
+				m_pxAttackInfo^.NotifyOnSucceeded();
+				Deactivate();
+				return;
+			endif;
+			if(m_bAttackOnWay && UpdateNearbyEnemies())then
+				UpdateAllAttacks();
+			endif;
+			UpdateSupporters();
+			if((m_vFightersPos-m_vWayPoint).AbsSquare()<=1600.0)then
+				m_sState="fighting_fight";
+			endif;
+		elseif(m_sState=="fighting_fight")then
+			if(m_sArmy=="Attack_Neutral")then
+				var int iOwner = m_pxBrain^.GetPlayerId();
+				var CAiObjQuery xQuery;
+				xQuery.SetType("ANML");
+				xQuery.SetOwner(-1);
+				if(m_pxAttackInfo==null)then return; endif;
+				xQuery.RegionCircle(m_pxAttackInfo^.GetPos(), 100.0);
+				var CAiObjWrapList xList;
+				xQuery.Execute(xList);
+				var int i, iC=xList.NumEntries();
+				if(xList.NumEntries()>0)then
+					m_xEnemies.Clear();
+					for(i=0)cond(i<iC)iter(i++)do
+						m_xEnemies.AddEntry(xList[i]);
+						UpdateAllAttacks();
+					endfor;
+				endif;
+				m_bUpdate=false;
+			endif;
+			if(!UpdateFighters())then
+				m_pxAttackInfo^.GetResult()="all fighters are dead!";
+				m_pxAttackInfo^.NotifyOnFailed();
+				Deactivate();
+				return;
+			endif;
+			if(CheckCompletion())then
+				m_pxAttackInfo^.GetResult()="attack succeded!";
+				m_pxAttackInfo^.NotifyOnSucceeded();
+				Deactivate();
+				return;
+			endif;
+			if(UpdateNearbyEnemies())then
+				UpdateAllAttacks();
+			endif;
+			UpdateSupporters();
+		endif;
+	endproc;
+
+	///TransferBoardedUnits
+	export proc bool TransferBoardedUnits()
+		if(m_pxAttackInfo == null)then return false; endif;
+		if(m_pxSensor == null)then return false; endif;
+		if(m_pxBrain == null)then return false; endif;
+		var ^CAiModuleAreaDefault pxAM = cast<CAiModuleAreaDefault>(m_pxBrain^.GetAreaModule());
+		if(pxAM == null)then return false; endif;
+		var ^CAiModuleControlDefault pxCM = cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		if(pxCM == null)then return false; endif;
+		var ^CAiTransferInfo pxTransInfo = IAiModuleArea.CreateTransferInfo();
+		var vec3 vNull(0.0, 0.0, 0.0);
+		var vec3 vEnemyPos;
+		pxTransInfo^.SetIslandID(m_iIslandId);
+		var int i, iC = m_xEnemies.NumEntries();
+		var bool bFound = false;
+		var bool bFoundEnemy = false;
+		var int iEnemyNumber;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_xEnemies[i].IsValid() == false)then
+				continue;
+			endif;
+			var vec3 vPos = m_xEnemies[i].GetPos();
+			if(vPos.GetX()<=0.0 || vPos.GetY()<=0.0 || vPos.GetZ()<=0.0)then
+				continue;
+			endif;
+			vEnemyPos += m_xEnemies[i].GetPos();
+			bFound = true;
+			iEnemyNumber++;
+			bFoundEnemy = true;
+			pxTransInfo^.SetEnemyOwner(m_xEnemies[i].GetOwner());
+		endfor;
+		if(bFoundEnemy)then
+			vEnemyPos = vEnemyPos/iEnemyNumber.ToReal();
+		endif;
+		if(m_vAttackPos != vNull)then
+			bFound = true;
+		endif;
+		if(m_xEnemies.NumEntries() <= 0)then
+		endif;
+		if(bFound == false)then
+			return false;
+		endif;
+		if(!bFoundEnemy)then vEnemyPos = m_vAttackPos; endif;
+		var ^CAiMaps pxMaps = ^(m_pxSensor^.GetAiMaps());
+		var ^CAiMaps pxGlobalMaps = ^(m_pxSensor^.GetGlobalAiMaps());
+		var ^CAiMap pxInflMap = ^(pxMaps^.GetAiMap("InflBuild", m_iPlayerID));
+		var CAiMap xTmpCostMap;
+		var CAiMap xTmpSelfMap;
+		var CAiArea xMaxArea;
+		xTmpCostMap.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID);
+		xTmpSelfMap.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID);
+		var CAiArea xEnemyArea = xTmpCostMap.ScapePosToAiArea(vEnemyPos);
+		var CAiArea xSelfArea = xTmpSelfMap.ScapePosToAiArea(m_xShip.GetPos());
+		xTmpCostMap.AddInfluenceFast(xEnemyArea.GetX(), xEnemyArea.GetY(), 20.0, 0.0, 1.0);
+		xTmpSelfMap.AddInfluenceFast(xSelfArea.GetX(), xSelfArea.GetY(), 20.0, 0.0, 1.0);
+		xTmpCostMap.AddFast(xTmpSelfMap);
+		xTmpCostMap.MultiplyFast(pxGlobalMaps^.GetAiMap("Coast", m_iPlayerID));
+		xTmpCostMap.MultMosaicFast(m_iIslandId);
+		xMaxArea = xTmpCostMap.FindMaxArea();
+		if(xTmpCostMap.GetValue(xMaxArea) == 0.0)then
+			pxTransInfo^.SetPos(vEnemyPos);
+		else
+			var vec3 vPos = vEnemyPos - xMaxArea.GetWorldCenterPos();
+			vPos.Normalize();
+			vPos = CAiUtilityMgr.Get()^.GetNearestPassablePointInArea(xMaxArea, m_pxSensor);
+			pxTransInfo^.SetPos(vPos);
+		endif;
+		var ^CAiObjWrapList pxOWL = ^(pxTransInfo^.GetTargets());
+		var CAiObjWrapList xUnits;
+		xUnits.CopyFrom(m_xAllocator.GetUnits());
+		pxOWL^.CopyFrom(xUnits);
+		pxTransInfo^.SetOwner(m_iPlayerID);
+		SetRequesterFor(pxTransInfo);
+		pxAM^.SetCustomTransfer(pxTransInfo, m_xShip, m_xProtectorShip);
+		m_bTransferSucceeded = false;
+		return true;
+	endproc;
+
+	///BoardUnits
+	proc void BoardUnits()
+		if(m_pxAttackInfo == null)then return; endif;
+		if(m_pxSensor == null)then return; endif;
+		if(m_pxBrain == null)then return; endif;
+		var ^CAiModuleAreaDefault pxAM = cast<CAiModuleAreaDefault>(m_pxBrain^.GetAreaModule());
+		if(pxAM == null)then return; endif;
+		var ^CAiModuleControlDefault pxCM = cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		if(pxCM == null)then return; endif;
+		var string sClass;
+		var string sTribe = m_pxSensor^.GetTechTree().GetTribe();
+		if(sTribe=="Hu")then
+			sClass = "hu_transport_ship";
+		elseif(sTribe=="Aje")then
+			sClass = "aje_transport_turtle";
+		elseif(sTribe=="Ninigi")then
+			sClass = "ninigi_transport_boat";
+		elseif(sTribe=="SEAS")then
+			sClass = "seas_hovercraft";
+		endif;
+		m_xShip = MakeUnit(sClass, m_vSpawnPos, {0.0, 0.0, 0.0}, GetProperLevel(sClass), true);
+		var string sProtClass;
+		if(m_bSpawnProtector == true)then
+			if(sTribe=="Hu")then
+				sProtClass = "hu_dragon_boat";
+			elseif(sTribe=="Aje")then
+				sProtClass = "aje_cronosaurus";
+			elseif(sTribe=="Ninigi")then
+				sProtClass = "ninigi_fire_boat";
+			elseif(sTribe=="SEAS")then
+				sProtClass = "seas_submarine";
+			endif;
+			m_xProtectorShip = MakeUnit(sProtClass, m_vSpawnPos, {0.0, 0.0, 0.0}, GetProperLevel(sProtClass), true);
+		endif;
+		if(!m_xShip.IsValid())then
+			return;
+		endif;
+		var CAiObjWrapList xUnits;
+		xUnits.CopyFrom(m_xAllocator.GetUnits());
+		var CAiObjWrapList xDummy;
+		xDummy.Include(m_xShip);
+		m_pxSensor^.ExecuteGamePlayCommand(xDummy, "WaterOnly", -1, {0.0,0.0,0.0}, "");
+		var int i, iC = xUnits.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!xUnits[i].IsValid())then
+				xUnits.RemEntry(xUnits[i]);
+				i--; iC--;
+				continue;
+			endif;
+			m_pxSensor^.ExecuteGamePlayCommand(xDummy, "Action", xUnits[i].GetHandle(), m_xShip.GetPos(), "/AddPassenger");
+		endfor;
+	endproc;
+
+	///MakeUnit
+	export proc CAiObjWrap MakeUnit(string p_sClass, vec3 p_vPos, vec3 p_vRotation, int p_iLevel, bool p_bIgnoreLocation)
+		var CAiObjWrap xInvalid;
+		var CAiObjWrap xLocationObj;
+		var bool bFound=false;
+		var bool bInvisible=false;
+		var string sLocationClass;
+		var int iLevel= p_iLevel;
+		var string sClassName;
+		var string sObjFlag;
+		var array string asTokens;
+		if(m_pxBrain == null)then return xInvalid; endif;
+		if(m_pxSensor==null)then return xInvalid; endif;
+		var ^CAiTechTree pxT=GetAiTechTree();	
+		if(pxT==null)then return xInvalid; endif;
+		var string sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		p_sClass.Split(asTokens, ":", false);
+		var int iNumTokens = asTokens.NumEntries();
+		if(iNumTokens <= 0)then return xInvalid; endif;
+		sClassName = asTokens[0];
+		if(iNumTokens >= 2)then
+			sObjFlag = asTokens[1];
+		endif;
+		var string sTribe=m_pxSensor^.GetTechTree().GetTribe();
+		var string sOrgTribe=sTribe;
+		var string sTTTribe=sTribe;
+		sTribe.MakeLower();
+		if(sLevelName=="Single 04"&&sClassName=="hu_mammoth_log_cannon")then return xInvalid; endif;
+		if(sLevelName=="Single 06"&&sClassName=="ninigi_firecannon")then return xInvalid; endif;
+		if(p_bIgnoreLocation == false)then
+			if((sClassName=="hu_fishing_boat")||(sClassName=="ninigi_fishing_boat")||(sClassName=="aje_floating_harbour")||(sClassName=="seas_carrier"))then
+				return xInvalid;
+			endif;
+			var ^CAiNodeInstance pxNI;
+			var CAiNeedPtr pxNeed=CAiNeed.Create();
+			if(!pxT^.GetNodeInstanceFromPartialName(sClassName,pxNeed))then 
+				return xInvalid; 
+			endif;
+			if((p_iLevel<0)||(p_iLevel>4))then
+				p_iLevel=GetProperLevel(p_sClass);
+				if((p_iLevel<0)||(p_iLevel>4))then
+					return xInvalid;
+				endif;
+			endif;
+			var int j, iD=pxNeed.GetNeed()^.NumEntries();
+			for(j=0)cond(j<iD)iter(j++)do
+				pxNI=pxNeed.GetNeed()^.GetAt(j);
+				if(pxNI==null)then continue; endif;
+				if(pxNI^.GetFlags().GetValue("is_contained")=="1")then 
+					continue; 
+				endif;
+				var int i, iC=pxNI^.NumSolutions();
+				var ^CAiSolution pxSol;
+				if(iC<=0)then 
+					continue; 
+				endif;
+				bInvisible=false;
+				for(i=0)cond(i<iC)iter(i++)do
+					pxSol=pxNI^.GetSolution(i);
+					if(!pxSol^.IsVisible())then
+						bInvisible=true;
+						break;
+					endif;
+				endfor;
+				if(bInvisible)then 
+					continue; 
+				endif;
+				var int iOutpostID = m_pxSensor^.ComputeOutpostId(p_vPos);
+				if(iOutpostID==(-1))then continue; endif;
+				if(!pxNI^.IsLocationAvailable(iOutpostID, sLocationClass))then continue; endif;
+				bFound=true;
+				break;
+			endfor;
+			if(!bFound)then return xInvalid; endif;
+			if(CAiUtilityMgr.Get()^.FindNearestOwningObjOfClassAtPos(m_pxBrain, sLocationClass, p_vPos, xLocationObj))then
+				if(xLocationObj.IsValid())then
+					p_vPos = xLocationObj.GetPos();
+				endif;
+			endif;
+			if(!xLocationObj.IsValid())then return xInvalid; endif;
+			var int iCurrentHitpoints=xLocationObj.GetAttribValueInt("hitpoints");
+			var int iMaxHitpoints=xLocationObj.GetAttribValueInt("maxhitpoints");
+			if(iCurrentHitpoints<5)then return xInvalid; endif;
+			if(!xLocationObj.GetAttribValueBool("building_ready"))then return xInvalid; endif;
+		endif;
+		var CAiObjWrap xOW = m_pxSensor^.CreateObj(sClassName, m_iPlayerID, p_vPos, p_vRotation);
+		if(!xOW.IsValid())then return xInvalid; endif;
+		m_pxSensor^.AddUnitStatistic( xOW, 1 );
+		if(!m_pxSensor^.ExecuteGamePlayCommand(xOW.GetHandle(), "CTheLite", -1, (p_vPos+{0.0,10.0,0.0}), ""))then
+		endif;
+		if(sObjFlag.IsEmpty() == false)then
+			var string sAction = "/Actions/"+sTTTribe+"/Upgrades/"+sClassName+"/"+sObjFlag;
+			if(m_pxSensor^.ExecuteGamePlayCommand(xOW.GetHandle(), "upgradecheatai", -1, {0.0, 0.0, 0.0}, sAction) == false)then
+			endif;
+		endif;
+		if(m_pxSensor^.ExecuteGamePlayCommand(xOW.GetHandle(), "setlevelcheatai", -1, {0.0, 0.0, 0.0}, iLevel.ToString()) == false)then
+		endif;
+		var ^CAiPyramid pxPyr=m_pxSensor^.GetPyramid();
+		if(pxPyr==null)then return xOW; endif;
+		pxPyr^.AddUnit(iLevel, xOW);
+		return xOW;
+	endproc;
+
+	///FindUnits
+	proc bool FindUnits(string p_sSolution, vec3 p_vPos, bool p_bIgnoreLocation)
+		if(m_pxBrain==null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;
+		var ^CAiTechTree pxT=GetAiTechTree();
+		if(pxT==null)then return false; endif;
+		m_pxSolution = pxT^.MakeDefinedSolution(p_sSolution, 1.0, 1.0);
+		if(m_pxSolution==null)then return false; endif;
+		m_sSolution=p_sSolution;
+		var ^CAiModuleControlDefault pxCtrlModule = cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		if(pxCtrlModule==null)then return false; endif;
+		var CAiObjWrapList xList;
+		var int i, iC = m_pxSolution^.NumRequired();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CAiNeedPtr pxNeed = m_pxSolution^.GetRequired(i);
+			if(pxNeed==null)then continue; endif;
+			if(pxNeed.GetNeed()^.NumEntries()<=0)then continue; endif;
+			var int iNeeded = pxNeed.GetNeed()^.GetNeededInstanceCount();
+			if(iNeeded<=0)then continue; endif;
+			var string sClass = pxNeed.GetNeed()^.GetAt(0)^.GetTTPath();
+			sClass = sClass.Mid(sClass.FindRev('/')+1);
+			var string sObjFlag = pxNeed.GetNeed()^.GetAt(0)^.GetFlags().GetValue("ObjFlag");
+			if(sObjFlag.IsEmpty() == false)then
+				sClass+=":"+sObjFlag;
+			endif;
+			var int j;
+			for(j=0)cond(j<iNeeded)iter(j++)do
+				var string sLevel = pxNeed.GetNeed()^.GetAt(0)^.GetFlags().GetValue("level");
+				var int iLevel = -1;
+				if(sLevel.IsEmpty() == false)then
+					iLevel = sLevel.ToInt();
+				endif;
+				var CAiObjWrap xObj;
+				if(p_vPos!={0.0,0.0,0.0})then
+					xObj = MakeUnit(sClass, p_vPos, {0.0, 0.0, 0.0}, iLevel, p_bIgnoreLocation);
+				else
+					xObj = MakeUnit(sClass, m_pxSensor^.GetStartLocation(), {0.0, 0.0, 0.0}, iLevel, p_bIgnoreLocation);
+				endif;
+				if(!xObj.IsValid())then continue; endif;
+				m_xAllocator.AddUnit(xObj);
+			endfor;
+		endfor;
+		return true;
+	endproc;
+	
+	///GetProperLevel
+	proc int GetProperLevel(string p_sClassName)
+		var int iLevel=0;
+		//hu
+		if(p_sClassName=="hu_warrior")then
+			return 0;
+		elseif(p_sClassName=="hu_worker")then
+			return 0;
+		elseif(p_sClassName=="hu_scout")then
+			return 0;
+		elseif(p_sClassName=="hu_cart")then
+			return 0;
+		elseif(p_sClassName=="hu_transport_ship")then
+			return 0;
+		elseif(p_sClassName=="hu_fishing_boat")then
+			return 0;
+		elseif(p_sClassName=="hu_warrior")then
+			return 1;
+		elseif(p_sClassName=="hu_jetpack_warrior")then
+			return 1;
+		elseif(p_sClassName=="hu_spearman")then
+			return 1;
+		elseif(p_sClassName=="hu_pikeman")then
+			return 1;
+		elseif(p_sClassName=="hu_archer")then
+			return 1;
+		elseif(p_sClassName=="hu_marksman")then
+			return 1;
+		elseif(p_sClassName=="hu_wild_boar")then
+			return 1;
+		elseif(p_sClassName=="hu_pteranodon")then
+			return 1;
+		elseif(p_sClassName=="hu_chariot")then
+			return 1;
+		elseif(p_sClassName=="hu_eusmilus")then
+			return 1;
+		elseif(p_sClassName=="hu_kentrosaurus")then
+			return 1;
+		elseif(p_sClassName=="hu_steam_ram")then
+			return 1;
+		elseif(p_sClassName=="hu_dragon_boat")then
+			return 1;
+		elseif(p_sClassName=="hu_ram_ship")then
+			return 2;
+		elseif(p_sClassName=="hu_rhino")then
+			return 2;
+		elseif(p_sClassName=="hu_warrior")then
+			return 2;
+		elseif(p_sClassName=="hu_berserker")then
+			return 2;
+		elseif(p_sClassName=="hu_killer")then
+			return 2;
+		elseif(p_sClassName=="hu_druid")then
+			return 2;
+		elseif(p_sClassName=="hu_wooly_rhino")then
+			return 2;
+		elseif(p_sClassName=="hu_rhino_transporter")then
+			return 2;
+		elseif(p_sClassName=="hu_rhino_ballista")then
+			return 2;
+		elseif(p_sClassName=="hu_mammoth")then
+			return 3;
+		elseif(p_sClassName=="hu_mammoth_log_cannon")then
+			return 3;
+		elseif(p_sClassName=="hu_mammoth_lumber_upgrade")then
+			return 3;
+		elseif(p_sClassName=="hu_steam_boat")then
+			return 3;
+		elseif(p_sClassName=="hu_mobile_suit")then
+			return 2;
+		elseif(p_sClassName=="hu_triceratops")then
+			return 3;
+		elseif(p_sClassName=="hu_ballista_titan")then
+			return 3;
+		elseif(p_sClassName=="hu_steam_tank")then
+			return 2;
+		//Henry: adding new nm units
+		elseif(p_sClassName=="hu_colossi")then
+			return 3;
+		elseif(p_sClassName=="hu_zeppelin")then
+			return 0;
+		//aje
+		elseif(p_sClassName=="aje_spearman")then
+			return 0;
+		elseif(p_sClassName=="aje_worker")then
+			return 0;
+		elseif(p_sClassName=="aje_resource_collector")then
+			return 0;
+		elseif(p_sClassName=="aje_trade_dino")then
+			return 0;
+		elseif(p_sClassName=="aje_transport_turtle")then
+			return 0;
+		elseif(p_sClassName=="aje_torpedo_turtle")then
+			return 0;
+		elseif(p_sClassName=="aje_velociraptor_handler")then
+			return 0;
+		elseif(p_sClassName=="aje_dilophosaurus")then
+			return 0;
+		elseif(p_sClassName=="aje_macrolemys")then
+			return 0;
+		elseif(p_sClassName=="aje_placohelys")then
+			return 0;
+		elseif(p_sClassName=="aje_warrior")then
+			return 1;
+		elseif(p_sClassName=="aje_scythian")then
+			return 1;
+		elseif(p_sClassName=="aje_spearman")then
+			return 1;
+		elseif(p_sClassName=="aje_archer")then
+			return 1;
+		elseif(p_sClassName=="aje_thrower")then
+			return 1;
+		elseif(p_sClassName=="aje_shaman")then
+			return 2;
+		elseif(p_sClassName=="aje_ankylosaurus")then
+			return 1;
+		elseif(p_sClassName=="aje_ankylosaurus_catapult")then
+			return 1;
+		elseif(p_sClassName=="aje_stegosaurus")then
+			return 1;
+		elseif(p_sClassName=="aje_stegosaurus_transporter")then
+			return 1;
+		elseif(p_sClassName=="aje_pteranodon")then
+			return 1;
+		elseif(p_sClassName=="aje_cronosaurus")then
+			return 1;
+		elseif(p_sClassName=="aje_eusmilus")then
+			return 1;
+		elseif(p_sClassName=="aje_rammer")then
+			return 2;
+		elseif(p_sClassName=="aje_spearman")then
+			return 2;
+		elseif(p_sClassName=="aje_assassin")then
+			return 2;
+		elseif(p_sClassName=="aje_poisoner")then
+			return 2;
+		elseif(p_sClassName=="aje_ankylosaurus_catapult_dino")then
+			return 2;
+		elseif(p_sClassName=="aje_ankylosaurus_catapult_stone")then
+			return 2;
+		elseif(p_sClassName=="aje_brachiosaurus")then
+			return 2;
+		elseif(p_sClassName=="aje_brachiosaurus_transporter")then
+			return 2;
+		elseif(p_sClassName=="aje_brachiosaurus_mobile_camp")then
+			return 2;
+		elseif(p_sClassName=="aje_brachiosaurus_siege")then
+			return 2;
+		elseif(p_sClassName=="aje_brachiosaurus_catapult")then
+			return 2;
+		elseif(p_sClassName=="aje_allosaurus")then
+			return 2;
+		elseif(p_sClassName=="aje_catamaran")then
+			return 2;
+		//Henry: fixing titans name (from aje_trex)
+		elseif(p_sClassName=="aje_atroxosaurus")then
+			return 3;
+		elseif(p_sClassName=="aje_triceratops_archer")then
+			return 3;
+		//Henry: outcommenting tracker dino (replaced by a new warden nest)
+		elseif(p_sClassName=="aje_tracker_dino")then
+			return 0;
+		elseif(p_sClassName=="aje_eusmilus")then
+			return 1;
+		elseif(p_sClassName.Find("aje_catapult_rex")!=-1)then
+			return 4;
+		elseif(p_sClassName=="aje_zeppelin")then
+			return 0;
+		//ninigi
+		//Henry: fixing dc archers name (from ninigi_archern)
+		elseif(p_sClassName=="ninigi_archer")then
+			return 0;
+		elseif(p_sClassName=="ninigi_worker")then
+			return 0;
+		elseif(p_sClassName=="ninigi_scout")then
+			return 0;
+		elseif(p_sClassName=="ninigi_cart")then
+			return 0;
+		elseif(p_sClassName=="ninigi_fishing_boat")then
+			return 0;
+		elseif(p_sClassName=="ninigi_gallimus")then
+			return 0;
+		//Henry: outcommenting wrong entry (also no needed)
+		//elseif(p_sClassName=="ninigi_spearmanarcher")then
+			//return 0;
+		elseif(p_sClassName=="ninigi_spearman")then
+			return 1;
+		elseif(p_sClassName=="ninigi_transport_boat")then
+			return 0;
+		elseif(p_sClassName=="ninigi_smokebomb_thrower")then
+			return 0;
+		elseif(p_sClassName=="ninigi_mineship_mine")then
+			return 0;
+		elseif(p_sClassName=="ninigi_water_turret")then
+			return 0;
+		//Henry: outcommenting because its redundant (wouldn't be red anyways, also had 'n' at the end)
+		//elseif(p_sClassName=="ninigi_archer")then
+			//return 1;
+		elseif(p_sClassName=="ninigi_warrior")then
+			return 1;
+		elseif(p_sClassName=="ninigi_ninja")then
+			return 1;
+		elseif(p_sClassName=="ninigi_mortar")then
+			return 1;
+		elseif(p_sClassName=="ninigi_marksman")then
+			return 1;
+		elseif(p_sClassName=="ninigi_eusmilus")then
+			return 1;
+		elseif(p_sClassName=="ninigi_baryonyx")then
+			return 1;
+		elseif(p_sClassName=="ninigi_parasaurolophus_drums")then
+			return 1;
+		elseif(p_sClassName=="ninigi_parasaurolophus_gatling")then
+			return 1;
+		elseif(p_sClassName=="ninigi_fire_boat")then
+			return 1;
+		elseif(p_sClassName=="ninigi_flamethrower_trike")then
+			return 1;
+		elseif(p_sClassName=="ninigi_cargolifter")then
+			return 1;
+		//elseif(p_sClassName=="ninigi_siegetower")then
+			//return 1;
+		elseif(p_sClassName=="ninigi_minelayer")then
+			return 1;
+		elseif(p_sClassName=="ninigi_muraeno_submarine")then
+			return 1;
+		elseif(p_sClassName=="ninigi_monk")then
+			return 2;
+		elseif(p_sClassName=="ninigi_saltasaurus")then
+			return 1;
+		//Henry: outcommenting because its redundant (wouldn1t be red anyways, also had 'n' at the end)
+		//elseif(p_sClassName=="ninigi_archer")then
+			//return 2;
+		elseif(p_sClassName=="ninigi_sumo")then
+			return 2;
+		elseif(p_sClassName=="ninigi_harvester")then
+			return 2;
+		elseif(p_sClassName=="ninigi_muraenosaurus")then
+			return 2;
+		elseif(p_sClassName=="ninigi_firecannon")then
+			return 2;
+		elseif(p_sClassName=="ninigi_rocket_boat")then
+			return 2;
+		elseif(p_sClassName=="ninigi_samurai")then
+			return 2;
+		elseif(p_sClassName=="ninigi_saltasaurus_archer")then
+			return 2;
+		elseif(p_sClassName=="ninigi_saltasaurus_launcher")then
+			return 2;
+		elseif(p_sClassName=="ninigi_styracosaurus")then
+			return 1;
+		elseif(p_sClassName=="ninigi_triceratops")then
+			return 2;
+		elseif(p_sClassName=="ninigi_corsair")then
+			return 2;
+		elseif(p_sClassName=="ninigi_seismosaurus")then
+			return 3;
+		//Henry fixing level to 2 (from 3), AI can have them on lvl3...
+		elseif(p_sClassName=="ninigi_icespearman")then
+			return 2;
+		elseif(p_sClassName=="ninigi_zeppelin")then
+			return 0;
+		//SEAS
+		elseif(p_sClassName=="seas_worker")then
+			return 0;
+		elseif(p_sClassName=="seas_warrior")then
+			return 0;
+		elseif(p_sClassName=="seas_mechanical_walker")then
+			return 0;
+		elseif(p_sClassName=="seas_hovercraft")then
+			return 0;
+		elseif(p_sClassName=="seas_marksman")then
+			return 1;
+		elseif(p_sClassName=="seas_gunner")then
+			return 1;
+		elseif(p_sClassName=="seas_rocketman")then
+			return 1;
+		elseif(p_sClassName=="seas_rocket_trooper")then
+			return 1;
+		elseif(p_sClassName=="seas_flamethrower")then
+			return 1;
+		elseif(p_sClassName=="seas_spearman")then
+			return 1;
+		elseif(p_sClassName=="seas_mobile_suit_flamethrower")then
+			return 1;
+		elseif(p_sClassName=="seas_mobile_suit")then
+			return 1;
+		elseif(p_sClassName=="seas_submarine")then
+			return 1;
+		elseif(p_sClassName=="seas_medic")then
+			return 2;
+		elseif(p_sClassName=="seas_triceratops")then
+			return 2;
+		elseif(p_sClassName=="seas_triceratops_transporter")then
+			return 2;
+		elseif(p_sClassName=="seas_triceratops_carrier")then
+			return 2;
+		elseif(p_sClassName=="seas_triceratops_machinegun")then
+			return 2;
+		elseif(p_sClassName=="seas_black_widow")then
+			return 2;
+		elseif(p_sClassName=="seas_wehrspinne")then
+			return 2;
+		elseif(p_sClassName=="seas_helicopter")then
+			return 1;
+		elseif(p_sClassName=="seas_helicopter_flying")then
+			return 1;
+		elseif(p_sClassName=="seas_lumberjack")then
+			return 2;
+		elseif(p_sClassName=="seas_lumberjack_minigun")then
+			return 2;
+		//Henry: adding new seas units
+		elseif(p_sClassName=="seas_carnotaurus")then
+			return 0;
+		elseif(p_sClassName=="seas_trade_dino")then
+			return 0;
+		elseif(p_sClassName=="seas_rex")then
+			return 3;
+		elseif(p_sClassName=="seas_gigantosaurus")then
+			return 2;
+		elseif(p_sClassName=="seas_zeppelin")then
+			return 0;
+		elseif(p_sClassName=="seas_mobile_terminator")then
+			return 2;
+		else
+			return iLevel;
+		endif;
+	endproc;
+
+endclass;

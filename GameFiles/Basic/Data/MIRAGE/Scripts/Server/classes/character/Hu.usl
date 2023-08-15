@@ -1,0 +1,502 @@
+class CHu inherit CCharacter
+
+	export const string			JETPACK_FLYING="/Filters/Hu/Upgrades/xenage/jet_flying";
+	const int								TIMER_JETPACK_RISE=40046; //Henry: for jetpackwarriors uncommandable state at rising
+	const int								TIMER_JETPACK_SINK=40047; //Henry: for jetpackwarriors uncommandable state at sinking
+	export const real				FLYING_HEIGHT=13.0f;
+	var bool								m_bJetFlying;
+	var bool								m_bJetChange;
+	var CObjHndl						m_xJetpack;
+
+	export constructor()
+		m_bJetFlying=false;
+		m_bJetChange=false;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		if(!CMirageSrvMgr.SDK())then
+			var CFourCC xF="HuIn";
+			var ^CUOFWriterNode pxN=p_pxNode^.AddSubChunk(xF,1);
+			var ^CArc pxArc=^(pxN^.GetArc());
+			pxN^.Close();
+			xF="JetP"; // Henry: for jetpack
+			var int iVersion=1;
+			pxN=p_pxNode^.AddSubChunk(xF,iVersion);
+			pxArc=^(pxN^.GetArc());
+			if(iVersion>=1)then
+				m_xJetpack.DoKArc(pxArc^);
+			endif;
+			pxN^.Close();
+		endif;
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="HuIn")then
+			var int iVersion=p_pxNode^.GetVersion();
+			var ^CArc pxArc=^(p_pxNode^.GetArc());
+		elseif(p_pxNode^.GetType()=="JetP")then
+			var int iVersion=p_pxNode^.GetVersion();
+			var ^CArc pxArc=^(p_pxNode^.GetArc());
+			if(iVersion>=1)then
+				m_xJetpack.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		var ^CAttribs pxAttr=GetAttribs();
+		if(pxAttr!=null)then
+			m_bJetFlying=pxAttr^.GetValueBool("jet_flying");
+		endif;
+		if(GetClassName()=="hu_jetpack_warrior")then
+			if(!m_bJetFlying)then
+				SetCanWalk(true);
+				//SetCanSwim(true);
+				SetCanFly(false);
+			else
+				SetCanWalk(false);
+				//SetCanSwim(false);
+				SetCanFly(true);
+			endif;
+		endif;
+	endproc;
+	
+	export proc void JetPackOn()
+		var ^CAttribs pxAttr=GetAttribs();
+		if(pxAttr==null)then return; endif;
+		StopEverything();
+		pxAttr^.SetValue("jet_flying",true);
+		m_bJetChange=true;
+		m_bJetFlying=true;
+		SetCanWalk(false);
+		//SetCanSwim(false);
+		SetCanFly(true);
+		ActivateJetpack(true);
+		CreateTimer(TIMER_JETPACK_RISE, CGameTimeSpan.OneSecond() * 3.5f, false);
+		SetSLEAnim(JETPACK_ANIM,99999,false,false);
+		CheckAirTicket();
+		if(!m_xJetpack.IsValid())then //Henry: this is redundant, but sometimes jetpack didn't appear...
+			var ^CProduct pxProduct=cast<CProduct>(CSrvWrap.GetObjMgr()^.CreateObj("jetpack_bag_on",GetOwner(),GetPos(),GetRotation()));
+			if(pxProduct!=null)then
+				m_xJetpack=pxProduct^.GetHandle();
+				var CFourCC xT="Back";
+				pxProduct^.LinkAction(GetHandle(), xT);
+			endif;
+		endif;
+		var vec3 vPos=GetPos();
+//		vPos.SetZ(vPos.GetZ()+FLYING_HEIGHT);
+		vPos.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vPos.GetX(),vPos.GetY()),CSrvWrap.GetScapeMgr().GetSeaLevel())+FLYING_HEIGHT);
+		MoveAction(vPos, 5.0f);
+		GetBestWeapon(null, true);
+	endproc;
+	
+	export proc void JetPackOff()
+		var ^CAttribs pxAttr=GetAttribs();
+		if(pxAttr==null)then return; endif;
+		StopEverything();
+		m_bJetChange=true;
+		CreateTimer(TIMER_JETPACK_SINK, CGameTimeSpan.OneSecond() * 3.0f, false);
+		var vec3 vP=GetPos();
+		var real fHeight=CSrvWrap.GetScapeMgr().GetHeight(vP.GetX(),vP.GetY());
+		if(fHeight<CSrvWrap.GetScapeMgr().GetSeaLevel())then fHeight=CSrvWrap.GetScapeMgr().GetSeaLevel(); endif;
+		vP.SetZ(fHeight);
+		SetSLEAnim(JETPACK_ANIM,15,false,false);
+		SecondaryMoveAction(vP,7.0f);
+	endproc;
+	
+	export proc void OnPostLoad()
+		super.OnPostLoad();
+		if(!m_bJetFlying)then return; endif;
+		var ^CGameObj pxJP=m_xJetpack.GetObj();
+		if(pxJP!=null)then
+			var CFourCC xT="Back";
+			pxJP^.LinkAction(GetHandle(), xT);
+		endif;
+	endproc;
+	
+	export proc bool IsJetPackOn()
+		return m_bJetFlying;
+	endproc;
+	
+	export proc bool JetPackChange()
+		return m_bJetChange;
+	endproc;
+	
+	export proc void SetIdleAnim()
+		if(m_bJetFlying && HasAnim(JETPACK_ANIM) && GetCurrentAnimName()!=JETPACK_ANIM)then
+			SetSLEAnim(JETPACK_ANIM,99999,false,false);
+			return;
+		endif;
+		super.SetIdleAnim();
+	endproc;
+	
+	export proc void OnActionEnd(bool p_bBroken)
+		super.OnActionEnd(p_bBroken);
+		if(m_bJetFlying && HasAnim(JETPACK_ANIM) && GetCurrentAnimName()!=JETPACK_ANIM)then
+			SetSLEAnim(JETPACK_ANIM,99999,false,false);
+		endif;
+	endproc;
+	
+//	export proc void AddKillerCount(int p_iAdd)
+//		super.AddKillerCount(p_iAdd);
+//		if(GetClassName()=="hu_berserker")then
+//			ForceGeneralUpdate();
+//		endif;
+//	endproc;
+	
+//	export proc void SetDmg(real p_fDmg)
+//		if(GetClassName()!="hu_berserker")then return super.SetDmg(p_fDmg); endif;
+//		m_fDamage=p_fDmg+(BERSERKER_POWER*m_iKillerCount.ToReal());
+//		var ^CAttribs pxAttr=GetAttribs();
+//		if(pxAttr!=null)then
+//			pxAttr^.SetValue("damage", Math.Ceil(m_fDamage).ToInt());
+//		endif;
+//	endproc
+	
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		if(m_bIllusion)then
+			return super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+		endif;
+		if(IsTrapped() &&
+			!(p_sMiscParams.Find("/Kill")!=-1||p_sCommand=="Kill") &&
+			!(p_sCommand=="setlevel"||p_sMiscParams.Find("/LevelUp")!=-1)
+			)then return; endif;
+		if(m_bJetChange &&
+			!(p_sMiscParams.Find("/Kill")!=-1||p_sCommand=="Kill") &&
+			!(p_sCommand=="setlevel"||p_sMiscParams.Find("/LevelUp")!=-1)
+			)then return; endif;
+		if(p_sCommand=="Action")then
+			if(p_sMiscParams.Find("jetfly_on")!=(-1))then
+				if(!GetTransportObj().IsValid() && GetCurTaskName()!="Jetpack")then
+					JetPackOn();
+				endif;
+			elseif(p_sMiscParams.Find("jetfly_off")!=(-1) && !IsInWater() && GetCurTaskName()!="Jetpack")then
+				if(!GetTransportObj().IsValid())then
+					JetPackOff();
+				endif;
+			else
+				super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+			endif;
+		else
+			super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+		endif;
+	endproc;
+	
+	export proc void SetIced(real p_fDuration,real p_fResistStart)
+		if(m_bJetFlying||m_bJetChange||GetCurTaskName()=="Jetpack")then
+			return;
+		else
+			return super.SetIced(p_fDuration,p_fResistStart);
+		endif;
+	endproc;
+	
+	proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			var int iTimerID=p_rxEvtPtr.GetInt(0);
+			if(iTimerID==TIMER_JETPACK_RISE)then
+				m_bJetChange=false;
+				var CFourCC xLink="Back";
+				SetLinkGFX(xLink,"Hu_Steam_Jet_Pack"); //Henry: this is redundant, but sometimes jetpack didn't appear...
+			elseif(iTimerID==TIMER_JETPACK_SINK)then
+				m_bJetChange=false;
+				m_bJetFlying=false;
+				ActivateJetpack(false);
+				SetCanWalk(true);
+				//SetCanSwim(true);
+				SetCanFly(false);
+				var ^CAttribs pxAttr=GetAttribs();
+				if(pxAttr != null)then
+					pxAttr^.SetValue("jet_flying",false);
+				endif;
+				if(m_xJetpack.IsValid())then
+					m_xJetpack.GetObj()^.Delete();
+				endif;
+				CheckAirTicket();
+				GetBestWeapon(null, true);
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		else
+			super.HandleEvent(p_rxEvtPtr);
+		endif;
+	endproc;
+	
+	export proc bool CheckLandingPos()
+		var vec3 vP=GetPos();
+		var real fHeight=CSrvWrap.GetScapeMgr().GetHeight(vP.GetX(),vP.GetY());
+		return fHeight<CSrvWrap.GetScapeMgr().GetSeaLevel();
+	endproc;
+	
+	export proc void Die()
+		if(m_xJetpack.IsValid())then
+			m_xJetpack.GetObj()^.Delete();
+		endif;
+		super.Die();
+	endproc;
+	
+//	export proc void UpdateWeaponAttribs(real p_fMinRange, real p_fMaxRange, real p_fMeleeDmg, real p_fRangeDmg, real p_fSecondaryDmg, real p_fMeleeDur, real p_fRangeDur, real p_fMeleePiercing, real p_fRangePiercing, int p_iDamageType, int p_iMSlot, int p_iRSlot, string p_sSlot3)
+//		if(p_fMeleeDmg > 0.0f)then
+//			if(GetClassName()=="hu_berserker")then p_fMeleeDmg +=(m_iKillerCount.ToReal()*BERSERKER_POWER); endif;
+//		endif;
+//		super.UpdateWeaponAttribs(p_fMinRange, p_fMaxRange, p_fMeleeDmg, p_fRangeDmg, p_fSecondaryDmg, p_fMeleeDur, p_fRangeDur, p_fMeleePiercing, p_fRangePiercing, p_iDamageType, p_iMSlot, p_iRSlot, p_sSlot3);
+//	endproc;
+	
+//	export proc int GetAccPoss()
+//		return(m_xTechTree.GetValueI(GetObjPath()+"/jetaccident",0));
+//	endproc;
+	
+	export proc void PickUp(CObjHndl p_xItem,bool p_bQueue)
+		if(!m_bJetFlying)then return super.PickUp(p_xItem, p_bQueue); endif;
+		var ^CGameObj pxO=p_xItem.GetObj();
+		if(pxO!=null)then
+			GoTo(pxO^.GetPos(), true, GetDefaultSpeed(), true, true, GetOnWall(), false, true);
+		endif;
+		return;
+	endproc;
+	
+	export proc void AdvanceAction(CObjHndl p_xGoalObj , ref CGameObj.CAdvanceActionParams p_rxParams)
+		if(!m_bJetFlying)then return super.AdvanceAction(p_xGoalObj, p_rxParams); endif;
+		if(!p_xGoalObj.IsValid())then return; endif;
+		var vec3 vObj=p_xGoalObj.GetObj()^.GetPos(), vOwn=GetPos(),vNew;
+		var real fScape=Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vOwn.GetX(),vOwn.GetY()),CSrvWrap.GetScapeMgr().GetSeaLevel());
+		var real fHeight=vOwn.GetZ()-fScape, fRange=GetAttackRange();
+		vOwn.SetZ(fScape);
+		var vec3 vDirection=vOwn - vObj;
+		vDirection.Normalize();
+		vNew=GetPosInMap(vObj+(vDirection*fRange));
+		WalkAction(vNew, GetMaxSpeed(), false);
+	endproc;
+	
+	export proc void WalkAction(vec3 p_vDest, int p_iPrefSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, ^CGameObj p_pxGoalObj, CFourCC p_xWalkSet, bool p_bUseMaterial)
+		if(!m_bJetFlying)then return super.WalkAction(p_vDest, p_iPrefSpeed, p_bUsePathfinder, p_bHeightAdaption, p_pxGoalObj, p_xWalkSet, p_bUseMaterial); endif;
+		var vec3 vPosition=GetPosInMap(p_vDest);
+		vPosition.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(p_vDest.GetX(),p_vDest.GetY()),CSrvWrap.GetScapeMgr().GetSeaLevel())+FLYING_HEIGHT);
+		return super.WalkAction(vPosition, p_iPrefSpeed, false, false, p_pxGoalObj, p_xWalkSet, p_bUseMaterial);
+	endproc;
+	
+	export proc void WalkAction(vec3 p_vDest, int p_iPrefSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, ^CGameObj p_pxGoalObj, CFourCC p_xWalkSet)
+		return WalkAction(p_vDest, p_iPrefSpeed, p_bUsePathfinder, p_bHeightAdaption, p_pxGoalObj, p_xWalkSet, true);
+	endproc;
+	
+	export proc void WalkAction(vec3 p_vDest, int p_iPrefSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, ^CGameObj p_pxGoalObj)
+		return WalkAction(p_vDest, p_iPrefSpeed, p_bUsePathfinder, p_bHeightAdaption, p_pxGoalObj, GetWalkSet(), true);
+	endproc;
+	
+	export proc void WalkAction(vec3 p_vDest, int p_iPrefSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption)
+		return WalkAction(p_vDest, p_iPrefSpeed, p_bUsePathfinder, p_bHeightAdaption, null, GetWalkSet(), true);
+	endproc;
+	
+	export proc void WalkAction(vec3 p_vDest, int p_iPrefSpeed, bool p_bUsePathfinder)
+		return WalkAction(p_vDest, p_iPrefSpeed, p_bUsePathfinder, true, null, GetWalkSet(), true);
+	endproc;
+	
+	export proc void WalkAction(vec3 p_vDest, int p_iPrefSpeed)
+		return WalkAction(p_vDest, p_iPrefSpeed, true, true, null, GetWalkSet(), true);
+	endproc;
+	
+	export proc void WalkAction(vec3 p_vDest)
+		return WalkAction(p_vDest, GetMaxSpeed(), true, true, null, GetWalkSet(), true);
+	endproc;
+	
+	export proc void AdvanceAction(CObjHndl p_xGoalObj, real p_fMinDistance, int p_iPrefSpeed, CFourCC p_xWalkSet, real p_fMaxRange, ref vec3 p_rvRootPos, ref vec3 p_rvGoalOffset)
+		if(!m_bJetFlying)then return super.AdvanceAction(p_xGoalObj, p_fMinDistance, p_iPrefSpeed, p_xWalkSet, p_fMaxRange, p_rvRootPos, p_rvGoalOffset); endif;
+		if(!p_xGoalObj.IsValid())then return; endif;
+		var vec3 vObj=p_xGoalObj.GetObj()^.GetPos(), vOwn=GetPos(),vNew;
+		var real fScape=Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vOwn.GetX(),vOwn.GetY()),CSrvWrap.GetScapeMgr().GetSeaLevel());
+		var real fHeight=vOwn.GetZ()-fScape, fRange=GetAttackRange();
+		vOwn.SetZ(fScape);
+		var vec3 vDirection=vOwn - vObj;
+		vDirection.Normalize();
+		vNew=GetPosInMap(vObj+(vDirection*fRange));
+		WalkAction(vNew, GetMaxSpeed(), false);
+	endproc;
+	
+	export proc void AdvanceAction(CObjHndl p_xGoalObj, real p_fMinDistance, int p_iPrefSpeed, CFourCC p_xWalkSet, real p_fMaxRange, ref vec3 p_rvRootPos)
+		return super.AdvanceAction(p_xGoalObj, p_fMinDistance, p_iPrefSpeed, p_xWalkSet, p_fMaxRange, p_rvRootPos);
+	endproc;
+	
+	export proc void AdvanceAction(CObjHndl p_xGoalObj, real p_fMinDistance, int p_iPrefSpeed, CFourCC p_xWalkSet, real p_fMaxRange)
+		return super.AdvanceAction(p_xGoalObj, p_fMinDistance, p_iPrefSpeed, p_xWalkSet, p_fMaxRange);
+	endproc;
+	
+	export proc void AdvanceAction(CObjHndl p_xGoalObj, real p_fMinDistance, int p_iPrefSpeed, CFourCC p_xWalkSet)
+		return super.AdvanceAction(p_xGoalObj, p_fMinDistance, p_iPrefSpeed, p_xWalkSet);
+	endproc;
+	
+	export proc void AdvanceAction(CObjHndl p_xGoalObj, real p_fMinDistance, int p_iPrefSpeed)
+		return super.AdvanceAction(p_xGoalObj, p_fMinDistance, p_iPrefSpeed);
+	endproc;
+	
+	export proc void AdvanceAction(CObjHndl p_xGoalObj, real p_fMinDistance)
+		return super.AdvanceAction(p_xGoalObj, p_fMinDistance);
+	endproc;
+	
+	export proc void AdvanceAction(CObjHndl p_xGoalObj)
+		return super.AdvanceAction(p_xGoalObj);
+	endproc;
+	
+//	export proc int IsInCombatRangeAttackZone(^CObjBase p_pxEnemy, real p_fMaxDist1, real p_fMaxDist2, real p_fMaxDist3, real p_fPConeFallOff)
+//		var int iRange=super.IsInCombatRangeAttackZone(p_pxEnemy, p_fMaxDist1, p_fMaxDist2, p_fMaxDist3, p_fPConeFallOff);
+//		if(!m_bJetFlying||p_pxEnemy==null)then return iRange; endif;
+//		var ^CFightingObj pxEnemy=cast <CFightingObj>(p_pxEnemy);
+//		if(pxEnemy==null)then return iRange; endif;
+//		if(iRange==0)then
+//			if(pxEnemy^.GetClassName().Find("_zeppelin")!=-1)then
+//				var vec3 vOwn=GetPos(), vEnemy=pxEnemy^.GetPos();
+//				vEnemy.SetZ(vEnemy.GetZ()+15.0f);
+//				var real fAttackRange=GetAttackRange()+GetCollisionRadius();
+//				var real fAtRan=(fAttackRange*fAttackRange);
+//				var real fDistance=(vOwn - vEnemy).Abs2S();
+//				if(fDistance<=(fAtRan-1.0f))then iRange=1; endif; //is in range
+//			endif;
+//		endif;
+//		return iRange;
+//	endproc;
+	
+endclass;
+
+class CHuUndead inherit CHu
+
+	var bool m_bActivated;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		if(!p_bLoad)then
+			m_bActivated=false;
+			SetAnim("step_down",0,0);
+			SetHitable(false);
+			SetSelectable(false);
+		endif;
+	endproc;
+
+	export proc void OnPostLoad()
+		super.OnPostLoad();
+		if(!CSrvWrap.GetCurLevel()^.IsEditable() && !m_bActivated && GetCurTaskName()!="HangArnd")then
+			SetAnim("step_down",0,0);
+			StartStanding();
+		elseif(CSrvWrap.GetCurLevel()^.IsEditable())then
+			SetAnim("step_down",0,0);
+		endif;
+	endproc;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xRide="HuSt";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xRide,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		(pxArc^) << m_bActivated;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="HuSt")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			(pxArc^) << m_bActivated;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc void AbortTask()
+		var ^CHangAround pxTask=cast<CHangAround>(GetCurTask());
+		if(pxTask!=null)then
+			pxTask^.StopHangingAroundExclamationMark();
+			SetHitable(true);
+			SetSelectable(true);
+			SetOwner(3);
+			m_bActivated=true;
+		else
+			BreakEveryTask();
+			TerminateAction();
+		endif;
+	endproc;
+	
+	proc void StartStanding()
+		var ^CHangAround pxTask=cast<CHangAround>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(),"HangArnd"));
+		if(pxTask==null)then return; endif;
+		var bool bReturn=pxTask^.Init(GetHandle());
+		if(bReturn)then
+			pxTask^.SetUserCommand(true);
+			AddTask(pxTask,false);
+		else
+			pxTask^.GetFactory()^.FreeState(pxTask);
+		endif;
+	endproc;
+
+endclass;
+
+class CHuStatue inherit CHuUndead
+
+	export proc void CreateCorpse()
+		var string sGfx="Golem_dest";
+		if(!CSrvWrap.GetGfxMgrBase().FindGraphicSetEntry(sGfx))then return; endif;
+		if(CMirageSrvMgr.Get().UnitResources())then
+			var ^CStone_Corpse pxStone=cast<CStone_Corpse>(CSrvWrap.GetObjMgr()^.CreateObj("StoneCorpse",GetOwner(),GetPos(),GetRotation()));
+			if(pxStone!=null)then
+				pxStone^.SetName(GetName());
+				pxStone^.SetGFX(sGfx);
+				pxStone^.Initialize(this);
+				pxStone^.SetDieAnim("destroy",true);
+				pxStone^.AreaDamage(3.0);
+				pxStone^.SetAggressive(GetTechTreeAggressiv());
+				pxStone^.Init();
+			endif;
+		else
+			var ^CVehicleCorpse pxGameObj=cast<CVehicleCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("VehicleCorpse",GetOwner(),GetPos(),GetRotation()));
+			if(pxGameObj!=null)then
+				pxGameObj^.SetSource(this);
+				pxGameObj^.Init(sGfx, "destroy", GetName(), 10.0);
+				if(GetClassName()=="hu_berserk_statue_01")then
+					pxGameObj^.AreaDamage(3.0);
+				endif;
+                if(GetClassName()=="hu_berserk_statue_02")then
+					pxGameObj^.AreaDamage(3.0);
+				endif;
+                if(GetClassName()=="hu_berserk_statue_03")then
+					pxGameObj^.AreaDamage(3.0);
+				endif;
+                if(GetClassName()=="hu_berserk_statue_04")then
+					pxGameObj^.AreaDamage(3.0);
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+endclass;
+
+class CHuStoneStatue inherit CHu
+
+	export proc void CreateCorpse()
+		var string sGfx="Golem_dest";
+		if(!CSrvWrap.GetGfxMgrBase().FindGraphicSetEntry(sGfx))then return; endif;
+		if(CMirageSrvMgr.Get().UnitResources())then
+			var ^CStone_Corpse pxStone=cast<CStone_Corpse>(CSrvWrap.GetObjMgr()^.CreateObj("StoneCorpse",GetOwner(),GetPos(),GetRotation()));
+			if(pxStone!=null)then
+				pxStone^.SetName(GetName());
+				pxStone^.SetGFX(sGfx);
+				pxStone^.Initialize(this);
+				pxStone^.SetDieAnim("destroy",true);
+				pxStone^.AreaDamage(3.0);
+				pxStone^.SetAggressive(GetTechTreeAggressiv());
+				pxStone^.Init();
+			endif;
+		else
+			var ^CVehicleCorpse pxGameObj=cast<CVehicleCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("VehicleCorpse",GetOwner(),GetPos(),GetRotation()));
+			if(pxGameObj!=null)then
+				pxGameObj^.SetSource(this);
+				pxGameObj^.Init(sGfx, "destroy", GetName(), 10.0);
+				if(GetClassName()=="hu_stone_statue")then
+					pxGameObj^.AreaDamage(3.0);
+				endif;
+			endif;
+		endif;
+	endproc;
+
+endclass;

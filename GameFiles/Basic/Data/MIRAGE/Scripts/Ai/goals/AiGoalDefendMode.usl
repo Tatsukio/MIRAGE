@@ -1,0 +1,331 @@
+///class CAiGoalDefendEnemy
+class CAiGoalDefendMode inherit CAiGoal
+
+	var CAiTaskLockWorkers	m_xAllocator; 
+	var bool				m_bState;
+	var int					m_iWorkerCap;
+	var string				m_sTribe;
+	var ^CAiNodeInstance	m_pxWorkerNode;
+	var CAiObjWrapList		m_xBunker;
+	var CAiObjWrapList		m_xWorker;
+	var vec3				m_vBasePos;
+	var ^CAiBrain 			m_pxBrain;
+	var ^CAiSensor			m_pxSensor;
+	var string				m_sPlayerID;
+	var int					m_iPlayerID;
+
+	export class CDistanceSorter
+		export var real m_fDistanceSquare;
+		export var CAiObjWrap m_xObj;
+		
+		export proc bool op_Greater(ref CAiGoalDefendMode.CDistanceSorter p_rxOther)
+			return (m_fDistanceSquare>p_rxOther.m_fDistanceSquare);
+		endproc;
+		
+	endclass;
+
+	///constructor
+	export constructor()
+	endconstructor;
+	
+	
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		super.Init(p_pxBrain);
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(pxCM^.GetDifficultyInt()+iType);
+		m_sTribe = m_pxSensor^.GetTechTree().GetTribe();
+		m_pxWorkerNode = null;
+		if(m_sTribe=="Hu")then
+			m_pxWorkerNode = p_pxBrain^.GetSensor().GetTechTree().GetNodeInstanceFromPartialName("CHTR/hu_worker");
+		elseif(m_sTribe=="Aje")then
+			m_pxWorkerNode = p_pxBrain^.GetSensor().GetTechTree().GetNodeInstanceFromPartialName("CHTR/aje_worker");
+		elseif(m_sTribe=="Ninigi")then
+			m_pxWorkerNode = p_pxBrain^.GetSensor().GetTechTree().GetNodeInstanceFromPartialName("CHTR/ninigi_worker");
+		elseif(m_sTribe=="SEAS")then
+			m_pxWorkerNode = p_pxBrain^.GetSensor().GetTechTree().GetNodeInstanceFromPartialName("CHTR/seas_worker");
+		endif;
+		m_vBasePos = m_pxSensor^.GetStartLocation();
+		m_bState = false;
+		m_xAllocator.Init(this);
+		m_xAllocator.SetPriority(100.0f);
+		m_xAllocator.SetBase(m_vBasePos);
+		RemoveTask(^m_xAllocator);
+		AddTask(^m_xAllocator);
+		return true;
+	endproc;
+
+	///SetBase
+	export proc void SetBase(vec3 p_vBasePos)
+		m_vBasePos = p_vBasePos;
+	endproc;
+
+	///Shut
+	export proc void Shut()
+		m_xAllocator.Shut();
+		RemoveTask(^m_xAllocator);
+	endproc;
+
+
+	///GetDefendMode
+	export proc bool GetDefendMode()
+		return m_bState;
+	endproc;
+	
+	
+	///CheckNewBunkers
+	export proc bool CheckNewBunkers()
+		var CAiObjWrapList xList;
+		begin BunkerQuery;
+			var CAiObjQuery xQuery;
+			xQuery.SetOwner(m_iPlayerID);
+			xQuery.SetClass("hu_bunker");
+			xQuery.SetClass("seas_fortress", true);
+			var real fRadius = 100.0;
+			if(m_sTribe=="SEAS")then
+				fRadius = 300.0;
+			endif;
+			xQuery.RegionCircle(m_vBasePos, 100.0);
+			xQuery.SetAttribNeg("CurTask","BuildUpB");
+			xQuery.Execute(xList);
+		end BunkerQuery;
+		if(xList.NumEntries()>m_xBunker.NumEntries())then
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	
+	///StartDefendMode
+	proc void StartDefendMode()
+		m_xAllocator.Start();
+		m_xAllocator.LockWorkers(m_xWorker);
+		m_iWorkerCap = m_pxWorkerNode^.GetMaxInstanceCount();
+		m_pxWorkerNode^.SetMaxInstanceCount(0);
+		if(m_sTribe=="Hu")then
+			SendThemToBunker();
+		elseif(m_sTribe=="SEAS")then
+			SendThemToFortress();
+		elseif(m_sTribe=="Ninigi")then
+			GoUnderGround();
+		endif;
+	endproc;
+	
+	
+	///EndDefendMode
+	proc void EndDefendMode()
+		if(m_sTribe=="Hu")then
+			GetThemOutOfBunker();
+		elseif(m_sTribe=="SEAS")then
+			GetThemOutOfBunker();
+		elseif(m_sTribe=="Ninigi")then
+			GetUpFromGround();
+		endif;
+		if(m_pxWorkerNode^.GetMaxInstanceCount()==0)then
+			m_pxWorkerNode^.SetMaxInstanceCount(m_iWorkerCap);
+		endif;
+		m_xAllocator.Shut();
+		m_xBunker.Clear();
+		m_xWorker.Clear();
+	endproc;
+	
+	
+	///SetDefendMode
+	export proc void SetDefendMode(bool p_bState)
+		if(m_pxWorkerNode==null)then return; endif;
+		if(m_bState==p_bState)then return; endif;
+		
+		m_bState=p_bState;
+		
+		if(m_bState)then
+			begin WorkerQuery;
+				var CAiObjQuery xQuery;
+				xQuery.SetOwner(m_iPlayerID);
+				if(m_sTribe=="Hu")then
+					xQuery.SetClass("hu_worker");
+				elseif(m_sTribe=="Aje")then
+					xQuery.SetClass("aje_worker");
+				elseif(m_sTribe=="Ninigi")then
+					xQuery.SetClass("ninigi_worker");
+				elseif(m_sTribe=="SEAS")then
+					xQuery.SetClass("seas_worker");
+				else
+					return;
+				endif;
+				xQuery.RegionCircle(m_vBasePos, 100.0);
+				xQuery.Execute(m_xWorker);
+
+				var ^CAiAllocationMgr pxAllocMgr = GetAiAllocationMgr();	
+				if(pxAllocMgr == null)then return; endif;
+		
+				var int i, iC = m_xWorker.NumEntries();
+				for(i=0)cond(i<iC)iter(++i)do
+					if(pxAllocMgr^.IsUnitLocked(m_xWorker[i], false, false, true) == true)then
+						m_xWorker.RemEntry(m_xWorker[i]);
+						i--;
+						iC--;
+					endif;
+				endfor;
+			end WorkerQuery;
+	
+			StartDefendMode();
+	
+		else
+			EndDefendMode();
+		endif;
+	endproc;
+	
+	
+	///SendThemToBunker
+	proc void SendThemToBunker()
+		if(m_xWorker.NumEntries()<=0)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		begin BunkerQuery;
+			var CAiObjQuery xQuery;
+			xQuery.SetOwner(m_iPlayerID);
+			xQuery.SetClass("hu_bunker");
+			xQuery.RegionCircle(m_vBasePos, 100.0);
+			xQuery.SetAttribNeg("CurTask","BuildUpB");
+			xQuery.Execute(m_xBunker);
+		end BunkerQuery;
+		if(m_xBunker.NumEntries()<=0)then return; endif;
+		var array CAiGoalDefendMode.CDistanceSorter axSort;
+		var int i, iC = m_xWorker.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_xWorker[i].IsValid())then continue; endif;
+			var ^CAiGoalDefendMode.CDistanceSorter pxSort = ^(axSort.NewEntryRef());
+			pxSort^.m_xObj = m_xWorker[i];
+		endfor;
+		iC = m_xBunker.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_xBunker[i].IsValid())then continue; endif;
+			if(axSort.NumEntries()<=0)then continue; endif;
+			var int j, iJC = axSort.NumEntries();
+			for(j=0)cond(j<iJC)iter(j++)do
+				axSort[j].m_fDistanceSquare = (m_xBunker[i].GetPos() - axSort[j].m_xObj.GetPos()).Abs2S();
+			endfor;
+			axSort.QSort();
+			var int iSlots = m_xBunker[i].GetAttribValueInt("max_passengers");
+//			var int iSlots = 4;
+			if(iSlots <= 0)then continue; endif;
+			j = 0;
+			while(axSort.NumEntries()>0 && j<iSlots)do
+				m_pxSensor^.ExecuteGamePlayCommand(axSort[0].m_xObj.GetHandle(), "EnterBunker", m_xBunker[i].GetHandle(), m_xBunker[i].GetPos(), "");
+				axSort.DeleteEntry(0);
+				j++;
+			endwhile;
+		endfor;
+		iC = axSort.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_xAllocator.UnlockWorker(axSort[i].m_xObj);
+			m_xWorker.RemEntry(axSort[i].m_xObj);
+		endfor;
+	endproc;
+	
+	///SendThemToFortress
+	proc void SendThemToFortress()
+		if(m_xWorker.NumEntries()<=0)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		begin BunkerQuery;
+			var CAiObjQuery xQuery;
+			xQuery.SetOwner(m_iPlayerID);
+			xQuery.SetClass("seas_fortress");
+			xQuery.RegionCircle(m_vBasePos, 300.0);
+			xQuery.SetAttribNeg("CurTask","BuildUpB");
+			xQuery.Execute(m_xBunker);
+		end BunkerQuery;
+		if(m_xBunker.NumEntries()<=0)then return; endif;
+		var array CAiGoalDefendMode.CDistanceSorter axSort;
+		var int i, iC = m_xWorker.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_xWorker[i].IsValid())then continue; endif;
+			var ^CAiGoalDefendMode.CDistanceSorter pxSort = ^(axSort.NewEntryRef());
+			pxSort^.m_xObj = m_xWorker[i];
+		endfor;
+		iC = m_xBunker.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_xBunker[i].IsValid())then continue; endif;
+			if(axSort.NumEntries()<=0)then continue; endif;
+			var int j, iJC = axSort.NumEntries();
+			for(j=0)cond(j<iJC)iter(j++)do
+				axSort[j].m_fDistanceSquare = (m_xBunker[i].GetPos() - axSort[j].m_xObj.GetPos()).Abs2S();
+			endfor;
+			axSort.QSort();
+			var int iSlots = m_xBunker[i].GetAttribValueInt("max_passengers");
+//			var int iSlots = 5;
+			if(iSlots <= 0)then continue; endif;
+			j = 0;
+			while(axSort.NumEntries()>0 && j<iSlots)do
+				m_pxSensor^.ExecuteGamePlayCommand(axSort[0].m_xObj.GetHandle(), "EnterBunker", m_xBunker[i].GetHandle(), m_xBunker[i].GetPos(), "");
+				axSort.DeleteEntry(0);
+				j++;
+			endwhile;
+		endfor;
+		iC = axSort.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_xAllocator.UnlockWorker(axSort[i].m_xObj);
+			m_xWorker.RemEntry(axSort[i].m_xObj);
+		endfor;
+	endproc;
+	
+	///GetThemOutOfBunker
+	proc void GetThemOutOfBunker()
+		if(m_pxSensor==null)then return; endif;
+		var int i, iC = m_xBunker.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_xBunker[i].IsValid())then continue; endif;
+			m_pxSensor^.ExecuteGamePlayCommand(m_xBunker[i].GetHandle(), "Action", m_xBunker[i].GetHandle(), m_xBunker[i].GetPos(), "/DismountAll");
+		endfor;
+	endproc;
+	
+	///GoUnderGround
+	proc void GoUnderGround()
+		var CAiObjWrapList xNotPossible;
+		if(m_pxSensor==null)then return; endif;
+		var int i, iC = m_xWorker.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_xWorker[i].IsValid())then continue; endif;
+			if(m_xWorker[i].GetAttribValueInt("active_entrench")<1)then
+				m_pxSensor^.ExecuteGamePlayCommand(m_xWorker[i].GetHandle(), "Action", m_xWorker[i].GetHandle(), m_xWorker[i].GetPos(), "/Actions/Ninigi/Moves/CHTR/entrench");
+			else
+				xNotPossible.Include(m_xWorker[i]);
+			endif;
+		endfor;
+		iC = xNotPossible.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_xAllocator.UnlockWorker(xNotPossible[i]);
+			m_xWorker.RemEntry(xNotPossible[i]);
+		endfor;
+	endproc;
+
+	///GetUpFromGround
+	proc void GetUpFromGround()
+		if(m_pxSensor==null)then return; endif;
+		var int i, iC = m_xWorker.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_xWorker[i].IsValid())then continue; endif;
+			if(m_xWorker[i].GetAttribValueInt("active_entrench")==1)then
+				m_pxSensor^.ExecuteGamePlayCommand(m_xWorker[i].GetHandle(), "Action", m_xWorker[i].GetHandle(), m_xWorker[i].GetPos(), "/Actions/Ninigi/Moves/CHTR/entrench");
+			endif;
+		endfor;
+	endproc;
+
+	///think
+	export proc void Think()
+	endproc;
+
+endclass;

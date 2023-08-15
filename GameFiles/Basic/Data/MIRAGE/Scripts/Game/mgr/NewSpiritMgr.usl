@@ -1,0 +1,239 @@
+class CSpiritMgr inherit CWindow
+	
+	static var ^CSpiritMgr				ms_pxInst;
+	var CObjList									m_xSpirits;
+	var array int									m_aiOwner;
+	var int												m_iPlayer;
+	var array string							m_asName;
+	var bool											m_bActive;
+	
+	export static proc ref CSpiritMgr Get()
+		if(ms_pxInst==null)then
+			ms_pxInst=new CSpiritMgr;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+	
+	export static proc ref CSpiritMgr GetSimple()
+		return(ms_pxInst^);
+	endproc;
+	
+	export constructor()
+		m_bActive=false;
+	endconstructor;
+	
+	proc void Clear()
+		m_xSpirits.Clear();
+		m_aiOwner=0;
+		m_asName=0;
+	endproc;
+	
+	export static proc void Kill()
+		if(ms_pxInst!=null)then
+			ms_pxInst^.Clear();
+			ms_pxInst^.Destroy();
+			ms_pxInst = null;
+		endif;
+	endproc;
+	
+	export proc bool SetActive(bool p_bActive)
+		m_bActive=p_bActive;
+		if(!p_bActive)then
+			Clear();
+		endif;
+		return true;
+	endproc;
+	
+	export proc void ShowSpirits(bool p_bAllySight, bool p_bEnemySight)
+		if(!m_bActive)then return; endif;
+		var int i, iC = m_xSpirits.NumEntries();
+		for(i=(iC-1))cond(i>=0)iter(i--)do
+			if(!m_xSpirits[i].IsValid()||m_xSpirits[i].GetObj()^.GetName()!=m_asName[i])then m_asName.DeleteEntry(i); m_aiOwner.DeleteEntry(i); m_xSpirits.DeleteEntry(i); continue; endif;
+			var bool bVisible = p_bEnemySight || (p_bAllySight && (m_aiOwner[i]==m_iPlayer || (CGameWrap.GetDiplomacyMgr().GetMyOpinion(m_aiOwner[i])==2 && CGameWrap.GetDiplomacyMgr().GetTheirOpinion(m_aiOwner[i])==2)));
+			m_xSpirits[i].GetObj()^.SetVisible(bVisible);
+		endfor;
+	endproc;
+	
+	export proc void AddSpirit(CClntHndl p_xHndl, int p_iID, string p_sName, int p_iPlayer)
+		if(!m_bActive)then return; endif;
+		if(p_iPlayer!=m_iPlayer)then
+			m_iPlayer=p_iPlayer;
+		endif;
+		if(p_xHndl.IsValid())then;
+			m_aiOwner.AddEntry(p_iID);
+			m_asName.AddEntry(p_sName);
+			m_xSpirits.AddEntry(p_xHndl);
+			var ^CObj pxSpirit=p_xHndl.GetObj();
+			if(pxSpirit!=null)then
+				var bool bVisible = CGameInst.ms_xSelectionInfo.Has(CSelectionInfo.ENEMY_SPIRITS) || (CGameInst.ms_xSelectionInfo.Has(CSelectionInfo.ALLY_SPIRITS) && (p_iID==m_iPlayer || (CGameWrap.GetDiplomacyMgr().GetMyOpinion(p_iID)==2 && CGameWrap.GetDiplomacyMgr().GetTheirOpinion(p_iID)==2)));
+				pxSpirit^.SetVisible(bVisible);
+			endif;
+		endif;
+	endproc;
+	
+endclass;
+
+/*
+class CSpiritMgr inherit CWindow
+	
+	static var ^CSpiritMgr				ms_pxInst;
+	var array ^CSpiritObj					m_apxSpirits;
+	
+	export static proc ref CSpiritMgr Get()
+		if(ms_pxInst==null)then
+			ms_pxInst=new CSpiritMgr;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+	
+	export constructor()
+	endconstructor;
+	
+	export proc void KillSpiritObj(^CSpiritMgr.CSpiritObj p_pxText)
+		var int iIndex = m_apxSpirits.FindEntry(p_pxText);
+		if(iIndex!=-1)then
+			m_apxSpirits[iIndex]^.Destroy();
+			m_apxSpirits.DeleteEntryUS(iIndex);
+		endif;
+	endproc;
+	
+	export proc void KillSpiritObjByIndex(int p_iIdx)
+		if(p_iIdx!=-1)then
+			m_apxSpirits[p_iIdx]^.Destroy();
+			m_apxSpirits.DeleteEntryUS(p_iIdx);
+		endif;
+	endproc;
+	
+	export proc int FindSpiritObj(CClntHndl p_xHndl)
+		var int i, iC = m_apxSpirits.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_apxSpirits[i]^.m_xHndl==p_xHndl)then
+				return i;
+			endif;
+		endfor;
+		return -1;
+	endproc;
+	
+	proc void Clear()
+		var int i, iC = m_apxSpirits.NumEntries();
+		for(i=(iC-1))cond(i>=0)iter(i--)do
+			m_apxSpirits[i]^.Destroy();
+		endfor;
+		m_apxSpirits = 0;
+	endproc;
+	
+	export static proc void Kill()
+		if(ms_pxInst!=null)then
+			ms_pxInst^.Clear();
+			ms_pxInst^.Destroy();
+			ms_pxInst = null;
+		endif;
+	endproc;
+	
+	export proc bool ClearAll()
+		Clear();
+		return true;
+	endproc;
+	
+	export proc void ShowSpirits(bool p_bAllySight, bool p_bEnemySight)
+		var int i, iC = m_apxSpirits.NumEntries();
+		for(i=(iC-1))cond(i>=0)iter(i--)do
+			m_apxSpirits[i]^.ShowSpirit(p_bAllySight, p_bEnemySight);
+		endfor;
+	endproc;
+	
+	export proc void AddSpirit(^CObj p_pxTarget)
+		if(p_pxTarget!=null)then
+			m_apxSpirits.AddEntry(new CSpiritMgr.CSpiritObj(p_pxTarget^.GetHandle(),CGameInst.ms_xSelectionInfo.Has(CSelectionInfo.ALLY_SPIRITS),CGameInst.ms_xSelectionInfo.Has(CSelectionInfo.ENEMY_SPIRITS)));
+		endif;
+	endproc;
+	
+	export proc string GetSpiritDescription(CClntHndl p_xHndl, ref string p_rsClass)
+		if(!p_xHndl.IsValid())then return ""; endif;
+		var int i, iC = m_apxSpirits.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_apxSpirits[i]^.m_xHndl==p_xHndl)then
+				return m_apxSpirits[i]^.GetDescription(p_rsClass);
+			endif;
+		endfor;
+		return "";
+	endproc;
+	
+	class CSpiritObj inherit CWindow
+		
+		export var CClntHndl			m_xHndl;
+		var ^CObj									m_pxSpirit;
+		var bool									m_bVisible;
+		var int										m_iPID;
+		var int										m_iClient;
+		var string								m_sClass;
+		var string								m_sDescription;
+		var bool									m_bDeactivated;
+		
+		export constructor(CClntHndl p_xHndl, bool p_bAllySight, bool p_bEnemySight)
+			SetSize(0,0);
+			SetPos({0,0});
+			m_iClient=CGameWrap.GetClient().GetPlayer().GetID();
+			m_xHndl = p_xHndl;
+			m_pxSpirit=m_xHndl.GetObj();
+			m_bDeactivated=false;
+			if(m_pxSpirit!=null)then
+				var ^CAttribs pxA=m_pxSpirit^.GetAttribs();
+				if(pxA!=null)then
+					m_sClass=pxA^.GetValue("class_of_source");
+					m_sDescription=pxA^.GetValue("desc_of_source");
+				endif;
+				m_iPID = m_pxSpirit^.GetOwner();
+				var bool bVisible=p_bEnemySight||(p_bAllySight&&(m_iPID==m_iClient||(CGameWrap.GetDiplomacyMgr().GetMyOpinion(m_iPID)==2&&CGameWrap.GetDiplomacyMgr().GetTheirOpinion(m_iPID)==2)));
+				CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this, m_xHndl, CSubscriptionMgr.CT_ObjAttribs, "MrgSprt");
+				m_pxSpirit^.SetVisible(bVisible);
+			endif;
+		endconstructor;
+		
+		export destructor()
+			CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this, m_xHndl, CSubscriptionMgr.CT_ObjAttribs, "MrgSprt");
+			CSpiritMgr.Get().KillSpiritObj(this);
+		enddestructor;
+		
+		proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+			if(p_rxEvt.GetClass()==CSubscriptionMgr.GetEvtClass_ObjChange())then
+				var CClntHndl xObjHandle;
+				var bitset dwTypes, dwAttribGroups;
+				if(CSubscriptionMgr.EvtGetData_ObjChange(p_rxEvt,xObjHandle,dwTypes,dwAttribGroups))then
+					if((dwTypes & CSubscriptionMgr.CT_ObjAttribs)!=0d)then
+						CheckDeactivation();
+					endif;
+				endif;
+			endif;
+			return true;
+		endproc;
+		
+		export proc void ShowSpirit(bool p_bAllySight, bool p_bEnemySight)
+			if(!m_xHndl.IsValid())then Destroy(); return; endif;
+//			if(m_pxSpirit!=null)then
+//				m_pxSpirit^.SetVisible(p_bVisible);
+			if(m_xHndl.IsValid()&&!m_bDeactivated)then
+				var bool bVisible=p_bEnemySight||(p_bAllySight&&(m_iPID==m_iClient||(CGameWrap.GetDiplomacyMgr().GetMyOpinion(m_iPID)==2&&CGameWrap.GetDiplomacyMgr().GetTheirOpinion(m_iPID)==2)));
+				m_xHndl.GetObj()^.SetVisible(bVisible);
+			endif;
+		endproc;
+		
+		proc void CheckDeactivation()
+			if(!m_xHndl.IsValid())then Destroy(); endif;
+			var ^CAttribs pxA=m_xHndl.GetObj()^.GetAttribs();
+			if(pxA==null||pxA^.GetValueInt("deactivated")==1)then
+				m_bDeactivated=true;
+				Destroy();
+			endif;
+		endproc;
+		
+		export proc string GetDescription(ref string p_rsClass)
+			if(!m_xHndl.IsValid())then Destroy(); return ""; endif;
+			p_rsClass=m_sClass;
+			return m_sDescription;
+		endproc;
+		
+	endclass;
+	
+endclass;
+*/

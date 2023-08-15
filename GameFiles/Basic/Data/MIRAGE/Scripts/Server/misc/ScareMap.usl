@@ -1,0 +1,128 @@
+class CScareMap
+	
+	class CEntry
+		
+		export var vec3			m_vCenter;
+		export var real			m_fSqRadius;
+		var CGameTime				m_xTime;
+		export var real			m_fStrength;
+		export var CObjList	m_xTargets;
+		export var int			m_iSizeClass;
+		export var string		m_sMiscParam;
+		const real					DECAY_STR_PER_SECOND=0.1;
+		
+		export constructor()
+			m_xTime=CTimeMgr.Get().GetTime();
+		endconstructor;
+		
+		export proc bool IsAlive()
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			var CGameTimeSpan xDiff=xNow-m_xTime;
+			m_xTime=xNow;
+			m_fStrength-=(DECAY_STR_PER_SECOND*xDiff.GetSecondsF());
+			return (m_fStrength>0.0f);
+		endproc;
+		
+		export proc bool HaveTarget(CObjHndl p_xTarget)
+			return (m_xTargets.FindEntry(p_xTarget)!=-1);
+		endproc;
+		
+		export proc real GetStrength(vec3 p_vPos)
+			var real fSqDist=(p_vPos-m_vCenter).Abs2S();
+			if(fSqDist>m_fSqRadius)then return 0.0f; endif;
+			if(m_fSqRadius==0.0f)then return m_fStrength; endif;
+			return m_fStrength*(1.0f-(fSqDist/m_fSqRadius));
+		endproc;
+		
+	endclass;
+	
+	var array CEntry	m_axSources;
+	var array CEntry	m_axNewSources;
+	var CTimerTick		m_xTimer;
+	
+	export proc void AddScareSource(vec3 p_vCenter,real p_fRadius,real p_fStrength, int p_iSizeClass, string p_sMiscParam)
+		var int iIdx=m_axNewSources.NewEntry();
+		m_axNewSources[iIdx].m_vCenter=p_vCenter;
+		m_axNewSources[iIdx].m_fSqRadius=p_fRadius;
+		m_axNewSources[iIdx].m_fStrength=p_fStrength;
+		m_axNewSources[iIdx].m_iSizeClass=p_iSizeClass;
+		m_axNewSources[iIdx].m_sMiscParam=p_sMiscParam;
+		m_xTimer.SetTimer(0.1);
+	endproc;
+	
+	export proc bool GetStrongestScareSource(CObjHndl p_xTarget,vec3 p_vPos,ref vec3 po_rvCenter,ref real po_rfRadius)
+		var int iIdx=-1;
+		var real fStr=0.0f;
+		var int i,iC=m_axSources.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_axSources[i].IsAlive())then
+				m_axSources.DeleteEntry(i);
+				i--;iC--;
+				continue;
+			endif;
+			if(!m_axSources[i].HaveTarget(p_xTarget))then continue; endif;
+			var real fCurStr=m_axSources[i].GetStrength(p_vPos);
+			if(fCurStr>fStr)then
+				fStr=fCurStr;
+				iIdx=i;
+			endif;
+		endfor;
+		if(iIdx==-1)then return false; endif;
+		po_rvCenter=m_axSources[iIdx].m_vCenter;
+		po_rfRadius=Math.Sqrt(m_axSources[iIdx].m_fSqRadius);
+		return true;
+	endproc;
+	
+// singleton things
+	static var ^CScareMap ms_pxInst;
+	
+	export static proc ref CScareMap Get()
+		if(ms_pxInst==null)then
+			ms_pxInst=new CScareMap();
+		endif;
+		return ms_pxInst^;
+	endproc;
+	
+	export static proc void ShutStatic()
+		delete ms_pxInst;
+	endproc;
+	
+	constructor()
+		m_xTimer.m_xOnTick = OnScareAnimals;
+	endconstructor;
+	
+	proc void OnScareAnimals()
+		var int j, iJC = m_axNewSources.NumEntries();
+		for(j=0)cond(j<iJC)iter(j++)do
+			var CObjQuery xTargetFind;
+			xTargetFind.SetType("ANML");
+			xTargetFind.SetOwner(-1);
+			xTargetFind.RegionCircle(m_axNewSources[j].m_vCenter,m_axNewSources[j].m_fSqRadius);
+			var CObjList xPreSelect;
+			if(!xTargetFind.Execute(xPreSelect))then continue; endif;
+			var int i,iC=xPreSelect.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CAnimal pxAnml=cast<CAnimal>(xPreSelect[i].GetObj());
+				// remove not animals and aggressive animals, which can't be scared
+				if((pxAnml==null) || (pxAnml^.IsInFight() && pxAnml^.GetAggressive()>-1) || (pxAnml^.GetAggressive()==1) || (pxAnml^.GetSizeClass()>m_axNewSources[j].m_iSizeClass) || (m_axNewSources[j].m_sMiscParam=="building" && pxAnml^.GetAggressive()>-1))then
+					xPreSelect.DeleteEntry(i);
+					i--;iC--;
+				endif;
+			endfor;
+			if(iC==0)then continue; endif;
+			var int iIdx=m_axSources.NewEntry();
+			m_axSources[iIdx].m_vCenter=m_axNewSources[j].m_vCenter;
+			m_axSources[iIdx].m_fSqRadius=m_axNewSources[j].m_fSqRadius*m_axNewSources[j].m_fSqRadius;
+			m_axSources[iIdx].m_fStrength=m_axNewSources[j].m_fStrength;
+			m_axSources[iIdx].m_xTargets=xPreSelect;
+			iC=xPreSelect.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CAnimal pxAnml=cast<CAnimal>(xPreSelect[i].GetObj());
+				if(pxAnml==null)then continue; endif;
+				pxAnml^.GetScared();
+			endfor;
+		endfor;
+		m_axNewSources = 0;
+	endproc;
+	
+endclass;

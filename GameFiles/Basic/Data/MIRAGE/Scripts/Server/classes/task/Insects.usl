@@ -1,0 +1,205 @@
+class CInsects inherit CSpecialActionTask
+	
+	var CObjHndl m_xCharacter;
+	var CObjHndl m_xTarget;
+	var string m_sState;
+	var int m_iRetryCounter;
+	var bool m_bIllusion;
+	var array string m_asValidTargets;
+	var array int m_aiTypes;
+	
+	export constructor()
+		SetName("Insects");
+		m_asValidTargets.AddEntry("aje_amazon_temple");
+		m_aiTypes.AddEntry(2);
+		m_asValidTargets.AddEntry("aje_bazaar");
+		m_aiTypes.AddEntry(2);
+		m_asValidTargets.AddEntry("aje_floating_harbour");
+		m_aiTypes.AddEntry(0);
+		m_asValidTargets.AddEntry("aje_slaughterhouse");
+		m_aiTypes.AddEntry(0);
+		m_asValidTargets.AddEntry("aje_resource_collector");
+		m_aiTypes.AddEntry(2);
+		m_asValidTargets.AddEntry("hu_corn_field");
+		m_aiTypes.AddEntry(0);
+		m_asValidTargets.AddEntry("hu_harbour");
+		m_aiTypes.AddEntry(0);
+		m_asValidTargets.AddEntry("hu_lumberjack_cottage");
+		m_aiTypes.AddEntry(2);
+		m_asValidTargets.AddEntry("hu_fireplace");
+		m_aiTypes.AddEntry(2);
+		m_asValidTargets.AddEntry("hu_warehouse");
+		m_aiTypes.AddEntry(2);
+		m_asValidTargets.AddEntry("ninigi_bamboofarm");
+		m_aiTypes.AddEntry(1);
+		m_asValidTargets.AddEntry("ninigi_emporium");
+		m_aiTypes.AddEntry(2);
+		m_asValidTargets.AddEntry("ninigi_fireplace");
+		m_aiTypes.AddEntry(2);
+		m_asValidTargets.AddEntry("ninigi_harbour");
+		m_aiTypes.AddEntry(0);
+		m_asValidTargets.AddEntry("ninigi_hunting_lodge");
+		m_aiTypes.AddEntry(0);
+		m_asValidTargets.AddEntry("ninigi_lumbermill");
+		m_aiTypes.AddEntry(1);
+		m_asValidTargets.AddEntry("ninigi_paddy");
+		m_aiTypes.AddEntry(0);
+		m_asValidTargets.AddEntry("seas_carrier");
+		m_aiTypes.AddEntry(0);
+		m_asValidTargets.AddEntry("seas_greenhouse");
+		m_aiTypes.AddEntry(0);
+		m_asValidTargets.AddEntry("seas_headquarters");
+		m_aiTypes.AddEntry(2);
+		m_asValidTargets.AddEntry("seas_small_tent");
+		m_aiTypes.AddEntry(2);
+		m_asValidTargets.AddEntry("seas_steelwork");
+		m_aiTypes.AddEntry(2);
+		SetCivil(false);
+		m_iRetryCounter = 0;
+		m_bIllusion=false;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Inse";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xCharacter.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_iRetryCounter;
+		(pxArc^) << m_bIllusion;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Inse")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			m_xCharacter.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_iRetryCounter;
+			if(iVersion>=2)then
+				(pxArc^) << m_bIllusion;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xCharacter,CObjHndl p_xTarget, string p_sPath, bool p_bIllusion)
+		m_sState="goto_target";
+		if(!p_xCharacter.IsValid() || !p_xTarget.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		/*
+		if(m_asValidTargets.FindEntry( p_xTarget.GetObj()^.GetClassName() ) ==-1 )then
+			m_sState="EndTask";
+			return false;
+		endif;
+		*/
+		m_bIllusion=p_bIllusion;
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(p_xCharacter, p_sPath, true);
+		m_xCharacter = p_xCharacter;
+		m_xTarget = p_xTarget;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xCharacter.GetObj());
+		if(pxFightingObj==null || !pxFightingObj^.CheckSpecialActionTimer(GetSpecialActionPath()))then
+			EndTask();
+			return;
+		endif;
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		var ^CGameObj pxTarget = m_xTarget.GetObj();
+		if(pxCharacter==null || pxTarget==null)then EndTask(); return; endif;
+		if(m_sState == "goto_target")then
+			var real fAttackRange = 70.0; //pxCharacter^.GetAttackRange();
+			if(!IsInRange())then
+				if(pxCharacter^.GetOnWall())then
+					EndTask();return;
+				endif;
+				pxCharacter^.AdvanceAction(pxTarget^.GetHandle(),fAttackRange,pxCharacter^.GetDefaultSpeed());
+			endif;
+			m_sState = "throw";
+		elseif(m_sState == "throw")then
+			if(!StartSpecialActionTimer(pxCharacter))then EndTask();return;endif;
+			if(!IsInRange())then
+				if(m_iRetryCounter>3)then
+					EndTask();
+				else
+					m_iRetryCounter++;
+					m_sState = "goto_target";
+					return;
+				endif;
+			else
+				SetUnStoppable(true);
+				if(m_asValidTargets.FindEntry(m_xTarget.GetObj()^.GetClassName())!=-1)then
+					//create Insects-Object and throw it...
+					var ^CInsectsObj pxInsects = cast<CInsectsObj>(CSrvWrap.GetObjMgr()^.CreateObj("InsectsObj",pxTarget^.GetOwner(),pxCharacter^.GetPos()));
+					if(pxInsects!=null)then
+						pxInsects^.Set(m_xTarget,CGameTimeSpan.OneSecond() * 180.0, 20,m_xCharacter,m_bIllusion,m_aiTypes[m_asValidTargets.FindEntry(pxTarget^.GetClassName())]);
+					endif;
+				else
+					var ^CFightingObj pxFO=cast<CFightingObj>(m_xTarget.GetObj());
+					if(pxFO!=null)then
+						pxFO^.SetInsected(true,12.0);
+					endif;
+				endif;
+				pxCharacter^.AnimAction("insects");
+				m_sState = "EndTask";
+				return;
+			endif;
+		elseif(m_sState == "EndTask")then
+			SetUnStoppable(false);
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc bool IsInRange()
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		var ^CGameObj pxTarget = m_xTarget.GetObj();
+		if(pxCharacter==null || pxTarget==null)then return false; endif;
+		var real fTargetRadius = pxTarget^.GetRadius();
+		var real fSelfRadius = pxCharacter^.GetRadius();
+		var real fAttackRange = 50.0+fSelfRadius+fTargetRadius; //pxCharacter^.GetAttackRange();
+		var real fDistance = (pxTarget^.GetPos() - pxCharacter^.GetPos()).Abs2S();
+		return fDistance <= fAttackRange*fAttackRange;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc bool Break()
+		if(GetUnStoppable())then
+			return false;
+		endif;
+		SetPrepareActionPath(m_xCharacter, GetSpecialActionPath(), false);
+		if (m_xCharacter.IsValid()) then
+			m_xCharacter.GetObj()^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+	
+	export proc void EndTask()
+		SetPrepareActionPath(m_xCharacter, GetSpecialActionPath(), false);
+		UpdateAggressionPos(m_xCharacter);
+		super.EndTask();
+	endproc;
+
+endclass;

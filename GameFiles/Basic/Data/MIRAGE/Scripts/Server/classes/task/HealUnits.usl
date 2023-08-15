@@ -1,0 +1,599 @@
+class CHealUnits inherit CTask
+	
+	var CObjHndl		m_xHealer;
+	var CObjHndl		m_xCurTarget;
+	var CGameTime		m_xStart;
+	var int					m_iState;
+	var vec3				m_vOldTargetPos;
+	
+	const int				STATE_QUIT							= 0;
+	const int				STATE_FIND_TARGET				= 1;
+	const int				STATE_GOTO_TARGET				= 2;
+	const int				STATE_ROTATE_TO_TARGET	= 3;
+	const int				STATE_HEAL_ANIM					= 4;
+	
+	var bool				m_bFirst;
+	var int					m_iAnimState;
+	
+	const int				ANIM_STATE_NONE				= 0;
+	const int				ANIM_STATE_STARTED		= 1;
+	const int				ANIM_STATE_LOOPING		= 2;
+	const int				ANIM_STATE_STOPPED		= 3;
+	
+	export constructor()
+		SetName("HealUnit");
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="HeUN";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xHealer.DoKArc(pxArc^);
+		m_xCurTarget.DoKArc(pxArc^);
+		(pxArc^) << m_iState;
+		(pxArc^) << m_vOldTargetPos;
+		(pxArc^) << m_iAnimState;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="HeUN")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xHealer.DoKArc(pxArc^);
+			m_xCurTarget.DoKArc(pxArc^);
+			(pxArc^) << m_iState;
+			(pxArc^) << m_vOldTargetPos;
+			if(pxArc^.GetVersion()>=2) then (pxArc^) << m_iAnimState; endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	/// return value specifies if idleanim should be set
+	export proc bool OnActionEnd(bool p_bBroken)
+		return false;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xHealer)
+		if(!p_xHealer.IsValid())then
+			m_iState = STATE_QUIT;
+			return false;
+		endif;
+		m_xHealer = p_xHealer;
+//		var ^CCharacter pxC = cast<CCharacter>(m_xHealer.GetObj());
+//		if(pxC==null || (pxC^.m_bManaEnabled && pxC^.GetEnergy()<10.0f))then
+//			m_iState = STATE_QUIT;
+//			return false;
+//		endif;
+		m_iState  = STATE_FIND_TARGET;
+		return true;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xHealer, CObjHndl p_xTarget)
+		if(!p_xHealer.IsValid())then
+			m_iState = STATE_QUIT;
+			return false;
+		endif;
+		m_xHealer = p_xHealer;
+//		var ^CCharacter pxC = cast<CCharacter>(m_xHealer.GetObj());
+//		if(pxC==null || (pxC^.m_bManaEnabled && pxC^.GetEnergy()<10.0f))then
+//			m_iState = STATE_QUIT;
+//			return false;
+//		endif;
+		if(p_xTarget.IsValid())then
+			m_iState  = STATE_GOTO_TARGET;
+			m_xCurTarget=p_xTarget;
+		else
+			m_iState  = STATE_FIND_TARGET;
+		endif;
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		m_vOldTargetPos = {-9999.0f,-9999.0f, -9999.9f};
+		var ^CCharacter pxC = cast<CCharacter>(m_xHealer.GetObj());
+		if(pxC==null || pxC^.GetHealingRadius()<=0.0f)then
+			EndTask();
+			return;
+		endif;
+		var ^CAttribs pxAttr = pxC^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+		endif;
+		pxC^.ExamineFlags();
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxHealer = cast<CCharacter>(m_xHealer.GetObj());
+		if(pxHealer!=null)then
+			if(pxHealer^.GetTransportObj().IsValid() && !(pxHealer^.IsOnOpenTransporter() && CMirageSrvMgr.Get().TransportHealing()))then
+				EndTask(); return;
+			endif;
+			var bool bReset = false;
+			bReset = pxHealer^.HealingReset(5.0);
+			if(!bReset)then
+				pxHealer^.SetHealing(false);
+				EndTask();
+				return;
+			endif;
+			var vec3 vPos = pxHealer^.GetPos();
+			var bool bTransport = false;
+			if(pxHealer^.GetTransportObj().IsValid())then
+				var ^CTransportObj pxTransporter = cast<CTransportObj>(pxHealer^.GetTransportObj().GetObj());
+				if(pxTransporter!=null)then
+					if((pxTransporter^.IsTrapped()&&!pxTransporter^.ExcludeBuildUp())||pxTransporter^.IsFeignDeath()||pxTransporter^.GetTransportObj().IsValid())then
+						pxHealer^.SetHealing(false);
+						EndTask();
+						return;
+					endif;
+					bTransport = true;
+					vPos = pxTransporter^.GetPos();
+				endif;
+			endif;
+			if(m_iAnimState==ANIM_STATE_STARTED) then
+				//activate staff glow
+				pxHealer^.SetRndInvMaskSingleFlagInv(CFightingObj.VIS_FLAG_CHTR_ACTIVATED,true);
+			elseif(m_iAnimState==ANIM_STATE_STOPPED) then
+				//deactivate staff glow
+				pxHealer^.SetRndInvMaskSingleFlagInv(CFightingObj.VIS_FLAG_CHTR_ACTIVATED,false);
+			endif;
+			if(m_iState == STATE_FIND_TARGET)then
+				var CObjQuery xQ;
+				xQ.SetType("CHTR");
+				xQ.SetType("ANML", true);
+				xQ.SetType("VHCL", true);
+				xQ.SetType("SHIP", true);
+				xQ.SetOwner(pxHealer^.GetOwner());
+				xQ.RegionCircle(vPos, pxHealer^.GetHealingRadius()*1.5);
+				xQ.Exclude(m_xHealer);
+				var CObjList xL, xPass;
+				xQ.Execute(xL);
+				xL.Include(m_xHealer);
+				var int i, iC = xL.NumEntries();
+				for(i=0)cond(i<iC)iter(++i)do
+					if(CheckHealingDruid(xL[i]))then
+						xL.RemEntry(xL[i]);
+						i--;iC--;
+						continue;
+					endif;
+					var bool bRemove = false;
+					var ^CFightingObj pxIter = cast<CFightingObj>(xL[i].GetObj());
+					if(pxIter==null)then bRemove = true; endif;
+					if(!bRemove && pxIter^.GetHitpoints()>=pxIter^.GetMaxHitpoints())then bRemove = true; endif;
+					if(!bRemove && pxIter^.GetNoHealing())then bRemove = true; endif;
+					if(!bRemove && pxIter^.GetTransportObj().IsValid())then xPass.Include(xL[i]); bRemove = true; endif;
+					if(bRemove)then
+						xL.RemEntry(xL[i]);
+						i--;iC--;
+						continue;
+					endif;
+				endfor;
+				// if there are no own units nearby try to heal allied units
+				if(xL.NumEntries() <= 0)then
+					xQ.Clear();
+					xQ.SetType("CHTR");
+					xQ.SetType("ANML", true);
+					xQ.SetType("VHCL", true);
+					xQ.SetType("SHIP", true);
+					xQ.RegionCircle(vPos, pxHealer^.GetHealingRadius());
+					xQ.Exclude(m_xHealer);
+					CSrvWrap.GetDiplomacyMgr().AddMyFriendsToSearch(pxHealer^.GetOwner(), xQ); //allies
+					xQ.Execute(xL);
+					xL.Include(m_xHealer);
+					iC = xL.NumEntries();
+					for(i=0)cond(i<iC)iter(++i)do
+						if(CheckHealingDruid(xL[i]))then
+							xL.RemEntry(xL[i]);
+							i--;iC--;
+							continue;
+						endif;
+						var bool bRemove = false;
+						var ^CFightingObj pxIter = cast<CFightingObj>(xL[i].GetObj());
+						if(pxIter==null)then bRemove = true; endif;
+						if(!bRemove && pxIter^.GetHitpoints()>=pxIter^.GetMaxHitpoints())then bRemove = true; endif;
+						if(!bRemove && pxIter^.GetNoHealing())then bRemove = true; endif;
+						if(!bRemove && pxIter^.GetTransportObj().IsValid())then xPass.Include(xL[i]); bRemove = true; endif;
+						if(bRemove)then
+							xL.RemEntry(xL[i]);
+							i--;iC--;
+							continue;
+						endif;
+					endfor;
+					xL.Include(xPass);
+					if(xL.NumEntries() <= 0)then
+						m_iState=STATE_QUIT; 
+						return;
+					endif;
+				endif;
+				var CObjHndl xHealMe = xL[0];
+				var real fHPVal;
+				var ^CFightingObj pxCur = cast<CFightingObj>(xHealMe.GetObj());
+				if(pxCur!=null) then
+					fHPVal = pxCur^.GetHitpoints() / (pxCur^.GetMaxHitpoints()*0.01f);
+				endif;
+				iC = xL.NumEntries();
+				for(i=1) cond(i<iC) iter(++i) do
+					var ^CFightingObj pxIter = cast<CFightingObj>(xL[i].GetObj());
+					if (pxIter!=null) then
+						var real fHP = pxIter^.GetHitpoints() / (pxIter^.GetMaxHitpoints()*0.01f);
+						if(fHP < fHPVal) then
+							xHealMe = xL[i];
+							fHPVal = fHP;
+						endif;
+					endif;
+				endfor;
+				if (xHealMe.IsValid() && fHPVal < 100.0f) then
+					m_xCurTarget = xHealMe;
+					m_iState = STATE_GOTO_TARGET;
+				else
+					m_iState = STATE_QUIT;
+				endif;
+				return;
+			elseif(m_iState == STATE_GOTO_TARGET) then
+				var ^CFightingObj pxFO=cast<CFightingObj>(m_xCurTarget.GetObj());
+				if(pxFO==null)then
+					m_iState = STATE_FIND_TARGET;
+					SetUserCommand(false);
+					return; 
+				endif;
+				if(IsUserCommand())then
+					var real fRadius=pxHealer^.GetHealingRadius();
+					if((pxFO^.GetPos()-vPos).Abs2()>fRadius)then
+						var CGameObj.CAdvanceActionParams xAWAP;
+						xAWAP.m_fMinDistance=fRadius-1.0;
+						xAWAP.m_iPrefSpeed=pxHealer^.GetMaxSpeed();
+						if(!bTransport)then
+							if(!pxHealer^.GetOnWall())then
+								pxHealer^.AdvanceAction(pxFO^.GetHandle(),xAWAP);
+							else
+								pxHealer^.AdvanceWallAction(pxFO^.GetHandle(),xAWAP,!pxFO^.GetOnWall(),IsUserCommand());
+							endif;
+						endif;
+					endif;
+					m_iState = STATE_ROTATE_TO_TARGET;
+				else
+					if((pxFO^.GetPos()-vPos).Abs2()>pxHealer^.GetHealingRadius()) then
+						m_iState=STATE_FIND_TARGET;
+						return;
+					endif;
+					if(!bTransport)then
+						pxHealer^.AdvanceAction(m_xCurTarget, pxHealer^.GetHealingRadius(), pxHealer^.GetMaxSpeed());
+					endif;
+					m_iState = STATE_ROTATE_TO_TARGET;
+					return;
+				endif;
+			elseif(m_iState == STATE_ROTATE_TO_TARGET) then
+				if(IsUserCommand()&&!bTransport)then
+					pxHealer^.UpdateAggressionPos(pxHealer^.GetPos());
+				endif;
+				var ^CFightingObj pxFO =cast<CFightingObj>(m_xCurTarget.GetObj());
+//				if(pxFO!=null&&!bTransport)then
+				if(pxFO!=null)then
+					if(!bTransport)then
+						var vec3 vDir = (pxFO^.GetPos()-vPos).GetNormalized();
+						var Quat qR; qR.FromXYDir(vDir.GetX(), vDir.GetY());
+						pxHealer^.RotateAction(qR);
+					else
+						var Quat qAddRot = pxHealer^.GetAdditionalRot();
+						var vec3 vFO=pxFO^.GetPos();
+						var vec3 vDir = (vFO-pxHealer^.GetPos()).GetNormalized();
+						vDir.SetZ(0.0f);
+						vDir.Normalize();
+						var vec3 vSelf = {0.0f, 1.0f, 0.0};
+						pxHealer^.GetRot().VecRotateU(vSelf);
+						qAddRot.VecRotateU(vSelf);
+						vSelf.SetZ(0.0f);
+						vSelf.Normalize();
+						var real fDiff = (vDir-vSelf).Abs2();
+						if(fDiff > 0.1f)then
+							var Quat qR; qR.FromXYDir(vDir.GetX(), vDir.GetY());
+							qR /= pxHealer^.GetRot();
+							fDiff *= 0.1;
+							pxHealer^.SecRotAction(qR, fDiff);
+						endif;
+					endif;
+				endif;
+				m_bFirst = true;
+				m_xStart = CGameTime.GetNullTime();
+				m_iState = STATE_HEAL_ANIM;
+				return;
+			elseif(m_iState == STATE_HEAL_ANIM) then
+				var int iChangeState = STATE_HEAL_ANIM;
+				var ^CFightingObj pxFO = cast<CFightingObj>(m_xCurTarget.GetObj());
+				if(pxFO!=null) then
+					if(pxFO^.GetNoHealing())then
+						iChangeState = STATE_FIND_TARGET;
+//						return;
+					endif;
+//					if(pxHealer^.m_bManaEnabled && pxHealer^.GetEnergy()<=10.0f && !bTransport)then
+//						pxHealer^.WaitAction(5.0); // Henry: wait 5 seconds to mana be replenished (hopefully)
+//						return;
+//					endif;
+					var real fDist = (pxFO^.GetPos()-vPos).Abs2();
+					if (fDist > pxHealer^.GetHealingRadius()+pxFO^.GetCollisionRadius()+3.0) then	//target too far away
+						iChangeState = STATE_GOTO_TARGET;
+//						return;
+					elseif(m_vOldTargetPos.GetX() > -9999.0f && (pxFO^.GetPos()-m_vOldTargetPos).Abs2S()>3.0f && !bTransport)then //target has moved
+						iChangeState = STATE_ROTATE_TO_TARGET;
+//						return;
+					elseif(pxFO^.GetHitpoints()>=pxFO^.GetMaxHitpoints())then //target is fully healed
+						iChangeState = STATE_FIND_TARGET;
+//						return;
+					endif;
+					m_vOldTargetPos = pxFO^.GetPos();
+					var real fValue = 0.0;
+					if(m_xStart!=CGameTime.GetNullTime())then
+						fValue = (CTimeMgr.Get().GetTime() - m_xStart).GetSecondsF();
+					endif;
+					m_xStart = CTimeMgr.Get().GetTime();
+//					pxHealer^.StartManaEating();
+					fValue *= pxHealer^.GetHealingAmount(pxFO);
+					pxFO^.HealMe(fValue);
+//					pxHealer^.EatMana(fValue/5.0f); //TODO: make it possible to change value with techtree upgrade
+				else
+					iChangeState = STATE_FIND_TARGET;
+				endif;
+				var string sAnim = "heal_0";
+				var string sLoopAnim;
+				//HACK für Heiler auf OpenTransporter
+				if(pxHealer^.GetTransportObj().IsValid())then
+					var ^CTransportObj pxTransporter = cast<CTransportObj>(pxHealer^.GetTransportObj().GetObj());
+					if(pxTransporter!=null)then
+						if(!pxTransporter^.GetTransportObj().IsValid())then
+							sLoopAnim = pxTransporter^.GetPassengerLoopAnim();
+						endif;
+					endif;
+				endif;
+				//ENDHACK
+				var bool bLast;
+				if(iChangeState!=STATE_HEAL_ANIM)then
+					m_iState = iChangeState;
+					bLast = true;
+				endif;
+				if(!(m_bFirst && bLast) && pxHealer^.HasAnim(sAnim))then
+					if(m_bFirst) then
+						pxHealer^.SetSLEAnim(sAnim,9999,true,true);
+						if(!bTransport)then
+							pxHealer^.WaitAction(0.3f);
+						endif;
+					elseif(bLast) then
+						if(!bTransport)then
+							pxHealer^.AnimActionStopLoop();
+						else
+							if(pxHealer^.HasAnim(sLoopAnim) && pxHealer^.GetCurrentAnimName()!=sLoopAnim)then
+								pxHealer^.SetAnim(sLoopAnim, 3);
+							elseif(!pxHealer^.HasAnim(sLoopAnim))then
+								pxHealer^.SetAnim("standanim", 3);
+							endif;
+						endif;
+					endif;
+				endif;
+				if(m_bFirst)then
+					m_bFirst=false;
+					if(!bLast)then m_iAnimState=ANIM_STATE_STARTED; endif;
+				endif;
+				if(bLast)then m_iAnimState=ANIM_STATE_STOPPED; endif;
+				return;
+			elseif(m_iState == STATE_QUIT)then
+				pxHealer^.SetRndInvMaskSingleFlagInv(CFightingObj.VIS_FLAG_CHTR_ACTIVATED,false);
+				EndTask();
+				return;
+			endif;
+		else
+			EndTask();
+			return;
+		endif; 
+	endproc;
+	
+	proc bool CheckHealingDruid(CObjHndl p_xCheck)
+		if(!p_xCheck.IsValid())then return true; endif;
+		if(p_xCheck==m_xHealer)then return false; endif;
+		var ^CGameObj pxIter = p_xCheck.GetObj();
+		if(pxIter^.GetClassName()=="hu_druid" || pxIter^.GetClassName()=="aje_shaman" || pxIter^.GetClassName()=="ninigi_monk" || pxIter^.GetClassName()=="seas_medic")then
+			var ^CAttribs pxAttr = pxIter^.GetAttribs();
+			if(pxAttr==null)then
+				return true;
+			elseif(pxAttr^.GetValue("CurTask")=="HealUnit")then
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+	export proc void EndTask()
+		super.EndTask();
+		var ^CCharacter pxHealer=cast<CCharacter>(m_xHealer.GetObj());
+		if(pxHealer==null) then return; endif;
+		pxHealer^.SetRndInvMaskSingleFlagInv(CFightingObj.VIS_FLAG_CHTR_ACTIVATED,false);
+//		pxHealer^.StopManaEating();
+		pxHealer^.SetHealing(false);
+		var string sLoopAnim = "standanim";
+		if(pxHealer^.GetTransportObj().IsValid())then
+			var ^CTransportObj pxTransporter = cast<CTransportObj>(pxHealer^.GetTransportObj().GetObj());
+			if(pxTransporter!=null)then
+				if(!pxTransporter^.GetTransportObj().IsValid())then
+					sLoopAnim = pxTransporter^.GetPassengerLoopAnim();
+				endif;
+			endif;
+		endif;
+		if(pxHealer^.IsOnOpenTransporter())then
+			if(pxHealer^.HasAnim(sLoopAnim) && pxHealer^.GetCurrentAnimName()!=sLoopAnim)then
+				pxHealer^.SetAnim(sLoopAnim, 3);
+			elseif(!pxHealer^.HasAnim(sLoopAnim))then
+				pxHealer^.SetAnim("standanim", 3);
+			endif;
+		endif;
+		var ^CAttribs pxAttr = pxHealer^.GetAttribs();
+		if(pxAttr!=null/* && pxHealer^.IsOnOpenTransporter()*/)then
+			pxAttr^.SetValue("CurTask","Idle");
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CCharacter pxHealer=cast<CCharacter>(m_xHealer.GetObj());
+		if(pxHealer==null) then return; endif;
+		/*KLog.LogSpam("MaZi", "USLOnLeave");
+		if(pxHealer!=null && pxHealer^.GetHealingRadius()>0.0f) then
+			new CHealUnitIdleChecker(m_xHealer);
+		endif;*/
+		//deactivate staff glow
+		pxHealer^.SetRndInvMaskSingleFlagInv(CFightingObj.VIS_FLAG_CHTR_ACTIVATED,false);
+//		pxHealer^.StopManaEating();
+		var ^CAttribs pxAttr = pxHealer^.GetAttribs();
+		if(pxAttr!=null/* && pxHealer^.IsOnOpenTransporter()*/)then
+			pxAttr^.SetValue("CurTask","Idle");
+		endif;
+	endproc;
+	
+	export proc bool Break()
+		var ^CCharacter pxHealer=cast<CCharacter>(m_xHealer.GetObj());
+		if(pxHealer!=null)then
+			pxHealer^.SetRndInvMaskSingleFlagInv(CFightingObj.VIS_FLAG_CHTR_ACTIVATED,false);
+			pxHealer^.SetHealing(false);
+//			pxHealer^.StopManaEating();
+		endif;
+		var ^CAttribs pxAttr = pxHealer^.GetAttribs();
+		if(pxAttr!=null/* && pxHealer^.IsOnOpenTransporter()*/)then
+			pxAttr^.SetValue("CurTask","Idle");
+		endif;
+		return true;
+	endproc;
+	
+	export proc void Skip()
+	endproc;
+
+endclass;
+/*
+
+// never hold a pointer to this class .... deletes hisself
+class CHealUnitIdleChecker inherit CEvtSink
+
+	class CDelayedKiller inherit CEvtSink
+		
+		static var int ms_iCnt;
+		var int 		m_iTimer;
+		var ^CEvtSink 	m_pxSink;
+				
+		export constructor(^CEvtSink p_pxSink, real p_fDelay)
+			++ms_iCnt;
+			m_pxSink=p_pxSink;
+			m_iTimer = CTimeMgr.Get().CreateTimer(CGameTimeSpan.OneSecond() * p_fDelay, false);
+			CTimeMgr.Get().GetTimer(m_iTimer)^.Subscribe(this);
+		endconstructor;	
+		
+		destructor()
+			KLog.LogSpam("MaZi", "Pendind CDelayedKiller-Instances: "+(--ms_iCnt).ToString());
+		enddestructor;
+		
+		export proc bool OnPush(ref CEvtPointer  p_rxEP)
+			CTimeMgr.Get().GetTimer(m_iTimer)^.Unsubscribe(this);
+			CTimeMgr.Get().DeleteTimer(m_iTimer);
+			
+			delete m_pxSink;
+			delete this;
+			return true;
+		endproc;
+	endclass;
+
+	var CObjHndl 	m_xHealer;
+	var ^CRegion	m_pxRegion;
+	var bool		m_bKilled;
+
+	export static var int ms_iCnt;
+
+	export constructor(CObjHndl p_xHealer)
+		m_bKilled = false;
+		++ms_iCnt;
+		m_xHealer = p_xHealer;
+		
+		var ^CCharacter pxC = cast<CCharacter>(m_xHealer.GetObj());
+		
+		if(pxC==null || pxC^.GetHealingRadius()<=0.0f) then delete this; endif;
+		
+		var vec3 vE;
+		vE.SetXYZ(pxC^.GetHealingRadius(), pxC^.GetHealingRadius(), 0.0f);
+		var int iRgnHndl = CSrvWrap.GetRegionMgr().CreateRegion("HealUnitIdleChecker_" + Random.GetInt().ToString(), 
+																010b, pxC^.GetPos(), vE);
+		m_pxRegion = CSrvWrap.GetRegionMgr().GetRegion(iRgnHndl);
+		if(m_pxRegion!=null) then
+			m_pxRegion^.BindToObj(m_xHealer);
+			m_pxRegion^.Subscribe(this);
+		endif;
+	endconstructor;
+	
+	destructor()
+		--ms_iCnt;
+		KLog.LogSpam("MaZi", "Pending CHealUnitIdleChecker-Instances: " + ms_iCnt.ToString());
+		if(m_pxRegion!=null) then
+			m_pxRegion^.Unsubscribe(this);
+			m_pxRegion^.Unbind();
+			var int iHndl = CSrvWrap.GetRegionMgr().FindRegion(m_pxRegion^.GetGUID());
+			if (iHndl >= 0) then
+				CSrvWrap.GetRegionMgr().DeleteRegion(iHndl);
+				m_pxRegion = null;
+			endif;
+		endif;
+		CSrvWrap.GetObjMgr()^.UnsubscribeAll(this);
+	enddestructor;
+
+	export proc bool OnPush(ref CEvtPointer  p_rxEP)
+		if(p_rxEP.GetClass()=="OBJCHNGE")then
+			KLog.LogSpam("MaZi", "ObjChange-Push");
+			var CObjHndl xHndl;
+			xHndl.FromInt(p_rxEP.GetInt32A());
+			var ^CFightingObj pxFO = cast<CFightingObj>(xHndl.GetObj());
+			if(pxFO!=null && pxFO^.GetHitpoints() < pxFO^.GetMaxHitpoints()) then
+				var ^CCharacter pxC = cast<CCharacter>(m_xHealer.GetObj());
+				if(pxC!=null) then
+					if(pxC^.HealUnits(false)) then
+						KLog.LogSpam("MaZi", "Task ready .... kill");
+						if (!m_bKilled) then
+							new CHealUnitIdleChecker.CDelayedKiller(this, 0.25f);
+							m_bKilled=true;
+						endif;
+					endif;
+				endif;
+			endif;
+		else
+			var ^CObjList pxL = ^(m_pxRegion^.GetLastChangedObjs());
+			KLog.LogSpam("MaZi", "Region-Push");
+			var bool bFound = false;
+			var int i, iC = pxL^.NumEntries();
+			for(i=0) cond(i<iC) iter(++i) do
+				var ^CFightingObj pxFO = cast<CFightingObj>(pxL^[i].GetObj());
+				if(pxFO!=null) then
+					var CFourCC xT = pxFO^.GetType();
+					if(xT!="CHTR" && xT!="ANML" && xT!="VHCL") then continue; endif;
+					if(m_pxRegion^.IsObjectInRegion(pxL^[i])) then
+						if (pxFO^.GetHitpoints() < pxFO^.GetMaxHitpoints()) then
+							bFound = true;
+						else
+							KLog.LogSpam("MaZi", "Subscribe Obj");
+							CSrvWrap.GetObjMgr()^.Subscribe(pxL^[i], this);
+						endif;
+					endif;
+				else
+					KLog.LogSpam("MaZi", "Unsubscribe Obj");
+					CSrvWrap.GetObjMgr()^.Unsubscribe(pxL^[i], this);
+				endif;
+			endfor;
+			
+			if(bFound) then
+				var ^CCharacter pxC = cast<CCharacter>(m_xHealer.GetObj());
+				if(pxC!=null) then
+					if(pxC^.HealUnits(false)) then
+						KLog.LogSpam("MaZi", "Task ready .... kill");
+						if(!m_bKilled) then
+							new CHealUnitIdleChecker.CDelayedKiller(this, 0.25f);
+							m_bKilled=true;
+						endif;
+					endif;
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+
+endclass;*/

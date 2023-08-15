@@ -1,0 +1,634 @@
+// [PaHa] This file is unused and should be deleted soon.
+
+/*
+class CCameraControllerGame inherit CInputController
+
+	var ^CCamera			m_pxCurCamera;			///< pointer to the camera currently controlled
+
+	var real				m_fSpeedScale;
+	var real				m_fKeyScale;
+
+	var point				m_xLastMousePos;
+
+	var int					m_iLastX;
+	var int					m_iLastY;
+	var int					m_iZoomPos;
+	var int					m_iSens;
+	var int					m_iZoomStep;
+
+	var bool				m_bRMB;
+	var bool				m_bLMB;
+	var bool				m_bMMB;
+
+	var vec3				m_vPickPnt;
+
+	var ^CDesktop			m_pxDesktop;
+
+	var ^CObj				m_pxPathObj;
+
+	var real				m_fRadius;
+	var real				m_fPhi;
+	var real				m_fDelta;
+	var real				m_fLowLimit;
+	var real				m_fDefaultView;
+
+	var int 				m_iMapSizeX;
+	var int 				m_iMapSizeY;
+
+	//Options
+	var	bool				m_bSnapBack;
+	var	bool				m_bAllowTurn;
+	var	bool				m_bAllowZoom;
+
+	var array vec2			m_avStep;
+
+
+	export constructor()
+		m_fSpeedScale=1.0f;
+		m_fKeyScale=1.0f;
+		m_fRadius=35.0;
+		m_fPhi=Math.Pihalf()+(Math.Pihalf()/2.0);
+		m_iLastX=0;
+		m_iLastY=0;
+		m_bRMB=false;
+		m_bLMB=false;
+		m_iZoomPos=1;	//0	->	lowest
+						//1	->	middle
+						//2	->	highest
+		m_fDelta=0.0;
+		m_pxDesktop=CClientWrap.GetDesktop();
+		m_iSens = 5;
+		m_fLowLimit = -0.02;
+		m_fDefaultView=Math.Pihalf()+(Math.Pihalf()/2.0);
+
+		m_iMapSizeX=CClientWrap.GetScapeMgr().GetWidthInBlocks()-1;
+		m_iMapSizeY=CClientWrap.GetScapeMgr().GetHeightInBlocks()-1;
+
+		CClientWrap.GetUIMgr().GetMiniMap3d()^.m_xOnDblClick=OnMiniMapDblClick;
+		CClientWrap.GetUIMgr().GetMiniMap3d()^.m_xOnMouseEvent=OnMiniMapMouseEvent;
+
+		m_avStep = 3;
+		//2dvector distance between cam and target for each step. target is fixed on ground.
+		//m_avStep[0]		= { 60.0 , 60.0 };
+		//m_avStep[1]		= { 30.0 , 30.0 };
+		//m_avStep[2]		= {  12.0 ,  1.2 };
+		
+		m_avStep[0]		= { 45.0 , 45.0 };
+		m_avStep[1]		= { 30.0 , 30.0 };
+		m_avStep[2]		= {  12.0 ,  1.2 };
+		
+
+		if(CSettings.NumSubs("Game/ControllerOptions")==0)then
+			CSettings.Set("Game/ControllerOptions/SnapBack","true");
+			CSettings.Set("Game/ControllerOptions/AllowTurn","false");
+			CSettings.Set("Game/ControllerOptions/AllowZoom","false");
+			CSettings.Set("Game/ControllerOptions/Autofollow","false");
+		endif;
+
+		var string	sTemp;
+		CSettings.Get("Editor/Preferences/GeneralPreferences/GameCameraSnapBack",sTemp);
+		if(sTemp=="true")then m_bSnapBack=true;else m_bSnapBack=false;endif;
+
+		CSettings.Get("Editor/Preferences/GeneralPreferences/GameCameraAllowTurn",sTemp);
+		if(sTemp=="true")then m_bAllowTurn=true;else m_bAllowTurn=false;endif;
+		
+		CSettings.Get("Editor/Preferences/GeneralPreferences/GameCameraAllowZoom",sTemp);
+		if(sTemp=="true")then m_bAllowZoom=true;else m_bAllowZoom=false;endif;
+	
+	endconstructor;
+
+	export destructor () 
+		CClientWrap.GetUIMgr().GetMiniMap3d()^.m_xOnDblClick.Clear();
+		CClientWrap.GetUIMgr().GetMiniMap3d()^.m_xOnMouseEvent.Clear();
+	enddestructor;
+
+	export proc bool UpdateMapSize()
+		m_iMapSizeX=CClientWrap.GetScapeMgr().GetWidthInBlocks()-1;
+		m_iMapSizeY=CClientWrap.GetScapeMgr().GetHeightInBlocks()-1;
+		return(true);
+	endproc;
+
+	export proc vec3 GetDirection()
+		var vec3 vDir = {1.0,0.0,0.0};
+		vDir.RotZ(-m_fPhi);
+		return vDir;
+	endproc;
+	
+	export proc bool ChangeSnap(bool p_bState)
+		m_bSnapBack=p_bState;
+		return(true);
+	endproc;
+
+	export proc bool ChangeAllowTurn(bool p_bState)
+		m_bAllowTurn=p_bState;
+		return(true);
+	endproc;
+
+	export proc bool ChangeAllowZoom(bool p_bState)
+		m_bAllowZoom=p_bState;
+		return(true);
+	endproc;
+
+	export proc bool SetDelta(int p_iZoomPos)
+		m_fDelta = 1.0-p_iZoomPos.ToReal();
+		return true;
+	endproc;
+
+	export proc bool IsTurnAllowed()
+		return(m_bAllowTurn);
+	endproc;
+
+	export proc bool IsSnapAllowed()
+		return(m_bSnapBack);
+	endproc;
+
+	export proc bool IsZoomAllowed()
+		return(m_bAllowZoom);
+	endproc;
+
+	export proc bool StopScrtolling()
+		if(CCameraTimerMoveY.IfExists())then CCameraTimerMoveY.Kill();endif;
+		if(CCameraTimerMoveX.IfExists())then CCameraTimerMoveX.Kill();endif;
+		if(CCameraTimerZoom.IfExists())then CCameraTimerZoom.Kill();endif;
+		return(true);
+	endproc;
+
+	export proc bool ResetCamera()
+		m_fPhi=m_fDefaultView;
+		m_iZoomStep = 1;
+		m_fDelta = 0.0;
+		if(CCameraTimerMoveY.IfExists())then CCameraTimerMoveY.Kill();endif;
+		if(CCameraTimerMoveX.IfExists())then CCameraTimerMoveX.Kill();endif;
+		if(CCameraTimerZoom.IfExists())then CCameraTimerZoom.Kill();endif;
+		CalcPathPos(0.0);
+		return true;
+	endproc;
+
+	proc bool OnMiniMapDblClick(vec3 p_vPos)
+//		return(SetCameraTarget(p_vPos));
+		return true;
+	endproc;
+
+	proc real CalcNewFOV(real p_fHeight)
+		if (p_fHeight<10.0) then
+			return (Math.Pi()/4.0 + ((p_fHeight-10.0)*-0.015));
+		else
+			return (Math.Pi()/4.0);
+		endif;
+	endproc;
+
+	proc void CalcPathPos( real p_fPos )
+		var vec2 vPath;
+		if(p_fPos>=0.0)then
+			vPath = m_avStep[0]-m_avStep[1];
+		else
+			vPath = m_avStep[2]-m_avStep[1];
+		endif;
+
+		vPath = m_avStep[1] + vPath*Math.Abs(p_fPos);
+
+		var vec3 vDoIt;
+
+		vDoIt.SetX(vPath.GetX());
+		vDoIt.SetZ(vPath.GetY());
+
+		vDoIt.RotZ(-m_fPhi);
+
+		if(m_pxCurCamera!=null)then
+			m_pxCurCamera^.Eye() = m_pxCurCamera^.LookAt()+vDoIt;
+			m_pxCurCamera^.FOV() = CalcNewFOV( vDoIt.GetZ() );  
+		endif;
+
+		return;
+	endproc;
+
+	proc bool OnMiniMapMouseEvent(vec3 p_vPos, bitset p_dwMouseButtons, bitset p_dwKeyModifiers)
+
+		var bool bStrg = (p_dwKeyModifiers & Msg.KM_CONTROL) !=0d;
+		var bool bAlt = (p_dwKeyModifiers & Msg.KM_ALT) !=0d;
+		var bool bShift = (p_dwKeyModifiers & Msg.KM_SHIFT) !=0d;
+
+		var bool bLMB = (p_dwMouseButtons & CMiniMap.MB_Left) != 0d;
+		var bool bRMB = (p_dwMouseButtons & CMiniMap.MB_Right) != 0d;
+		var bool bMMB = (p_dwMouseButtons & CMiniMap.MB_Middle) != 0d;
+
+		if(bLMB)then
+			SetCameraTarget(p_vPos);
+		endif;
+
+		if(bRMB)then
+		endif;
+		
+		if(bMMB)then
+		endif;
+		
+		return true;
+	endproc;
+
+	export proc void Render()
+		
+	endproc
+
+	export proc bool HandleMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+
+		var bool bReturn=false;
+		var bool bSpace=false;
+		var bool bCtrl=false;
+		var bool bAlt=false;
+		var bool bShift=false;
+
+		//CGameWrap.LogInfo("Controller.Camera","p_iType="+p_dwType.ToString()+"  "+"p_iKey="+p_iKey.ToString());
+		if(p_dwType!=CInputController.MT_Tick)then
+			//CGameWrap.LogInfo("Controller.Camera",p_dwType.ToString()+" "+"m_bLMB="+m_bLMB.ToString()+" m_bRMB="+m_bRMB.ToString()+" m_bMMB="+m_bMMB.ToString());
+			//CGameWrap.LogInfo("Controller.Camera",p_dwType.ToString()+" "+p_dwFlags.ToString());
+		endif;
+		m_fKeyScale=Math.Clamp((4.0),0.5,9999.9);
+		if(p_dwType==CInputController.MT_Tick)then
+			var bool bCursorLf=CUIMgr.KeyIsPressed(Math.BitsetToInt(025h));
+			var bool bCursorUp=CUIMgr.KeyIsPressed(Math.BitsetToInt(026h));
+			var bool bCursorRg=CUIMgr.KeyIsPressed(Math.BitsetToInt(027h));
+			var bool bCursorDn=CUIMgr.KeyIsPressed(Math.BitsetToInt(028h));
+			if(bCursorUp)then MoveUp();endif;
+			if(bCursorDn)then MoveDown();endif;
+			if(bCursorLf)then MoveLeft();endif;
+			if(bCursorRg)then MoveRight();endif;
+			return true;
+		endif
+
+
+		if(p_dwType==CInputController.MT_MouseLBtnDown)then m_bLMB=true;
+		elseif(p_dwType==CInputController.MT_MouseLBtnUp)then m_bLMB=false;
+		elseif(p_dwType==CInputController.MT_MouseRBtnDown)then m_bRMB=true;
+		elseif(p_dwType==CInputController.MT_MouseRBtnUp)then m_bRMB=false;
+		elseif(p_dwType==CInputController.MT_MouseMBtnDown)then m_bMMB=true;
+		elseif(p_dwType==CInputController.MT_MouseMBtnUp)then m_bMMB=false;
+		elseif(p_dwType==077d)then
+			CCameraTimerZoom.Get().SetStep(0,1,m_fDefaultView);
+			m_iZoomStep=1;
+		elseif(p_dwType==CInputController.MT_MouseWheel)then
+			if(!m_bAllowZoom)then
+				if(!CCameraTimerZoom.IfExists())then
+					//Test
+					if(m_bSnapBack)then
+						m_fPhi=m_fDefaultView;
+					endif;
+
+					var int iZoomStep;
+					if( p_iX > 0 )then
+						iZoomStep = Math.Min(2, m_iZoomStep+1 );
+					elseif( p_iX< 0 )then
+						iZoomStep = Math.Max(0, m_iZoomStep-1 );
+					endif;
+					CCameraTimerZoom.Get().SetCamera(m_pxCurCamera);
+					CCameraTimerZoom.Get().Zoom(m_iZoomStep, iZoomStep, m_fPhi );
+
+					m_fDelta = 1.0-m_iZoomStep.ToReal();
+					CalcPathPos(m_fDelta);
+
+					m_iZoomStep = iZoomStep;
+
+				endif;
+			else
+				if(m_bSnapBack)then
+					m_fPhi=m_fDefaultView;
+				endif;
+
+				m_fDelta = Math.Clamp(m_fDelta-(p_iX.ToReal()*0.001),-1.0, 1.0);
+				CalcPathPos(m_fDelta);
+				//CGameWrap.LogSpam("Camera","m_fDelta="+m_fDelta.ToString());
+			endif;
+
+			return(true);
+		endif;
+
+		if( (p_dwFlags&0010b) == 00010b )then bCtrl=true; endif;
+		if( (p_dwFlags&0001b) == 00001b )then bShift=true; endif;
+		if( (p_dwFlags&0100b) == 00100b )then bAlt=true; bReturn=true; endif;
+
+		if(p_dwType==CInputController.MT_MouseMove)then
+			var int iDiffX=0;
+			var int iDiffY=0;
+			var vec3 vDir = m_pxCurCamera^.Eye()-m_pxCurCamera^.LookAt();
+			var vec3 vMoveX={0.0,0.0,0.0};
+			var vec3 vMoveY={0.0,0.0,0.0};
+			iDiffX=p_iX-m_iLastX;
+			iDiffY=p_iY-m_iLastY;
+			if(!m_bLMB && !m_bRMB && !m_bMMB)then
+				m_iLastX=p_iX;
+				m_iLastY=p_iY;
+			else
+				m_iLastX = m_xLastMousePos.GetX();
+				m_iLastY = m_xLastMousePos.GetY();
+			endif;
+
+			var real fXDrehScale=0.01;
+			var real fYZoomScale=0.01;
+			var real fXDrehChange=0.0;
+			var real fYZoomChange=0.0;
+
+			if(!CCameraTimerZoom.IfExists())then
+				if(bAlt)then
+					bReturn = false;
+					if(m_bLMB)then
+						if(m_bAllowTurn)then
+							//CGameWrap.LogSpam("Camera","m_xLastMousePos="+m_xLastMousePos.ToString());
+							CWindowMgr.Get().SetMousePosNoMMove(m_xLastMousePos);
+							fXDrehChange=iDiffX.ToReal()*fXDrehScale;
+							m_fPhi+=fXDrehChange;
+							bReturn = true;
+						endif;
+						if(m_bAllowZoom)then
+							CWindowMgr.Get().SetMousePosNoMMove(m_xLastMousePos);
+							fYZoomChange=iDiffY.ToReal()*fYZoomScale;
+
+							m_fDelta = Math.Clamp(m_fDelta+fYZoomChange,-1.0, 1.0);
+							//CGameWrap.LogSpam("Camera","m_fDelta="+m_fDelta.ToString());
+							bReturn = true;
+						endif;
+
+					elseif(m_bRMB)then
+						CWindowMgr.Get().SetMousePosNoMMove(m_xLastMousePos);
+
+						var real fXScale=0.05*m_fSpeedScale;
+						var real fYScale=0.05*m_fSpeedScale;
+
+						vMoveY=m_pxCurCamera^.Eye()-m_pxCurCamera^.LookAt();
+						vMoveX=vMoveY$m_pxCurCamera^.Up();
+
+						vMoveX.Normalize();
+						vMoveX*=iDiffX.ToReal()*fXScale;
+
+						vMoveY.SetZ(0.0);
+						vMoveY.Normalize();
+						vMoveY*=iDiffY.ToReal()*fXScale;
+
+						m_pxCurCamera^.LookAt()-=vMoveY+vMoveX;
+
+						bReturn = true;
+
+					endif;
+					if(m_bAllowZoom || m_bAllowTurn)then
+						CalcPathPos(m_fDelta);
+					else
+						m_pxCurCamera^.Eye()=m_pxCurCamera^.LookAt()+vDir;
+					endif;
+
+					//vDir.RotZ(-fXDrehChange);
+					SnapOnGround();
+
+					if(!bReturn)then
+						//CGameWrap.LogSpam("Camera","p_iType="+p_iType.ToString()+" p_iX="+p_iX.ToString()+" p_iY="+p_iY.ToString());
+						m_xLastMousePos.SetX(p_iX);
+						m_xLastMousePos.SetY(p_iY);
+					endif;
+
+					return(true);
+				endif;
+			endif;
+			if(m_bMMB && !bAlt)then
+				var real fXScale=0.05*m_fSpeedScale;
+				var real fYScale=0.05*m_fSpeedScale;
+
+				CWindowMgr.Get().SetMousePosNoMMove(m_xLastMousePos);
+
+				vMoveY=m_pxCurCamera^.Eye()-m_pxCurCamera^.LookAt();
+				vDir = vMoveY;
+				vMoveX=vMoveY$m_pxCurCamera^.Up();
+
+				vMoveX.Normalize();
+				vMoveX*=iDiffX.ToReal()*fXScale;
+
+				vMoveY.SetZ(0.0);
+				vMoveY.Normalize();
+				vMoveY*=iDiffY.ToReal()*fXScale;
+
+				m_pxCurCamera^.LookAt()-=vMoveY+vMoveX;
+				m_pxCurCamera^.Eye()=m_pxCurCamera^.LookAt()+vDir;
+
+				SnapOnGround();
+				return(true);
+			endif;
+			if(p_iX<m_iSens)then
+				if(!CCameraTimerMoveX.IfExists())then
+					CCameraTimerMoveX.Get().SetCamera(m_pxCurCamera);
+					CCameraTimerMoveX.Get().Move( -1 );
+				endif;
+			elseif(p_iX>(m_pxDesktop^.GetSize().GetX()-m_iSens))then
+				if(!CCameraTimerMoveX.IfExists())then
+					CCameraTimerMoveX.Get().SetCamera(m_pxCurCamera);
+					CCameraTimerMoveX.Get().Move( 1 );
+				endif;
+			else
+				if(CCameraTimerMoveX.IfExists())then
+					CCameraTimerMoveX.Kill();
+				endif;
+			endif;
+			if(p_iY<m_iSens)then
+				if(!CCameraTimerMoveY.IfExists())then
+					CCameraTimerMoveY.Get().SetCamera(m_pxCurCamera);
+					CCameraTimerMoveY.Get().Move( -1 );
+				endif;
+			elseif(p_iY>(m_pxDesktop^.GetSize().GetY()-m_iSens))then
+				if(!CCameraTimerMoveY.IfExists())then
+					CCameraTimerMoveY.Get().SetCamera(m_pxCurCamera);
+					CCameraTimerMoveY.Get().Move( 1 );
+				endif;
+			else
+				if(CCameraTimerMoveY.IfExists())then
+					CCameraTimerMoveY.Kill();
+				endif;
+			endif;
+		endif;
+
+		if(!bReturn)then
+			//CGameWrap.LogSpam("Camera","p_dwType="+p_iType.ToString()+" p_iX="+p_iX.ToString()+" p_iY="+p_iY.ToString());
+			m_xLastMousePos.SetX(p_iX);
+			m_xLastMousePos.SetY(p_iY);
+		endif;
+		return(bReturn);
+	endproc;
+
+
+	proc void SnapOnGround()
+		var vec3 vDir=m_pxCurCamera^.Eye()-m_pxCurCamera^.LookAt();
+		var vec3 vEye;
+		var real fH,fHM;
+		var real fDX,fDY;
+		
+		m_iMapSizeX = CLevelEditorWrap.GetScapeMgr().GetWidthInBlocks();
+		m_iMapSizeY = CLevelEditorWrap.GetScapeMgr().GetHeightInBlocks();
+		
+		m_pxCurCamera^.LookAt().SetX(Math.Clamp(m_pxCurCamera^.LookAt().GetX(),32.0,(m_iMapSizeX*32).ToReal()));
+		m_pxCurCamera^.LookAt().SetY(Math.Clamp(m_pxCurCamera^.LookAt().GetY(),32.0,(m_iMapSizeY*32).ToReal()));
+		m_pxCurCamera^.LookAt().SetZ(Math.Clamp(CClientWrap.GetScapeMgr().GetHeight(m_pxCurCamera^.LookAt().GetX(),m_pxCurCamera^.LookAt().GetY()),16.0,99999.9)+2.4);
+		vEye = m_pxCurCamera^.LookAt() + vDir;
+		fHM=vEye.GetZ();
+		for(fDY=-4.0)cond(fDY<=4.0)iter(fDY=fDY+2.0f)do
+			for(fDX=-4.0)cond(fDX<=4.0)iter(fDX=fDX+2.0f)do
+				fH = CClientWrap.GetScapeMgr().GetHeight( vEye.GetX()+fDX, vEye.GetY()+fDY ) + 2.0;
+				if (fH > fHM+1.0) then 
+					fHM=fH;
+				endif;
+			endfor
+		endfor
+		vEye.SetZ(fHM);
+		
+		m_pxCurCamera^.Eye()=vEye;
+		m_pxCurCamera^.LookAt()=vEye-vDir;
+		
+		CClientWrap.SetCamera(m_pxCurCamera^);
+	endproc;
+
+
+	proc void MoveLeft()
+		var int iX,iY;
+		CScapeMgrCln.GetBlockCoords(m_pxCurCamera^.LookAt(),iX,iY);
+		if(iX!=0)then
+			var vec3 vMove;
+			vMove = m_pxCurCamera^.LookAt()-m_pxCurCamera^.Eye();
+			vMove=vMove$m_pxCurCamera^.Up();
+			vMove.Normalize();
+			vMove *= m_fKeyScale;
+			m_pxCurCamera^.LookAt()+=vMove;
+			m_pxCurCamera^.Eye()+=vMove;
+			SnapOnGround();
+		endif;
+	endproc;
+
+	proc void MoveRight()
+		var int iX,iY;
+		CScapeMgrCln.GetBlockCoords(m_pxCurCamera^.LookAt(),iX,iY);
+		if(iX<m_iMapSizeX)then
+			var vec3 vMove;
+			vMove = m_pxCurCamera^.LookAt()-m_pxCurCamera^.Eye();
+			vMove=vMove$m_pxCurCamera^.Up();
+			vMove.Normalize();
+			vMove *= m_fKeyScale;
+			m_pxCurCamera^.LookAt()-=vMove;
+			m_pxCurCamera^.Eye()-=vMove;
+			SnapOnGround();
+		endif;
+	endproc;
+
+	proc void MoveUp()
+		var int iX,iY;
+		CScapeMgrCln.GetBlockCoords(m_pxCurCamera^.LookAt(),iX,iY);
+		if(iY!=0)then
+			var vec3 vMove;
+			vMove = m_pxCurCamera^.LookAt()-m_pxCurCamera^.Eye();
+			vMove=vMove$m_pxCurCamera^.Up();
+			vMove.Normalize();
+			vMove.RotAngleAxis({0.0,0.0,1.0},Math.Pihalf());
+			vMove *= m_fKeyScale;
+			m_pxCurCamera^.LookAt()-=vMove;
+			m_pxCurCamera^.Eye()-=vMove;
+			SnapOnGround();
+		endif;
+	endproc;
+
+	proc void MoveDown()
+		var int iX,iY;
+		CScapeMgrCln.GetBlockCoords(m_pxCurCamera^.LookAt(),iX,iY);
+		if(iY<m_iMapSizeY)then
+			var vec3 vMove;
+			vMove = m_pxCurCamera^.LookAt()-m_pxCurCamera^.Eye();
+			vMove=vMove$m_pxCurCamera^.Up();
+			vMove.Normalize();
+			vMove.RotAngleAxis({0.0,0.0,1.0},Math.Pihalf());
+			vMove *= m_fKeyScale;
+			m_pxCurCamera^.LookAt()+=vMove;
+			m_pxCurCamera^.Eye()+=vMove;
+			SnapOnGround();
+		endif;
+	endproc;
+
+	export proc void Control(^CCamera p_pxCamera)
+		m_pxCurCamera= p_pxCamera;
+	endproc;
+
+	export proc bool SetCameraTarget(vec3 p_vPos)
+		var vec3 vPos = p_vPos;
+		var vec3 vDir=m_pxCurCamera^.Eye()-m_pxCurCamera^.LookAt();
+		m_pxCurCamera^.LookAt()=vPos;
+		var real fZ = CClientWrap.GetScapeMgr().GetHeight(m_pxCurCamera^.LookAt().GetX(),m_pxCurCamera^.LookAt().GetY());
+		fZ = Math.Max(fZ,CClientWrap.GetScapeMgr().GetSeaLevel());
+		
+		m_pxCurCamera^.LookAt().SetZ(fZ+2.4);
+		m_pxCurCamera^.Eye()=m_pxCurCamera^.LookAt()+vDir;
+		return(true);
+	endproc;
+
+	export proc bool OnZoomIn()
+		if(m_iZoomStep==2)then return(false);endif;
+		if(!CCameraTimerZoom.IfExists())then
+			//Test
+			if(m_fPhi!=m_fDefaultView)then
+				m_fPhi=m_fDefaultView;
+			endif;
+			var int iZoomStep;
+			iZoomStep = Math.Min(2, m_iZoomStep+1 );
+			CCameraTimerZoom.Get().SetCamera(m_pxCurCamera);
+			CCameraTimerZoom.Get().Zoom(m_iZoomStep, iZoomStep, m_fPhi );
+			m_iZoomStep = iZoomStep;
+		endif;
+		return(true);
+	endproc;
+
+	export proc bool OnZoomOut()
+		if(m_iZoomStep==0)then return(false);endif;
+		if(!CCameraTimerZoom.IfExists())then
+			//Test
+			if(m_fPhi!=m_fDefaultView)then
+				m_fPhi=m_fDefaultView;
+			endif;
+			var int iZoomStep=m_iZoomStep-1;
+			CCameraTimerZoom.Get().SetCamera(m_pxCurCamera);
+			CCameraTimerZoom.Get().Zoom(m_iZoomStep, iZoomStep, m_fPhi );
+			m_iZoomStep = iZoomStep;
+		endif;
+		return(true);
+	endproc;
+
+	export proc bool LinkToPathObj(ref CClntHndl p_rxHndl)
+		m_pxPathObj = p_rxHndl.GetObj();
+		return(true);
+	endproc;
+
+
+	export proc void ConstrainPath()
+		SetCameraTarget(m_pxPathObj^.GetPos());
+	endproc;
+
+	var CCameraAnim			m_xCamAnim;
+	var CGameTime			m_xCamStart;
+
+	export proc void FilmPath()
+		if(!m_xCamAnim.Initialized()) then
+			m_xCamAnim.Init("cam","cam_anim");
+			m_xCamStart=CTimeMgr.Get().GetTime();
+		else
+			var vec3 vPos={0.0,0.0,0.0};
+			var CGameTimeSpan xTimeSpan=CTimeMgr.Get().GetTime()-m_xCamStart;
+			m_xCamAnim.SetUpCamera(m_pxCurCamera^,xTimeSpan.GetSecondsF(),vPos);
+			CLevelEditorWrap.LogSpam("Controller.Camera","TimeSpan: "+xTimeSpan.ToString());
+		endif;
+	endproc;
+
+	export proc void ClearCam()
+		m_xCamAnim.Clear();
+	endproc;
+
+	export proc vec3 GetLookAt()
+		return(m_pxCurCamera^.LookAt());
+	endproc;
+
+	export proc vec3 GetEyePos()
+		return m_pxCurCamera^.Eye();
+	endproc;
+	
+	export proc ^CCamera GetCamera()
+		return m_pxCurCamera;
+	endproc;
+
+endclass;
+*/

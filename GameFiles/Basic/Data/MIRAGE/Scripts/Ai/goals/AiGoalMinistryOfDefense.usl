@@ -1,0 +1,1167 @@
+///CAiGoalMinistryOfDefense
+class CAiGoalMinistryOfDefense inherit CAiGoal
+	
+	class CUnitsDescriptor
+		export var array string m_asClasses;
+		export var array int m_aiUnitCounts;
+		export var array real m_afWeights;
+		export var int m_iAllUnitCount;
+		export var int m_iLevel;
+		
+		export proc void Init()
+			m_asClasses = 0;
+			m_aiUnitCounts = 0;
+			m_afWeights = 0;
+			m_iAllUnitCount = 0;
+			m_iLevel = 0;
+		endproc;
+	endclass;
+	
+	class CObjSorter
+	
+		export var real m_fEffectiveness;
+		export var CAiObjWrap m_xObj;
+		
+		//op_Greater
+		export proc bool op_Greater(ref CAiGoalMinistryOfDefense.CObjSorter p_rxOther)
+			return (m_fEffectiveness < p_rxOther.m_fEffectiveness);
+		endproc;
+		
+	endclass;
+
+	var CAiTaskBuildSquad m_xAllocator;
+	var CAiSolution m_xSolution;
+	var CAiNeedPtr m_pxUnitNeed;
+	var CPropDB m_xUnitDB;
+	var int m_iTargetIdx;
+	var int m_iCurChkLevel;
+	var int m_iCurrentDefensePool;
+	var array int m_aiReservedLevelSlots;
+	static var CPropDB ms_xCompareDB;
+	var ^CAiBrain m_pxBrain;
+	var ^CAiSensor m_pxSensor;
+	var string m_sPlayerID;
+	var int m_iPlayerID;
+	var string m_sBehavior;
+	var string m_sGametype;
+	var int m_iRefreshCounter;
+	var bool m_bDefending;
+	var bool m_bRefreshUnits;
+	var bool m_bNow;
+	var int m_iAge;
+	var bool m_bSixthEpoch;
+	var string m_sLevelName;
+	
+	///constructor
+	export constructor()
+		m_aiReservedLevelSlots = 5;
+		m_pxUnitNeed=CAiNeed.Create();
+		m_bSixthEpoch=false;
+	endconstructor;
+	
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		super.Init(p_pxBrain);
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		m_sGametype=CAiUtilityMgr.Get()^.GetGameType(m_pxBrain);
+//		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		SetThinkWait(5+iType);
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		m_sBehavior=pxCM^.GetBehaviorType();
+		m_xAllocator.Init(this,false,false);
+		m_xAllocator.SetPriority(100.0f);
+		RemoveTask(^m_xAllocator);
+		AddTask(^m_xAllocator);
+		var ^CAiTechTree pxTT = GetAiTechTree();
+		if(pxTT == null)then return false; endif;
+		var string sTribe;
+		sTribe = pxTT^.GetTribe();
+		var string sPath;
+		sPath = m_pxSensor^.GetUrsRelPath() + "/Data/Base/Scripts/Ai/settings/"+ sTribe + "/Units.txt";
+		m_xUnitDB.Load(sPath);
+		m_pxUnitNeed.GetNeed()^.Clear();
+		m_pxUnitNeed.GetNeed()^.SetNeededInstanceCount(1);
+		m_pxUnitNeed.GetNeed()^.SetGlobal(false);
+		m_pxUnitNeed.GetNeed()^.SetLockable(true);
+		m_iTargetIdx = 0;
+		m_iCurChkLevel = -1;
+		m_iCurrentDefensePool = 0;
+		m_iRefreshCounter=0;
+		m_bDefending=false;
+		m_bNow=false;
+		if(ms_xCompareDB.GetRoot().NumSubs()<=0)then
+			if(ms_xCompareDB.Load(m_pxSensor^.GetUrsRelPath()+"/Data/Base/Scripts/Ai/settings/CompareValue.txt") == false)then
+				KLog.LogWarn("AiGoalMinistryOfDefense","Failed to load compare table: ../Data/Base/Scripts/Ai/settings/CompareValue.txt! PlayerID: "+m_sPlayerID);
+			endif;
+		endif;
+		SetHighDefenseMode(false);
+		return true;
+	endproc;
+	
+	///SetHighDefenseMode
+	export proc void SetHighDefenseMode(bool p_bHiDefMode)
+		if(p_bHiDefMode == true)then
+			var int i, iC = m_aiReservedLevelSlots.NumEntries();
+			for(i=0)cond(i<iC)iter(++i)do
+				m_aiReservedLevelSlots[i] = 0;
+			endfor;
+		else
+			m_aiReservedLevelSlots[0] = 6;
+			m_aiReservedLevelSlots[1] = 5;
+			m_aiReservedLevelSlots[2] = 3;
+			m_aiReservedLevelSlots[3] = 1;
+			m_aiReservedLevelSlots[4] = 0;
+		endif;
+	endproc;
+
+	///Shut
+	export proc void Shut()
+		m_xAllocator.Shut();
+		RemoveTask(^m_xAllocator);
+	endproc;
+	
+	///ScheduleRefreshUnits
+	export proc void ScheduleRefreshUnits()
+		m_bRefreshUnits=true;
+	endproc;
+	
+	//RefreshUnits
+	proc void RefreshUnits()
+		m_bRefreshUnits=false;
+		var CAiObjQuery xOQ;
+		var CAiObjWrapList xList;
+		xList.Clear();
+		xOQ.SetOwner(m_iPlayerID);
+		xOQ.SetType("ANML");
+		xOQ.SetType("CHTR", true);
+		xOQ.SetType("VHCL", true);
+		xOQ.Execute(xList);
+		var ^CAiAllocationMgr pxAllocMgr = GetAiAllocationMgr();
+		if(pxAllocMgr == null)then return; endif;
+		var int i, iC = xList.Validate();
+		for(i=0)cond(i<iC)iter(++i)do
+			if(!IsAllowedUnit(xList[i]))then
+				xList.DeleteEntry(i);
+				i--;iC--;
+				continue;
+			elseif((pxAllocMgr^.IsUnitLocked(xList[i], true, true, true))||(xList[i].GetName().Find("_bunkercrew")!=(-1)))then				
+				xList.DeleteEntry(i);
+				i--;iC--;
+				continue;
+			endif;
+		endfor;
+		AddUnitsToPool(xList);
+	endproc;
+	
+	///OnUnitAdded
+	export proc void OnUnitAdded(ref CAiObjWrap p_rxOW, ^CAiNodeInstance p_pxNI)
+	endproc;
+	
+	///NumUnits
+	export proc int NumUnits()
+		if(m_pxBrain==null) then return 0; endif;
+		var ^CAiModuleDefenseDefault pxDM;
+		pxDM = cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		if(pxDM == null)then return 0; endif;
+		return pxDM^.m_pxGoalGuardVillage^.GetUnitSupervisor().GetUnits().NumEntries();
+	endproc;
+	
+	///Defending
+	export proc void SetDefending(bool p_bDefending)
+		m_bDefending=p_bDefending;
+	endproc;
+	
+	///Defending
+	export proc bool IsDefending()
+		return m_bDefending;
+	endproc;
+	
+	///ComputeCurrentAgeClasses
+	export proc void ComputeCurrentAgeClasses(ref CAiGoalMinistryOfDefense.CUnitsDescriptor p_rxUnitDesc, int p_iLevel)
+		if(m_pxBrain==null) then return; endif;
+		if(m_pxSensor==null) then return; endif;
+		var string sAgePath = "Age_"+m_iAge.ToString();
+		var ^CPropDB.CNode pxAgeNode;
+		var ^CAiTechTree pxTT= GetAiTechTree();
+		var array string asAvailableNPCs;
+		p_rxUnitDesc.Init();
+		p_rxUnitDesc.m_iLevel = p_iLevel;
+		if(pxTT == null)then return; endif;
+		pxAgeNode = ^(m_xUnitDB[sAgePath]);
+		if(pxAgeNode == null)then return; endif;
+		GetAvailableNPCs(asAvailableNPCs);
+		var string sLevelPath = "Level_";
+		var ^CPropDB.CNode pxLevelNode;
+		pxLevelNode = ^(m_xUnitDB[sAgePath+"/"+sLevelPath+(p_iLevel+1).ToString()]);
+		if(pxLevelNode == null)then return; endif;
+		var int i, iC = pxLevelNode^.NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPropDB.CNode pxGroupNode = ^((pxLevelNode^)[i]);
+			var int iUnitSub, iUSubC = pxGroupNode^.NumSubs();
+			var int iUC = 0;
+			var string sClass = "";
+			for(iUnitSub=0)cond(iUnitSub<iUSubC)iter(iUnitSub++)do
+				var ^CPropDB.CNode pxUnitNode = ^((pxGroupNode^)[iUnitSub]);
+				var ^CPropDB.CNode pxObjFlagNode = pxUnitNode^.Get("ObjFlag");
+				var string sObjFlag;
+				var CAiAttribs xAttribs;
+				if(pxObjFlagNode != null)then
+					sObjFlag = pxObjFlagNode^.Value();
+					if(sObjFlag.IsEmpty() == false)then
+						xAttribs.SetValue("ObjFlag", sObjFlag);
+					endif;
+				endif;
+				xAttribs.SetValue("level", p_iLevel.ToString());
+				iUC += ComputeUnitCount(pxUnitNode^.Name(), xAttribs, p_iLevel);
+//				if((pxUnitNode^.Value().IsEmpty() == false) && (asAvailableNPCs.FindEntry(pxUnitNode^.Value()) == -1))then
+//					continue;
+//				endif;
+				if((pxUnitNode^.Value().IsEmpty()==false))then
+					if(!SpecialAllowed(pxUnitNode^.Name(),asAvailableNPCs.FindEntry(pxUnitNode^.Value()),pxUnitNode^.Value()))then
+						continue;
+					endif;
+				endif;
+				sClass = pxUnitNode^.Name();
+			endfor;
+			if(sClass.IsEmpty() == true)then
+				continue;
+			endif;
+			p_rxUnitDesc.m_iAllUnitCount += iUC;
+			p_rxUnitDesc.m_afWeights.AddEntry(pxGroupNode^.Value().ToReal());
+			p_rxUnitDesc.m_asClasses.AddEntry(sClass);
+			p_rxUnitDesc.m_aiUnitCounts.AddEntry(iUC);
+		endfor;
+	endproc;
+	
+	///GetNextBadUnit
+	export proc bool GetNextBadUnit(ref CAiObjWrap p_rxOW, ^CAiObjWrapList p_pxUnitPool)
+		if(p_pxUnitPool == null)then return false; endif;
+		if(p_pxUnitPool^.NumEntries() <= 0)then return false; endif;
+		p_rxOW = p_pxUnitPool^[0];
+		return true;
+	endproc;
+	
+	///ComputeMostEfficientUnitForTarget
+	export proc bool ComputeMostEfficientUnitForTarget(ref CAiObjWrap p_rxOW, ^CAiObjWrapList p_pxUnitPool, CAiObjWrap p_xTarget)		
+		var ^CAiTechTree pxTT = GetAiTechTree();
+		if(pxTT == null)then return false; endif;
+		if(p_pxUnitPool == null)then return false; endif;
+		if(p_xTarget.IsValid() == false)then return false; endif;
+		var int i, iC = p_pxUnitPool^.NumEntries();
+		var ^CPropDB.CNode pxType = ms_xCompareDB.GetRoot().Get(p_xTarget.GetType().AsString());
+		var array CObjSorter axObjects;
+		var ^CAiNodeInstance pxTargetNI;
+		if(pxType==null)then return false; endif;
+		pxTargetNI = pxTT^.FindNodeInstance(p_xTarget);
+		if(pxTargetNI == null)then return false; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sObjClass = p_pxUnitPool^[i].GetClassName();
+			var string sObjObjFlag = p_pxUnitPool^[i].GetAttribValue("ObjFlag");
+			var bool bFoundInTable = false;
+			var int iTableEntry, iTableEntryC = pxType^.NumSubs();
+			var ^CAiNodeInstance pxNI;
+			for(iTableEntry=0)cond(iTableEntry<iTableEntryC)iter(iTableEntry++)do
+				var ^CPropDB.CNode pxNode = ^((pxType^)[iTableEntry]);
+				var string sClass = pxNode^.Name();
+				var string sObjFlag = "";
+				if(pxNode^.NumSubs() > 0)then
+					sObjFlag = (pxNode^)[0].Name();
+				endif;
+				if((sObjClass != sClass) || (sObjFlag != sObjObjFlag))then
+					continue;
+				endif;
+				bFoundInTable = true;
+				break;
+			endfor;
+			if(bFoundInTable == false)then continue; endif;
+			pxNI = pxTT^.FindNodeInstance(p_pxUnitPool^[i]);
+			if(pxNI == null)then continue; endif;
+			if(pxNI^.NumSolutions() <= 0)then continue; endif;
+			if(!pxNI^.IsDiscrete())then continue; endif;
+			if(pxNI^.IsContained())then continue; endif;
+			var real fE = CAiWeaponMgr.Get()^.GetFightEffectiveness(pxNI, pxTargetNI);
+			if(fE < 0.0f)then continue; endif;
+			var ^CObjSorter pxObjEntry = ^(axObjects.NewEntryRef());	
+			pxObjEntry^.m_xObj = p_pxUnitPool^[i];
+			pxObjEntry^.m_fEffectiveness = fE;
+		endfor;
+		var int iFound = axObjects.NumEntries();
+		if(iFound < 1)then return false; endif;
+		axObjects.QSort();
+		p_rxOW = axObjects[0].m_xObj;
+		return true;
+	endproc;
+
+
+	///GetNextGoodUnit
+	export proc bool GetNextGoodUnit(ref CAiObjWrap p_rxOW, ^CAiObjWrapList p_pxUnitPool, ref CAiObjWrapList p_rxTargets, ref bool po_rbIsEfficient)
+		po_rbIsEfficient = false;
+		if(p_pxUnitPool == null)then return false; endif;
+		if(p_pxUnitPool^.NumEntries() <= 0)then return false; endif;
+		if(p_rxTargets.NumEntries() <= 0)then
+			p_rxOW = p_pxUnitPool^[0];
+			return true;
+		endif;
+		var bool bFound = false;
+		while((bFound == false) && (p_rxTargets.NumEntries() > 0))do
+			if((m_iTargetIdx >= p_rxTargets.NumEntries()) || (m_iTargetIdx < 0))then
+				m_iTargetIdx = 0;
+			endif;
+			if((bFound = ComputeMostEfficientUnitForTarget(p_rxOW, p_pxUnitPool, p_rxTargets[m_iTargetIdx])) == false)then
+				p_rxTargets.RemEntry(p_rxTargets[m_iTargetIdx]);
+				m_iTargetIdx--;
+			endif;
+			m_iTargetIdx++;
+		endwhile;
+		if(p_rxTargets.NumEntries() <= 0)then
+			p_rxOW = p_pxUnitPool^[0];
+			po_rbIsEfficient = false;
+		else
+			po_rbIsEfficient = true;
+		endif;
+		return true;
+	endproc;
+
+	///SeparateBadFromGoodUnits
+	export proc void SeparateBadFromGoodUnits(^CAiObjWrapList p_pxUnitPool, ref CAiObjWrapList p_rxBadUnits, ref CAiObjWrapList p_rxGoodUnits, int p_iLevel)
+
+		var int iLevel;
+		var array CUnitsDescriptor axUnitLevelDescs;
+		var CAiObjWrapList xTmpList;
+		axUnitLevelDescs = 5;
+		for(iLevel=0)cond(iLevel<5)iter(iLevel++)do
+			ComputeCurrentAgeClasses(axUnitLevelDescs[iLevel], iLevel);
+		endfor;
+		QueryUnits(xTmpList, false);
+		var int i, iC = xTmpList.NumEntries();
+		var int iObjLevel;
+		for(i=0)cond(i<iC)iter(i++)do
+			iObjLevel = xTmpList[i].GetAttribValueInt("level");
+			if((iObjLevel < 0) || (iObjLevel > 4))then
+				KLog.LogWarn("AiGoalMinistryOfDefense", "Obj "+xTmpList[i].GetName()+" has no level (and no captain) ("+iObjLevel.ToString()+") ignoring it... PlayerID: "+m_sPlayerID);
+				continue;
+			endif;
+			if(axUnitLevelDescs[iObjLevel].m_asClasses.FindEntry(xTmpList[i].GetClassName()) == -1)then
+				p_rxBadUnits.AddEntry(xTmpList[i]); //if not it is a bad unit
+				xTmpList.RemEntry(xTmpList[i]);
+				i--;
+				iC--;
+			endif;
+		endfor;
+		for(i=0)cond(i<iC)iter(i++)do
+			var int iClassIdx = -1;
+			iObjLevel = xTmpList[i].GetAttribValueInt("level");
+			if((iObjLevel < 0) || (iObjLevel > 4))then
+				continue;
+			endif;
+			if((iClassIdx = axUnitLevelDescs[iObjLevel].m_asClasses.FindEntry(xTmpList[i].GetClassName())) == -1)then
+				continue;
+			endif;
+			if(axUnitLevelDescs[iObjLevel].m_iLevel != iObjLevel)then
+				continue;
+			endif;
+			var int iUnitCount = axUnitLevelDescs[iObjLevel].m_aiUnitCounts[iClassIdx];
+			var real fCurUnitWeight = 0.0;
+			if(axUnitLevelDescs[iObjLevel].m_iAllUnitCount != 0)then
+				fCurUnitWeight = (iUnitCount - 1).ToReal() / axUnitLevelDescs[iObjLevel].m_iAllUnitCount.ToReal();
+			endif;
+			var real fWeightDiff = fCurUnitWeight - axUnitLevelDescs[iObjLevel].m_afWeights[iClassIdx];
+			if(fWeightDiff > 0.0)then
+				p_rxBadUnits.AddEntry(xTmpList[i]); //if not it is a bad unit
+				xTmpList.RemEntry(xTmpList[i]);
+				i--;
+				iC--;
+			endif;
+		endfor;
+
+		p_rxGoodUnits.CopyFrom(xTmpList);
+		if((p_iLevel >= 0) && (p_iLevel < 5))then
+			iC = p_rxGoodUnits.NumEntries();
+			for(i=0)cond(i<iC)iter(++i)do
+				if(p_rxGoodUnits[i].GetAttribValueInt("level") != p_iLevel)then
+					p_rxGoodUnits.RemEntry(p_rxGoodUnits[i]);
+					i--;
+					iC--;
+				endif;
+			endfor;
+			iC = p_rxBadUnits.NumEntries();
+			for(i=0)cond(i<iC)iter(++i)do
+				if(p_rxBadUnits[i].GetAttribValueInt("level") != p_iLevel)then
+					p_rxBadUnits.RemEntry(p_rxBadUnits[i]);
+					i--;
+					iC--;
+				endif;
+			endfor;
+		endif;
+	endproc;
+
+	///QueryUnits
+	export proc bool QueryUnits(ref CAiObjWrapList p_rxOWL, int p_iMin, int p_iMax, real p_fAllowedBadUnitWeight, int p_iMaxHeroCount, ref CAiObjWrapList p_rxTargets)
+		return QueryUnits(p_rxOWL, p_iMin, p_iMax, p_fAllowedBadUnitWeight, p_iMaxHeroCount, p_rxTargets, -1, false);
+	endproc;
+	
+	///QueryUnits
+	export proc bool QueryUnits(ref CAiObjWrapList p_rxOWL, int p_iMin, int p_iMax, real p_fAllowedBadUnitWeight, int p_iMaxHeroCount, ref CAiObjWrapList p_rxTargets, int p_iLevel)
+		return QueryUnits(p_rxOWL, p_iMin, p_iMax, p_fAllowedBadUnitWeight, p_iMaxHeroCount, p_rxTargets, p_iLevel, false);
+	endproc;
+	
+	///QueryUnits
+	export proc bool QueryUnits(ref CAiObjWrapList p_rxOWL, int p_iMin, int p_iMax, real p_fAllowedBadUnitWeight, int p_iMaxHeroCount, ref CAiObjWrapList p_rxTargets, int p_iLevel, bool p_bOnlyEfficient)
+		if(m_pxBrain==null)then return false; endif;
+		var ^CAiModuleDefenseDefault pxDM;
+		var ^CAiObjWrapList pxUnitPool;
+		var CAiObjWrapList xBadUnits;
+		var CAiObjWrapList xGoodUnits;
+		var CAiObjWrapList xTmpTargets;
+		pxDM=cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		if(pxDM==null)then return false; endif;
+		pxUnitPool=^(pxDM^.m_pxGoalGuardVillage^.GetUnitSupervisor().GetUnits());
+		/*var ^CAiAllocationMgr pxAllocMgr = GetAiAllocationMgr();
+		var CAiObjWrapList xTraUnits;
+		var CAiObjQuery xQuery;
+		xTraUnits.Clear();
+		xQuery.SetOwner(m_iPlayerID);
+		xQuery.SetType("CHTR");
+		xQuery.SetType("ANML",true);
+		xQuery.SetType("VHCL",true);
+		
+		xQuery.Execute(xTraUnits);
+		
+		var int iI, iC=xTraUnits.Validate();
+		for(iI=0)cond(iI<iC)iter(iI++)do
+			if((xTraUnits[iI].GetClassName().Find("worker")!=(-1))||(xTraUnits[iI].GetClassName().Find("resource_collector")!=(-1)))then
+				xTraUnits.RemEntry(xTraUnits[iI]);
+				iI--; iC--;
+				continue;
+			endif;
+			if(m_pxSensor^.ComputeIslandId(xTraUnits[iI].GetPos())!=m_pxSensor^.ComputeIslandId(m_pxSensor^.GetStartLocation()))then
+				xTraUnits.RemEntry(xTraUnits[iI]);
+				iI--; iC--;
+				continue;
+			endif;
+			if(pxAllocMgr!=null)then
+				if(pxAllocMgr^.IsUnitLocked(xTraUnits[iI], false, false, true))then
+					xTraUnits.RemEntry(xTraUnits[iI]);
+					iI--; iC--;
+					continue;
+				endif;
+			endif;
+		endfor;
+		
+		pxUnitPool=^(xTraUnits);*/
+		if(pxUnitPool^.Validate()<p_iMin)then return false; endif;
+		SeparateBadFromGoodUnits(pxUnitPool, xBadUnits, xGoodUnits, p_iLevel);
+		xTmpTargets.CopyFrom(p_rxTargets);
+		m_iTargetIdx=0;
+		var bool bNoBadUnitLeft = false;
+		var int i;
+		var int iBUFound = 0;
+		var int iGUFound = 0;
+		var CAiObjWrap xOW;
+		for(i=0)cond(i<p_iMax)iter(i++)do
+			var real fCurBadUnitWeight=(iBUFound + 1).ToReal() / (iBUFound + 1 + iGUFound).ToReal();
+			if((fCurBadUnitWeight<=p_fAllowedBadUnitWeight)&&(bNoBadUnitLeft==false))then
+				if(GetNextBadUnit(xOW, ^xBadUnits)==false)then
+					bNoBadUnitLeft=true;
+				else
+					iBUFound++;
+					p_rxOWL.AddEntry(xOW);
+					xBadUnits.RemEntry(xOW);
+					continue;
+				endif;
+			endif;
+			var bool bIsEfficient;
+			var bool bGUFound;
+			bGUFound=GetNextGoodUnit(xOW, ^xGoodUnits, xTmpTargets, bIsEfficient);
+			if(bGUFound==false)then
+				if((iBUFound+iGUFound)<p_iMin)then
+					return false;
+				endif;
+				break;
+			endif;
+			if((p_bOnlyEfficient)&&(!bIsEfficient))then
+				fCurBadUnitWeight=(iBUFound+1).ToReal()/(iBUFound+1+iGUFound).ToReal();
+				if(fCurBadUnitWeight<=p_fAllowedBadUnitWeight)then
+					iGUFound--;
+					iBUFound++;
+				else
+					if((iBUFound+iGUFound)<p_iMin)then
+						return false;
+					endif;
+					break;
+				endif;
+			endif;
+			iGUFound++;
+			p_rxOWL.AddEntry(xOW);
+			xGoodUnits.RemEntry(xOW); 
+		endfor;
+		RemoveUnitsFromPool(p_rxOWL);
+		return true;
+	endproc;
+	
+	///QueryEfficientUnits
+	export proc bool QueryEfficientUnits(ref CAiObjWrapList p_rxOWL, int p_iMin, int p_iMax, ref CAiObjWrapList p_rxTargets)
+		if(m_pxBrain==null) then return false; endif;
+		var ^CAiModuleDefenseDefault pxDM;
+		var ^CAiObjWrapList pxUnitPool;
+		var CAiObjWrapList xTmpList;
+		var CAiObjWrapList xTmpTargets;
+		pxDM = cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		if(pxDM == null)then return false; endif;
+		pxUnitPool = ^(pxDM^.m_pxGoalGuardVillage^.GetUnitSupervisor().GetUnits());
+		if(pxUnitPool^.NumEntries() < p_iMin)then
+			return false;
+		endif;
+		QueryUnits(xTmpList, false);
+		xTmpTargets.CopyFrom(p_rxTargets);
+		m_iTargetIdx = 0;
+		var int i;
+		var CAiObjWrap xOW;
+		for(i=0)cond(i<p_iMax)iter(i++)do
+			var bool bIsEfficient;
+			var bool bGUFound;
+			bGUFound = GetNextGoodUnit(xOW, ^xTmpList, xTmpTargets, bIsEfficient);
+			if((bGUFound == false) || (bIsEfficient == false))then			
+				if(i < p_iMin)then
+					return false;
+				endif;
+				break;
+			endif;
+			p_rxOWL.AddEntry(xOW);
+			xTmpList.RemEntry(xOW);
+		endfor;
+		RemoveUnitsFromPool(p_rxOWL);
+		return true;
+	endproc;
+
+	///QueryUnits
+	export proc void QueryUnits(ref CAiObjWrapList p_rxUnits, ^CAiNodeInstance p_pxNI, int p_iMin, int p_iMax)
+		if(p_pxNI == null)then return; endif;
+		p_rxUnits.Clear();
+		if(m_pxBrain==null) then return; endif;
+		var ^CAiModuleDefenseDefault	pxDM;
+		pxDM = cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		if(pxDM == null)then return; endif;
+		var CAiObjQuery xOQ;
+		var CAiObjQuery xOQNonChars;
+		var CAiObjWrapList xNonCharUnits;
+		var int i, iC = p_pxNI^.GetFlags().NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			xOQ.SetAttribPos(p_pxNI^.GetFlags().GetNameByIndex(i), p_pxNI^.GetFlags().GetValueByIndex(i));
+			xOQNonChars.SetAttribPos(p_pxNI^.GetFlags().GetNameByIndex(i), p_pxNI^.GetFlags().GetValueByIndex(i));
+		endfor;
+		xOQ.SetAttribPos("inventory_item_name", "");
+		xOQ.SetClass(p_pxNI^.ComputeClassName());
+		xOQNonChars.SetClass(p_pxNI^.ComputeClassName());
+		xOQNonChars.SetType("ANML");
+		xOQNonChars.SetType("VHCL", true);
+		xOQNonChars.SetType("BLDG", true);
+		xOQNonChars.SetType("SHIP", true);
+		xOQ.Execute(pxDM^.m_pxGoalGuardVillage^.GetUnitSupervisor().GetUnits(), p_rxUnits);
+		xOQNonChars.Execute(pxDM^.m_pxGoalGuardVillage^.GetUnitSupervisor().GetUnits(), xNonCharUnits);
+		p_rxUnits.Include(xNonCharUnits);
+		var int iDelete = p_rxUnits.NumEntries() - p_iMax;	
+		if(iDelete > 0)then
+			for(i=0)cond(i<iDelete)iter(i++)do
+				if(p_rxUnits.NumEntries() <= 0)then
+					break;
+				endif;
+				p_rxUnits.RemEntry(p_rxUnits[0]);
+			endfor;
+		endif;
+		RemoveUnitsFromPool(p_rxUnits);
+	endproc;
+
+	///QueryUnits
+	export proc bool QueryUnits(ref CAiObjWrapList p_rxUnits, int p_iMin, int p_iMax, ref CAiObjWrapList p_rxFrom)
+		p_rxUnits.Clear();
+		if(m_pxBrain==null) then return false; endif;
+		var ^CAiModuleDefenseDefault pxDM;
+		var ^CAiObjWrapList pxUnitPool;
+		pxDM = cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		if(pxDM == null)then return false; endif;
+		pxUnitPool = ^(pxDM^.m_pxGoalGuardVillage^.GetUnitSupervisor().GetUnits());
+		var int i, iC = p_rxFrom.NumEntries();
+		var int iUnitCount = 0;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(pxUnitPool^.FindEntry(p_rxFrom[i]) != -1)then
+				p_rxUnits.Include(p_rxFrom[i]);
+				iUnitCount++;
+				if(iUnitCount >= p_iMax)then
+					break;
+				endif;
+			endif;
+		endfor;
+		if(iUnitCount < p_iMin)then return false; endif;
+		RemoveUnitsFromPool(p_rxUnits);
+		return true;
+	endproc;
+	
+	///QueryUnits
+	export proc void QueryUnits(ref CAiObjWrapList p_rxUnits)
+		QueryUnits(p_rxUnits, true);
+	endproc;
+
+	///QueryUnits
+	export proc void QueryUnits(ref CAiObjWrapList p_rxUnits, bool p_bRemove)
+		p_rxUnits.Clear();
+		if(m_pxBrain==null) then return; endif;
+		var ^CAiModuleDefenseDefault pxDM;
+		var ^CAiObjWrapList pxUnitPool;
+		pxDM = cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		if(pxDM == null)then return; endif;
+		pxUnitPool = ^(pxDM^.m_pxGoalGuardVillage^.GetUnitSupervisor().GetUnits());
+		var CAiObjQuery xOQ;
+		var CAiObjQuery xOQNonChars;
+		var CAiObjWrapList xNonCharUnits;
+		xOQ.SetAttribPos("inventory_item_name", "");
+		xOQNonChars.SetType("ANML");
+		xOQNonChars.SetType("VHCL", true);
+		xOQNonChars.SetType("BLDG", true);
+		xOQNonChars.SetType("SHIP", true);
+		xOQ.Execute(pxUnitPool^, p_rxUnits);
+		xOQNonChars.Execute(pxUnitPool^, xNonCharUnits);
+		p_rxUnits.Include(xNonCharUnits);
+		if(p_bRemove == true)then
+			RemoveUnitsFromPool(p_rxUnits);
+		endif;
+	endproc;
+	
+	///IsAllowedUnit
+	export proc bool IsAllowedUnit(CAiObjWrap p_xObj)
+		if(m_pxBrain==null) then return false; endif;
+		if(m_pxSensor==null) then return false; endif;
+		var ^CAiModuleControlDefault	pxCM;
+		pxCM = cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		if(pxCM==null)then return false;  endif;
+		if(p_xObj.IsValid() == false)then return false; endif;
+		if(p_xObj.GetClassName() == "hu_worker")then
+			return false;
+		elseif(p_xObj.GetClassName() == "aje_worker")then
+			return false;
+		elseif(p_xObj.GetClassName() == "ninigi_worker")then
+			return false;
+		elseif(p_xObj.GetClassName() == "seas_worker")then
+			return false;
+		elseif(p_xObj.GetClassName() == "aje_resource_collector")then
+			return false;
+		elseif(p_xObj.GetClassName() == "Virtual_Produce_Unit")then
+			return false;
+		elseif(p_xObj.GetClassName() == "hu_cart")then
+			return false;
+		elseif(p_xObj.GetClassName() == "ninigi_cart")then
+			return false;
+		elseif(p_xObj.GetClassName() == "aje_trade_dino")then
+			return false;
+		//Henry: adding seas trade unit to ignore list
+		elseif(p_xObj.GetClassName() == "seas_trade_dino")then
+			return false;
+		elseif(p_xObj.GetClassName() == "seas_hovercraft")then
+			return false;
+		elseif(p_xObj.GetClassName() == "aje_transport_turtle")then
+			return false;
+		elseif(p_xObj.GetClassName() == "aje_velociraptor")then
+			return false;
+		elseif(p_xObj.GetClassName() == "aje_psittacosaurus")then
+			return false;
+		elseif(p_xObj.GetClassName() == "aje_heterodontosaurus")then
+			return false;
+		elseif(p_xObj.GetClassName() == "aje_tracker_dino")then
+			return false;
+		elseif(p_xObj.GetType() == "SHIP")then
+			return false;
+		elseif(p_xObj.GetType() == "BLDG")then
+			return false;
+		elseif(p_xObj.GetType() == "PROD")then
+			return false;
+		elseif(p_xObj.GetClassName().Find("_zeppelin")!=-1)then
+			return false;
+		elseif((!p_xObj.GetCaptain(p_xObj))&&(p_xObj.GetClassName()=="ninigi_dilophosaurus"))then
+			return false;
+		elseif(p_xObj.GetClassName()=="hu_kennel_eusmilus")then
+			return false;
+		elseif(p_xObj.GetClassName()=="aje_kennel_eusmilus")then
+			return false;
+		//Henry: fixing dc nest animal (from ninigi_kennel_eusmilus)
+		elseif(p_xObj.GetClassName()=="ninigi_dilophosaurus")then
+			return false;
+		//Henry: adding new autonomous units to ignore list
+		elseif(p_xObj.GetClassName()=="hu_kennel_smilodon")then
+			return false;
+		elseif(p_xObj.GetClassName()=="aje_kennel_deino")then
+			return false;
+		elseif(p_xObj.GetClassName()=="aje_gallimimus")then
+			return false;
+		elseif(p_xObj.GetClassName()=="seas_stygimoloch")then
+			return false;
+		elseif(p_xObj.GetType() == "OTHR")then
+			return false;
+		elseif(p_xObj.GetType() == "PyCO")then
+			return false;
+		endif;
+		var int iIslandId = m_pxSensor^.ComputeIslandId(p_xObj.GetPos());
+		var int iHomeIslandId=m_pxSensor^.ComputeIslandId(m_pxSensor^.GetStartLocation());
+		if(iIslandId != iHomeIslandId)then return false;endif;
+//		var ^CAiNPCMgr pxNPCMgr = ^(pxCM^.GetNPCMgr());
+//		if(pxNPCMgr==null)then return false; endif;
+//		var CAiObjWrapList xList = pxNPCMgr^.GetAllNPCs(true);
+		var CAiObjWrapList xList = pxCM^.GetNPCMgr().GetAllNPCs(true);
+		var int i, iC = xList.Validate();
+		var array string asHeroes;
+		for(i=0)cond(i<iC)iter(i++)do
+			asHeroes.AddEntry(xList[i].GetClassName());
+		endfor;
+		if(asHeroes.FindEntry(p_xObj.GetClassName()) != -1)then return true; endif;
+		if(p_xObj.GetClassName()=="special_eusmilus")then return true; endif;
+		if(m_iAge<4)then
+			var int iOP = m_pxSensor^.FindObjInOutpost(p_xObj);
+			if(iOP != 0)then return false; endif;
+		endif;
+		if(p_xObj.GetAttribValueBool("is_riding"))then return false; endif;
+		return true;
+	endproc;
+	
+	///IsPyramidFull
+	proc bool IsPyramidFull()
+		if(m_pxSensor==null) then return false; endif;
+		var ^CAiPyramid pxPyr = m_pxSensor^.GetPyramid();
+		if(pxPyr == null)then return false; endif;
+		var int i, iC = 5;
+		for(i=0)cond(i<iC)iter(++i)do
+			var int iMaxUnits = CAiPyramid.GetMaxUnits(i) - m_aiReservedLevelSlots[i];
+			if(pxPyr^.GetNumUnits(i) < iMaxUnits)then
+				return false;
+			endif;
+		endfor;
+		return true;
+	endproc;
+
+	///AddUnitsToPool
+	export proc void AddUnitsToPool(ref CAiObjWrapList p_rxUnits)
+		if(m_pxBrain==null) then return; endif;
+		var ^CAiModuleDefenseDefault pxDM;
+		var CAiObjWrapList xAddList;
+		pxDM = cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		if(pxDM == null)then return; endif;
+		var int i, iC = p_rxUnits.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!p_rxUnits[i].IsValid())then continue; endif;
+			if(IsAllowedUnit(p_rxUnits[i]))then
+				xAddList.AddEntry(p_rxUnits[i]);
+			else
+				var ^CAiAllocationMgr pxAllocMgr = GetAiAllocationMgr();
+				if(pxAllocMgr==null)then continue; endif;
+				pxAllocMgr^.ExternalUnlock(p_rxUnits[i]);
+			endif;
+		endfor;
+		iC = xAddList.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			var int iNumDefensePools = pxDM^.GetNumDefensePools();
+			if(iNumDefensePools <= 0)then break; endif;
+			if(m_iCurrentDefensePool < (iNumDefensePools - 1))then
+				m_iCurrentDefensePool++;
+			else
+				m_iCurrentDefensePool = 0;
+			endif;
+			var ^CAiModuleDefenseDefault.CAiDefensePool pxDP=pxDM^.GetDefensePool(m_iCurrentDefensePool);
+			if(pxDP==null) then continue; endif;
+			var int iNumUnits=pxDP^.NumUnits();
+			var int iMaxUnits=pxDP^.m_iMaxUnits;
+			var string sId=pxDP^.m_sId;
+			if((m_iCurrentDefensePool == 0) && (iMaxUnits != -1))then
+				KLog.LogWarn("AiGoalMinistryOfDefense", "Defensepool 0 must not have a max unit cap (cap forDP0 is "+iMaxUnits.ToString()+") PlayerID: "+m_sPlayerID);
+			endif;
+			if((iMaxUnits != -1) && (iNumUnits >= iMaxUnits))then
+				i--;
+				continue;
+			endif;
+			var bool bQueued = pxDP^.AddUnit(xAddList[i]);
+		endfor;
+		if((iC > 0) && IsPyramidFull())then
+			pxDM^.FlushAllDefensePools();
+		endif;
+	endproc;
+	
+	///RemoveUnitsFromPool
+	export proc void RemoveUnitsFromPool(ref CAiObjWrapList p_rxUnits)
+		if(m_pxBrain==null) then return; endif;
+		var ^CAiModuleDefenseDefault pxDM;
+		pxDM = cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		if(pxDM == null)then return; endif;
+		pxDM^.m_pxGoalGuardVillage^.RemoveUnits(p_rxUnits, false);
+	endproc;
+	
+	///ComputeFreeLevelSlots
+	proc int ComputeFreeLevelSlots(int p_iLevel)
+		var ^CAiTechTree pxTT = GetAiTechTree();
+		var ^CAiNodeInstance pxNI;
+		var CAiAttribs xAttribs;
+		var int iInstanceCount;
+		if(pxTT == null)then return 0; endif;
+		xAttribs.SetValue("level", p_iLevel.ToString());
+		pxNI = pxTT^.GetNodeInstance("free_level", xAttribs);
+		if(pxNI == null)then return 0; endif;
+		iInstanceCount = pxNI^.GetInstanceCount();
+		if(m_aiReservedLevelSlots.NumEntries() > p_iLevel)then
+			return iInstanceCount - m_aiReservedLevelSlots[p_iLevel];
+		endif;
+		return 0;
+	endproc;
+	
+	///ComputeUnitCount
+	proc int ComputeUnitCount(string p_sClassName, ref CAiAttribs p_rxAttribs, int p_iLevel)
+		if(m_pxBrain==null) then return 0; endif;
+		var CAiObjQuery xOQ;
+		var CAiObjWrapList xList;
+		var int i, iC = p_rxAttribs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			xOQ.SetAttribPos(p_rxAttribs.GetNameByIndex(i), p_rxAttribs.GetValueByIndex(i));
+		endfor;
+		var ^CAiModuleDefenseDefault pxDM;
+		pxDM = cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		if(pxDM == null)then return 0; endif;
+		xOQ.SetClass(p_sClassName);
+		xOQ.Execute(pxDM^.m_pxGoalGuardVillage^.GetUnitSupervisor().GetUnits(), xList);
+		return xList.NumEntries();
+	endproc;
+	
+	///ComputeUnitCount
+	proc int ComputeUnitCount(int p_iLevel)
+		if(m_pxBrain==null) then return 0; endif;
+		var ^CAiObjWrapList pxList;
+		var int iCount = 0;
+		var ^CAiModuleDefenseDefault pxDM;
+		pxDM = cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		if(pxDM == null)then return 0; endif;
+		pxList = ^(pxDM^.m_pxGoalGuardVillage^.GetUnitSupervisor().GetUnits());
+		var int i, iC = pxList^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(pxList^[i].IsValid())then
+				if(pxList^[i].GetAttribValueInt("level") == p_iLevel)then
+					iCount++;
+				endif;
+			endif;
+		endfor;
+		return iCount;
+	endproc;
+	
+	///ComputeSolutionFromNI
+	proc void ComputeSolutionFromNI(^CAiNodeInstance p_pxNI)
+		if(p_pxNI == null)then return; endif;
+		m_pxUnitNeed.GetNeed()^.Clear();
+		m_pxUnitNeed.GetNeed()^.AddEntry(p_pxNI);
+		if(m_xSolution.NumRequired() <= 0)then
+			m_xSolution.AddRequired(m_pxUnitNeed);
+		endif;
+	endproc;
+	
+	///SpawnAddNextBestUnit
+	export proc void SpawnAddNextBestUnit()
+		ComputeNextBestUnitSolution(true);
+	endproc;
+
+	///ComputeNextBestUnitSolution
+	proc bool ComputeNextBestUnitSolution()
+		return ComputeNextBestUnitSolution(false);
+	endproc;
+	
+	///ComputeNextBestUnitSolution
+	proc bool ComputeNextBestUnitSolution(bool p_bSpawn)
+		if(m_pxBrain==null) then return false; endif;
+		if(m_pxSensor==null) then return false; endif;
+		var string sAgePath = "Age_"+m_iAge.ToString();
+		var ^CPropDB.CNode pxAgeNode;
+		var ^CAiTechTree pxTT = GetAiTechTree();
+		var array string asAvailableNPCs;
+		if(pxTT == null)then return false; endif;
+		pxAgeNode = ^(m_xUnitDB[sAgePath]);
+		if(pxAgeNode == null)then return false; endif;
+		GetAvailableNPCs(asAvailableNPCs);
+		var bool bFound = false;
+		var int iLevel;
+		var string sLevelPath = "Level_";
+		var ^CPropDB.CNode pxLevelNode;
+		var array ^CAiNodeInstance apxNIs;
+		var array int aiUnitCounts;
+		var array real afWeights;
+		var string sPersonality = CAiUtilityMgr.Get()^.GetPersonality(m_pxBrain);
+		var int iDummy;
+		for(iDummy=0)cond(iDummy<5)iter(++iDummy)do
+			m_iCurChkLevel++;
+			if(m_iCurChkLevel>4)then m_iCurChkLevel = 0; endif;
+			iLevel = m_iCurChkLevel;
+			pxLevelNode=^(m_xUnitDB[sAgePath+"/"+sLevelPath+(iLevel+1).ToString()]);
+			if(pxLevelNode==null)then continue; endif;
+			var int i, iC=pxLevelNode^.NumSubs();
+			var int iFreeLevelSlots=ComputeFreeLevelSlots(iLevel);
+			var real fWeightSum=0.0;
+			var int iUCSum=0;
+			if((m_iAge==1)&&(ComputeUnitCount(iLevel)>=5)&&(p_bSpawn==false))then continue; endif;
+			if((iFreeLevelSlots<=0)&&(p_bSpawn==false))then continue; endif;
+			apxNIs = 0;
+			aiUnitCounts = 0;
+			afWeights = 0;
+			for(i=0)cond(i<iC)iter(++i)do
+				var ^CPropDB.CNode pxGroupNode = ^((pxLevelNode^)[i]);
+				var ^CAiNodeInstance pxNI = null;
+				var int iUnitSub, iUSubC = pxGroupNode^.NumSubs();
+				var int iUC = 0;
+				var real fWeight;
+				for(iUnitSub=0)cond(iUnitSub<iUSubC)iter(iUnitSub++)do
+					var ^CPropDB.CNode pxUnitNode = ^((pxGroupNode^)[iUnitSub]);
+					var ^CPropDB.CNode pxObjFlagNode = pxUnitNode^.Get("ObjFlag");
+					var string sObjFlag;
+					var CAiAttribs xAttribs;
+					if(pxObjFlagNode != null)then
+						sObjFlag = pxObjFlagNode^.Value();
+						if(sObjFlag.IsEmpty() == false)then
+							xAttribs.SetValue("ObjFlag", sObjFlag);
+						endif;
+					endif;
+					xAttribs.SetValue("level", iLevel.ToString());
+					iUC += ComputeUnitCount(pxUnitNode^.Name(), xAttribs, iLevel);
+//					if((pxUnitNode^.Value().IsEmpty() == false) && (asAvailableNPCs.FindEntry(pxUnitNode^.Value()) == -1))then
+//						continue;
+//					endif;
+					if((pxUnitNode^.Value().IsEmpty()==false))then
+						if(!SpecialAllowed(pxUnitNode^.Name(),asAvailableNPCs.FindEntry(pxUnitNode^.Value()),pxUnitNode^.Value()))then
+							continue;
+						endif;
+					endif;
+					pxNI = pxTT^.GetNodeInstanceFromPartialName(pxUnitNode^.Name(), xAttribs);
+					if(pxNI == null)then
+						continue;
+					endif;
+				endfor;
+				if(pxNI == null)then continue; endif;
+				iUCSum += iUC;
+				fWeight = pxGroupNode^.Value().ToReal();
+				fWeightSum += fWeight;
+				apxNIs.AddEntry(pxNI);
+				aiUnitCounts.AddEntry(iUC);
+				afWeights.AddEntry(fWeight);
+			endfor;
+			if(apxNIs.NumEntries() <= 0)then continue; endif;
+			var real fMinWeightDiff = 1000000.0;
+			var int iBestIdx = -1;
+			iC = apxNIs.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var real fCurWeight;
+				var real fWeightDiff;
+				if(fWeightSum != 0.0)then
+					afWeights[i] /= fWeightSum;
+				endif;
+				fCurWeight = 0.0;
+				if(iUCSum != 0)then
+					fCurWeight = aiUnitCounts[i].ToReal() / iUCSum.ToReal();
+				endif;
+				fWeightDiff = fCurWeight - afWeights[i];
+				if(fWeightDiff < fMinWeightDiff)then
+					fMinWeightDiff = fWeightDiff;
+					iBestIdx = i;
+				endif;
+			endfor;
+			if(iBestIdx < 0)then continue; endif;			
+			if(p_bSpawn == true)then
+				var ^CAiModuleControlDefault pxCM = cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+				if(pxCM == null)then
+				else
+					var CAiObjWrapList xTmpList;
+					var string sClass = apxNIs[iBestIdx]^.ComputeClassName();
+					var string sObjFlag = apxNIs[iBestIdx]^.GetFlags().GetValue("ObjFlag");
+					if(sObjFlag.IsEmpty() == false)then
+						sClass+=":"+sObjFlag;
+					endif;
+					xTmpList.AddEntry(pxCM^.GetCheatMgr().SpawnUnit(sClass, GetAiSensor()^.GetOutpost(0).GetWorldPos()+{20.0,20.0,0.0}, {0.0, 0.0, 0.0}, iLevel)); //spawn needed unit
+					if(xTmpList[0].IsValid() == false)then
+						if(m_xAllocator.IsInitState() == true)then
+							ComputeSolutionFromNI(apxNIs[iBestIdx]);
+							m_xAllocator.SetSolution(^m_xSolution);
+							m_xAllocator.SetOutpostId(0);
+							m_xAllocator.SetRallyPos(m_pxSensor^.GetOutpost(0).GetWorldPos()+{20.0,20.0,0.0});
+						endif;
+					else
+						AddUnitsToPool(xTmpList);
+					endif;
+				endif;
+			else
+				ComputeSolutionFromNI(apxNIs[iBestIdx]);
+			endif;
+			bFound = true;
+			break;
+		endfor;
+		return bFound;
+	endproc;
+	
+	
+	///think
+	export proc void Think()
+		if(m_pxSensor==null) then return; endif;
+		m_iAge=CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain,true);
+		if(m_bRefreshUnits) then
+			RefreshUnits();
+			m_bNow=true;
+		endif;
+		if(m_bNow)then
+			if(m_iRefreshCounter==5)then
+				ScheduleRefreshUnits();
+				m_iRefreshCounter=0;
+			endif;
+			m_iRefreshCounter++;
+		endif;
+		if(m_xAllocator.IsInitState() == true)then
+			var bool bCanProduce = ComputeNextBestUnitSolution();
+			if(bCanProduce == false)then return; endif;
+			m_xAllocator.SetSolution(^m_xSolution);
+			m_xAllocator.SetOutpostId(0);
+			m_xAllocator.SetRallyPos(m_pxSensor^.GetOutpost(0).GetWorldPos()+{20.0,20.0,0.0});
+			if(m_xAllocator.Start(false))then return; endif;
+			if(m_xAllocator.Start(true))then return; endif;
+		elseif(m_xAllocator.IsRunning() == true)then
+			AddUnitsToPool(m_xAllocator.GetUnits());
+			m_xAllocator.Shut();
+			m_xAllocator.Init(this,false,false);
+		elseif(m_xAllocator.IsStartState() == true)then
+			if(m_xAllocator.GetUnits().NumEntries() > 0)then
+				AddUnitsToPool(m_xAllocator.GetUnits());
+				m_xAllocator.Shut();
+				m_xAllocator.Init(this,false,false);
+			endif;
+		elseif(m_xAllocator.IsNotPossible())then
+			m_xAllocator.Init(this,false,false);
+			return;
+		elseif(m_xAllocator.IsAborted())then
+			m_xAllocator.Init(this,false,false);
+			return;
+		endif;
+	endproc;
+	
+	///GetAvailableNPCs
+	proc void GetAvailableNPCs(ref array string p_rasClasses)
+		if(m_pxBrain==null) then return; endif;
+		p_rasClasses = 0;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		if(pxCM==null)then return; endif;
+		var ^CAiNPCMgr pxNPCMgr = ^(pxCM^.GetNPCMgr());
+		if(pxNPCMgr==null)then return; endif;
+		var CAiObjWrapList xList = pxNPCMgr^.GetAllNPCs();
+		var int i, iC=xList.Validate();
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sClass = xList[i].GetClassName();
+			var int iLevel = xList[i].GetAttribValueInt("level");
+			if(iLevel>=3)then p_rasClasses.AddEntry(sClass); endif;
+		endfor;
+	endproc;
+	
+	// Henry: for free specials mod
+	proc bool SpecialAllowed(string p_sClass, int p_iRequirement, string p_sRequirement)
+		if(p_sRequirement=="flyers_enabled"&&CMirageAIMgr.Get().RemoveTitans())then
+//			CMirageAIMgr.Debug("flyers are not enabled");
+			return false;
+		endif;
+		if(p_sRequirement=="titans_enabled"&&CMirageAIMgr.Get().RemoveTitans())then
+			return false;
+		endif;
+//		if(true)then return false; endif;
+		if(!CMirageAIMgr.Get().FreeSpecials())then
+			if(p_sClass=="seas_flamethrower"&&(m_sLevelName=="Single 10"||m_sLevelName=="Single 13"||m_sLevelName=="Single 14"||m_sLevelName=="Single 15"))then
+				return m_iAge>=3;
+			elseif(p_sClass=="seas_gunner"&&(m_sLevelName=="Single 10"||m_sLevelName=="Single 13"||m_sLevelName=="Single 14"||m_sLevelName=="Single 15"))then
+				return m_iAge>=2;
+			elseif(p_sClass=="seas_gigantosaurus"&&(m_sLevelName=="Single 10"||m_sLevelName=="Single 13"||m_sLevelName=="Single 14"||m_sLevelName=="Single 15"))then
+				return m_iAge>=3;
+			endif;
+			return p_iRequirement>-1;
+		endif;
+		var int iMinAge=1;
+		if(p_sClass=="aje_triceratops_archer")then
+			iMinAge=4;
+		elseif(p_sClass=="aje_eusmilus")then
+			iMinAge=2;
+		elseif(p_sClass=="aje_tyrannosaurus")then
+			iMinAge=4;
+		elseif(p_sClass=="aje_assassin")then
+			iMinAge=3;
+		elseif(p_sClass=="aje_flamethrower")then
+			iMinAge=3;
+		elseif(p_sClass=="aje_rammer")then
+			iMinAge=3;
+		elseif(p_sClass=="aje_thrower")then
+			iMinAge=4;
+		elseif(p_sClass=="hu_carcharodontosaurus")then
+			iMinAge=4;
+		elseif(p_sClass=="hu_eusmilus")then
+			iMinAge=2;
+		elseif(p_sClass=="hu_berserker")then
+			iMinAge=3;
+		elseif(p_sClass=="hu_flamethrower")then
+			iMinAge=3;
+		elseif(p_sClass=="hu_jetpack_warrior")then
+			iMinAge=3;
+		elseif(p_sClass=="hu_killer")then
+			iMinAge=3;
+		elseif(p_sClass=="hu_marksman")then
+			iMinAge=4;
+		elseif(p_sClass=="hu_zombie_warrior")then
+			iMinAge=4;
+		elseif(p_sClass=="hu_zombie_archer")then
+			iMinAge=4;
+		elseif(p_sClass=="hu_mobile_suit")then
+			iMinAge=4;
+		elseif(p_sClass=="ninigi_eusmilus")then
+			iMinAge=2;
+		elseif(p_sClass=="ninigi_helicopter")then
+			iMinAge=4;
+		elseif(p_sClass=="ninigi_tarbosaurus")then
+			iMinAge=4;
+		elseif(p_sClass=="ninigi_flamethrower")then
+			iMinAge=3;
+		elseif(p_sClass=="ninigi_icespearman")then
+			iMinAge=3;
+		elseif(p_sClass=="ninigi_marksman")then
+			iMinAge=4;
+		elseif(p_sClass=="ninigi_sumo")then
+			iMinAge=3;
+		elseif(p_sClass=="seas_eusmilus")then
+			iMinAge=2;
+		elseif(p_sClass=="seas_gigantosaurus")then
+			if(m_sLevelName=="Single 10"||m_sLevelName=="Single 13"||m_sLevelName=="Single 14"||m_sLevelName=="Single 15")then
+				iMinAge=3;
+			else
+				iMinAge=4;
+			endif;
+		elseif(p_sClass=="seas_flamethrower")then
+			if(m_sLevelName=="Single 10"||m_sLevelName=="Single 13"||m_sLevelName=="Single 14"||m_sLevelName=="Single 15")then
+				iMinAge=2;
+			else
+				iMinAge=3;
+			endif;
+		elseif(p_sClass=="seas_gunner")then
+			if(m_sLevelName=="Single 10"||m_sLevelName=="Single 13"||m_sLevelName=="Single 14"||m_sLevelName=="Single 15")then
+				iMinAge=2;
+			else
+				iMinAge=4;
+			endif;
+		elseif(p_sClass=="seas_mercenary")then
+			iMinAge=3;
+		elseif(p_sClass=="seas_sniper")then
+			iMinAge=3;
+		elseif(p_sClass=="seas_mobile_terminator")then
+			iMinAge=4;
+		endif;
+		return m_iAge>=iMinAge;
+	endproc;
+	
+endclass;

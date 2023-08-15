@@ -1,0 +1,539 @@
+/*
+	This task builds a unit squad from given solution.
+	It tracks the units it had allocated.
+
+	States:
+	Running		- if units are ready to use
+	NotPossible	- if allocation fails
+	Aborted		- if units are dead or task is shuted
+*/
+class CAiTaskBuildSquad inherit CAiTask
+
+	var bool							m_bRequestUnitsIfNotPresent;
+	var bool							m_bAllocated;
+	var bool							m_bUnlock;
+	var bool							m_bAbortIfAllKilled;
+	var bool							m_bTimerOn;
+	var bool							m_bSpawn;
+	var bool							m_bSpawnFailed;
+	var int								m_iRequestCnt;
+	var int								m_iOutpostId;
+	var int								m_iTimout;
+	var int								m_iTimoutInit;
+	
+	var ^CAiBrain					m_pxBrain;
+	var ^CAiSensor				m_pxSensor;
+	var CAiObjWrapList		m_xUnits;
+	var CAiObjWrapList		m_xExternalLocked;
+	var vec3							m_vRallyPos;
+	export var bool				m_bOnlyResources;
+	var int								m_iSolutionNumEntries;
+	var string						m_sPlayerID;
+	var int								m_iPlayerID;
+	
+	///constructor
+	export constructor()
+	endconstructor;
+	
+	///destructor
+	export destructor()
+		UnlockExternal();
+	enddestructor;
+	
+	///OnUserInteraction
+	export proc void OnUserInteraction(CAiObjWrap p_xOW)
+		if(m_xUnits.FindEntry(p_xOW) != -1)then
+			RemUnit(p_xOW);
+			if(m_xUnits.NumEntries()<1)then
+				if(m_bAbortIfAllKilled == true)then
+					Abort();
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	///Init
+	export proc void Init(^CAiGoal p_pxGoal)
+		Init(p_pxGoal,true);
+	endproc;
+	
+	///Init
+	export proc void Init(^CAiGoal p_pxGoal,bool p_bRequestIfNotPresent)
+		Init(p_pxGoal,true,true);
+	endproc;
+	
+	///Init
+	export proc void Init(^CAiGoal p_pxGoal, bool p_bRequestIfNotPresent, bool p_bUnlock)
+		super.Init(p_pxGoal);
+		m_pxBrain = p_pxGoal^.GetAiBrain(); 
+		if(m_pxBrain==null)then return; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return; endif;
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();	
+//		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(1+iType);
+		m_iRequestCnt = 0;
+		m_bRequestUnitsIfNotPresent=p_bRequestIfNotPresent;
+		m_bUnlock = p_bUnlock;
+		m_bAbortIfAllKilled = true;
+		m_bTimerOn = false;
+		m_bSpawn = false;
+		m_bSpawnFailed = false;
+		if(pxCM^.GetDifficulty()=="Easy")then
+			m_iTimout = m_iTimoutInit = 500;
+		elseif(pxCM^.GetDifficulty()=="Medium")then
+			m_iTimout = m_iTimoutInit = 400;
+		else
+			m_iTimout = m_iTimoutInit = 300;
+		endif;
+	endproc;
+	
+	///Start
+	export proc bool Start()
+		return Start(m_bRequestUnitsIfNotPresent);
+	endproc;
+	
+	///SetOutPostID
+	export proc void SetOutpostId(int p_iOutpostId)
+		m_iOutpostId = p_iOutpostId;
+	endproc;
+	
+	///GetOutPostID
+	export proc int GetOutpostId()
+		return m_iOutpostId;
+	endproc;
+	
+	///CheckPossibility
+	proc bool CheckPossibility(bool p_bSetRunning)
+		return CheckPossibility(p_bSetRunning, false);
+	endproc;
+	
+	///CheckPossibility
+	proc bool CheckPossibility(bool p_bSetRunning, bool p_bSpawnIfFailed)
+		if(m_bSpawn == true)then return true; endif;
+		var bool bPossible = ((m_xUnits.NumEntries()>0) || p_bSpawnIfFailed);
+		if(bPossible)then
+			if(m_xUnits.NumEntries() < m_iSolutionNumEntries)then
+				SpawnUnits();
+				SetRunning();
+				m_bTimerOn = false;
+			else
+				if(p_bSetRunning)then
+					SetRunning();
+					m_bTimerOn = false;
+				endif;
+			endif;
+		else
+			Abort();
+			SetImpossible();
+		endif;
+		return bPossible;
+	endproc;
+	
+	///ComputeMissingUnits
+	export proc ^CAiSolution ComputeMissingUnitsSolution()
+		var ^CAiSolution pxRetSol = new CAiSolution();
+		var int i, iC = GetSolution()^.NumRequired();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CAiNeedPtr pxNeed = GetSolution()^.GetRequired(i);
+			if(pxNeed == null)then continue; endif;
+			var int iMissingUnits = pxNeed.GetNeed()^.GetNeededInstanceCount() - pxNeed.GetNeed()^.GetAt(0)^.GetInstanceCount(m_iOutpostId);
+			if(iMissingUnits > 0)then
+				var CAiNeedPtr pxMUNeed = CAiNeed.Create();
+				if(pxMUNeed == null)then
+					continue;
+				endif;
+				pxMUNeed.GetNeed()^.CopyFromOther(pxNeed.GetNeed()^);
+				pxMUNeed.GetNeed()^.SetNeededInstanceCount(iMissingUnits);
+				pxRetSol^.AddRequired(pxMUNeed);
+			endif;
+		endfor;
+		if(pxRetSol^.NumRequired() <= 0)then
+			delete pxRetSol;
+			pxRetSol = null;
+		else
+			pxRetSol^.DebugDump();
+		endif;
+		return pxRetSol;
+	endproc;
+	
+	///StartAsSupervisor
+	export proc bool StartAsSupervisor()
+		SetRunning();
+		m_bTimerOn = false;
+		return true;
+	endproc;
+	
+	///Start
+	export proc bool Start(bool p_bRequestIfNotPresent)
+		return Start(p_bRequestIfNotPresent, false);
+	endproc;
+	
+	///Start
+	export proc bool Start(bool p_bRequestIfNotPresent, bool p_bBuildOnly)
+		super.Start();
+		m_bRequestUnitsIfNotPresent=p_bRequestIfNotPresent;
+		var int i, iC;
+		iC = GetSolution()^.NumRequired();
+		if(p_bBuildOnly || !TryAllocate(GetSolution(), m_iOutpostId,10,false,true))then
+			if(m_pxBrain==null)then return false; endif;
+			var ^IAiModuleEconomy pxEMod=m_pxBrain^.GetEconomyModule();
+			if((pxEMod==null)||!m_bRequestUnitsIfNotPresent)then
+				if(!CheckPossibility(true))then
+					return false;
+				endif;
+				return true;
+			endif;
+			var ^CAiSolution pxSol=GetSolution();
+			iC=pxSol^.NumRequired();
+			m_iSolutionNumEntries = 0;
+			for(i=0)cond(i<iC)iter(i++)do
+				var CAiNeedPtr pxNeed=pxSol^.GetRequired(i);
+				if(pxNeed.GetNeed()^.NumEntries()>0)then
+					m_iSolutionNumEntries += pxNeed.GetNeed()^.GetNeededInstanceCount();
+					if((pxNeed.GetNeed()^.GetAt(0)^.GetMaxInstanceCount()-pxNeed.GetNeed()^.GetNeededInstanceCount())<0)then
+						if(!CheckPossibility(false))then
+							return false;
+						endif;
+					endif;
+				endif;
+			endfor;
+			var ^CAiSolution pxLock=new CAiSolution();
+			for(i=0)cond(i<iC)iter(i++)do
+				var CAiNeedPtr pxNeed=pxSol^.GetRequired(i);
+				if(pxNeed.GetNeed()^.NumEntries()<=0)then continue; endif;
+				var int iAvailable = 0;
+				if(!p_bBuildOnly)then
+					iAvailable = pxNeed.GetNeed()^.GetAt(0)^.GetInstanceCount(m_iOutpostId) - pxNeed.GetNeed()^.GetAt(0)^.GetLockCount(m_iOutpostId);
+				endif;
+				var int iCount=pxNeed.GetNeed()^.GetNeededInstanceCount()-iAvailable;
+				var int iLockable=Math.Min(pxNeed.GetNeed()^.GetNeededInstanceCount(),iAvailable);
+				if(iLockable>0)then
+					if(m_bSpawn == true)then
+						var CAiObjWrap xOW;
+						var int iU, iUC = pxNeed.GetNeed()^.GetAt(0)^.GetUnlockedCount(m_iOutpostId);
+						var int iFoundUnits = 0;
+						for(iU=0)cond((iU<iUC)&&(iFoundUnits<iLockable))iter(++iU)do
+							xOW = pxNeed.GetNeed()^.GetAt(0)^.GetUnit(iU, m_iOutpostId);
+							if(xOW.IsValid() == false)then
+								continue;
+							endif;
+							iFoundUnits++;
+							AddUnit(xOW);
+						endfor;
+						if(iFoundUnits < iLockable)then
+							iCount += iLockable - iFoundUnits;
+						endif;
+					else
+						var CAiNeedPtr pxN=CAiNeed.Create();
+						pxN.GetNeed()^.CopyFromOther(pxNeed.GetNeed()^);
+						pxN.GetNeed()^.SetNeededInstanceCount(iLockable);
+						if(m_bOnlyResources == false)then
+							pxN.GetNeed()^.SetGlobal(false);
+						endif;
+						pxLock^.AddRequired(pxN);
+					endif;
+				endif;
+				if(iCount>0)then
+					if(m_bSpawn == true)then
+						if(m_pxBrain==null)then return false; endif;
+						var ^CAiModuleControlDefault pxCM = cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+						if(pxCM == null)then
+							KLog.LogWarn("AiTaskBuildSquad", "no controlmodule! PlayerID: "+m_sPlayerID);
+						else
+							var int j;
+							for(j=0)cond(j<iCount)iter(++j)do
+								if(pxNeed.GetNeed()^.GetAt(0)^.IsDiscrete() == true)then
+									var string sLevel = pxNeed.GetNeed()^.GetAt(0)^.GetFlags().GetValue("level");
+									var int iLevel = -1;
+									CAiUtilityMgr.Get()^.DumpNeed(m_pxBrain, pxNeed);
+									if(sLevel.IsEmpty() == false)then
+										iLevel = sLevel.ToInt();
+									endif;
+									var string sClass = pxNeed.GetNeed()^.GetAt(0)^.ComputeClassName();
+									var string sObjFlag = pxNeed.GetNeed()^.GetAt(0)^.GetFlags().GetValue("ObjFlag");
+									if(sObjFlag.IsEmpty() == false)then
+										sClass+=":"+sObjFlag;
+									endif;
+									if(m_pxSensor==null)then return false; endif;
+									if(m_vRallyPos == {0.0, 0.0, 0.0})then
+										AddUnit(pxCM^.GetCheatMgr().SpawnUnit(sClass, m_pxSensor^.GetOutpost(m_iOutpostId).GetWorldPos(), {0.0, 0.0, 0.0}, iLevel)); //spawn needed unit
+									else
+										AddUnit(pxCM^.GetCheatMgr().SpawnUnit(sClass, m_vRallyPos, {0.0, 0.0, 0.0}, iLevel)); //spawn needed unit
+									endif;
+								endif;
+							endfor;
+						endif;
+					else
+						var CAiNeedPtr pxN=CAiNeed.Create();
+						pxN.GetNeed()^.CopyFromOther(pxNeed.GetNeed()^);
+						pxN.GetNeed()^.SetNeededInstanceCount(1);
+						var int j;
+						for(j=0)cond(j<iCount)iter(j++)do
+							var CAiConstructionInfoPtr pxCI=CAiConstructionInfo.Create();
+							SetRequesterFor(pxCI.GetConstructionInfo());
+							pxCI.GetConstructionInfo()^.SetWantUnits(true);
+							pxCI.GetConstructionInfo()^.SetPriority(GetPriority()-(j.ToReal()*0.001f));
+							pxCI.GetConstructionInfo()^.SetNeed(pxN);
+							pxCI.GetConstructionInfo()^.SetOutpostId(m_iOutpostId);
+							if(!pxEMod^.ExternalRequestConstruction(pxCI))then
+								if(!CheckPossibility(false))then
+									return false;
+								endif;
+							endif;
+							m_iRequestCnt++;
+						endfor;
+					endif;
+				endif;
+			endfor;
+			iC = pxLock^.NumRequired();
+			for(i=0)cond(i<iC)iter(i++)do
+				var CAiNeedPtr pxNeed = pxLock^.GetRequired(i);
+				if(pxNeed==null)then continue; endif;
+				if(pxNeed.GetNeed()^.GetNeededInstanceCount()<=0)then continue; endif;
+			endfor;
+			if(pxLock^.NumRequired()==0)then
+				delete pxLock;
+				m_bAllocated=true;
+			else
+				SetPriority(1000000.0f);
+				pxLock^.SetSubject(0);
+				if(!TryAllocate(pxLock, m_iOutpostId, 1, false, true))then
+					if(!CheckPossibility(true, true))then
+						return false;
+					endif;
+				endif;
+			endif;
+		else
+			return true;
+		endif;
+		if(m_bSpawn == true)then
+			m_bTimerOn = false;
+			return true;
+		endif;
+		m_iTimout = m_iTimoutInit;
+		m_bTimerOn = true;
+		return true;
+	endproc;
+	
+	///AddUnit
+	export proc void AddUnit(CAiObjWrap p_xUnit)
+		if(!p_xUnit.IsValid())then
+			return;
+		endif;
+		var string sName=p_xUnit.GetName();
+		var int iUnitHandle=p_xUnit.GetHandle();
+		if(m_xUnits.FindEntry(p_xUnit)!=-1)then return; endif;
+		if(m_xExternalLocked.FindEntry(p_xUnit)!=-1)then return; endif;
+		GetAiAllocationMgr()^.ExternalLock(p_xUnit,"squad");
+		m_xExternalLocked.Include(p_xUnit);
+		m_xUnits.SetConst(false);
+		m_xUnits.Include(p_xUnit);
+		m_xUnits.SetConst(true);
+		if(m_pxSensor==null)then return; endif;
+		m_pxSensor^.AddCheckpoint(this,iUnitHandle,"dhnd:"+iUnitHandle.ToString()+" Name: "+sName,1200.0);
+	endproc;
+	
+	///AddUnits
+	export proc void AddUnits(ref CAiObjWrapList p_rxUnits)
+		var int i, iC = p_rxUnits.NumEntries();		
+		for(i=0)cond(i<iC)iter(i++)do
+			AddUnit(p_rxUnits[i]);
+		endfor;
+	endproc;
+	
+	///RemUnit
+	export proc void RemUnit(CAiObjWrap p_xUnit)
+		var int iUnitHandle=p_xUnit.GetHandle();
+		GetAiAllocationMgr()^.ExternalUnlock(p_xUnit);
+		m_xExternalLocked.RemEntry(p_xUnit);
+		m_xUnits.SetConst(false);
+		m_xUnits.RemEntry(p_xUnit);
+		m_xUnits.SetConst(true);
+		if(m_pxSensor==null)then return; endif;
+		m_pxSensor^.RemoveCheckpoint(this,iUnitHandle);
+	endproc;
+	
+	///UnlockExternal
+	proc void UnlockExternal()
+		if(m_bUnlock == true)then
+			var int i, iC = m_xExternalLocked.NumEntries();
+			var ^CAiAllocationMgr pxAllocMgr = GetAiAllocationMgr();
+			if(pxAllocMgr == null)then
+				return;
+			endif;
+			for(i=0)cond(i<iC)iter(i++)do
+				pxAllocMgr^.ExternalUnlock(m_xExternalLocked[i]);
+			endfor;
+		endif;
+		m_xExternalLocked.Clear();
+	endproc;
+	
+	///Shut
+	export proc void Shut()
+		Abort();
+		UnlockExternal();
+		m_xUnits.SetConst(false);
+		m_xUnits.Clear();
+		m_xUnits.SetConst(true);
+		RemoveAllRequests();
+	endproc;
+	
+	///GetUnits
+	export proc ref CAiObjWrapList GetUnits()
+		m_xUnits.SetConst(true);
+		return m_xUnits;
+	endproc;
+	
+	///IsUnitLocked
+	export proc bool IsUnitLocked(CAiObjWrap p_xUnit)
+		return GetAiAllocationMgr()^.IsUnitLocked(p_xUnit, false, true, true);
+	endproc;
+	
+	///EvtAllocationComplete
+	export proc void EvtAllocationComplete(^CAiAllocation p_pxAllocation)
+		var CAiObjWrapList xA;
+		xA.CopyFrom(p_pxAllocation^.GetAllObjs());
+		var int i,iC=xA.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			AddUnit(xA[i]);
+		endfor;
+		m_bAllocated=true;
+		if(m_iRequestCnt!=0)then
+			SetStarted();
+		endif;
+	endproc;
+	
+	///EvtAllocationDestroyed
+	export proc void EvtAllocationDestroyed(^CAiAllocation p_pxAllocation, int p_iUnitHandle)
+	endproc;
+	
+	///EvtAllocationFailed
+	export proc void EvtAllocationFailed(^CAiAllocation p_pxAllocation)
+		CheckPossibility(true);
+	endproc;
+	
+	///EvtCheckpointReached
+	export proc void EvtCheckpointReached(int p_iCheckpointId, int p_iObjHandle)
+		if(m_pxSensor==null)then return; endif;
+		RemUnit(m_pxSensor^.CreateObjWrap(p_iCheckpointId));
+		if(m_xUnits.NumEntries()<1)then
+			if(m_bAbortIfAllKilled == true)then
+				Abort();
+			endif;
+		endif;
+	endproc;
+	
+	///EvtCheckpointTimeout
+	export proc void EvtCheckpointTimeout(int p_iCheckpointId)
+		if(m_xUnits.NumEntries()<1)then
+			Abort();
+			SetImpossible();
+		endif;
+	endproc;
+	
+	///EvtRequestAccepted
+	export proc void EvtRequestAccepted(^CAiRequestInfo p_pxRequest)
+	endproc;
+	
+	///EvtRequestRejected
+	export proc void EvtRequestRejected(^CAiRequestInfo p_pxRequest)
+		m_iRequestCnt--;
+		CheckPossibility(true);
+	endproc;
+	
+	///EvtRequestSucceeded
+	export proc void EvtRequestSucceeded(^CAiRequestInfo p_pxRequest)
+		m_iRequestCnt--;
+		if(IsRunning() == false)then
+			var ^CAiConstructionInfo pxCI=cast<CAiConstructionInfo>(p_pxRequest);
+			if(pxCI!=null)then
+				var int i,iC=pxCI^.GetUnits().NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var CAiObjWrap xObj=pxCI^.GetUnits().GetAt(i);
+					if(!xObj.IsValid())then
+						continue;
+					endif;
+					AddUnit(xObj);
+				endfor;
+			endif;
+		endif;
+		if((m_iRequestCnt<=0) && m_bAllocated && !IsNotPossible() && !IsAborted())then
+			SetRunning();
+			m_bTimerOn = false;
+		endif;
+	endproc;
+	
+	///EvtRequestFailed
+	export proc void EvtRequestFailed(^CAiRequestInfo p_pxRequest)
+		m_iRequestCnt--;
+		CheckPossibility(true, true);
+	endproc;
+	
+	///SetRallyPos
+	export proc void SetRallyPos(vec3 p_vPos)
+		m_vRallyPos = p_vPos;
+	endproc;
+	
+	///SpawnUnits
+	export proc void SpawnUnits()
+		var bool bUnlock = m_bUnlock;
+		var ^CAiGoal pxGoal = GetGoal();
+		var CAiObjWrapList xTempObjList= m_xUnits;
+		m_bUnlock = true;
+		Shut();
+		Init(pxGoal, true, bUnlock);
+		m_bSpawn = true;
+		Start(true, false);
+		AddUnits(xTempObjList);
+	endproc;
+	
+	///CancelRequests
+	export proc void CancelRequests()
+		RemoveAllRequests();
+	endproc;
+	
+	///Think
+	export proc void Think()
+		if(m_bTimerOn == false)then
+			return;
+		endif;
+		m_iTimout--;
+		if(m_iTimout <= 0)then
+			SpawnUnits();
+			CancelRequests();
+			SetRunning();
+			m_bTimerOn = false;
+		endif;
+	endproc;
+	
+	///Save
+	export proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xType="TaBS";
+		var ^CUOFWriterNode pxWalk=p_pxNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xUnits.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+	
+	///Load
+	export proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="TaBS") then
+			var ^CArc pxArc=^(p_pxNode^.GetArc());
+			var CAiObjWrapList xUnitsLoad;
+			xUnitsLoad.DoKArc(pxArc^);
+			var int i,iC=xUnitsLoad.NumEntries();
+			for(i=0) cond(i<iC) iter(i++)do
+				AddUnit(xUnitsLoad[i]);
+			endfor;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+	
+endclass;

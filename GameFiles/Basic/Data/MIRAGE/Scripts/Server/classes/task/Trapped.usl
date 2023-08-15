@@ -1,0 +1,287 @@
+class CTrapped inherit CTask
+	
+	var CObjHndl							m_xWorker, m_xTrap;
+	var CGameTimeSpan					m_xDuration;
+	var CGameTime							m_xStart;
+	var array CGameTimeSpan		m_axDurations;
+	
+	var CObjList							m_xTraps;
+	var array CGameTime				m_axStarts;
+	var string								m_sState;
+	
+	export constructor()
+		SetName("Trapped");
+		SetCivil(false);
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Trpd";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xWorker.DoKArc(pxArc^);
+		m_xTrap.DoKArc(pxArc^);
+		m_xDuration.DoKArc(pxArc^);
+		m_xStart.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		m_xTraps.DoKArc(pxArc^);
+		var int i,iC=m_axDurations.NumEntries();
+		(pxArc^) << iC;
+		for(i=0)cond(i<iC)iter(i++)do
+			m_axDurations[i].DoKArc(pxArc^);
+			m_axStarts[i].DoKArc(pxArc^);
+		endfor;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Trpd")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			m_xWorker.DoKArc(pxArc^);
+			m_xTrap.DoKArc(pxArc^);
+			m_xDuration.DoKArc(pxArc^);
+			m_xStart.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			if(iVersion>=2)then
+				m_xTraps.DoKArc(pxArc^);
+				var int i,iC;
+				(pxArc^) << iC;
+				m_axDurations=iC;
+				m_axStarts=iC;
+				for(i=0) cond(i<iC) iter(i++)do
+					m_axDurations[i].DoKArc(pxArc^);
+					m_axStarts[i].DoKArc(pxArc^);
+				endfor;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xWorker, CObjHndl p_xTrap)
+		if(!p_xTrap.IsValid()||!p_xWorker.IsValid())then return false; endif;
+		var ^CFightingObj pxChar = cast<CFightingObj>(p_xWorker.GetObj());
+		m_sState = "EndTask";
+		if(pxChar==null)then return false; endif;
+		if(pxChar^.GetSlaveInvincible())then return false; endif;
+		var string sCurTask=pxChar^.GetCurTaskName();
+		if(sCurTask=="Jetpack"||sCurTask=="SpecSuitJ"||sCurTask=="Jumpjet"||sCurTask=="PilotFly"||sCurTask=="ClimbLadder"||sCurTask=="ClimbBrachio"||sCurTask=="ClimbTower"||sCurTask=="ClimbStaircase")then return false; endif;
+		SetName("Trapped");
+		m_xWorker = p_xWorker;
+		if(p_xWorker==p_xTrap)then
+			m_xTrap = p_xTrap;
+		else
+			m_xTraps.Include(p_xTrap);
+		endif;
+		m_xDuration = 0.0;
+		m_sState = "wait";
+		var ^CAttribs pxAttr = pxChar^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xWorker, real p_fDuration)
+		if(p_fDuration<=0.0f||!p_xWorker.IsValid())then return false; endif;
+		var ^CFightingObj pxChar = cast<CFightingObj>(p_xWorker.GetObj());
+		if(pxChar==null)then return false; endif;
+		if(pxChar^.GetSlaveInvincible())then return false; endif;
+		var string sCurTask=pxChar^.GetCurTaskName();
+		if(sCurTask=="Jetpack"||sCurTask=="SpecSuitJ"||sCurTask=="Jumpjet"||sCurTask=="PilotFly"||sCurTask=="ClimbLadder"||sCurTask=="ClimbBrachio"||sCurTask=="ClimbTower"||sCurTask=="ClimbStaircase")then return false; endif;
+		SetName("Trapped");
+		m_sState = "EndTask";
+		m_xWorker = p_xWorker;
+		m_xDuration = p_fDuration;
+		m_xStart = CTimeMgr.Get().GetTime();
+//		var CGameTimeSpan xDuration = p_fDuration;
+//		var CGameTime xStart = CTimeMgr.Get().GetTime();
+		m_axDurations.AddEntry(m_xDuration);
+		m_axStarts.AddEntry(m_xStart);
+		m_sState = "wait";
+		var ^CAttribs pxAttr = pxChar^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool SetDuration(real p_fDuration)
+		if(m_xTrap.IsValid())then return false; endif;
+		m_xDuration=p_fDuration;
+		m_xStart = CTimeMgr.Get().GetTime();
+		m_sState = "wait";
+		return true;
+	endproc;
+	
+	export proc bool SetSelfTrapped()
+		if(!m_xWorker.IsValid())then return false; endif;
+		var ^CFightingObj pxChar = cast<CFightingObj>(m_xWorker.GetObj());
+		if(pxChar==null)then return false; endif;
+		m_xTrap = m_xWorker;
+		m_sState = "wait";
+		return true;
+	endproc;
+	
+	export proc bool AddTrapObject(CObjHndl p_xTrap)
+		if(!p_xTrap.IsValid())then return false; endif;
+		var ^CFightingObj pxChar = cast<CFightingObj>(m_xWorker.GetObj());
+		if(pxChar==null)then return false; endif;
+		if(pxChar^.GetSlaveInvincible())then return false; endif;
+		m_xTraps.Include(p_xTrap);
+		m_sState = "wait";
+		return true;
+	endproc;
+	
+	export proc bool AddTimedTrapEffect(real p_fDuration)
+		if(p_fDuration<=0.0f)then return false; endif;
+		var ^CFightingObj pxChar = cast<CFightingObj>(m_xWorker.GetObj());
+		if(pxChar==null)then return false; endif;
+		if(pxChar^.GetSlaveInvincible())then return false; endif;
+		var CGameTimeSpan xDuration = p_fDuration;
+		var CGameTime xStart = CTimeMgr.Get().GetTime();
+		m_axDurations.AddEntry(xDuration);
+		m_axStarts.AddEntry(xStart);
+		m_sState = "wait";
+		return true;
+	endproc;
+	
+	export proc bool RemoveTrapObject(CObjHndl p_xTrap)
+		if(!p_xTrap.IsValid())then return false; endif;
+		if(m_xTraps.FindEntry(p_xTrap)==-1)then return false; endif;
+		m_xTraps.RemEntry(p_xTrap);
+		USLOnTick(0);
+		return true;
+	endproc;
+	
+	export proc void TotalUntrap()
+		m_sState="TotalUntrap";
+		USLOnTick(0);
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom,^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+		var ^CFightingObj pxChar = cast<CFightingObj>(m_xWorker.GetObj());
+//		var ^CTrap pxTrap = cast<CTrap>(m_xTrap.GetObj());
+		if(pxChar==null)then
+			EndTask();
+			return;
+		endif;
+		var ^CAttribs pxAttr=pxChar^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask","Trapped");
+			pxChar^.SetTaskDescription("trapped");
+		endif;
+		pxChar^.AddRangedBuff("is_held");
+		var CObjHndl xHndl=pxChar^.AddFX("Sleepping_Animal_Fx",-1.0);
+		if(xHndl.IsValid())then
+			var CFourCC xLink="Head";
+			xHndl.GetObj()^.LinkAction(m_xWorker,xLink);
+		endif;
+//		if(pxTrap!=null)then
+//			var string sAnim = pxTrap^.GetTrappedAnim();
+			//if(sAnim!="" && pxChar^.HasAnim(sAnim))then
+				//pxChar^.SetAnim(sAnim,3);
+			//endif;
+//		endif;
+		var ^CTransportObj pxTransport=cast<CTransportObj>(pxChar);
+		if(pxTransport!=null)then
+			if(!pxTransport^.ExcludeBuildUp())then
+				pxTransport^.StopBuildUpFighting();
+			endif;
+		endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CFightingObj pxChar = cast<CFightingObj>(m_xWorker.GetObj());
+		if(pxChar==null)then
+			EndTask();
+			return;
+		endif;
+		if(m_sState=="TotalUntrap")then
+			var CObjList xTmp=m_xTraps;
+			m_xTraps.Clear();
+			var int i, iC=xTmp.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CTrap pxTrap=cast<CTrap>(xTmp[i].GetObj());
+				if(pxTrap!=null/* && pxTrap^.GetClassName()=="ninigi_snare_trap"*/)then
+					pxTrap^.ForceRelease();
+				endif;
+			endfor;
+			m_xTrap=CObjHndl.Invalid();
+			m_axDurations=0;
+			m_axStarts=0;
+			m_sState=="wait";
+//			USLOnTick(0);
+//			return;
+		endif;
+		if(m_sState=="wait")then
+//			if(m_xDuration.GetSecondsF()!=0.0)then
+//				var CGameTime xNow = CTimeMgr.Get().GetTime();
+//				if((xNow - m_xStart)>=m_xDuration)then
+//					pxChar^.UntrapTime();
+//					pxChar^.RemoveRangedBuff("is_held");
+//					m_sState = "EndTask";
+//					return;
+//				endif;
+//			elseif(!pxChar^.IsTrapped())then
+//				m_sState = "EndTask";
+//			endif;
+			if(m_xTrap.IsValid()&&pxChar^.IsSelfTrapped())then
+				return;
+			endif;
+			var bool bTimeOver=true;
+			var int i, iC=m_axDurations.NumEntries()-1;
+			if(iC>=0)then
+				var CGameTime xNow = CTimeMgr.Get().GetTime();
+				for(i=iC)cond(i>=0)iter(i--)do
+					if((xNow - m_axStarts[i])>=m_axDurations[i])then
+						m_axStarts.DeleteEntry(i);
+						m_axDurations.DeleteEntry(i);
+					else
+						bTimeOver=false;
+					endif;
+				endfor;
+			endif;
+			if(!bTimeOver)then
+				return;
+			else
+				pxChar^.UntrapTime();
+			endif;
+			if(m_xTraps.Validate()<1)then
+				pxChar^.RemoveTrapObj();
+			else
+				pxChar^.UpdateTrapHandle(m_xTraps[0]);
+			endif;
+			if(!pxChar^.IsTrapped())then
+				pxChar^.InvalidateTrap();
+				pxChar^.RemoveRangedBuff("is_held");
+				pxChar^.TerminateAction();
+				m_sState = "EndTask";
+			endif;
+		else
+			pxChar^.ClearTrapValues();
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CFightingObj pxChar = cast<CFightingObj>(m_xWorker.GetObj());
+		if(pxChar!=null)then
+			pxChar^.ClearTrapValues();
+			pxChar^.RemoveFX("Sleepping_Animal_Fx");
+			pxChar^.RemoveRangedBuff("is_held");
+		endif;
+	endproc;
+	
+	export proc bool Break()
+		return false;
+	endproc;
+	
+endclass;

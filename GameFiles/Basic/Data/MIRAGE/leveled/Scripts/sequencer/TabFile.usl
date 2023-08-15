@@ -1,0 +1,487 @@
+class CTabFile inherit CSeqTab
+	var ^CSequenceEditor	m_pxSeqEditor;
+	var ^CSequence			m_pxSequence;
+	var string 				m_sSegFile;
+	var int	 				m_iAutoSaveTimer;
+	static var string 		ms_sAutoSaveFile;
+
+	var ^CButton			m_pxNew;
+	var ^CButton			m_pxLaod;
+	var ^CButton			m_pxSave;
+	var ^CButton			m_pxSaveAs;
+	var ^CButton			m_pxLoadLastAutosave;
+
+	var ^CSpinCtrlNumber	m_pxTotalSeqLength;
+	var ^CEdit				m_pxSetupFileEdit;
+	var ^CButton			m_pxSetupFileBtn;
+	var ^CEdit				m_pxBasePosObjEdit;
+	var ^CButton			m_pxSelectBasePosObjBtn;	
+	
+	var ^CGroupBox			m_pxMoveSequenceBox;
+	var ^CCheckBox			m_pxPlaySetFixTime;
+	var ^CCheckBox			m_pxUseLSSounds;
+	var ^CCheckBox			m_pxPlayLSSounds;
+	var ^CCheckBox			m_pxHideSeqRegObjs;
+	var ^CRadioButton		m_pxLSEditMode;
+	var ^CRadioButton		m_pxLSIngameMode;
+	
+	var ^CGroupBox			m_pxCaptureBox;
+	var ^CEdit				m_pxCaptureFileEdit;
+	var ^CButton			m_pxCaptureFileBtn;
+	var ^CButton			m_pxCaptureStartBtn;
+	var ^CStaticCtrl		m_pxSequenceWorldPos;
+
+	export constructor(^CSequenceEditor p_pxSeqEditor)
+		if(!InitFromResource("sequencer/SequenceEditor","Tab_File"))then
+			CLevelEditorWrap.LogError("UI.SequenceEditor","Tab_File InitFromRessource() failed");
+			return;
+		endif;
+		m_pxSeqEditor=p_pxSeqEditor;
+		m_pxSequence=null;
+		m_pxNew=cast<CButton>(GetControl("NewSeqBtn"));
+		m_pxNew^.m_xOnClick=OnNewSequence;
+		m_pxLaod=cast<CButton>(GetControl("LoadSeqBtn"));
+		m_pxLaod^.m_xOnClick=OnLoadSequence;
+		m_pxSave=cast<CButton>(GetControl("SaveSeqBtn"));
+		m_pxSave^.m_xOnClick=OnSaveSequence;
+		m_pxSaveAs=cast<CButton>(GetControl("SaveAsSeqBtn"));
+		m_pxSaveAs^.m_xOnClick=OnSaveSequenceAs;
+		m_pxLoadLastAutosave=cast<CButton>(GetControl("LoadLastAutosaveBtn"));
+		m_pxLoadLastAutosave^.m_xOnClick=OnLoadLastAutoSave;
+		var bool bHasAutosaveFile=false;
+		m_pxLoadLastAutosave^.SetVisible(bHasAutosaveFile);
+
+		m_pxTotalSeqLength=cast<CSpinCtrlNumber>(GetControl("Seq_Length"));
+		m_pxTotalSeqLength^.m_xOnChange=OnChangeSeqLength;
+
+		m_pxSetupFileEdit=cast<CEdit>(GetControl("SetupFileEdit"));
+		m_pxSetupFileEdit^.m_xOnChange=OnSetSetupFileEdit;
+		m_pxSetupFileBtn=cast<CButton>(GetControl("SelectFileBtn"));
+		m_pxSetupFileBtn^.m_xOnClick=OnSetSetupFile;
+		
+		m_pxBasePosObjEdit=cast<CEdit>(GetControl("BasePosObjEdit"));
+		m_pxSelectBasePosObjBtn=cast<CButton>(GetControl("SelectBasePosObjBtn"));
+		m_pxSelectBasePosObjBtn^.m_xOnClick=OnSelectBasePosObj;
+		
+		m_pxPlaySetFixTime=cast<CCheckBox>(GetControl("PlaySetFixTime"));
+		m_pxPlaySetFixTime^.m_xOnStateChange=OnChangePlaySetFixTime;
+		
+		m_pxUseLSSounds=cast<CCheckBox>(GetControl("UseLSSoundsCheckBox"));
+		m_pxUseLSSounds^.m_xOnStateChange=OnChangeUseLipSyncSounds;
+		
+		m_pxPlayLSSounds=cast<CCheckBox>(GetControl("PlayLSSoundsCheckBox"));
+		m_pxPlayLSSounds^.m_xOnStateChange=OnChangePlayLipSyncSounds;
+		
+		m_pxHideSeqRegObjs=cast<CCheckBox>(GetControl("HideSeqRegObjs"));
+		m_pxHideSeqRegObjs^.m_xOnStateChange=OnChangeHideSeqRegObjs;
+		
+		m_pxLSEditMode=cast<CRadioButton>(GetControl("LipSyncEditMode"));
+		m_pxLSEditMode^.m_xOnChange=OnChangeLSSMode;
+		m_pxLSIngameMode=cast<CRadioButton>(GetControl("LipSyncIngameMode"));
+		m_pxLSIngameMode^.m_xOnChange=OnChangeLSSMode;
+		
+		
+		m_pxMoveSequenceBox=cast<CGroupBox>(GetControl("MoveSequenceBox"));
+		m_pxSequenceWorldPos=cast<CStaticCtrl>(GetControl("WorldPos"));
+		var ^CButton pxMoveSeqPosApply=cast<CButton>(m_pxMoveSequenceBox^.GetControl("Apply"));
+		pxMoveSeqPosApply^.m_xOnClick=OnMoveSequencePos;
+		
+		m_pxCaptureBox=cast<CGroupBox>(GetControl("CaptureBox"));
+		m_pxCaptureFileEdit=cast<CEdit>(m_pxCaptureBox^.GetControl("CaptureFileEdit"));
+		m_pxCaptureFileEdit^.SetText("NewSequence.bin");
+		m_pxCaptureFileBtn=cast<CButton>(m_pxCaptureBox^.GetControl("SelectFileBtn"));
+		m_pxCaptureStartBtn=cast<CButton>(m_pxCaptureBox^.GetControl("CaptureStartBtn"));
+		m_pxCaptureFileBtn^.m_xOnClick=OnSetCaptureFile;
+		m_pxCaptureStartBtn^.m_xOnClick=OnStartCapture;		
+
+		m_iAutoSaveTimer=0;
+		ms_sAutoSaveFile=CSettings.GetAppTempDir()+"seg_autosave.seq";
+		UpdateControls();
+	endconstructor;
+
+	export destructor()
+		UnsetTimer(m_iAutoSaveTimer);
+	enddestructor;
+
+	export proc void OnShutInstance()
+		var ^CUSLTrackCtrl pxTrackCtrl=m_pxSeqEditor^.GetTrackCtrl();
+		pxTrackCtrl^.SetSequence(null);
+		delete m_pxSequence;
+		m_pxSequence=null;
+	endproc;
+	
+	export proc void OnUpdateControlPanel()
+		if(m_pxSequence==null)then return; endif;
+		if(m_pxSequence^.IsInCapture())then
+			m_pxCaptureStartBtn^.m_xOnClick=OnStopCapture;
+			m_pxCaptureStartBtn^.SetText("Stop");	
+		else
+			m_pxCaptureStartBtn^.m_xOnClick=OnStartCapture;
+			m_pxCaptureStartBtn^.SetText("Start");	
+		endif;
+	endproc;
+
+	proc void StartAutoSaveTimer()
+		if(m_iAutoSaveTimer!=0)then
+			UnsetTimer(m_iAutoSaveTimer);
+		endif;
+		m_iAutoSaveTimer=SetTimer(1000*60*5,true);
+	endproc;
+
+	proc bool OnTimer(int p_iID)
+		if(p_iID==m_iAutoSaveTimer)then
+			if(m_pxSequence!=null)then
+				var ^CUSLTrackCtrl pxTrackCtrl=m_pxSeqEditor^.GetTrackCtrl();
+				if(pxTrackCtrl!=null)then
+					pxTrackCtrl^.Save(ms_sAutoSaveFile);
+					UpdateControls();
+				endif;
+			endif;
+		endif;
+		return false;
+	endproc;
+
+	export proc ^CSequence GetSequence()
+		return m_pxSequence;
+	endproc;
+
+	proc bool OnNewSequence()
+		var ^CUSLTrackCtrl pxTrackCtrl=m_pxSeqEditor^.GetTrackCtrl();
+		pxTrackCtrl^.SetSequence(null);
+ 		delete m_pxSequence;
+ 		m_pxSequence=new CSequence(CTimeMgr.Get().GetTime());
+ 		pxTrackCtrl^.SetSequence(m_pxSequence);
+ 		m_pxSeqEditor^.OnChangeSequence();
+ 		m_pxSeqEditor^.SetCaption("Unnamed Sequence");
+ 		StartAutoSaveTimer();
+ 		UpdateControls();
+ 		m_sSegFile="";
+		return true;
+	endproc;
+
+	proc bool OnLoadSequence()
+		var ^CEnhancedLoadSaveDialog pxTmp = new CEnhancedLoadSaveDialog(0,"");
+		pxTmp^.SetUniqueSettingName("SeqEditorLoadSaveDlg");
+		pxTmp^.ClearFilters();
+		pxTmp^.AddFilter("SEQ Files","*.seq");
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		pxTmp^.m_xReturnFileString=OnLoadSequenceEnd;
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return true;
+	endproc;
+	proc bool OnLoadSequenceEnd(string p_sFileString)
+		var Filesystem.CFileAttributes xFileAttributes;
+		if(xFileAttributes.GetFromFile(p_sFileString))then
+			if(xFileAttributes.m_bReadOnly==true)then
+				CMessageBox.MsgBox("Warning","Sequence is write protected, and will not be saved!");
+			endif;
+		else
+			KLog.LogInfo("SequeceEditor","File not found!");
+			return true;
+		endif;
+		var ^CUSLTrackCtrl pxTrackCtrl=m_pxSeqEditor^.GetTrackCtrl();
+		pxTrackCtrl^.SetSequence(null);
+		if(m_pxSequence!=null)then
+ 			delete m_pxSequence;
+ 		endif;
+ 		m_pxSequence=new CSequence(CTimeMgr.Get().GetTime());
+ 		pxTrackCtrl^.SetSequence(m_pxSequence);
+		pxTrackCtrl^.Load(p_sFileString);
+		m_pxSequence^.SetLipSyncSoundMode(0);
+		m_pxSeqEditor^.OnChangeSequence();
+		m_sSegFile=p_sFileString;
+		
+		var ^CMainController pxMainCtrl=^(CMainController.Get());
+		pxMainCtrl^.UpdateCameraPosition(^(m_pxSequence^.GetSaveCamera()));
+		
+		m_pxSeqEditor^.SetCaption(p_sFileString);
+		StartAutoSaveTimer();
+		UpdateControls();
+		m_pxSequence^.SetLipSyncSoundMode(1);
+		m_pxLSEditMode^.SetSelected(false);
+		m_pxLSIngameMode^.SetSelected(true);
+		return true;
+	endproc;
+
+	export proc bool OnSaveSequenceAs()
+		var ^CEnhancedLoadSaveDialog pxTmp = new CEnhancedLoadSaveDialog(1,"");
+		pxTmp^.SetUniqueSettingName("SeqEditorLoadSaveDlg");
+		pxTmp^.SetCheckFileExest(false);
+		pxTmp^.ClearFilters();
+		pxTmp^.AddFilter("SEQ Files","*.seq");
+		pxTmp^.m_xReturnFileString=OnSaveSequenceEnd;
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp, true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return true;
+	endproc;
+
+	export proc bool OnSaveSequence()
+		if(m_sSegFile=="")then
+			var ^CEnhancedLoadSaveDialog pxTmp = new CEnhancedLoadSaveDialog(1,"");
+			pxTmp^.SetUniqueSettingName("SeqEditorLoadSaveDlg");
+			pxTmp^.SetCheckFileExest(false);
+			pxTmp^.ClearFilters();
+			pxTmp^.AddFilter("SEQ Files","*.seq");
+			pxTmp^.m_xReturnFileString=OnSaveSequenceEnd;
+			CClientWrap.GetDesktop()^.AddChild(pxTmp);
+			CWindowMgr.Get().BringWindowToTop(pxTmp, true);
+			CWindowMgr.Get().SetModal(pxTmp);
+			return true;
+		endif;
+		OnSaveSequenceEnd(m_sSegFile);
+		return true;
+	endproc;
+	
+	proc bool OnSaveSequenceEnd(string p_sFileString)
+		var Filesystem.CFileAttributes xFileAttribs;
+		if(xFileAttribs.GetFromFile(p_sFileString))then
+			if(xFileAttribs.m_bReadOnly==true)then
+				CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Error"),"can't open file to write. File is save protected");
+				return true;
+			endif;
+		endif;
+		if(m_pxSeqEditor==null)then return true; endif;
+		var ^CUSLTrackCtrl pxTrackCtrl=m_pxSeqEditor^.GetTrackCtrl();
+		if(pxTrackCtrl==null)then return true; endif;
+		pxTrackCtrl^.Save(p_sFileString);
+		m_sSegFile=p_sFileString;
+		m_pxSeqEditor^.SetCaption(p_sFileString);
+		if(Filesystem.FileExists(ms_sAutoSaveFile))then
+			Filesystem.Delete(ms_sAutoSaveFile);
+		endif;
+		UpdateControls();
+		return true;
+	endproc;
+
+	proc bool OnLoadLastAutoSave()
+		OnLoadSequenceEnd(ms_sAutoSaveFile);
+		m_sSegFile="";
+		return true;
+	endproc;
+
+	proc bool OnChangeSeqLength()
+		var ^CUSLTrackCtrl pxTrackCtrl=m_pxSeqEditor^.GetTrackCtrl();
+		var ^CSeqRuler pxRuler=pxTrackCtrl^.GetRuler();
+		if(pxRuler!=null)then
+			var real fLength=m_pxTotalSeqLength^.GetValueFloat();
+			pxRuler^.SetLength((fLength*25.0f).ToInt());
+		endif;
+		return true;
+	endproc;
+
+	proc void UpdateControls()
+		m_pxSave^.SetDisabled(m_pxSequence==null);
+		m_pxSaveAs^.SetDisabled(m_pxSequence==null);
+		m_pxTotalSeqLength^.SetDisabled(m_pxSequence==null);
+		m_pxSetupFileEdit^.SetDisabled(m_pxSequence==null);		
+		m_pxSetupFileBtn^.SetDisabled(m_pxSequence==null);
+		m_pxBasePosObjEdit^.SetDisabled(true);
+		m_pxSelectBasePosObjBtn^.SetDisabled(m_pxSequence==null);		
+		m_pxMoveSequenceBox^.SetDisabled(m_pxSequence==null);
+		m_pxUseLSSounds^.SetDisabled(m_pxSequence==null);
+		m_pxPlayLSSounds^.SetDisabled(m_pxSequence==null);
+		m_pxHideSeqRegObjs^.SetDisabled(m_pxSequence==null);
+		m_pxPlaySetFixTime^.SetDisabled(m_pxSequence==null);
+		m_pxLSEditMode^.SetDisabled(true);
+		m_pxLSIngameMode^.SetDisabled(true);
+		m_pxSequenceWorldPos^.SetText("0.0, 0.0, 0.0");
+		
+		//m_pxSequence^.SetLipSyncSoundMode(0);
+		m_pxBasePosObjEdit^.SetText("");		
+		
+		m_pxCaptureBox^.SetDisabled(m_pxSequence==null);
+		if(m_pxSequence!=null)then
+			var ^CUSLTrackCtrl pxTrackCtrl=m_pxSeqEditor^.GetTrackCtrl();
+			var ^CSeqRuler pxRuler=pxTrackCtrl^.GetRuler();
+			m_pxTotalSeqLength^.SetValue(pxRuler^.GetLength().ToReal()/25.0f);
+			m_pxSetupFileEdit^.SetText(m_pxSequence^.GetSettingFile());
+			var int iLSSMode=m_pxSequence^.GetLipSyncSoundMode();
+			if(iLSSMode==0)then
+				m_pxUseLSSounds^.SetChecked(0);
+			else
+				m_pxUseLSSounds^.SetChecked(1);
+				m_pxLSEditMode^.SetDisabled(false);
+				m_pxLSIngameMode^.SetDisabled(false);
+				if(iLSSMode==1)then
+					m_pxLSEditMode^.SetSelected(false);
+					m_pxLSIngameMode^.SetSelected(true);
+				else
+					m_pxLSEditMode^.SetSelected(true);
+					m_pxLSIngameMode^.SetSelected(false);
+				endif;
+			endif;
+			if(m_pxSequence^.GetPlayLipSyncSounds())then
+				m_pxPlayLSSounds^.SetChecked(1);
+			else
+				m_pxPlayLSSounds^.SetChecked(0);
+			endif;
+			
+			if(m_pxSequence^.GetPlaySetFixTime())then
+				m_pxPlaySetFixTime^.SetChecked(1);
+			else
+				m_pxPlaySetFixTime^.SetChecked(0);
+			endif;
+			if(m_pxSequence^.GetHideSeqRegObjs())then
+				m_pxHideSeqRegObjs^.SetChecked(1);
+			else
+				m_pxHideSeqRegObjs^.SetChecked(0);
+			endif;
+			
+			m_pxSequenceWorldPos^.SetText(m_pxSequence^.GetWorldPos().ToString());			
+			var ^CObj pxBasePosObj=m_pxSequence^.GetBasePosObj();
+			if(pxBasePosObj!=null)then
+				m_pxBasePosObjEdit^.SetText(pxBasePosObj^.GetName());
+			endif;
+		endif;
+		m_pxLoadLastAutosave^.SetVisible(Filesystem.FileExists(ms_sAutoSaveFile));				
+		
+	endproc;
+
+	proc bool OnSetSetupFile()
+		var ^CEnhancedLoadSaveDialog pxTmp = new CEnhancedLoadSaveDialog(0,"");
+		pxTmp^.SetUniqueSettingName("SeqEditorLoadSaveDlg");
+		pxTmp^.ClearFilters();
+		pxTmp^.AddFilter("SIF Files","*.sif");
+		var string sPath=CClientWrap.GetUrsRelPath()+"/Data/Base/Sequences";
+		pxTmp^.SetPath(sPath);
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		pxTmp^.m_xReturnFileString=OnSetSetupFileEnd;
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return true;
+	endproc;
+	proc bool OnSetSetupFileEnd(string p_sFileString)
+		if(m_pxSequence!=null)then
+			m_pxSequence^.SetSettingFile(p_sFileString);
+			UpdateControls();
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnSetSetupFileEdit()
+		m_pxSequence^.SetSettingFile(m_pxSetupFileEdit^.GetText());
+		UpdateControls();
+		return true;
+	endproc;
+	
+	proc bool OnSelectBasePosObj()
+		var ^CSeqObjFinder pxSOF=new CSeqObjFinder;
+		CClientWrap.GetDesktop()^.AddChild(pxSOF);
+		pxSOF^.m_xOnCloseOK=OnSetBasePosObj;
+		CWindowMgr.Get().BringWindowToTop(pxSOF,true);
+		CWindowMgr.Get().SetModal(pxSOF);
+		return true;
+	endproc;
+	
+	proc void OnSetBasePosObj(CClntHndl p_xObj)		
+		if(m_pxSequence!=null)then
+			m_pxSequence^.SetBasePosObj(p_xObj);
+			UpdateControls();
+		endif;
+	endproc;
+	
+	proc bool OnSetCaptureFile()
+		if(m_pxSequence==null)then return true; endif;
+		var ^CEnhancedLoadSaveDialog pxTmp = new CEnhancedLoadSaveDialog(1,"NewSequence.bin");
+		pxTmp^.SetUniqueSettingName("SeqEditorLoadSaveDlg");
+		pxTmp^.ClearFilters();
+		pxTmp^.AddFilter("Capture Files","*.bin");
+		var string sBasePath=CClientWrap.GetUrsRelPath()+"/Data/Base/Sequences/";
+		pxTmp^.SetBasePath(sBasePath);
+		pxTmp^.SetPath(sBasePath);
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		pxTmp^.m_xReturnFileString=OnSetCaptureFileEnd;
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return true;
+	endproc;
+	proc bool OnSetCaptureFileEnd(string p_sFileString)
+		if(m_pxSequence!=null)then
+			var string sBasePath=CClientWrap.GetUrsRelPath()+"/Data/Base/Sequences/";	
+			sBasePath.Replace("\\","/");
+			p_sFileString.Replace("\\","/");
+			p_sFileString.Replace(sBasePath,"");
+			m_pxCaptureFileEdit^.SetText(p_sFileString);
+			UpdateControls();
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnStartCapture()
+		if(m_pxSequence!=null)then
+			var string sBasePath=CClientWrap.GetUrsRelPath()+"/Data/Base/Sequences/";
+			var string sFile=sBasePath+m_pxCaptureFileEdit^.GetText();			
+			m_pxSequence^.CaptureStart(sFile);
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnStopCapture()
+		if(m_pxSequence!=null)then
+			m_pxSequence^.CaptureStop();			
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnMoveSequencePos()
+		if(m_pxSequence==null)then return true; endif;
+		var ^CSpinCtrlNumber pxX=cast<CSpinCtrlNumber>(m_pxMoveSequenceBox^.GetControl("X"));
+		var ^CSpinCtrlNumber pxY=cast<CSpinCtrlNumber>(m_pxMoveSequenceBox^.GetControl("Y"));
+		var ^CSpinCtrlNumber pxZ=cast<CSpinCtrlNumber>(m_pxMoveSequenceBox^.GetControl("Z"));
+		var vec3 vOffset;
+		vOffset.SetX(pxX^.GetValueFloat());
+		vOffset.SetY(pxY^.GetValueFloat());
+		vOffset.SetZ(pxZ^.GetValueFloat());
+		m_pxSequence^.TranslatePos(vOffset);
+		pxX^.SetValue(0);
+		pxY^.SetValue(0);
+		pxZ^.SetValue(0);
+		UpdateControls();
+		return true;
+	endproc;
+	
+	proc bool OnChangePlaySetFixTime()
+		if(m_pxSequence==null)then return true; endif;
+		m_pxSequence^.SetPlaySetFixTime(m_pxPlaySetFixTime^.GetChecked()!=0);
+		return true;
+	endproc;
+	
+	proc bool OnChangeUseLipSyncSounds()
+		if(m_pxSequence==null)then return true; endif;
+		if(m_pxUseLSSounds^.GetChecked()==0)then
+			m_pxSequence^.SetLipSyncSoundMode(0);
+			m_pxLSEditMode^.SetDisabled(true);
+			m_pxLSIngameMode^.SetDisabled(true);
+		else
+			m_pxLSEditMode^.SetDisabled(false);
+			m_pxLSIngameMode^.SetDisabled(false);
+			m_pxLSEditMode^.SetSelected(true);
+			m_pxSequence^.SetLipSyncSoundMode(2);
+		endif;
+		return true;
+	endproc;
+		
+	proc bool OnChangePlayLipSyncSounds()
+		if(m_pxSequence==null)then return true; endif;
+		m_pxSequence^.SetPlayLipSyncSounds(m_pxPlayLSSounds^.GetChecked()!=0);		
+		return true;
+	endproc;
+	
+	proc bool OnChangeHideSeqRegObjs()
+		if(m_pxSequence==null)then return true; endif;
+		m_pxSequence^.SetHideSeqRegObjs(m_pxHideSeqRegObjs^.GetChecked()!=0);
+		return true;
+	endproc;
+	
+	proc bool OnChangeLSSMode()
+		if(m_pxSequence==null)then return true; endif;
+		if(m_pxLSEditMode^.GetSelected())then
+			m_pxSequence^.SetLipSyncSoundMode(2);
+		else
+			m_pxSequence^.SetLipSyncSoundMode(1);
+		endif;		
+		return true;
+	endproc;
+endclass;

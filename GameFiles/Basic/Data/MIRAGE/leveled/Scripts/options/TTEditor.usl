@@ -1,0 +1,5618 @@
+class CTTEditor2 inherit CFrameWindow
+	static var ^CTTEditor2 ms_pxInst;
+
+	var CPropDB				m_xTT;
+	var CPropDB				m_xClipBoard;
+
+	var ^CMenu				m_pxMenu;
+	var ^CDropList		m_pxTribes;
+	var ^CTreeCtrl		m_pxTree;
+	var ^CEdit				m_pxItemName;
+	var ^CButton			m_pxAddItem,m_pxRenameItem,m_pxDelItem,m_pxWizard;
+
+	var ^CStaticCtrl	m_pxTTPath;
+	var ^CContent			m_pxContent;
+
+	export static var array string ms_asTribes,ms_asObjTypes,ms_asModificationTypes,ms_asResources,ms_asCastes;
+
+	var CConfig					m_xConf;
+	var string					m_sCurFile;
+	var ^CLoadSaveDialog		m_pxLS;
+
+	var ^CWizardDlg				m_pxWizarder;
+
+	var ^CSubNodeSelector		m_pxSubNodeSel;
+	var int						m_iLastSelectedIdx;
+	var procref<void,string>	m_xPathSelector;
+
+	var bool					m_bStandAlone;
+	export var bool		m_bOn;
+
+	// used for standalone mode
+	static proc void main()
+		Show(true);
+	endproc;
+
+	constructor()
+		ms_asTribes=0;
+		ms_asTribes.AddEntry("Aje");
+		ms_asTribes.AddEntry("Hu");
+		ms_asTribes.AddEntry("Ninigi");
+		ms_asTribes.AddEntry("SEAS");
+		ms_asTribes.AddEntry("Special");
+		ms_asTribes.AddEntry("World");
+
+		ms_asObjTypes=0;
+		ms_asObjTypes.AddEntry("ANML");
+		ms_asObjTypes.AddEntry("BLDG");
+		ms_asObjTypes.AddEntry("CHTR");
+		ms_asObjTypes.AddEntry("NEST");
+		ms_asObjTypes.AddEntry("SHIP");
+		ms_asObjTypes.AddEntry("VHCL");
+
+		ms_asModificationTypes=0;
+		ms_asModificationTypes.AddEntry("Hitpoints");
+		ms_asModificationTypes.AddEntry("Damage");
+		ms_asModificationTypes.AddEntry("Defence");
+		ms_asModificationTypes.AddEntry("Range");
+
+		ms_asResources=0;
+		ms_asResources.AddEntry("iron");
+		ms_asResources.AddEntry("wood");
+		ms_asResources.AddEntry("stone");
+		ms_asResources.AddEntry("food");
+		ms_asResources.AddEntry("resin");
+		ms_asResources.AddEntry("bone");
+		ms_asResources.AddEntry("hide");
+
+		ms_asCastes=0;
+		ms_asCastes.AddEntry("tec");
+		ms_asCastes.AddEntry("nat");
+		ms_asCastes.AddEntry("res");
+
+		if(!InitFromResource("options/TTEditor","Main")) then
+			return;
+		endif;
+
+		// resize to desktop
+		var ^CWindow pxDesktop=CWindowMgr.Get().GetDesktop(0);
+		if(pxDesktop!=null)then
+			SetSize(pxDesktop^.GetWidth()-4,pxDesktop^.GetHeight()-24);
+		endif;
+
+		m_pxMenu=cast<CMenu>(GetControl("Menu"));
+		var ^CDropButton pxTmp=new CDropButton({0,0},"New");
+		pxTmp^.m_xOnClick=OnNewTT;
+		m_pxMenu^.AddDropButton(pxTmp);
+		pxTmp=new CDropButton({0,0},"Load");
+		pxTmp^.m_xOnClick=OnLoadTT;
+		m_pxMenu^.AddDropButton(pxTmp);
+		pxTmp=new CDropButton({0,0},"Save");
+		pxTmp^.m_xOnClick=OnSaveTT;
+		m_pxMenu^.AddDropButton(pxTmp);
+		pxTmp=new CDropButton({0,0},"Save as");
+		pxTmp^.m_xOnClick=OnSaveAsTT;
+		m_pxMenu^.AddDropButton(pxTmp);
+
+		m_pxTribes=cast<CDropList>(GetControl("Tribe"));
+		var int i,iC=ms_asTribes.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_pxTribes^.AddItem(ms_asTribes[i]);
+		endfor;
+		m_pxTribes^.AddItem("Items");
+		m_pxTribes^.m_xOnChange=OnTribeChanged;
+
+		m_iLastSelectedIdx=-1;
+
+		m_pxTree=cast<CTreeCtrl>(GetControl("Tree"));
+		m_pxTree^.m_xOnSelect=OnSelectItem;
+		m_pxTree^.AddAccelerator("C,CONTROL,CopyItem");
+		m_pxTree^.AddAccelerator("V,CONTROL,PasteItem");
+		m_pxTree^.SetCmd("CopyItem",OnCopyItem);
+		m_pxTree^.SetCmd("PasteItem",OnPasteItem);
+
+		m_pxWizard=cast<CButton>(GetControl("Wizard"));
+		m_pxWizard^.m_xOnClick=OnWizard;
+
+		m_pxItemName=cast<CEdit>(GetControl("Name"));
+		m_pxItemName^.m_xOnChange=UpdateButtons;
+
+		m_pxAddItem=cast<CButton>(GetControl("AddItem"));
+		m_pxAddItem^.m_xOnClick=OnAddItem;
+		m_pxRenameItem=cast<CButton>(GetControl("RenameItem"));
+		m_pxRenameItem^.m_xOnClick=OnRenameItem;
+		m_pxDelItem=cast<CButton>(GetControl("DelItem"));
+		m_pxDelItem^.m_xOnClick=OnDelItem;
+		m_pxTTPath=cast<CStaticCtrl>(GetControl("TTPath"));
+		m_pxWizarder=new CWizardDlg;
+		m_pxWizarder^.m_xOnClose=OnWizardClose;
+		CWindowMgr.Get().AddTopLevelWindow(m_pxWizarder);
+		OnWizardClose();
+		m_sCurFile=m_xConf.GetS("Editor/Windows/TTEditor/LastOpenFile");
+		if(m_sCurFile.IsEmpty())then
+			OnNewTT();
+		else
+			LoadFile(m_sCurFile);
+		endif;
+		m_bOn=false;
+	endconstructor;
+
+	destructor()
+		DeleteAllItems();
+	enddestructor;
+
+	export static proc ref CTTEditor2 Get()
+		if(ms_pxInst==null)then
+			ms_pxInst=new CTTEditor2;
+		endif;
+		return ms_pxInst^;
+	endproc;
+
+	export static proc void ShutStatic()
+		if(ms_pxInst!=null)then
+			ms_pxInst^.SetVisible(false);
+			CWindowMgr.Get().RemoveTopLevelWindow(ms_pxInst);
+			delete ms_pxInst^.m_pxWizarder;
+		endif;
+		delete ms_pxInst;
+	endproc;
+
+	export static proc void Show(bool p_bStandAlone)
+		var ^CTTEditor2 pxTTE=^(CTTEditor2.Get());
+		if(pxTTE^.m_bOn)then
+//			CWindowMgr.Get().BringWindowToTop(pxTTE,false);
+			CWindowMgr.Get().RemoveTopLevelWindow(pxTTE);
+		else
+			CWindowMgr.Get().AddTopLevelWindow(pxTTE);
+//			CWindowMgr.Get().BringWindowToTop(pxTTE,true);
+		endif;
+		pxTTE^.m_bOn=!pxTTE^.m_bOn;
+		pxTTE^.SetStandAlone(p_bStandAlone);
+	endproc;
+
+	export proc void SetSelector(procref<void,string> p_xPathSel)
+		m_iLastSelectedIdx=m_pxTree^.GetSelectedItem();
+		m_pxTree^.m_xOnSelect=OnPathSelected;
+		SetCursor(11);
+		m_xPathSelector=p_xPathSel;
+	endproc;
+
+	export proc bool ContentChanged()
+		UpdateTree(false);
+		return true;
+	endproc;
+
+	proc void SetStandAlone(bool p_bStandAlone)
+		if(!p_bStandAlone)then
+			m_xOnClose=OnCloseWindow;
+		endif;
+	endproc;
+
+	proc bool OnCloseWindow()
+		CTTEditor2.ShutStatic();
+		return true;
+	endproc;
+
+	proc bool OnTribeChanged()
+		UpdateTree(true);
+		return true;
+	endproc;
+
+	class CSubNodeSelector inherit CTreeCtrl
+		export var procref<void,string> m_xPathSelector;
+
+		export constructor()
+			SetSize(150,200);
+			SetPos(CWindowMgr.Get().GetMousePos());
+			SetCursor(11);
+		endconstructor;
+
+		export proc void Init(string p_sPath,^CPropDB.CNode p_pxNode)
+			m_xOnSelect=OnPathSelected;
+			var int iRootIdx=FindItemEx(0,"Root");
+			SetItemData(iRootIdx,new CTTEditor2.CPathNode(p_sPath));
+			UpdateSubTree(0,p_pxNode,p_sPath);
+//			EnsureVisible(iRootIdx);
+		endproc;
+
+		proc int FindItemEx(int p_iParent,string p_sName)
+			var int i,iC=ItemNumChildren(p_iParent);
+			for(i=0)cond(i<iC)iter(i++)do
+				var int iIdx=GetChildItem(p_iParent,i);
+				if(GetItemText(iIdx)==p_sName)then
+					return iIdx;
+				endif;
+			endfor;
+			return AddItem(p_iParent,p_sName);
+		endproc;
+
+		proc void UpdateSubTree(int p_iNodeIdx,^CPropDB.CNode p_pxNode,string p_sPath)
+			if(p_pxNode==null)then return; endif;
+			var int i,iC=p_pxNode^.NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxSubNode=^(p_pxNode^.Get(i));
+				var string sSubPath=p_sPath+"/"+pxSubNode^.Name();
+				var int iSubNodeIdx=FindItemEx(p_iNodeIdx,pxSubNode^.Name());
+				SetItemData(iSubNodeIdx,new CTTEditor2.CPathNode(sSubPath));
+				UpdateSubTree(iSubNodeIdx,pxSubNode,sSubPath);
+			endfor;
+/*			if(iC==0)then
+				EnsureVisible(p_iNodeIdx);
+			endif;*/
+		endproc;
+
+		proc bool OnPathSelected()
+			m_xOnSelect.Clear();
+			var string sPath="none";
+			var int iSelIdx=GetSelectedItem();
+			if(iSelIdx>0)then
+				var ^CTTItem pxItemData=cast<CTTItem>(GetItemData(iSelIdx));
+				if(pxItemData!=null)then
+					sPath=pxItemData^.GetPath();
+				endif;
+			endif;
+			if(!m_xPathSelector.IsNull())then
+				m_xPathSelector.Call(sPath);
+			endif;
+			return true;
+		endproc;
+	endclass;
+
+	proc bool OnPathSelected()
+		m_pxTree^.m_xOnSelect.Clear();
+		SetCursor(1);
+		var ^CPropDB.CNode pxNode;
+		var string sPath="none";
+		var int iSelIdx=m_pxTree^.GetSelectedItem();
+		if(iSelIdx>0)then
+			var ^CTTItem pxItemData=cast<CTTItem>(m_pxTree^.GetItemData(iSelIdx));
+			if(pxItemData!=null)then
+				sPath=pxItemData^.GetPath();
+				pxNode=pxItemData^.GetNode();
+			endif;
+		endif;
+		var bool bUseSubNodeSelector=true;
+		if((pxNode!=null) && bUseSubNodeSelector)then
+			m_pxSubNodeSel=new CSubNodeSelector;
+			m_pxSubNodeSel^.m_xPathSelector=OnSubPathSelected;
+			m_pxSubNodeSel^.Init(sPath,pxNode);
+			CWindowMgr.Get().AddTopLevelWindow(m_pxSubNodeSel);
+			CWindowMgr.Get().BringWindowToTop(m_pxSubNodeSel,true);
+			CWindowMgr.Get().SetModal(m_pxSubNodeSel);
+		else
+			OnSubPathSelected(sPath);
+		endif;
+		if(m_iLastSelectedIdx!=-1)then
+			m_pxTree^.Select(m_iLastSelectedIdx);
+		endif;
+		m_iLastSelectedIdx=-1;
+		m_pxTree^.m_xOnSelect=OnSelectItem;
+		return true;
+	endproc;
+
+	proc void OnSubPathSelected(string p_sPath)
+		if(m_pxSubNodeSel!=null)then
+			m_pxSubNodeSel^.m_xPathSelector.Clear();
+			CWindowMgr.Get().ReleaseModal(m_pxSubNodeSel);
+			CWindowMgr.Get().DeleteWindowDelayed(m_pxSubNodeSel);
+			m_pxSubNodeSel=null;
+		endif;
+		SetCursor(1);
+		if(!m_xPathSelector.IsNull())then
+			m_xPathSelector.Call(p_sPath);
+		endif;
+	endproc;
+
+	proc bool OnNewTT()
+		m_xTT.Reset();
+		var int i,iC=ms_asTribes.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var int j,ijC=ms_asObjTypes.NumEntries();
+			for(j=0)cond(j<ijC)iter(j++)do
+				var int k,ikC=ms_asModificationTypes.NumEntries();
+				for(k=0)cond(k<ikC)iter(k++)do
+					var ^CPropDB.CNode pxModNode=^(m_xTT["StartTT/Modifications/"+ms_asTribes[i]+"/"+ms_asObjTypes[j]+"/"+ms_asModificationTypes[k]]);
+					var int l,ilC=ms_asCastes.NumEntries();
+					for(l=0)cond(l<ilC)iter(l++)do
+						pxModNode^.SetValue(ms_asCastes[l]+"_rel",1.0);
+					endfor;
+				endfor;
+			endfor;
+		endfor;
+		UpdateTree(true);
+		return true;
+	endproc;
+
+	proc bool OnLoadTT()
+		m_pxLS=new CLoadSaveDialog;
+		m_pxLS^.SetUniqueSettingName("TTEditorLoadSaveDlg");
+		m_pxLS^.SetFilter(m_pxLS^.AddFilter("TechTreeFile","*.ttree"));
+		CWindowMgr.Get().AddTopLevelWindow(m_pxLS);
+		m_pxLS^.SetType(0);
+		m_pxLS^.m_xOnOpen=OnOpenTTFile;
+		m_pxLS^.m_xOnClose=CloseLoadSave;
+		var string sPath=m_xConf.GetS("Editor/Windows/TTEditor/LoadSaveDialog/OpenPath");
+		if(sPath.IsEmpty())then
+			sPath=m_xConf.GetS("Editor/Windows/TTEditor/LoadSaveDialog/SavePath");
+		endif;
+		m_pxLS^.SetPath(sPath);
+		m_pxLS^.SetUniqueSettingName("TechTreeFileLoadSaveDlg");
+		return true;
+	endproc;
+
+	proc bool OnSaveTT()
+		if(!m_sCurFile.IsEmpty())then
+			if(SaveTT(m_sCurFile))then return true; endif;
+		endif;
+		return OnSaveAsTT();
+	endproc;
+
+	proc bool OnSaveAsTT()
+		m_pxLS=new CLoadSaveDialog;
+		m_pxLS^.SetFilter(m_pxLS^.AddFilter("TechTreeFile","*.ttree"));
+		CWindowMgr.Get().AddTopLevelWindow(m_pxLS);
+		m_pxLS^.SetType(1);
+		m_pxLS^.m_xOnSave=OnSaveTTFile;
+		m_pxLS^.m_xOnClose=CloseLoadSave;
+		var string sPath=m_xConf.GetS("Editor/Windows/TTEditor/LoadSaveDialog/SavePath");
+		if(sPath.IsEmpty())then
+			sPath=m_xConf.GetS("Editor/Windows/TTEditor/LoadSaveDialog/OpenPath");
+		endif;
+		m_pxLS^.SetPath(sPath);
+		m_pxLS^.SetUniqueSettingName("TechTreeFileLoadSaveDlg");
+		return true;
+	endproc;
+
+	proc void LoadFile(string p_sPath)
+		m_xTT.Reset();
+		m_xTT.Load(p_sPath);
+
+		m_sCurFile=p_sPath;
+		m_xConf.SetS("Editor/Windows/TTEditor/LastOpenFile",m_sCurFile);
+
+		// convert animation to list
+		if(false)then
+			var int i,iC=ms_asTribes.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxWeapons=^(m_xTT["StartTT/Objects/"+ms_asTribes[i]+"/Weapons"]);
+				var int j,ijC=pxWeapons^.NumSubs();
+				for(j=0)cond(j<ijC)iter(j++)do
+					var ^CPropDB.CNode pxWeapon=^(pxWeapons^.Get(j));
+					var ^CPropDB.CNode pxAnim=pxWeapon^.Get("animation");
+					if(pxAnim==null)then continue; endif;
+					var ^CPropDB.CNode pxAnims=^(CContent.GetSub(pxWeapon^,"Animations"));
+					pxAnims^.SetValue(pxAnims^.NumSubs().ToString(),pxAnim^.Value());
+					pxAnim^.SetValue("","");
+					pxAnim^.Clear();
+				endfor;
+			endfor;
+		endif;
+
+		// convert speed, gravity & range
+		if(false)then
+			var int i,iC=ms_asTribes.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxWeapons=^(m_xTT["StartTT/Objects/"+ms_asTribes[i]+"/Weapons"]);
+				var int j,ijC=pxWeapons^.NumSubs();
+				for(j=0)cond(j<ijC)iter(j++)do
+					var ^CPropDB.CNode pxWeapon=^(pxWeapons^.Get(j));
+					var ^CPropDB.CNode pxRange=pxWeapon^.Get("range");
+					var ^CPropDB.CNode pxSpeed=pxWeapon^.Get("bulletspeed");
+					var ^CPropDB.CNode pxFallOff=pxWeapon^.Get("bulletfalloff");
+					var real fRange,fSpeed,fGravity;
+					if(pxRange!=null)then fRange=pxRange^.ValueR(); endif;
+					if(pxSpeed!=null)then fSpeed=pxSpeed^.ValueR(); endif;
+					if(pxFallOff!=null)then fGravity=pxFallOff^.ValueR(); endif;
+					if((fRange>0.0f) && (fRange>CWeaponEdit.MaxRange(fSpeed,fGravity)))then
+						fGravity=Math.Floor((fSpeed*fSpeed)/(fRange+20.0f));
+						pxWeapon^.SetValue("bulletfalloff",fGravity);
+					endif;
+				endfor;
+			endfor;
+		endif;
+
+		// convert parts gfx to list
+		if(false)then
+			var int i,iC=ms_asTribes.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxWeapons=^(m_xTT["StartTT/Objects/"+ms_asTribes[i]+"/Weapons"]);
+				var int j,ijC=pxWeapons^.NumSubs();
+				for(j=0)cond(j<ijC)iter(j++)do
+					var ^CPropDB.CNode pxWeapon=^(pxWeapons^.Get(j));
+					var ^CPropDB.CNode pxParts=pxWeapon^.Get("Parts");
+					if(pxParts==null)then continue; endif;
+					var int k,ikC=pxParts^.NumSubs();
+					for(k=0)cond(k<ikC)iter(k++)do
+						var ^CPropDB.CNode pxPart=^(pxParts^.Get(k));
+						var ^CPropDB.CNode pxGfx=pxPart^.Get("Gfx");
+						if(pxGfx==null)then continue; endif;
+						var string sVal=pxGfx^.Value();
+						pxGfx^.SetValue("","");
+						pxGfx^.Clear();
+						pxGfx^.SetValue(pxGfx^.NumSubs().ToString(),sVal);
+					endfor;
+				endfor;
+			endfor;
+		endif;
+
+		// convert growup_duration from virtual days to gametime-seconds
+		if(false)then
+			var int i,iC=ms_asTribes.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxObjects=^(m_xTT["StartTT/Objects/"+ms_asTribes[i]]);
+				var int j,ijC=ms_asObjTypes.NumEntries();
+				for(j=0)cond(j<ijC)iter(j++)do
+					var ^CPropDB.CNode pxObjectsNode=^(CContent.GetSub(pxObjects^,ms_asObjTypes[j]));
+					var int k,ikC=pxObjectsNode^.NumSubs();
+					for(k=0)cond(k<ikC)iter(k++)do
+						var ^CPropDB.CNode pxObjNode=^(pxObjectsNode^.Get(k));
+						var real fValue=pxObjNode^.GetValueR("growup_duration");
+						fValue*=600.0;
+						pxObjNode^.SetValue("growup_duration",fValue);
+					endfor;
+				endfor;
+			endfor;
+		endif;
+
+		UpdateTree(true);
+	endproc;
+
+	proc bool OnOpenTTFile()
+		LoadFile(m_pxLS^.GetSelectedFile());
+		// load/save dialog
+
+		var string sPath=m_pxLS^.GetSelectedFile();
+		sPath=sPath.Left(sPath.FindRev('/'));
+		m_xConf.SetS("Editor/Windows/TTEditor/LoadSaveDialog/OpenPath",sPath);
+
+		CloseLoadSave();
+		return true;
+	endproc;
+
+	proc bool CloseLoadSave()
+		if(m_pxLS!=null)then
+			m_pxLS^.Destroy();
+			m_pxLS=null;
+		endif;
+		return true;
+	endproc;
+
+	proc bool RemoveEmptyNodes(^CPropDB.CNode p_pxOrg,^CPropDB.CNode p_pxRes)
+		if((p_pxOrg==null)||(p_pxRes==null))then return true; endif;
+		var bool bEmpty=p_pxOrg^.Value().IsEmpty();
+		var int i,iC=p_pxOrg^.NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPropDB.CNode pxT=^(p_pxOrg^.Get(i));
+			var bool bSubEmpty=RemoveEmptyNodes(pxT,^(CContent.GetSub(p_pxRes^,pxT^.Name())));
+			if(bSubEmpty)then
+				p_pxRes^.Remove(pxT^.Name());
+			endif;
+			bEmpty=bEmpty&&bSubEmpty;
+		endfor;
+		if(!bEmpty)then
+			p_pxRes^.Value()=p_pxOrg^.Value();
+		endif;
+		return bEmpty;
+	endproc;
+
+	proc void GenerateAntiActions(string p_sPath,^CPropDB.CNode p_pxFilter,^CPropDB.CNode p_pxAction)
+		if((p_pxAction==null)||(p_pxFilter==null))then return; endif;
+		var int iLocIdx=p_pxAction^.Find("locations");
+		// not an action
+		if(iLocIdx==-1)then
+			var int i,iC=p_pxAction^.NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxWalk=^(p_pxAction^.Get(i));
+				GenerateAntiActions(p_sPath+"/"+pxWalk^.Name(),^(CContent.GetSub(p_pxFilter^,pxWalk^.Name())),pxWalk);
+			endfor;
+		else
+			p_pxFilter^.SetValue("priority","10000");
+			var ^CPropDB.CNode pxModificators=^(CTTEditor2.CContent.GetSub(p_pxFilter^,"Modificators"));
+			var ^CPropDB.CNode pxMod=^(CTTEditor2.CContent.GetSub(pxModificators^,"DisableAction"));
+			pxMod^.SetValue("op","invisible");
+			pxMod^.SetValue("path",p_sPath);
+		endif;
+	endproc;
+
+	proc void GenerateBuildObjects(string p_sPath,^CPropDB.CNode p_pxFilter,^CPropDB.CNode p_pxBuildings)
+		if((p_pxBuildings==null)||(p_pxFilter==null))then return; endif;
+		var int i,iC=p_pxBuildings^.NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sName=p_pxBuildings^.Get(i).Name();
+			var ^CPropDB.CNode pxFilter=^(CContent.GetSub(p_pxFilter^,sName));
+			pxFilter^.SetValue("priority","10");
+			var ^CPropDB.CNode pxModificators=^(CTTEditor2.CContent.GetSub(pxFilter^,"Modificators"));
+			var ^CPropDB.CNode pxMod=^(CTTEditor2.CContent.GetSub(pxModificators^,"AddBuildObject"));
+			pxMod^.SetValue("op","append");
+			pxMod^.SetValue("path",p_sPath+"/"+sName+"/build");
+			pxMod^.SetValue("value","1");
+		endfor;
+	endproc;
+
+	proc bool SaveTT(string p_sFile)
+		m_sCurFile=p_sFile;
+
+		begin BuildObjects;
+			var int i,iC=ms_asTribes.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var string sTribe=ms_asTribes[i];
+				var ^CPropDB.CNode pxBuild=^(m_xTT["Filters/"+sTribe+"/BuildObjects"]);
+				pxBuild^.Clear();
+				GenerateBuildObjects("/Objects/"+sTribe+"/BuildObjects",pxBuild,^(m_xTT["StartTT/Objects/"+sTribe+"/BLDG"]));
+			endfor;
+		end BuildObjects;
+
+		begin AntiAction;
+			var ^CPropDB.CNode pxAnti=^(m_xTT["Filters/AntiActions"]);
+			pxAnti^.Clear();
+			GenerateAntiActions("/Actions",pxAnti,^(m_xTT["StartTT/Actions"]));
+		end AntiAction;
+
+		var CPropDB xTT;
+		RemoveEmptyNodes(^(m_xTT.GetRoot()),^(xTT.GetRoot()));
+		// generate anti-action-filters
+		return xTT.Save(p_sFile);
+	endproc;
+
+	proc bool OnSaveTTFile()
+		var string sPath=m_pxLS^.GetSelectedFile();
+		sPath=sPath.Left(sPath.FindRev('/'));
+		m_xConf.SetS("Editor/Windows/TTEditor/LoadSaveDialog/SavePath",sPath);
+
+		SaveTT(m_pxLS^.GetSelectedFile());
+
+		CloseLoadSave();
+		return true;
+	endproc;
+
+	proc bool OnCopyItem()
+		var int iSelIdx=m_pxTree^.GetSelectedItem();
+		if(iSelIdx>0)then
+			var ^CTTItem pxItemData=cast<CTTItem>(m_pxTree^.GetItemData(iSelIdx));
+			if((pxItemData!=null)&&pxItemData^.CanCopy())then
+//				pxItemData^.NewItem(m_pxItemName^.GetText());
+				m_xClipBoard.Reset();
+				m_xClipBoard.GetRoot().Value()=pxItemData^.GetNode()^.Value();
+				m_xClipBoard.GetRoot().Join(pxItemData^.GetNode());
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnPasteItem()
+		var int iSelIdx=m_pxTree^.GetSelectedItem();
+		if((iSelIdx>0)&&(!m_pxItemName^.GetText().IsEmpty()))then
+			var ^CTTItem pxItemData=cast<CTTItem>(m_pxTree^.GetItemData(iSelIdx));
+			if((pxItemData!=null)&&pxItemData^.CanAdd())then
+				var ^CPropDB.CNode pxNew=pxItemData^.NewItem(m_pxItemName^.GetText());
+				pxNew^.Value()=m_xClipBoard.GetRoot().Value();
+				pxNew^.Join(^(m_xClipBoard.GetRoot()));
+				UpdateTree(false);
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	proc bool UpdateButtons()
+		var bool bCanWizard=false;
+		var bool bCanAdd=false;
+		var bool bCanDel=false;
+		var bool bCanRename=false;
+
+		var int iSelIdx=m_pxTree^.GetSelectedItem();
+		if(iSelIdx>0)then
+			var ^CTTItem pxItemData=cast<CTTItem>(m_pxTree^.GetItemData(iSelIdx));
+			if(pxItemData!=null)then
+				bCanWizard=(pxItemData^.GetWizard()!=null);
+				bCanAdd=pxItemData^.CanAdd();
+				bCanDel=pxItemData^.CanDel();
+			endif;
+			var int iParent=m_pxTree^.GetParentItem(iSelIdx);
+			if(iParent>0)then
+				var ^CTTItem pxItemData=cast<CTTItem>(m_pxTree^.GetItemData(iParent));
+				if(pxItemData!=null)then
+					bCanRename=pxItemData^.CanAdd();
+				endif;
+			endif;
+		endif;
+
+		m_pxWizard^.SetDisabled(!bCanWizard);
+		m_pxAddItem^.SetDisabled(!bCanAdd || m_pxItemName^.GetText().IsEmpty());
+		m_pxRenameItem^.SetDisabled(!bCanRename || m_pxItemName^.GetText().IsEmpty() ||
+									(m_pxItemName^.GetText()==m_pxTree^.GetSelectedItemAsString()));
+		m_pxDelItem^.SetDisabled(!bCanDel);
+		return true;
+	endproc;
+
+	proc bool OnWizard()
+		var int iSelIdx=m_pxTree^.GetSelectedItem();
+		if(iSelIdx>0)then
+			var ^CTTItem pxItemData=cast<CTTItem>(m_pxTree^.GetItemData(iSelIdx));
+			if(pxItemData!=null)then
+				m_pxWizarder^.SetWizard(pxItemData^.GetWizard());
+				m_pxWizarder^.SetVisible(true);
+				CWindowMgr.Get().BringWindowToTop(m_pxWizarder,true);
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnWizardClose()
+		m_pxWizarder^.SetVisible(false);
+		CWindowMgr.Get().BringWindowToTop(this,true);
+		return true;
+	endproc;
+
+	proc bool OnAddItem()
+		var int iSelIdx=m_pxTree^.GetSelectedItem();
+		if(iSelIdx>0)then
+			var ^CTTItem pxItemData=cast<CTTItem>(m_pxTree^.GetItemData(iSelIdx));
+			if(pxItemData!=null)then
+				pxItemData^.NewItem(m_pxItemName^.GetText());
+			endif;
+		endif;
+		UpdateTree(false);
+		return true;
+	endproc;
+
+	proc bool OnRenameItem()
+		var int iSelIdx=m_pxTree^.GetSelectedItem();
+		if(iSelIdx>0)then
+			var int iParent=m_pxTree^.GetParentItem(iSelIdx);
+			if(iParent>0)then
+				var ^CTTItem pxItemData=cast<CTTItem>(m_pxTree^.GetItemData(iParent));
+				if(pxItemData!=null)then
+					var ^CPropDB.CNode pxN=pxItemData^.GetNode();
+					if(pxN!=null)then
+						var string sOldName=m_pxTree^.GetItemText(iSelIdx);
+						var string sNewName=m_pxItemName^.GetText();
+
+						var ^CPropDB.CNode pxOld=pxN^.Get(sOldName);
+						var ^CPropDB.CNode pxNew=^(CContent.GetSub(pxN^,sNewName));
+						pxNew^.Value()=pxOld^.Value();
+						pxNew^.Join(pxOld);
+
+						pxN^.Remove(sOldName);
+						m_pxTree^.SetItemText(iSelIdx,sNewName);
+						UpdateTree(false);
+						m_pxTree^.Select(iSelIdx);
+					endif;
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnDelItem()
+		var int iSelIdx=m_pxTree^.GetSelectedItem();
+		if(iSelIdx>0)then
+			var ^CTTItem pxItemData=cast<CTTItem>(m_pxTree^.GetItemData(iSelIdx));
+			if(pxItemData!=null)then
+				if(pxItemData^.GetNode()!=null)then
+					pxItemData^.GetNode()^.Clear();
+				endif;
+			endif;
+			delete m_pxTree^.GetItemData(iSelIdx);
+			m_pxTree^.DeleteItem(iSelIdx,true);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnSelectItem()
+		if(m_pxContent!=null)then
+			delete m_pxContent;
+		endif;
+
+		var string sTTPath;
+		var int iSelIdx=m_pxTree^.GetSelectedItem();
+		if(iSelIdx>0)then
+			var ^CTTItem pxItemData=cast<CTTItem>(m_pxTree^.GetItemData(iSelIdx));
+			if(pxItemData!=null)then
+				sTTPath=pxItemData^.GetPath();
+				m_pxContent=pxItemData^.GetEditor();
+				if(m_pxContent!=null)then
+					m_pxContent^.Init(pxItemData^.GetNode());
+				endif;
+			endif;
+		endif;
+
+		m_pxTTPath^.SetText(sTTPath);
+		if(m_pxContent!=null)then
+			AddChildWithLayout(m_pxContent,"content");
+		endif;
+		UpdateButtons();
+		return true;
+	endproc;
+
+	proc void DeleteAllItems()
+		CTTItem.DeleteAllItems();
+		m_pxTree^.Clear();
+	endproc;
+
+	export proc string GetTribe()
+		return m_pxTribes^.GetText();
+	endproc;
+
+	export proc string GetResourcesPath()
+		return "/Resources/"+GetTribe();
+	endproc;
+
+	export proc ^CPropDB.CNode GetResourcesNode()
+		return ^(m_xTT["StartTT"+GetResourcesPath()]);
+	endproc;
+
+	export proc string GetModificationsPath()
+		return "/Modifications/"+GetTribe();
+	endproc;
+
+	export proc ^CPropDB.CNode GetModificationsNode()
+		return ^(m_xTT["StartTT"+GetModificationsPath()]);
+	endproc;
+
+	export proc string GetObjectsPath()
+		return "/Objects/"+GetTribe();
+	endproc;
+
+	export proc ^CPropDB.CNode GetObjectsNode()
+		return ^(m_xTT["StartTT"+GetObjectsPath()]);
+	endproc;
+
+	export proc string GetWeaponsPath()
+		return "/Objects/"+GetTribe()+"/Weapons";
+	endproc;
+
+	export proc ^CPropDB.CNode GetWeaponsNode()
+		return ^(m_xTT["StartTT"+GetWeaponsPath()]);
+	endproc;
+
+	export proc string GetActionsPath()
+		return "/Actions/"+GetTribe();
+	endproc;
+
+	export proc ^CPropDB.CNode GetActionsNode()
+		return ^(m_xTT["StartTT"+GetActionsPath()]);
+	endproc;
+
+	export proc string GetFiltersPath()
+		return "/Filters/"+GetTribe();
+	endproc;
+
+	export proc ^CPropDB.CNode GetFiltersNode()
+		return ^(m_xTT["Filters/"+GetTribe()]);
+	endproc;
+
+
+	export proc string GetItemObjectsPath()
+		return "/Items/Objects";
+	endproc;
+
+	export proc ^CPropDB.CNode GetItemObjectsNode()
+		return ^(m_xTT["StartTT"+GetItemObjectsPath()]);
+	endproc;
+
+	export proc string GetItemWeaponsPath()
+		return "/Items/Weapons";
+	endproc;
+
+	export proc ^CPropDB.CNode GetItemWeaponsNode()
+		return ^(m_xTT["StartTT"+GetItemWeaponsPath()]);
+	endproc;
+
+
+	proc int FindItem(int p_iParent,string p_sName)
+		var int i,iC=m_pxTree^.ItemNumChildren(p_iParent);
+		for(i=0)cond(i<iC)iter(i++)do
+			var int iIdx=m_pxTree^.GetChildItem(p_iParent,i);
+			if(m_pxTree^.GetItemText(iIdx)==p_sName)then
+				return iIdx;
+			endif;
+		endfor;
+		return m_pxTree^.AddItem(p_iParent,p_sName);
+	endproc;
+
+	proc void ReplaceItemData(int p_iIdx,^CItemData p_pxItemData)
+		delete m_pxTree^.GetItemData(p_iIdx);
+		m_pxTree^.SetItemData(p_iIdx,p_pxItemData);
+	endproc;
+
+	proc bool UpdateTree(bool p_bClear)
+		if(p_bClear)then
+			DeleteAllItems();
+		endif;
+
+		if(GetTribe()=="Items")then
+			begin;
+				var int iItemsIdx=FindItem(0,"Objects");
+				ReplaceItemData(iItemsIdx,new CCategory(GetItemObjectsPath(),GetItemObjectsNode()));
+				var int i,iC=GetItemObjectsNode()^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CPropDB.CNode pxItemNode=^(GetItemObjectsNode()^.Get(i));
+					var string sItemPath=GetItemObjectsPath()+"/"+pxItemNode^.Name();
+					ReplaceItemData(FindItem(iItemsIdx,pxItemNode^.Name()),new CItemObject(sItemPath,pxItemNode));
+				endfor;
+			end;
+
+			begin;
+				var int iWeaponsIdx=FindItem(0,"Weapons");
+				ReplaceItemData(iWeaponsIdx,new CCategory(GetItemWeaponsPath(),GetItemWeaponsNode()));
+				var int i,iC=GetItemWeaponsNode()^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CPropDB.CNode pxWeaponNode=^(GetItemWeaponsNode()^.Get(i));
+					var string sWeaponPath=GetItemWeaponsPath()+"/"+pxWeaponNode^.Name();
+					ReplaceItemData(FindItem(iWeaponsIdx,pxWeaponNode^.Name()),new CWeapon(sWeaponPath,pxWeaponNode));
+				endfor;
+			end;
+
+			begin;
+				var int iFiltersIdx=FindItem(0,"Filters");
+				ReplaceItemData(iFiltersIdx,new CFilters("","",GetFiltersPath(),GetFiltersNode()));
+				var int i,iC=GetFiltersNode()^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CPropDB.CNode pxFilterNode=^(GetFiltersNode()^.Get(i));
+					var string sFilterPath=GetFiltersPath()+"/"+pxFilterNode^.Name();
+					ReplaceItemData(FindItem(iFiltersIdx,pxFilterNode^.Name()),new CFilter(sFilterPath,pxFilterNode));
+				endfor;
+			end;
+		else
+			ReplaceItemData(FindItem(0,"Resources"),new CResources(GetResourcesPath(),GetResourcesNode()));
+
+			begin;
+				var int iModIdx=FindItem(0,"Modifications");
+				var int i,iC=ms_asObjTypes.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var int iMod=FindItem(iModIdx,ms_asObjTypes[i]);
+					var string sModPath=GetModificationsPath()+"/"+ms_asObjTypes[i];
+					var ^CPropDB.CNode pxMod=^(CContent.GetSub(GetModificationsNode()^,ms_asObjTypes[i]));
+					ReplaceItemData(iMod,new CModifications(sModPath,pxMod));
+				endfor;
+			end;
+
+			begin;
+				var int iObjIdx=FindItem(0,"Objects");
+				var int i,iC=ms_asObjTypes.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CPropDB.CNode pxObjectsNode=^(CContent.GetSub(GetObjectsNode()^,ms_asObjTypes[i]));
+					var int iObjClassIdx=FindItem(iObjIdx,ms_asObjTypes[i]);
+					ReplaceItemData(iObjClassIdx,new CObjects(ms_asObjTypes[i],GetObjectsPath()+"/"+ms_asObjTypes[i],pxObjectsNode));
+					var int j,ijC=pxObjectsNode^.NumSubs();
+					for(j=0)cond(j<ijC)iter(j++)do
+						var ^CPropDB.CNode pxObjNode=^(pxObjectsNode^.Get(j));
+						var string sObjName=pxObjNode^.Name();
+						var string sObjPath=GetObjectsPath()+"/"+ms_asObjTypes[i]+"/"+sObjName;
+						var int iObjIdx=FindItem(iObjClassIdx,sObjName);
+						ReplaceItemData(iObjIdx,new CObject(sObjPath,pxObjNode));
+//						var bool bSkip=pxObjNode^.GetValueI("skip_sdk")==1;
+						var bool bSkip=pxObjNode^.Find("skip_sdk")!=-1;
+						if(!bSkip&&(ms_asObjTypes[i]=="CHTR" || ms_asObjTypes[i]=="ANML" || ms_asObjTypes[i]=="VHCL" || ms_asObjTypes[i]=="SHIP"))then
+							var int k,ikC=5;
+							for(k=1)cond(k<ikC)iter(k++)do
+//								CMirageSDKMgr.Debug("");
+//								CMirageSDKMgr.Debug("sObjName: "+sObjName);
+//								CMirageSDKMgr.Debug("sObjPath: "+sObjPath);
+								var ^CPropDB.CNode pxFilterNode=^(m_xTT["Filters/"+GetTribe()+"/Upgrades/"+sObjName+"/Lvl"+(k+1).ToString()+"_Bonus"]);
+								pxFilterNode^.SetValue("priority","1000");
+								var ^CPropDB.CNode pxData = ^(CContent.GetSub(pxFilterNode^,"LevelBonusData"));
+								var bool bUseMods=false;
+								if(pxData^.NumSubs()==0) then
+									pxData^.Join(pxObjNode);
+									bUseMods=true;
+								endif;
+//								CMirageSDKMgr.Debug("bUseMods: "+bUseMods.ToString());
+								ReplaceItemData(FindItem(iObjIdx,"Level "+(k+1).ToString()),new CObject(sObjPath,pxData));
+								var ^CPropDB.CNode pxMods = ^(CContent.GetSub(pxFilterNode^, "Modificators"));
+								if(bUseMods)then
+									var int l,ilC=pxMods^.NumSubs();
+//									CMirageSDKMgr.Debug("ilC: "+ilC.ToString());
+									for(l=0)cond(l<ilC)iter(l++)do
+										var ^CPropDB.CNode pxMod = ^(pxMods^.Get(l));
+										if(pxMod==null)then continue; endif;
+//										CMirageSDKMgr.Debug("ok 1");
+										var ^CPropDB.CNode pxValueSub = ^(pxMod^.Get("value"));
+										if(pxValueSub==null)then continue; endif;
+//										CMirageSDKMgr.Debug("ok 2");
+										var int iType = ScanValue(pxValueSub);
+										var string sOperation = pxMod^.GetValueS("op");
+										var string sPath = pxMod^.GetValueS("path");
+										var int iShort=sPath.Find(sObjName);
+										var string sShort = sPath.Mid(iShort+sObjName.GetLength()+1);
+										var string sAttrib, sPrefix;
+										var int iPos = sPath.FindRev('/');
+										if(iPos!=-1)then
+											sAttrib = sPath.Mid(iPos+1);
+										endif;
+										var ^CPropDB.CNode pxSubToChange=pxData;
+										while(sShort.Find('/')!=-1)do
+											if(pxSubToChange==null)then
+												break;
+											endif;
+											sPrefix=sShort.Left(sShort.Find('/'));
+											sShort=sShort.Mid(sPrefix.GetLength()+1);
+											pxSubToChange=^(pxSubToChange^.Get(sPrefix));
+										endwhile;
+										if(pxSubToChange==null)then continue; endif;
+//										CMirageSDKMgr.Debug("ok 3");
+//										CMirageSDKMgr.Debug("sAttrib: "+sAttrib);
+//										CMirageSDKMgr.Debug("sOperation: "+sOperation);
+//										CMirageSDKMgr.Debug("iType: "+iType.ToString());
+//										pxSubToChange = ^(pxSubNode^.Get(sAttrib));
+										if(iType==TYPE_STRING)then
+											pxSubToChange^.SetValue(sAttrib,pxValueSub^.Value());
+										elseif(iType==TYPE_INT)then
+											if(sOperation=="add")then
+												pxSubToChange^.SetValue(sAttrib,pxSubToChange^.GetValueI(sAttrib)+pxValueSub^.ValueI());
+											elseif(sOperation=="multiply")then
+												pxSubToChange^.SetValue(sAttrib,(pxSubToChange^.GetValueI(sAttrib).ToReal()*pxValueSub^.ValueI().ToReal()).ToInt());
+											elseif(sOperation=="replace")then
+												pxSubToChange^.SetValue(sAttrib,pxValueSub^.Value());
+											endif;
+										elseif(iType==TYPE_FLOAT)then
+											if(sOperation=="add")then
+												pxSubToChange^.SetValue(sAttrib,(pxSubToChange^.GetValueR(sAttrib)+pxValueSub^.ValueR()));
+											elseif(sOperation=="multiply")then
+												pxSubToChange^.SetValue(sAttrib,(pxSubToChange^.GetValueR(sAttrib)*pxValueSub^.ValueR()));
+											elseif(sOperation=="replace")then
+												pxSubToChange^.SetValue(sAttrib,pxValueSub^.Value());
+											endif;
+										endif;
+									endfor;
+								endif;
+								pxMods^.Clear();
+								CContent.CreateLevelFilter(sObjPath, pxObjNode, pxData, pxFilterNode);
+							endfor;
+						endif;
+					endfor;
+				endfor;
+			end;
+
+			begin;
+				var ^CPropDB.CNode pxWeaponsNode=GetWeaponsNode();
+				var int iWeaponsIdx=FindItem(0,"Weapons");
+				ReplaceItemData(iWeaponsIdx,new CCategory(GetWeaponsPath(),pxWeaponsNode));
+				var int i,iC=pxWeaponsNode^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CPropDB.CNode pxWeaponNode=^(pxWeaponsNode^.Get(i));
+					var string sWeaponPath=GetWeaponsPath()+"/"+pxWeaponNode^.Name();
+					var int iWeaponIdx=FindItem(iWeaponsIdx,pxWeaponNode^.Name());
+					ReplaceItemData(iWeaponIdx,new CWeapon(sWeaponPath,pxWeaponNode));
+				endfor;
+			end;
+
+			begin;
+				var int iActIdx=FindItem(0,"Actions");
+				begin;
+					var ^CPropDB.CNode pxUpgradesNode=^(CContent.GetSub(GetActionsNode()^,"Upgrades"));
+					var int iUpgradeIdx=FindItem(iActIdx,"Upgrades");
+					ReplaceItemData(iUpgradeIdx,new CCategory(GetActionsPath()+"/Upgrades",pxUpgradesNode));
+					begin Actions;
+						var int i,iC=pxUpgradesNode^.NumSubs();
+						for(i=0)cond(i<iC)iter(i++)do
+							var string sObjName=pxUpgradesNode^.Get(i).Name();
+							var int iObjIdx=FindItem(iUpgradeIdx,sObjName);
+							ReplaceItemData(iObjIdx,new CActions("Upgrades",sObjName,GetActionsPath()+"/Upgrades/"+sObjName,^(pxUpgradesNode^.Get(i))));
+							var int j,ijC=pxUpgradesNode^.Get(i).NumSubs();
+							for(j=0)cond(j<ijC)iter(j++)do
+								var ^CPropDB.CNode pxActionNode=^(pxUpgradesNode^.Get(i).Get(j));
+								var string sUpgradePath=GetActionsPath()+"/Upgrades/"+sObjName+"/"+pxActionNode^.Name();
+								var int iActionIdx=FindItem(iObjIdx,pxActionNode^.Name());
+								ReplaceItemData(iActionIdx,new CAction(sUpgradePath,pxActionNode));
+							endfor;
+						endfor;
+					end Actions;
+					begin Objects;
+						var int i,iC=ms_asObjTypes.NumEntries();
+						for(i=0)cond(i<iC)iter(i++)do
+							var ^CPropDB.CNode pxObjectsNode=^(CContent.GetSub(GetObjectsNode()^,ms_asObjTypes[i]));
+							var int j,ijC=pxObjectsNode^.NumSubs();
+							for(j=0)cond(j<ijC)iter(j++)do
+								var string sObjName=pxObjectsNode^.Get(j).Name();
+								var ^CPropDB.CNode pxUpgradeObj=^(CContent.GetSub(pxUpgradesNode^,sObjName));
+								var int iObjIdx=FindItem(iUpgradeIdx,sObjName);
+								ReplaceItemData(iObjIdx,new CActions("Upgrades",sObjName,GetActionsPath()+"/Upgrades/"+sObjName,pxUpgradeObj));
+								var int k,ikC=pxUpgradeObj^.NumSubs();
+								for(k=0)cond(k<ikC)iter(k++)do
+									var ^CPropDB.CNode pxActionNode=^(pxUpgradeObj^.Get(k));
+									var string sUpgradePath=GetActionsPath()+"/Upgrades/"+sObjName+"/"+pxActionNode^.Name();
+									var int iActionIdx=FindItem(iObjIdx,pxActionNode^.Name());
+									ReplaceItemData(iActionIdx,new CAction(sUpgradePath,pxActionNode));
+								endfor;
+							endfor;
+						endfor;
+					end Objects;
+				end;
+
+				begin;
+					var ^CPropDB.CNode pxInventNode=^(CContent.GetSub(GetActionsNode()^,"Invent"));
+					var int iInventIdx=FindItem(iActIdx,"Invent");
+					ReplaceItemData(iInventIdx,new CCategory(GetActionsPath()+"/Invent",pxInventNode));
+					var int i,iC=pxInventNode^.NumSubs();
+					for(i=0)cond(i<iC)iter(i++)do
+						var ^CPropDB.CNode pxActionNode=^(pxInventNode^.Get(i));
+						var string sActionPath=GetActionsPath()+"/Invent/"+pxActionNode^.Name();
+						var int iActionIdx=FindItem(iInventIdx,pxActionNode^.Name());
+						ReplaceItemData(iActionIdx,new CAction(sActionPath,pxActionNode));
+					endfor;
+				end;
+
+				begin;
+					var int iBuildIdx=FindItem(iActIdx,"Build");
+					var ^CPropDB.CNode pxBuildNode=^(CContent.GetSub(GetActionsNode()^,"Build"));
+					var int i,iC=ms_asObjTypes.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						var ^CPropDB.CNode pxObjClassNode=^(CContent.GetSub(pxBuildNode^,ms_asObjTypes[i]));
+						var int iObjClassIdx=FindItem(iBuildIdx,ms_asObjTypes[i]);
+						ReplaceItemData(iObjClassIdx,new CActions("Build",ms_asObjTypes[i],GetActionsPath()+"/Build/"+ms_asObjTypes[i],pxObjClassNode));
+						var int j,ijC=pxObjClassNode^.NumSubs();
+						for(j=0)cond(j<ijC)iter(j++)do
+							var ^CPropDB.CNode pxActionNode=^(pxObjClassNode^.Get(j));
+							var string sActionPath=GetActionsPath()+"/Build/"+ms_asObjTypes[i]+"/"+pxActionNode^.Name();
+							var int iActionIdx=FindItem(iObjClassIdx,pxActionNode^.Name());
+							ReplaceItemData(iActionIdx,new CAction(sActionPath,pxActionNode));
+						endfor;
+					endfor;
+				end;
+
+				begin;
+					var int iMovesIdx=FindItem(iActIdx,"Moves");
+					var ^CPropDB.CNode pxMovesNode=^(CContent.GetSub(GetActionsNode()^,"Moves"));
+					var int i,iC=ms_asObjTypes.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						var ^CPropDB.CNode pxObjClassNode=^(CContent.GetSub(pxMovesNode^,ms_asObjTypes[i]));
+						var int iObjClassIdx=FindItem(iMovesIdx,ms_asObjTypes[i]);
+						ReplaceItemData(iObjClassIdx,new CCategory(GetActionsPath()+"/Moves/"+ms_asObjTypes[i],pxObjClassNode));
+						var int j,ijC=pxObjClassNode^.NumSubs();
+						for(j=0)cond(j<ijC)iter(j++)do
+							var ^CPropDB.CNode pxActionNode=^(pxObjClassNode^.Get(j));
+							var string sActionPath=GetActionsPath()+"/Moves/"+ms_asObjTypes[i]+"/"+pxActionNode^.Name();
+							var int iActionIdx=FindItem(iObjClassIdx,pxActionNode^.Name());
+							ReplaceItemData(iActionIdx,new CAction(sActionPath,pxActionNode));
+						endfor;
+					endfor;
+				end;
+			end;
+
+			begin;
+				var int iFilterIdx=FindItem(0,"Filters");
+				begin;
+					var ^CPropDB.CNode pxUpgradesNode=^(CContent.GetSub(GetFiltersNode()^,"Upgrades"));
+					var int iUpgradeIdx=FindItem(iFilterIdx,"Upgrades");
+					ReplaceItemData(iUpgradeIdx,new CCategory(GetFiltersPath()+"/Upgrades",pxUpgradesNode));
+					begin Upgrades;
+						var int i,iC=pxUpgradesNode^.NumSubs();
+						for(i=0)cond(i<iC)iter(i++)do
+							var string sObjName=pxUpgradesNode^.Get(i).Name();
+							var int iObjIdx=FindItem(iUpgradeIdx,sObjName);
+							ReplaceItemData(iObjIdx,new CFilters("Upgrades",sObjName,GetFiltersPath()+"/Upgrades/"+sObjName,^(pxUpgradesNode^.Get(i))));
+							var int j,ijC=pxUpgradesNode^.Get(i).NumSubs();
+							for(j=0)cond(j<ijC)iter(j++)do
+								var string sUpgradeName=pxUpgradesNode^.Get(i).Get(j).Name();
+								ReplaceItemData(FindItem(iObjIdx,sUpgradeName),new CFilter(GetFiltersPath()+"/Upgrades/"+sObjName+"/"+sUpgradeName,^(pxUpgradesNode^.Get(i).Get(j))));
+							endfor;
+						endfor;
+					end Upgrades;
+					begin Objects;
+						var int i,iC=ms_asObjTypes.NumEntries();
+						for(i=0)cond(i<iC)iter(i++)do
+							var ^CPropDB.CNode pxObjectsNode=^(CContent.GetSub(GetObjectsNode()^,ms_asObjTypes[i]));
+							var int j,ijC=pxObjectsNode^.NumSubs();
+							for(j=0)cond(j<ijC)iter(j++)do
+								var string sObjName=pxObjectsNode^.Get(j).Name();
+								var ^CPropDB.CNode pxUpgradeObj=^(CContent.GetSub(pxUpgradesNode^,sObjName));
+								var int iObjIdx=FindItem(iUpgradeIdx,sObjName);
+								ReplaceItemData(iObjIdx,new CFilters("Upgrades",sObjName,GetFiltersPath()+"/Upgrades/"+sObjName,pxUpgradeObj));
+								var int k,ikC=pxUpgradeObj^.NumSubs();
+								for(k=0)cond(k<ikC)iter(k++)do
+									var string sUpgradeName=pxUpgradeObj^.Get(k).Name();
+									ReplaceItemData(FindItem(iObjIdx,sUpgradeName),new CFilter(GetFiltersPath()+"/Upgrades/"+sObjName+"/"+sUpgradeName,^(pxUpgradeObj^.Get(k))));
+								endfor;
+							endfor;
+						endfor;
+					end Objects;
+				end;
+
+				begin;
+					var ^CPropDB.CNode pxInventNode=^(CContent.GetSub(GetFiltersNode()^,"Invent"));
+					var int iInventIdx=FindItem(iFilterIdx,"Invent");
+					ReplaceItemData(iInventIdx,new CFilters("Invent","",GetFiltersPath()+"/Invent",pxInventNode));
+					var int i,iC=pxInventNode^.NumSubs();
+					for(i=0)cond(i<iC)iter(i++)do
+						var string sInventName=pxInventNode^.Get(i).Name();
+						ReplaceItemData(FindItem(iInventIdx,sInventName),new CFilter(GetFiltersPath()+"/Invent/"+sInventName,^(pxInventNode^.Get(i))));
+					endfor;
+				end;
+/*
+				begin;
+					var ^CPropDB.CNode pxCustomNode=^(CContent.GetSub(GetFiltersNode()^,"Custom"));
+					var int iCustomIdx=FindItem(iFilterIdx,"Custom");
+					ReplaceItemData(iCustomIdx,new CFilters("Custom","",GetFiltersPath()+"/Custom",pxCustomNode));
+					var int i,iC=pxCustomNode^.NumSubs();
+					for(i=0)cond(i<iC)iter(i++)do
+						var string sCustomName=pxCustomNode^.Get(i).Name();
+						ReplaceItemData(FindItem(iCustomIdx,sCustomName),new CFilter(GetFiltersPath()+"/Custom/"+sCustomName,^(pxCustomNode^.Get(i))));
+					endfor;
+				end;
+*/			end;
+		endif;
+
+		return true;
+	endproc;
+	
+	export const int TYPE_STRING	= 0;
+	export const int TYPE_INT			= 1;
+	export const int TYPE_FLOAT		= 2;
+	export const int TYPE_NODE		= 3;
+	
+	export static proc int ScanValue(^CPropDB.CNode p_pxNode)
+		if(p_pxNode^.NumSubs()>0) then return TYPE_NODE; endif;
+		var string sVal = p_pxNode^.Value();
+		var bool bHasChars=false;
+		var bool bHasPt=false;
+		var int i, iC = sVal.GetLength();
+		for(i=0) cond(i<iC) iter(++i) do
+			var char c = sVal.GetAt(i);
+			if(c>='0' && c<='9') then
+			elseif(i==0&&c=='-')then
+			elseif(c=='.') then
+				bHasPt=true;
+			else
+				bHasChars=true;
+				break;
+			endif;
+		endfor;
+		if(bHasChars) then
+			return TYPE_STRING;
+		elseif(bHasPt) then
+			return TYPE_FLOAT;
+		else
+			return TYPE_INT;
+		endif;
+	endproc;
+
+	class CTTItem inherit CItemData
+		var bool					m_bCanAdd,m_bCanDel,m_bCanCopy;
+		var string					m_sNodePath;	///< path to node which we are editing
+		var ^CPropDB.CNode			m_pxEditNode;	///< node which we are editing
+		static var array ^CTTItem	ms_apxItems;
+
+		export constructor()
+			ms_apxItems.AddEntry(this);
+			m_bCanAdd=false;
+			m_bCanCopy=true;
+			m_bCanDel=true;
+		endconstructor;
+
+		export destructor()
+			ms_apxItems.RemEntry(this);
+		enddestructor;
+
+		export static proc void DeleteAllItems()
+			while(ms_apxItems.NumEntries()>0)do
+				delete ms_apxItems[0];
+				ms_apxItems.DeleteEntry(0);
+			endwhile;
+		endproc;
+
+		export proc void SetNode(string p_sPath,^CPropDB.CNode p_pxNode)
+			m_sNodePath=p_sPath;
+			m_pxEditNode=p_pxNode;
+		endproc;
+
+		export proc string GetPath()
+			return m_sNodePath;
+		endproc;
+
+		export proc ^CPropDB.CNode GetNode()
+			return m_pxEditNode;
+		endproc;
+
+		export proc bool CanAdd()
+			return m_bCanAdd;
+		endproc;
+
+		export proc bool CanCopy()
+			return m_bCanCopy;
+		endproc;
+
+		export proc bool CanDel()
+			return m_bCanDel;
+		endproc;
+
+		export proc ^CTTEditor2.CContent GetEditor()
+			return null;
+		endproc;
+
+		export proc ^CTTEditor2.CWizard GetWizard()
+			return null;
+		endproc;
+
+		export proc ^CPropDB.CNode NewItem(string p_sName)
+			if(!m_bCanAdd||(m_pxEditNode==null))then return null; endif;
+			return ^(CTTEditor2.CContent.GetSub(m_pxEditNode^,p_sName));
+		endproc;
+	endclass;
+
+	class CPathNode inherit CTTEditor2.CTTItem
+		export constructor(string p_sPath)
+			m_bCanAdd=false;
+			m_bCanCopy=false;
+			m_bCanDel=false;
+			SetNode(p_sPath,null);
+		endconstructor;
+	endclass;
+
+	class CResources inherit CTTEditor2.CTTItem
+		export constructor(string p_sPath,^CPropDB.CNode p_pxNode)
+			m_bCanAdd=false;
+			m_bCanCopy=false;
+			m_bCanDel=false;
+			SetNode(p_sPath,p_pxNode);
+		endconstructor;
+
+		export proc ^CTTEditor2.CContent GetEditor()
+			return new CTTEditor2.CResourcesEdit();
+		endproc;
+	endclass;
+	class CModifications inherit CTTEditor2.CTTItem
+		export constructor(string p_sPath,^CPropDB.CNode p_pxNode)
+			m_bCanAdd=false;
+			m_bCanCopy=false;
+			m_bCanDel=false;
+			SetNode(p_sPath,p_pxNode);
+		endconstructor;
+
+		export proc ^CTTEditor2.CContent GetEditor()
+			return new CTTEditor2.CModificationsEdit();
+		endproc;
+	endclass;
+	class CObject inherit CTTEditor2.CTTItem
+		export constructor(string p_sPath,^CPropDB.CNode p_pxNode)
+			SetNode(p_sPath,p_pxNode);
+		endconstructor;
+
+		export proc ^CTTEditor2.CContent GetEditor()
+			return new CTTEditor2.CObjectEdit(CTTEditor2.Get().GetResourcesNode());
+		endproc;
+	endclass;
+	class CWeapon inherit CTTEditor2.CTTItem
+		export constructor(string p_sPath,^CPropDB.CNode p_pxNode)
+			SetNode(p_sPath,p_pxNode);
+		endconstructor;
+
+		export proc ^CTTEditor2.CContent GetEditor()
+			return new CTTEditor2.CWeaponEdit();
+		endproc;
+	endclass;
+	class CAction inherit CTTEditor2.CTTItem
+		export constructor(string p_sPath,^CPropDB.CNode p_pxNode)
+			SetNode(p_sPath,p_pxNode);
+		endconstructor;
+		export proc ^CTTEditor2.CContent GetEditor()
+			return new CTTEditor2.CActionEdit();
+		endproc;
+	endclass;
+	class CFilter inherit CTTEditor2.CTTItem
+		export constructor(string p_sPath,^CPropDB.CNode p_pxNode)
+			SetNode(p_sPath,p_pxNode);
+		endconstructor;
+		export proc ^CTTEditor2.CContent GetEditor()
+			return new CTTEditor2.CFilterEdit();
+		endproc;
+	endclass;
+	class CItemObject inherit CTTEditor2.CTTItem
+		export constructor(string p_sPath,^CPropDB.CNode p_pxNode)
+			SetNode(p_sPath,p_pxNode);
+		endconstructor;
+		export proc ^CTTEditor2.CContent GetEditor()
+			return new CTTEditor2.CItemEdit();
+		endproc;
+	endclass;
+	class CCategory inherit CTTEditor2.CTTItem
+		export constructor(string p_sPath,^CPropDB.CNode p_pxNode)
+			m_bCanAdd=true;
+			m_bCanCopy=false;
+			m_bCanDel=false;
+			SetNode(p_sPath,p_pxNode);
+		endconstructor;
+	endclass;
+	class CObjects inherit CTTEditor2.CTTItem
+		var string	m_sObjType;
+
+		export proc ^CTTEditor2.CWizard GetWizard()
+			return new CTTEditor2.CNewObjWizard(m_sObjType);
+		endproc;
+
+		export constructor(string p_sObjType,string p_sPath,^CPropDB.CNode p_pxNode)
+			m_bCanAdd=true;
+			m_bCanCopy=false;
+			m_bCanDel=false;
+			SetNode(p_sPath,p_pxNode);
+			m_sObjType=p_sObjType;
+		endconstructor;
+
+		export proc ^CPropDB.CNode NewItem(string p_sName)
+			var ^CPropDB.CNode pxRet=super.NewItem(p_sName);
+			if(pxRet!=null)then
+				pxRet^.SetValue("scalps",5);
+				pxRet^.SetValue("timefactor",2);
+			endif;
+			return pxRet;
+		endproc;
+	endclass;
+	class CActions inherit CTTEditor2.CTTItem
+		var string	m_sActionType;
+		var string	m_sObjType;
+
+		export proc ^CTTEditor2.CWizard GetWizard()
+			return new CTTEditor2.CActionWizard(m_sActionType,m_sObjType);
+		endproc;
+
+		export constructor(string p_sActionType,string p_sObjType,string p_sPath,^CPropDB.CNode p_pxNode)
+			m_bCanAdd=true;
+			m_bCanCopy=false;
+			m_bCanDel=false;
+			SetNode(p_sPath,p_pxNode);
+			m_sObjType=p_sObjType;
+			m_sActionType=p_sActionType;
+		endconstructor;
+	endclass;
+	class CFilters inherit CTTEditor2.CTTItem
+		var string	m_sFilterType;
+		var string	m_sObjType;
+
+		export proc ^CTTEditor2.CWizard GetWizard()
+			if(m_sFilterType.IsEmpty())then return null; endif;
+			return new CTTEditor2.CFilterWizard(m_sFilterType,m_sObjType);
+		endproc;
+
+		export constructor(string p_sFilterType,string p_sObjType,string p_sPath,^CPropDB.CNode p_pxNode)
+			m_bCanAdd=true;
+			m_bCanCopy=false;
+			m_bCanDel=false;
+			SetNode(p_sPath,p_pxNode);
+			m_sObjType=p_sObjType;
+			m_sFilterType=p_sFilterType;
+		endconstructor;
+
+		export proc ^CPropDB.CNode NewItem(string p_sName)
+			var ^CPropDB.CNode pxRet=super.NewItem(p_sName);
+			if(pxRet!=null)then
+				pxRet^.SetValue("priority",0);
+			endif;
+			return pxRet;
+		endproc;
+	endclass;
+	class CSubCategory inherit CTTEditor2.CTTItem
+		export constructor(string p_sPath,^CPropDB.CNode p_pxNode)
+			m_bCanAdd=true;
+			m_bCanCopy=true;
+			m_bCanDel=true;
+			SetNode(p_sPath,p_pxNode);
+		endconstructor;
+	endclass;
+
+
+	class CContent inherit CWindow
+		var ^CPropDB.CNode	m_pxEditNode;	///< node which we are editing
+
+		export proc void Init(^CPropDB.CNode p_pxNode)
+			m_pxEditNode=p_pxNode;
+			SetDisabled(m_pxEditNode==null);
+		endproc;
+
+		export proc bool ReInit()
+			Init(m_pxEditNode);
+			return true;
+		endproc;
+
+		export static proc ref CPropDB.CNode GetSub(ref CPropDB.CNode p_rxNode,string p_sName)
+			return GetSub(p_rxNode,p_sName,"");
+		endproc;
+
+		export static proc ref CPropDB.CNode GetSub(ref CPropDB.CNode p_rxNode,string p_sName,string p_sDefault)
+			var int iIdx=p_rxNode.Find(p_sName);
+			if(iIdx!=-1)then
+				return p_rxNode.Get(iIdx);
+			endif;
+			return p_rxNode.AddValue(p_sName,p_sDefault);
+		endproc;
+
+		export const int TYPE_STRING 	= 0;
+		export const int TYPE_INT 		= 1;
+		export const int TYPE_FLOAT	= 2;
+		export const int TYPE_NODE		= 3;
+
+		export static proc int ScanValue(^CPropDB.CNode p_pxNode)
+			if(p_pxNode^.NumSubs()>0) then return TYPE_NODE; endif;
+			var string sVal = p_pxNode^.Value();
+
+			var bool bHasChars=false;
+			var bool bHasPt=false;
+
+			var int i, iC = sVal.GetLength();
+			for(i=0) cond(i<iC) iter(++i) do
+				var char c = sVal.GetAt(i);
+				if(c>='0' && c<='9') then
+				elseif(c=='.') then
+					bHasPt=true;
+				else
+					bHasChars=true;
+					break;
+				endif;
+			endfor;
+			if(bHasChars) then
+				return TYPE_STRING;
+			elseif(bHasPt) then
+				return TYPE_FLOAT;
+			else
+				return TYPE_INT;
+			endif;
+		endproc;
+
+		export static proc void CreateLevelFilter(string p_sObjPath, ^CPropDB.CNode p_pxObj, ^CPropDB.CNode p_pxLvl, ^CPropDB.CNode p_pxFilter)
+			if(p_pxObj==null || p_pxLvl==null || p_pxFilter==null) then return; endif;
+			var int i, iC = p_pxLvl^.NumSubs();
+			for(i=0) cond(i<iC) iter(++i) do
+				var ^CPropDB.CNode pxSub = ^(p_pxLvl^.Get(i));
+				var string sName = pxSub^.Name();
+				var int iType = ScanValue(pxSub);
+
+				if(iType==TYPE_STRING) then
+					var string sOld = p_pxObj^.GetValueS(sName);
+					var string sNew = pxSub^.Value();
+					if(sOld!=sNew) then
+						var ^CPropDB.CNode pxModNode=^(GetSub(GetSub(p_pxFilter^,"Modificators"),i.ToString()+"_Replace_"+sName));
+						pxModNode^.SetValue("op","replace");
+						pxModNode^.SetValue("path",p_sObjPath+"/"+sName);
+						pxModNode^.AddValue("value", sNew);
+					endif;
+				elseif(iType==TYPE_INT) then
+					var int iOld = p_pxObj^.GetValueI(sName);
+					var int iNew = pxSub^.Value().ToInt();
+					if(iOld!=iNew) then
+						var int iDiff = iNew-iOld;
+						var ^CPropDB.CNode pxModNode=^(GetSub(GetSub(p_pxFilter^,"Modificators"),i.ToString()+"_Add_"+sName));
+						pxModNode^.SetValue("op","add");
+						pxModNode^.SetValue("path",p_sObjPath+"/"+sName);
+						var ^CPropDB.CNode pxVal = ^(pxModNode^.AddValue("value", iDiff));
+					endif;
+				elseif(iType==TYPE_FLOAT) then
+					var real fOld = p_pxObj^.GetValueR(sName);
+					var real fNew = pxSub^.Value().ToReal();
+					if(fOld!=fNew) then
+						var real fDiff = fNew-fOld;
+						var ^CPropDB.CNode pxModNode=^(GetSub(GetSub(p_pxFilter^,"Modificators"),i.ToString()+"_Add_"+sName));
+						pxModNode^.SetValue("op","add");
+						pxModNode^.SetValue("path",p_sObjPath+"/"+sName);
+						var ^CPropDB.CNode pxVal = ^(pxModNode^.AddValue("value", fDiff));
+					endif;
+				elseif(iType==TYPE_NODE) then
+					CreateLevelFilter(p_sObjPath+"/"+sName, p_pxObj^.Get(sName),  pxSub, p_pxFilter);
+				endif;
+			endfor;
+			var ^CPropDB.CNode pxMods = ^(GetSub(p_pxFilter^,"Modificators"));
+			if(pxMods^.NumSubs()==0) then
+				var ^CPropDB.CNode pxMod = ^(pxMods^.AddValue("Dummy", ""));
+				pxMod^.AddValue("op", "append");
+				pxMod^.AddValue("path", p_sObjPath+"/dummy");
+				pxMod^.AddValue("value", 0);
+			endif;
+		endproc;
+	endclass;
+
+	class CSelectEdit inherit CWindow
+		var ^CEdit			m_pxText;
+		var ^CToggleButton	m_pxSelector;
+
+		export var procref<bool>	m_xOnChange;
+
+		export constructor()
+			m_pxText=new CEdit({0,0},"",false);
+			m_pxText^.m_xOnChange=OnTextChanged;
+			AddChild(m_pxText);
+		endconstructor;
+
+		export proc void UseSelector(bool p_bUse)
+			// we have same state already
+			if(p_bUse==(m_pxSelector!=null))then return; endif;
+			if(p_bUse)then
+				m_pxSelector=new CToggleButton({0,0},"Select");
+				m_pxSelector^.m_xOnClick=OnSelector;
+				AddChild(m_pxSelector);
+			else
+				m_pxSelector^.Destroy();
+				m_pxSelector=null;
+			endif;
+		endproc;
+
+		export proc string GetText()
+			return m_pxText^.GetText();
+		endproc;
+
+		export proc void SetText(string p_sText)
+			m_pxText^.SetText(p_sText);
+		endproc;
+
+		proc bool OnTextChanged()
+			if(!m_xOnChange.IsNull())then
+				m_xOnChange.Call();
+			endif;
+			return true;
+		endproc;
+
+		proc bool OnSelector()
+			CTTEditor2.Get().SetSelector(OnPathSelected);
+			return true;
+		endproc;
+
+		proc void OnPathSelected(string p_sPath)
+			SetText(p_sPath);
+			if(m_pxSelector!=null)then
+				m_pxSelector^.SetToggleButtonState(false);
+			endif;
+			CWindowMgr.Get().BringWindowToTop(this,true);
+		endproc;
+
+		proc bool OnResize()
+			var int iSelWidth=0;
+			if(m_pxSelector!=null)then
+				iSelWidth=50;
+				m_pxSelector^.SetPos(GetWidth()-iSelWidth,0);
+				m_pxSelector^.SetSize(iSelWidth,GetHeight());
+			endif;
+			m_pxText^.SetSize(GetWidth()-iSelWidth,GetHeight());
+			return true;
+		endproc;
+	endclass;
+
+	class CChoiceListCtrl inherit CTTEditor2.CContent
+		var ^CList	m_pxItems;
+
+		export constructor()
+			var ^CBoxLayout pxLM=new CBoxLayout("main",0);
+			SetLayoutMgr(pxLM);
+			m_pxItems=new CList;
+			m_pxItems^.AllowMultiSelection(true);
+			AddChildWithLayout(m_pxItems,"main");
+
+			Init(null);
+		endconstructor;
+
+		export proc void Init(^CPropDB.CNode p_pxNode)
+			super.Init(p_pxNode);
+			UpdateData(true);
+		endproc;
+
+		export proc void InitList(ref array string p_rasItems)
+			m_pxItems^.m_xOnSelect.Clear();
+
+			m_pxItems^.Clear();
+			var int i,iC=p_rasItems.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				m_pxItems^.AddItem(p_rasItems[i]);
+			endfor;
+			ReInit();
+
+			m_pxItems^.m_xOnSelect=OnItemSelected;
+		endproc;
+
+		proc void UpdateData(bool p_bLoad)
+			m_pxItems^.m_xOnSelect.Clear();
+
+			if(m_pxEditNode!=null)then
+				if(p_bLoad)then
+					m_pxItems^.RemoveSelection();
+					var int i,iC=m_pxEditNode^.NumSubs();
+					for(i=0)cond(i<iC)iter(i++)do
+						var string sInv=m_pxEditNode^.Get(i).Value();
+						var int iIdx=m_pxItems^.FindItem(sInv);
+						if(iIdx!=-1)then
+							m_pxItems^.Select(iIdx,false);
+						endif;
+					endfor;
+				else
+					m_pxEditNode^.Clear();
+					var int i,iC=m_pxItems^.NumItems();
+					for(i=0)cond(i<iC)iter(i++)do
+						if(m_pxItems^.IsItemSelected(i))then
+							m_pxEditNode^.SetValue(m_pxEditNode^.NumSubs().ToString(),m_pxItems^.GetItem(i));
+						endif;
+					endfor;
+					if(m_pxEditNode^.NumSubs()>0)then
+						m_pxEditNode^.Value()="1";
+					else
+						m_pxEditNode^.Value()="0";
+					endif;
+				endif;
+			endif;
+
+			m_pxItems^.m_xOnSelect=OnItemSelected;
+		endproc;
+
+		proc bool OnItemSelected()
+			UpdateData(false);
+			return true;
+		endproc;
+	endclass;
+
+	class CListCtrl inherit CTTEditor2.CContent
+		var ^CList			m_pxItems;
+		var ^CSelectEdit	m_pxItemName;
+		var ^CButton		m_pxItemAdd,m_pxItemRename,m_pxItemDel;
+		var bool			m_bValued;
+		var bool			m_bIndexed;
+
+		export var procref<bool>	m_xOnListChanged;
+		export var procref<bool>	m_xOnSelect;
+
+		export constructor()
+			if(!InitFromResource("options/TTEditor","ListCtrl")) then
+				return;
+			endif;
+
+			m_pxItems=cast<CList>(GetControl("Items"));
+			m_pxItems^.m_xOnSelect=OnItemSelected;
+			m_pxItemName=cast<CSelectEdit>(GetControl("ItemName"));
+			m_pxItemName^.m_xOnChange=OnItemNameChanged;
+			m_pxItemAdd=cast<CButton>(GetControl("AddItem"));
+			m_pxItemAdd^.m_xOnClick=OnItemAdd;
+			m_pxItemRename=cast<CButton>(GetControl("RenameItem"));
+			m_pxItemRename^.m_xOnClick=OnItemRename;
+			m_pxItemDel=cast<CButton>(GetControl("DelItem"));
+			m_pxItemDel^.m_xOnClick=OnItemDel;
+
+			Init(null);
+		endconstructor;
+
+		export proc void UseSelector()
+			m_pxItemName^.UseSelector(true);
+		endproc;
+
+		export proc void SetIndexed(bool p_bVal)
+			if(m_pxEditNode!=null)then
+				// error, can't change to indexed if a node present
+				Windows.DbgBreak();
+			else
+				m_bIndexed=p_bVal;
+			endif;
+		endproc;
+
+		export proc void SetValued(bool p_bVal)
+			if(m_pxEditNode!=null)then
+				// error, can't change to indexed if a node present
+				Windows.DbgBreak();
+			else
+				m_bValued=p_bVal;
+			endif;
+		endproc;
+
+		export proc void Init(^CPropDB.CNode p_pxNode)
+			super.Init(p_pxNode);
+
+			m_pxItems^.Clear();
+			if(m_pxEditNode!=null)then
+				var int i,iC=m_pxEditNode^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					var string sItem;
+					if(m_bIndexed)then
+						m_pxItems^.AddItem(m_pxEditNode^.Get(i).Value());
+					else
+						m_pxItems^.AddItem(m_pxEditNode^.Get(i).Name());
+					endif;
+				endfor;
+			endif;
+
+			if(!m_xOnListChanged.IsNull())then
+				m_xOnListChanged.Call();
+			endif;
+			OnItemNameChanged();
+			OnItemSelected();
+		endproc;
+
+		export proc ^CPropDB.CNode GetItemNode()
+			var ^CPropDB.CNode pxItemNode;
+			if((m_pxEditNode!=null)&&(m_pxItems^.GetSelectedItem()!=-1))then
+				if(m_bIndexed)then
+					pxItemNode=^(m_pxEditNode^.Get(m_pxItems^.GetSelectedItem()));
+				else
+					pxItemNode=^(m_pxEditNode^.Get(m_pxItems^.GetSelectedItemAsString()));
+				endif;
+			endif;
+			return pxItemNode;
+		endproc;
+
+		export proc ^CPropDB.CNode GetItemNode(int p_iIdx)
+			var ^CPropDB.CNode pxItemNode;
+			if((m_pxEditNode!=null)&&(p_iIdx>=0 && p_iIdx<m_pxItems^.NumItems()))then
+				if(m_bIndexed)then
+					pxItemNode=^(m_pxEditNode^.Get(p_iIdx));
+				else
+					pxItemNode=^(m_pxEditNode^.Get(m_pxItems^.GetItem(p_iIdx)));
+				endif;
+			endif;
+			return pxItemNode;
+		endproc;
+
+		export proc void IncludeItem(string p_sValue)
+			if(m_pxEditNode!=null)then
+				var int iIdx=-1;
+				if(!m_bIndexed)then
+					iIdx=m_pxItems^.FindItem(p_sValue);
+				endif;
+				if(iIdx==-1)then
+					if(m_bIndexed)then
+						m_pxEditNode^.SetValue(m_pxEditNode^.NumSubs().ToString(),p_sValue);
+					else
+						m_pxEditNode^.SetValue(p_sValue,"1");
+					endif;
+					iIdx=m_pxItems^.AddItem(p_sValue);
+				endif;
+				m_pxItems^.Select(iIdx);
+				CheckValued();
+				if(!m_xOnListChanged.IsNull())then
+					m_xOnListChanged.Call();
+				endif;
+				OnItemNameChanged();
+			endif;
+		endproc;
+
+		export proc void RemoveItem(string p_sValue)
+			if(m_pxEditNode!=null)then
+				var int iIdx=m_pxItems^.FindItem(p_sValue);
+				if(iIdx==-1)then return; endif;
+
+				if(m_bIndexed)then
+					var int i,iC=m_pxEditNode^.NumSubs();
+					for(i=iIdx)cond(i<iC-1)iter(i++)do
+						var ^CPropDB.CNode pxA=^(m_pxEditNode^.Get(i));
+						var ^CPropDB.CNode pxB=^(m_pxEditNode^.Get(i+1));
+						pxA^.Clear();
+						pxA^.Join(pxB);
+						pxA^.Value()=pxB^.Value();
+					endfor;
+					m_pxEditNode^.Remove(iC-1);
+				else
+					m_pxEditNode^.Remove(iIdx);
+				endif;
+				m_pxItems^.DeleteItem(iIdx);
+				CheckValued();
+				if(!m_xOnListChanged.IsNull())then
+					m_xOnListChanged.Call();
+				endif;
+				OnItemNameChanged();
+			endif;
+		endproc;
+
+		export proc int NumEntries()
+			return m_pxItems^.NumItems();
+		endproc;
+
+		export proc string op_Index(int p_iIdx)
+			return m_pxItems^.GetItem(p_iIdx);
+		endproc;
+
+		proc void CheckValued()
+			if(m_bValued && m_pxEditNode!=null)then
+				if(NumEntries()==0)then
+					m_pxEditNode^.Value()="0";
+				else
+					m_pxEditNode^.Value()="1";
+				endif;
+			endif;
+		endproc;
+
+		proc bool OnItemSelected()
+			m_pxItemDel^.SetDisabled(m_pxItems^.GetSelectedItem()==-1);
+			m_pxItems^.SetToolTipText(m_pxItems^.GetSelectedItemAsString());
+			m_pxItemName^.SetText(m_pxItems^.GetSelectedItemAsString());
+			if(!m_xOnSelect.IsNull())then
+				m_xOnSelect.Call();
+			endif;
+			return true;
+		endproc;
+
+		proc bool OnItemNameChanged()
+			m_pxItemAdd^.SetDisabled((!m_bIndexed && (m_pxItems^.FindItem(m_pxItemName^.GetText())!=-1))||
+									(m_pxItemName^.GetText().IsEmpty()));
+			m_pxItemRename^.SetDisabled((m_pxItems^.GetSelectedItem()==-1)||
+										(m_pxItemName^.GetText()==m_pxItems^.GetSelectedItemAsString())||
+										(!m_bIndexed && (m_pxItems^.FindItem(m_pxItemName^.GetText())!=-1))||
+										(m_pxItemName^.GetText().IsEmpty()));
+			return true;
+		endproc;
+
+		proc bool OnItemAdd()
+			IncludeItem(m_pxItemName^.GetText());
+			return true;
+		endproc;
+
+		proc bool OnItemRename()
+			if(m_pxEditNode!=null)then
+				var int iIdx=m_pxItems^.GetSelectedItem();
+				if(iIdx==-1)then return true; endif;
+
+				if(m_bIndexed)then
+					m_pxEditNode^.Get(iIdx).Value()=m_pxItemName^.GetText();
+				else
+					var CPropDB xDB;
+					xDB.GetRoot().Value()=m_pxEditNode^.Value();
+					xDB.GetRoot().Join(m_pxEditNode);
+					while(iIdx!=m_pxEditNode^.NumSubs())do
+						m_pxEditNode^.Remove(iIdx);
+					endwhile;
+					begin Rename;
+						var ^CPropDB.CNode pxO=^(xDB.GetRoot().Get(iIdx));
+						var ^CPropDB.CNode pxN=^(GetSub(m_pxEditNode^,m_pxItemName^.GetText()));
+						pxN^.Value()=pxO^.Value();
+						pxN^.Join(pxO);
+					end Rename;
+					var int i,iC=xDB.GetRoot().NumSubs();
+					for(i=iIdx+1)cond(i<iC)iter(i++)do
+						var ^CPropDB.CNode pxO=^(xDB.GetRoot().Get(i));
+						var ^CPropDB.CNode pxN=^(GetSub(m_pxEditNode^,pxO^.Name()));
+						pxN^.Value()=pxO^.Value();
+						pxN^.Join(pxO);
+					endfor;
+				endif;
+				m_pxItems^.SetItemText(iIdx,m_pxItemName^.GetText());
+				if(!m_xOnListChanged.IsNull())then
+					m_xOnListChanged.Call();
+				endif;
+				OnItemNameChanged();
+			endif;
+			return true;
+		endproc;
+
+		proc bool OnItemDel()
+			var int iIdx=m_pxItems^.GetSelectedItem();
+			if(iIdx==-1)then return true; endif;
+			RemoveItem(m_pxItems^.GetSelectedItemAsString());
+			return true;
+		endproc;
+	endclass;
+
+	class CResourcesEdit inherit CTTEditor2.CContent
+		var ^CList		m_pxUsed;
+		var ^CList		m_pxAvailable;
+		var ^CButton	m_pxInclude;
+		var ^CButton	m_pxExclude;
+
+		export constructor()
+			if(!InitFromResource("options/TTEditor","ResourceEdit")) then
+				return;
+			endif;
+
+			m_pxUsed=cast<CList>(GetControl("Used"));
+			m_pxAvailable=cast<CList>(GetControl("Available"));
+
+			m_pxInclude=cast<CButton>(GetControl("Include"));
+			m_pxInclude^.m_xOnClick=OnInclude;
+
+			m_pxExclude=cast<CButton>(GetControl("Exclude"));
+			m_pxExclude^.m_xOnClick=OnExclude;
+
+			Init(null);
+		endconstructor;
+
+		proc void Init(^CPropDB.CNode p_pxNode)
+			super.Init(p_pxNode);
+
+			m_pxUsed^.Clear();
+			m_pxAvailable^.Clear();
+			var int i,iC=CTTEditor2.ms_asResources.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				m_pxAvailable^.AddItem(CTTEditor2.ms_asResources[i]);
+			endfor;
+
+			if(m_pxEditNode!=null)then
+				var int i,iC=m_pxEditNode^.NumSubs();
+				for(i=0)cond(i<iC)iter(++i)do
+					var string sRes=m_pxEditNode^.Get(i).Value();
+					var int iIdx=m_pxAvailable^.FindItem(sRes);
+					if(iIdx!=-1)then
+						m_pxAvailable^.DeleteItem(iIdx);
+					endif;
+					m_pxUsed^.AddItem(sRes);
+				endfor;
+			endif;
+
+			UpdateButtons();
+		endproc;
+
+		proc void UpdateButtons()
+			m_pxInclude^.SetDisabled(m_pxAvailable^.NumItems()==0);
+			m_pxExclude^.SetDisabled(m_pxUsed^.NumItems()==0);
+		endproc;
+
+		proc bool OnInclude()
+			if(m_pxEditNode==null)then return true; endif;
+			var int i,iC=m_pxAvailable^.NumItems();
+			for(i=0)cond(i<iC)iter(++i)do
+				if(!m_pxAvailable^.IsItemSelected(i))then continue; endif;
+				m_pxEditNode^.AddValue(m_pxEditNode^.NumSubs().ToString(),m_pxAvailable^.GetItem(i));
+				m_pxUsed^.AddItem(m_pxAvailable^.GetItem(i));
+				m_pxAvailable^.DeleteItem(i);i--;iC--;
+			endfor;
+
+			UpdateButtons();
+			return true;
+		endproc;
+
+		proc bool OnExclude()
+			if(m_pxEditNode==null)then return true; endif;
+			var int i,iC=m_pxUsed^.NumItems();
+			for(i=0)cond(i<iC)iter(++i)do
+				if(!m_pxUsed^.IsItemSelected(i))then continue; endif;
+				m_pxAvailable^.AddItem(m_pxUsed^.GetItem(i));
+				m_pxUsed^.DeleteItem(i);i--;iC--;
+			endfor;
+			m_pxEditNode^.Clear();
+			iC=m_pxUsed^.NumItems();
+			for(i=0)cond(i<iC)iter(++i)do
+				m_pxEditNode^.AddValue(m_pxEditNode^.NumSubs().ToString(),m_pxUsed^.GetItem(i));
+			endfor;
+
+			UpdateButtons();
+			return true;
+		endproc;
+	endclass;
+
+	class CModificationsEdit inherit CTTEditor2.CContent
+		var array ^CModGroup	m_apxMods;
+
+		export constructor()
+			var ^CBoxLayout pxLM=new CBoxLayout("main",1);
+			SetLayoutMgr(pxLM);
+			var int i,iC=CTTEditor2.ms_asModificationTypes.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				pxLM^.AddBox("main",CBoxLayout.BT_Fill,1.0,"group_"+CTTEditor2.ms_asModificationTypes[i]);
+				var ^CModGroup pxMod=new CModGroup(CTTEditor2.ms_asModificationTypes[i]);
+				m_apxMods.AddEntry(pxMod);
+				AddChildWithLayout(pxMod,"group_"+CTTEditor2.ms_asModificationTypes[i]);
+			endfor;
+
+			Init(null);
+		endconstructor;
+
+		export proc void Init(^CPropDB.CNode p_pxNode)
+			super.Init(p_pxNode);
+			if(m_pxEditNode!=null)then
+				var int i,iC=CTTEditor2.ms_asModificationTypes.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					(m_apxMods[i])^.Init(^(GetSub(m_pxEditNode^,CTTEditor2.ms_asModificationTypes[i])));
+				endfor;
+			endif;
+		endproc;
+
+		class CModGroup inherit CGroupBox
+			var ^CPropDB.CNode			m_pxEditNode;
+			var array ^CSpinCtrlNumber	m_apxRel,m_apxAbs;
+
+			export constructor(string p_sText)
+				SetText(p_sText);
+				var ^CBoxLayout pxLM=new CBoxLayout("main",1);
+				SetLayoutMgr(pxLM);
+				pxLM^.AddBox("main",CBoxLayout.BT_Fixed,20.0,"header");
+				pxLM^.AddBox("header",CBoxLayout.BT_Fixed,60.0,"corner");
+				pxLM^.AddBox("main",CBoxLayout.BT_Fixed,30.0,"rel");
+				pxLM^.AddBox("rel",CBoxLayout.BT_Fixed,60.0,"relative");
+				AddChildWithLayout(new CStaticCtrl({0,0},"relative",0),"relative");
+				pxLM^.AddBox("main",CBoxLayout.BT_Fixed,30.0,"abs");
+				pxLM^.AddBox("abs",CBoxLayout.BT_Fixed,60.0,"absolute");
+				AddChildWithLayout(new CStaticCtrl({0,0},"absolute",0),"absolute");
+				var int i,iC=CTTEditor2.ms_asCastes.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					pxLM^.AddBox("header",CBoxLayout.BT_Fill,1.0,"header_"+CTTEditor2.ms_asCastes[i]);
+					AddChildWithLayout(new CStaticCtrl({0,0},CTTEditor2.ms_asCastes[i],0),"header_"+CTTEditor2.ms_asCastes[i]);
+					pxLM^.AddBox("rel",CBoxLayout.BT_Fill,1.0,"rel_"+CTTEditor2.ms_asCastes[i]);
+					var ^CSpinCtrlNumber pxRel=new CSpinCtrlNumber({0,0},1.0,0.0,10.0,0.1,1);
+					m_apxRel.AddEntry(pxRel);
+					AddChildWithLayout(pxRel,"rel_"+CTTEditor2.ms_asCastes[i]);
+					pxLM^.AddBox("abs",CBoxLayout.BT_Fill,1.0,"abs_"+CTTEditor2.ms_asCastes[i]);
+					var ^CSpinCtrlNumber pxAbs=new CSpinCtrlNumber({0,0},0.0,0.0,10.0,0.1,1);
+					m_apxAbs.AddEntry(pxAbs);
+					AddChildWithLayout(pxAbs,"abs_"+CTTEditor2.ms_asCastes[i]);
+				endfor;
+
+				Init(null);
+			endconstructor;
+
+			export proc void Init(^CPropDB.CNode p_pxNode)
+				m_pxEditNode=p_pxNode;
+				UpdateData(true);
+				SetDisabled(m_pxEditNode==null);
+			endproc;
+
+			proc bool OnEditChanged()
+				UpdateData(false);
+				return true;
+			endproc;
+
+			proc void UpdateData(bool p_bLoad)
+				var int i,iC=CTTEditor2.ms_asCastes.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					(m_apxRel[i])^.m_xOnChange.Clear();
+					(m_apxAbs[i])^.m_xOnChange.Clear();
+				endfor;
+
+				if(m_pxEditNode!=null)then
+					if(p_bLoad)then
+						for(i=0)cond(i<iC)iter(i++)do
+							(m_apxRel[i])^.SetValue(m_pxEditNode^.GetValueR(CTTEditor2.ms_asCastes[i]+"_rel"));
+							(m_apxAbs[i])^.SetValue(m_pxEditNode^.GetValueR(CTTEditor2.ms_asCastes[i]+"_abs"));
+						endfor;
+					else
+						for(i=0)cond(i<iC)iter(i++)do
+							m_pxEditNode^.SetValue(CTTEditor2.ms_asCastes[i]+"_rel",(m_apxRel[i])^.GetValueFloat());
+							m_pxEditNode^.SetValue(CTTEditor2.ms_asCastes[i]+"_abs",(m_apxAbs[i])^.GetValueFloat());
+						endfor;
+					endif;
+				endif;
+
+				for(i=0)cond(i<iC)iter(i++)do
+					(m_apxRel[i])^.m_xOnChange=OnEditChanged;
+					(m_apxAbs[i])^.m_xOnChange=OnEditChanged;
+				endfor;
+			endproc;
+		endclass;
+	endclass;
+
+	class CObjectEdit inherit CTTEditor2.CContent
+		var ^CPropDB.CNode			m_pxResourcesNode;
+
+		var ^CEdit					m_pxDesc,m_pxGfx, m_pxStandanim;
+		var ^CCheckBox				m_pxWall,m_pxGate,m_pxCoastal,m_pxNightActive, m_pxAutoAttack, m_pxCanBuild, m_pxCanHarvest;
+		var ^CSpinCtrlNumber		m_pxAggressive,m_pxAgility,m_pxDensity,m_pxRepletion,m_pxMaxHelpers,m_pxFear;
+		var ^CSpinCtrlNumber		m_pxHitpoints,m_pxFOW,m_pxGrowUp,m_pxSize,m_pxScalps;
+		var ^CSpinCtrlNumber		m_pxDefSpeed,m_pxMaxSpeed,m_pxMinRider,m_pxMaxWorker,m_pxAiCap,m_pxTimeFactor, m_pxMaxPas;
+		var ^CDropList				m_pxCaptainClass,m_pxCaste,m_pxFXClass;
+		var ^CSelectEdit			m_pxGlobalStartTT,m_pxLocalStartTT;
+		var ^CGroupBox				m_pxMiscRes;
+		var array ^CCheckBox		m_apxUnlimited,m_apxDelivery;
+		var array ^CSpinCtrlNumber	m_apxUpdateLimits,m_apxResInvCap;
+		var ^CSpinCtrlNumber		m_pxUpdateLimitsUnits,m_pxFormationPos;
+		var ^CListCtrl				m_pxFlags;
+
+		var ^CList					m_pxAbilities;
+		var ^CButton				m_pxAbilityAdd, m_pxAbilityEdit, m_pxAbilityDel;
+
+		export constructor(^CPropDB.CNode p_pxResNode)
+			m_pxResourcesNode=p_pxResNode;
+			if(!InitFromResource("options/TTEditor","ObjectEdit")) then
+				return;
+			endif;
+
+			m_pxDesc=cast<CEdit>(GetControl("description"));
+			m_pxAggressive=cast<CSpinCtrlNumber>(GetControl("aggressive"));
+			m_pxGfx=cast<CEdit>(GetControl("gfx"));
+			m_pxStandanim=cast<CEdit>(GetControl("standanim"));
+			m_pxWall=cast<CCheckBox>(GetControl("wall"));
+			m_pxGate=cast<CCheckBox>(GetControl("gate"));
+			m_pxCoastal=cast<CCheckBox>(GetControl("coastal"));
+			m_pxAutoAttack=cast<CCheckBox>(GetControl("autoattack"));
+			m_pxCanBuild=cast<CCheckBox>(GetControl("can_build"));
+			m_pxCanHarvest=cast<CCheckBox>(GetControl("can_harvest"));
+			m_pxHitpoints=cast<CSpinCtrlNumber>(GetControl("hitpoints"));
+			m_pxFOW=cast<CSpinCtrlNumber>(GetControl("FOW"));
+			m_pxSize=cast<CSpinCtrlNumber>(GetControl("unit_size"));
+			m_pxScalps=cast<CSpinCtrlNumber>(GetControl("scalps"));
+			m_pxCaste=cast<CDropList>(GetControl("caste"));
+			begin FillCaste;
+				m_pxCaste^.AddItem("");
+				var int i,iC=CTTEditor2.ms_asCastes.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					m_pxCaste^.AddItem(CTTEditor2.ms_asCastes[i]);
+				endfor;
+			end FillCaste;
+			m_pxAiCap=cast<CSpinCtrlNumber>(GetControl("ai_cap"));
+			m_pxTimeFactor=cast<CSpinCtrlNumber>(GetControl("timefactor"));
+
+			m_pxDefSpeed=cast<CSpinCtrlNumber>(GetControl("defaultspeed"));
+			m_pxMaxSpeed=cast<CSpinCtrlNumber>(GetControl("maxspeed"));
+			m_pxMaxWorker=cast<CSpinCtrlNumber>(GetControl("maxworker"));
+			m_pxMinRider=cast<CSpinCtrlNumber>(GetControl("captainlevel"));
+			m_pxCaptainClass=cast<CDropList>(GetControl("captainclass"));
+			m_pxMaxPas=cast<CSpinCtrlNumber>(GetControl("maxpassengers"));
+
+			begin FillCaptainClass;
+				m_pxCaptainClass^.AddItem("");
+				var ^CPropDB.CNode pxObjs = CTTEditor2.Get().GetObjectsNode();
+				if(pxObjs!=null) then
+					var ^CPropDB.CNode pxChars = pxObjs^.Get("CHTR");
+					if(pxChars!=null) then
+						var int i, iC = pxChars^.NumSubs();
+						for(i=0) cond(i<iC) iter(++i) do
+							m_pxCaptainClass^.AddItem(pxChars^.Get(i).Name());
+						endfor;
+					endif;
+				endif;
+			end FillCaptainClass;
+
+			m_pxFXClass=cast<CDropList>(GetControl("fx_class"));
+			m_pxFXClass^.AddItem("Ground");
+			m_pxFXClass^.AddItem("Water");
+			m_pxFXClass^.AddItem("Unit");
+			m_pxFXClass^.AddItem("Metal");
+			m_pxFXClass^.AddItem("Wood");
+			m_pxFXClass^.AddItem("Bone");
+			m_pxFXClass^.AddItem("Stone");
+
+			m_pxGrowUp=cast<CSpinCtrlNumber>(GetControl("growup_duration"));
+			m_pxAgility=cast<CSpinCtrlNumber>(GetControl("agility"));
+			m_pxDensity=cast<CSpinCtrlNumber>(GetControl("density"));
+			m_pxRepletion=cast<CSpinCtrlNumber>(GetControl("repletion"));
+			m_pxMaxHelpers=cast<CSpinCtrlNumber>(GetControl("maxhelpers"));
+			m_pxFear=cast<CSpinCtrlNumber>(GetControl("fear"));
+			m_pxNightActive=cast<CCheckBox>(GetControl("nightactive"));
+			m_pxFormationPos=cast<CSpinCtrlNumber>(GetControl("formation_pos"));
+
+			m_pxGlobalStartTT=cast<CSelectEdit>(GetControl("globalStartTT"));
+			m_pxGlobalStartTT^.UseSelector(true);
+
+			m_pxLocalStartTT=cast<CSelectEdit>(GetControl("localStartTT"));
+			m_pxLocalStartTT^.UseSelector(true);
+
+			m_pxAbilities = cast<CList>(GetControl("GBox_Abilities/List_Abilities"));
+			m_pxAbilityAdd = cast<CButton>(GetControl("GBox_Abilities/Btn_New"));
+			m_pxAbilityEdit = cast<CButton>(GetControl("GBox_Abilities/Btn_Edit"));
+			m_pxAbilityDel = cast<CButton>(GetControl("GBox_Abilities/Btn_Del"));
+
+			m_pxAbilityAdd^.m_xOnClick = OnAddAbility;
+			m_pxAbilityDel^.m_xOnClick = OnDelAbility;
+			m_pxAbilityEdit^.m_xOnClick = OnEditAbility;
+
+
+			m_pxMiscRes=cast<CGroupBox>(GetControl("MiscRes"));
+			if(m_pxResourcesNode!=null)then
+				var ^CBoxLayout pxLM=new CBoxLayout("main",1);
+				m_pxMiscRes^.SetLayoutMgr(pxLM);
+				pxLM^.AddBox("main",CBoxLayout.BT_Fixed,15.0,"header");
+				pxLM^.AddBox("header",CBoxLayout.BT_Fixed,80.0,"corner");
+				pxLM^.AddBox("main",CBoxLayout.BT_Fixed,25.0,"unlimited");
+				pxLM^.AddBox("unlimited",CBoxLayout.BT_Fixed,80.0,"unlimited_header");
+				m_pxMiscRes^.AddChildWithLayout(new CStaticCtrl({0,0},"unlimited",0),"unlimited_header");
+				pxLM^.AddBox("main",CBoxLayout.BT_Fixed,25.0,"delivery");
+				pxLM^.AddBox("delivery",CBoxLayout.BT_Fixed,80.0,"delivery_header");
+				m_pxMiscRes^.AddChildWithLayout(new CStaticCtrl({0,0},"delivery",0),"delivery_header");
+				pxLM^.AddBox("main",CBoxLayout.BT_Fixed,25.0,"updatelimits");
+				pxLM^.AddBox("updatelimits",CBoxLayout.BT_Fixed,80.0,"updatelimits_header");
+				m_pxMiscRes^.AddChildWithLayout(new CStaticCtrl({0,0},"update limits",0),"updatelimits_header");
+				pxLM^.AddBox("main",CBoxLayout.BT_Fixed,25.0,"ResInvCap");
+				pxLM^.AddBox("ResInvCap",CBoxLayout.BT_Fixed,80.0,"ResInvCap_header");
+				m_pxMiscRes^.AddChildWithLayout(new CStaticCtrl({0,0},"inventory cap",0),"ResInvCap_header");
+
+				pxLM^.AddBox("header",CBoxLayout.BT_Fill,1.0,"header_units");
+				m_pxMiscRes^.AddChildWithLayout(new CStaticCtrl({0,0},"units",0),"header_units");
+
+				pxLM^.AddBox("unlimited",CBoxLayout.BT_Fill,1.0,"unlimited_units");
+				pxLM^.AddBox("delivery",CBoxLayout.BT_Fill,1.0,"delivery_units");
+				pxLM^.AddBox("updatelimits",CBoxLayout.BT_Fill,1.0,"updatelimits_units");
+				m_pxUpdateLimitsUnits=new CSpinCtrlNumber({0,0},0.0,-5000.0,5000.0,10.0,0);
+				m_pxMiscRes^.AddChildWithLayout(m_pxUpdateLimitsUnits,"updatelimits_units");
+				pxLM^.AddBox("ResInvCap",CBoxLayout.BT_Fill,1.0,"ResInvCap_units");
+
+				var int i,iC=m_pxResourcesNode^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					var string sRes=m_pxResourcesNode^.Get(i).Value();
+					pxLM^.AddBox("header",CBoxLayout.BT_Fill,1.0,"header_"+sRes);
+					m_pxMiscRes^.AddChildWithLayout(new CStaticCtrl({0,0},sRes,0),"header_"+sRes);
+
+					pxLM^.AddBox("unlimited",CBoxLayout.BT_Fill,1.0,"unlimited_"+sRes);
+					var ^CCheckBox pxUnlim=new CCheckBox({0,0},"",false);
+					m_apxUnlimited.AddEntry(pxUnlim);
+					m_pxMiscRes^.AddChildWithLayout(pxUnlim,"unlimited_"+sRes);
+
+					pxLM^.AddBox("delivery",CBoxLayout.BT_Fill,1.0,"delivery_"+sRes);
+					var ^CCheckBox pxDeliv=new CCheckBox({0,0},"",false);
+					m_apxDelivery.AddEntry(pxDeliv);
+					m_pxMiscRes^.AddChildWithLayout(pxDeliv,"delivery_"+sRes);
+
+					pxLM^.AddBox("updatelimits",CBoxLayout.BT_Fill,1.0,"updatelimits_"+sRes);
+					var ^CSpinCtrlNumber pxUpdate=new CSpinCtrlNumber({0,0},0.0,-5000.0,5000.0,10.0,0);
+					m_apxUpdateLimits.AddEntry(pxUpdate);
+					m_pxMiscRes^.AddChildWithLayout(pxUpdate,"updatelimits_"+sRes);
+
+					pxLM^.AddBox("ResInvCap",CBoxLayout.BT_Fill,1.0,"ResInvCap_"+sRes);
+					var ^CSpinCtrlNumber pxInvCap=new CSpinCtrlNumber({0,0},0.0,0.0,5000.0,1.0,0);
+					m_apxResInvCap.AddEntry(pxInvCap);
+					m_pxMiscRes^.AddChildWithLayout(pxInvCap,"ResInvCap_"+sRes);
+				endfor;
+			endif;
+
+			m_pxFlags=cast<CListCtrl>(GetControl("Flags"));
+			m_pxFlags^.SetIndexed(false);
+
+			Init(null);
+		endconstructor;
+
+		export proc void Init(^CPropDB.CNode p_pxNode)
+			super.Init(p_pxNode);
+			if(m_pxEditNode!=null)then
+				m_pxFlags^.Init(^(GetSub(m_pxEditNode^,"flags")));
+			else
+				m_pxFlags^.Init(null);
+			endif;
+			UpdateData(true);
+		endproc;
+
+		proc bool OnEditChanged()
+			UpdateData(false);
+			return true;
+		endproc;
+
+		proc void UpdateData(bool p_bLoad)
+			begin;
+				m_pxDesc^.m_xOnChange.Clear();
+				m_pxAggressive^.m_xOnChange.Clear();
+				m_pxGfx^.m_xOnChange.Clear();
+				m_pxStandanim^.m_xOnChange.Clear();
+				m_pxWall^.m_xOnStateChange.Clear();
+				m_pxGate^.m_xOnStateChange.Clear();
+				m_pxCoastal^.m_xOnStateChange.Clear();
+				m_pxAutoAttack^.m_xOnStateChange.Clear();
+				m_pxCanBuild^.m_xOnStateChange.Clear();
+				m_pxCanHarvest^.m_xOnStateChange.Clear();
+				m_pxHitpoints^.m_xOnChange.Clear();
+				m_pxFOW^.m_xOnChange.Clear();
+				m_pxSize^.m_xOnChange.Clear();
+				m_pxScalps^.m_xOnChange.Clear();
+				m_pxCaste^.m_xOnChange.Clear();
+				m_pxAiCap^.m_xOnChange.Clear();
+				m_pxTimeFactor^.m_xOnChange.Clear();
+				m_pxDefSpeed^.m_xOnChange.Clear();
+				m_pxMaxSpeed^.m_xOnChange.Clear();
+				m_pxMaxWorker^.m_xOnChange.Clear();
+				m_pxMinRider^.m_xOnChange.Clear();
+				m_pxCaptainClass^.m_xOnChange.Clear();
+				m_pxMaxPas^.m_xOnChange.Clear();
+				m_pxFXClass^.m_xOnChange.Clear();
+
+				m_pxGrowUp^.m_xOnChange.Clear();
+				m_pxAgility^.m_xOnChange.Clear();
+				m_pxDensity^.m_xOnChange.Clear();
+				m_pxRepletion^.m_xOnChange.Clear();
+				m_pxMaxHelpers^.m_xOnChange.Clear();
+				m_pxFear^.m_xOnChange.Clear();
+				m_pxFormationPos^.m_xOnChange.Clear();
+				m_pxNightActive^.m_xOnStateChange.Clear();
+
+				m_pxGlobalStartTT^.m_xOnChange.Clear();
+				m_pxLocalStartTT^.m_xOnChange.Clear();
+
+				m_pxAbilityAdd^.m_xOnClick.Clear();
+				m_pxAbilityDel^.m_xOnClick.Clear();
+				m_pxAbilityEdit^.m_xOnClick.Clear();
+
+				if(m_pxUpdateLimitsUnits!=null)then
+					m_pxUpdateLimitsUnits^.m_xOnChange.Clear();
+				endif;
+
+				var int i,iC=m_apxUnlimited.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					(m_apxUnlimited[i])^.m_xOnStateChange.Clear();
+					(m_apxDelivery[i])^.m_xOnStateChange.Clear();
+					(m_apxUpdateLimits[i])^.m_xOnChange.Clear();
+					(m_apxResInvCap[i])^.m_xOnChange.Clear();
+				endfor;
+			end;
+
+			if(m_pxEditNode!=null)then
+				var ^CPropDB.CNode pxUnlimitedNode=^(GetSub(m_pxEditNode^,"unlimited"));
+				var ^CPropDB.CNode pxDeliveryNode=^(GetSub(m_pxEditNode^,"delivery"));
+				var ^CPropDB.CNode pxUpdateLimitsNode=^(GetSub(m_pxEditNode^,"UpdateLimits"));
+				var ^CPropDB.CNode pxResInvCapsNode=^(GetSub(m_pxEditNode^,"ResInvCaps"));
+
+				if(p_bLoad)then
+					m_pxDesc^.SetText(GetSub(m_pxEditNode^,"description").Value());
+					m_pxAggressive^.SetValue(GetSub(m_pxEditNode^,"aggressive").ValueI());
+					m_pxGfx^.SetText(GetSub(m_pxEditNode^,"gfx").Value());
+					m_pxStandanim^.SetText(GetSub(m_pxEditNode^,"standanim").Value());
+					m_pxWall^.SetChecked(GetSub(m_pxEditNode^,"wall").ValueI());
+					m_pxGate^.SetChecked(GetSub(m_pxEditNode^,"gate").ValueI());
+					m_pxCoastal^.SetChecked(GetSub(m_pxEditNode^,"coastal").ValueI());
+					m_pxCanBuild^.SetChecked(GetSub(m_pxEditNode^, "can_build").ValueI());
+					m_pxCanHarvest^.SetChecked(GetSub(m_pxEditNode^, "can_harvest").ValueI());
+					m_pxAutoAttack^.SetChecked(GetSub(m_pxEditNode^,"buildup_autoattack").ValueI());
+					m_pxHitpoints^.SetValue(GetSub(m_pxEditNode^,"hitpoints").ValueR());
+					m_pxFOW^.SetValue(GetSub(m_pxEditNode^,"FOW").ValueR());
+					m_pxSize^.SetValue(GetSub(m_pxEditNode^,"unit_size").ValueI());
+					m_pxScalps^.SetValue(GetSub(m_pxEditNode^,"scalps").ValueI());
+					m_pxCaste^.SetText(GetSub(m_pxEditNode^,"caste").Value());
+					m_pxAiCap^.SetValue(GetSub(m_pxEditNode^,"ai_cap").ValueI());
+					m_pxTimeFactor^.SetValue(GetSub(m_pxEditNode^,"timefactor").ValueR());
+
+					m_pxDefSpeed^.SetValue(GetSub(m_pxEditNode^,"defaultspeed").ValueI());
+					m_pxMaxSpeed^.SetValue(GetSub(m_pxEditNode^,"maxspeed").ValueI());
+					m_pxMaxWorker^.SetValue(GetSub(m_pxEditNode^,"maxworkers").ValueI());
+					m_pxMinRider^.SetValue(GetSub(m_pxEditNode^,"captainlevel").ValueI());
+					m_pxMaxPas^.SetValue(GetSub(m_pxEditNode^, "max_passengers").ValueI());
+
+					m_pxCaptainClass^.SetText(GetSub(m_pxEditNode^,"captainclass").Value());
+					m_pxFXClass^.SetText(GetSub(m_pxEditNode^,"fx_class").Value());
+
+
+					m_pxGrowUp^.SetValue(GetSub(m_pxEditNode^,"growup_duration").ValueR());
+					m_pxAgility^.SetValue(GetSub(m_pxEditNode^,"agility").ValueR());
+					m_pxDensity^.SetValue(GetSub(m_pxEditNode^,"density").ValueR());
+					m_pxRepletion^.SetValue(GetSub(m_pxEditNode^,"repletion").ValueR());
+					m_pxMaxHelpers^.SetValue(GetSub(m_pxEditNode^,"maxhelpers").ValueI());
+					m_pxFear^.SetValue(GetSub(m_pxEditNode^,"fear").ValueR());
+					m_pxFormationPos^.SetValue(GetSub(m_pxEditNode^,"formation_pos","-1").ValueR());
+					m_pxNightActive^.SetChecked(GetSub(m_pxEditNode^,"nightactive").ValueI());
+
+					m_pxGlobalStartTT^.SetText(GetSub(m_pxEditNode^,"GlobalStartTT").Value());
+					m_pxLocalStartTT^.SetText(GetSub(m_pxEditNode^,"StartTT").Value());
+
+					if(m_pxUpdateLimitsUnits!=null)then
+						m_pxUpdateLimitsUnits^.SetValue(GetSub(pxUpdateLimitsNode^,"max_units").ValueI());
+					endif;
+
+					if(m_pxResourcesNode!=null)then
+						var int i,iC=m_pxResourcesNode^.NumSubs();
+						for(i=0)cond(i<iC)iter(i++)do
+							var string sRes=m_pxResourcesNode^.Get(i).Value();
+							if(pxUnlimitedNode^.Find(sRes)!=-1)then
+								(m_apxUnlimited[i])^.SetChecked(1);
+							else
+								(m_apxUnlimited[i])^.SetChecked(0);
+							endif;
+							if(pxDeliveryNode^.Find(sRes)!=-1)then
+								(m_apxDelivery[i])^.SetChecked(1);
+							else
+								(m_apxDelivery[i])^.SetChecked(0);
+							endif;
+							(m_apxUpdateLimits[i])^.SetValue(GetSub(pxUpdateLimitsNode^,"max_"+sRes).ValueI());
+							(m_apxResInvCap[i])^.SetValue(GetSub(pxResInvCapsNode^,sRes).ValueI());
+						endfor;
+					endif;
+					UpdateAbilities(true);
+				else
+					m_pxEditNode^.SetValue("description",m_pxDesc^.GetText());
+					m_pxEditNode^.SetValue("aggressive",m_pxAggressive^.GetValueInt());
+					m_pxEditNode^.SetValue("gfx",m_pxGfx^.GetText());
+					m_pxEditNode^.SetValue("standanim",m_pxStandanim^.GetText());
+					m_pxEditNode^.SetValue("wall",m_pxWall^.GetChecked());
+					m_pxEditNode^.SetValue("gate",m_pxGate^.GetChecked());
+					m_pxEditNode^.SetValue("coastal",m_pxCoastal^.GetChecked());
+					m_pxEditNode^.SetValue("can_build", m_pxCanBuild^.GetChecked());
+					m_pxEditNode^.SetValue("can_harvest", m_pxCanHarvest^.GetChecked());
+					m_pxEditNode^.SetValue("buildup_autoattack",m_pxAutoAttack^.GetChecked());
+					m_pxEditNode^.SetValue("hitpoints",m_pxHitpoints^.GetValueFloat());
+					m_pxEditNode^.SetValue("FOW",m_pxFOW^.GetValueFloat());
+					m_pxEditNode^.SetValue("unit_size",m_pxSize^.GetValueInt());
+					m_pxEditNode^.SetValue("scalps",m_pxScalps^.GetValueInt());
+					m_pxEditNode^.SetValue("caste",m_pxCaste^.GetText());
+					m_pxEditNode^.SetValue("ai_cap",m_pxAiCap^.GetValueInt());
+					m_pxEditNode^.SetValue("timefactor",m_pxTimeFactor^.GetValueFloat());
+
+					m_pxEditNode^.SetValue("defaultspeed",m_pxDefSpeed^.GetValueInt());
+					m_pxEditNode^.SetValue("maxspeed",m_pxMaxSpeed^.GetValueInt());
+					m_pxEditNode^.SetValue("maxworkers",m_pxMaxWorker^.GetValueInt());
+					m_pxEditNode^.SetValue("captainlevel",m_pxMinRider^.GetValueInt());
+					m_pxEditNode^.SetValue("captainclass",m_pxCaptainClass^.GetText());
+					m_pxEditNode^.SetValue("fx_class",m_pxFXClass^.GetText());
+					m_pxEditNode^.SetValue("max_passengers",m_pxMaxPas^.GetValueInt());
+
+					m_pxEditNode^.SetValue("growup_duration",m_pxGrowUp^.GetValueFloat());
+					m_pxEditNode^.SetValue("agility",m_pxAgility^.GetValueFloat());
+					m_pxEditNode^.SetValue("density",m_pxDensity^.GetValueFloat());
+					m_pxEditNode^.SetValue("repletion",m_pxRepletion^.GetValueFloat());
+					m_pxEditNode^.SetValue("maxhelpers",m_pxMaxHelpers^.GetValueInt());
+					m_pxEditNode^.SetValue("fear",m_pxFear^.GetValueFloat());
+					m_pxEditNode^.SetValue("formation_pos",m_pxFormationPos^.GetValueFloat());
+					m_pxEditNode^.SetValue("nightactive",m_pxNightActive^.GetChecked());
+
+					m_pxEditNode^.SetValue("GlobalStartTT",m_pxGlobalStartTT^.GetText());
+					m_pxEditNode^.SetValue("StartTT",m_pxLocalStartTT^.GetText());
+
+					if(m_pxUpdateLimitsUnits!=null)then
+						pxUpdateLimitsNode^.SetValue("max_units",m_pxUpdateLimitsUnits^.GetValueInt());
+					endif;
+
+					if(m_pxResourcesNode!=null)then
+						pxUnlimitedNode^.Clear();
+						pxDeliveryNode^.Clear();
+						var int i,iC=m_pxResourcesNode^.NumSubs();
+						for(i=0)cond(i<iC)iter(i++)do
+							var string sRes=m_pxResourcesNode^.Get(i).Value();
+							if((m_apxUnlimited[i])^.GetChecked()==1)then
+								pxUnlimitedNode^.SetValue(sRes,"1");
+							endif;
+							if((m_apxDelivery[i])^.GetChecked()==1)then
+								pxDeliveryNode^.SetValue(sRes,"1");
+							endif;
+							pxUpdateLimitsNode^.SetValue("max_"+sRes,(m_apxUpdateLimits[i])^.GetValueInt());
+							pxResInvCapsNode^.SetValue(sRes,(m_apxResInvCap[i])^.GetValueInt());
+						endfor;
+					endif;
+					UpdateAbilities(false);
+				endif;
+				var ^CPropDB.CNode pxTmp = m_pxEditNode^.GetParent();
+				if(pxTmp!=null && pxTmp^.Name().Find("_Bonus")>=0) then
+					var string sClass, sType;
+					var ^CPropDB.CNode pxObj = pxTmp^.GetParent();
+					if(pxObj!=null) then
+						sClass = pxObj^.Name();
+					endif;
+
+					var int i, iC = CTTEditor2.ms_asObjTypes.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						var string sType = CTTEditor2.ms_asObjTypes[i];
+						if(sType!="CHTR" && sType!="ANML" && sType!="VHCL" && sType!="SHIP")then continue; endif;
+						var ^CPropDB.CNode pxCharsNode = ^(GetSub(CTTEditor2.Get().GetObjectsNode()^, sType));
+						if(pxCharsNode^.Find(sClass)==-1)then continue; endif;
+						var ^CPropDB.CNode pxObjNode = ^(GetSub(pxCharsNode^, sClass));
+						var ^CPropDB.CNode pxMods = ^(GetSub(pxTmp^, "Modificators"));
+						pxMods^.Clear();
+						CreateLevelFilter(CTTEditor2.Get().GetObjectsPath()+"/"+CTTEditor2.ms_asObjTypes[i]+"/"+sClass, pxObjNode, m_pxEditNode, pxTmp);
+					endfor;
+				endif;
+			endif;
+
+			begin;
+				m_pxDesc^.m_xOnChange=OnEditChanged;
+				m_pxAggressive^.m_xOnChange=OnEditChanged;
+				m_pxGfx^.m_xOnChange=OnEditChanged;
+				m_pxStandanim^.m_xOnChange=OnEditChanged;
+				m_pxWall^.m_xOnStateChange=OnEditChanged;
+				m_pxGate^.m_xOnStateChange=OnEditChanged;
+				m_pxCoastal^.m_xOnStateChange=OnEditChanged;
+				m_pxCanBuild^.m_xOnStateChange=OnEditChanged;
+				m_pxCanHarvest^.m_xOnStateChange=OnEditChanged;
+				m_pxAutoAttack^.m_xOnStateChange=OnEditChanged;
+				m_pxHitpoints^.m_xOnChange=OnEditChanged;
+				m_pxFOW^.m_xOnChange=OnEditChanged;
+				m_pxSize^.m_xOnChange=OnEditChanged;
+				m_pxScalps^.m_xOnChange=OnEditChanged;
+				m_pxCaste^.m_xOnChange=OnEditChanged;
+				m_pxAiCap^.m_xOnChange=OnEditChanged;
+				m_pxTimeFactor^.m_xOnChange=OnEditChanged;
+				m_pxDefSpeed^.m_xOnChange=OnEditChanged;
+				m_pxMaxSpeed^.m_xOnChange=OnEditChanged;
+				m_pxMaxWorker^.m_xOnChange=OnEditChanged;
+				m_pxMinRider^.m_xOnChange=OnEditChanged;
+				m_pxCaptainClass^.m_xOnChange=OnEditChanged;
+				m_pxFXClass^.m_xOnChange=OnEditChanged;
+				m_pxMaxPas^.m_xOnChange=OnEditChanged;
+
+				m_pxGrowUp^.m_xOnChange=OnEditChanged;
+				m_pxAgility^.m_xOnChange=OnEditChanged;
+				m_pxDensity^.m_xOnChange=OnEditChanged;
+				m_pxRepletion^.m_xOnChange=OnEditChanged;
+				m_pxMaxHelpers^.m_xOnChange=OnEditChanged;
+				m_pxFear^.m_xOnChange=OnEditChanged;
+				m_pxFormationPos^.m_xOnChange=OnEditChanged;
+				m_pxNightActive^.m_xOnStateChange=OnEditChanged;
+
+				m_pxGlobalStartTT^.m_xOnChange=OnEditChanged;
+				m_pxLocalStartTT^.m_xOnChange=OnEditChanged;
+
+				m_pxAbilityAdd^.m_xOnClick = OnAddAbility;
+				m_pxAbilityDel^.m_xOnClick = OnDelAbility;
+				m_pxAbilityEdit^.m_xOnClick = OnEditAbility;
+
+				if(m_pxUpdateLimitsUnits!=null)then
+					m_pxUpdateLimitsUnits^.m_xOnChange=OnEditChanged;
+				endif;
+
+				var int i,iC=m_apxUnlimited.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					(m_apxUnlimited[i])^.m_xOnStateChange=OnEditChanged;
+					(m_apxDelivery[i])^.m_xOnStateChange=OnEditChanged;
+					(m_apxUpdateLimits[i])^.m_xOnChange=OnEditChanged;
+					(m_apxResInvCap[i])^.m_xOnChange=OnEditChanged;
+				endfor;
+			end;
+		endproc;
+
+		proc void UpdateAbilities(bool p_bLoad)
+			if(p_bLoad) then
+				if(m_pxEditNode!=null) then
+					var ^CPropDB.CNode pxAbs = ^(GetSub(m_pxEditNode^, "special_abilities"));
+					if(pxAbs!=null) then
+						var int i, iC = pxAbs^.NumSubs();
+						for(i=0) cond(i<iC) iter(++i) do
+							var ^CPropDB.CNode pxSub = ^(pxAbs^.Get(i));
+							var ^CTTEditor2.CAbilityData pxAD = new CTTEditor2.CAbilityData();
+							pxAD^.m_sName = pxSub^.Name();
+
+							var int j, iJC = pxSub^.NumSubs();
+							for(j=0) cond(j<iJC) iter(++j) do
+								var ^CPropDB.CNode pxData = ^(pxSub^.Get(j));
+								var string sD = pxData^.Name()+"/"+pxData^.Value();
+								KLog.LogSpam("MaZi", "Read: " + sD);
+								pxAD^.m_asData.AddEntry(sD);
+							endfor;
+
+							m_pxAbilities^.AddItem(pxAD^.m_sName, pxAD);
+						endfor;
+					endif;
+				endif;
+			else
+				var ^CPropDB.CNode pxAbs = ^(GetSub(m_pxEditNode^, "special_abilities"));
+				if(pxAbs==null) then return; endif;
+				pxAbs^.Clear();
+
+				var int i, iC = m_pxAbilities^.NumItems();
+				for(i=0) cond(i<iC) iter(++i) do
+					var ^CTTEditor2.CAbilityData pxAD = cast<CTTEditor2.CAbilityData>(m_pxAbilities^.GetItemData(i));
+					if(pxAD!=null) then
+						var ^CPropDB.CNode pxAbility = ^(GetSub(pxAbs^, pxAD^.m_sName));
+						if(pxAbility!=null) then
+							var int j, iJC = pxAD^.m_asData.NumEntries();
+							for(j=0) cond(j<iJC) iter(++j) do
+								var array string asToks;
+								pxAD^.m_asData[j].Split(asToks, "/", true);
+
+								var string sKey, sVal;
+								if(asToks.NumEntries()>=1) then sKey = asToks[0]; endif;
+								if(asToks.NumEntries()>=2) then sVal = asToks[1]; endif;
+
+								pxAbility^.SetValue(sKey, sVal);
+							endfor;
+						endif;
+					endif;
+				endfor;
+			endif;
+		endproc;
+
+
+		proc bool OnAddAbility()
+			var ^CTTEditor2.CAbilityData pxAD = new CTTEditor2.CAbilityData();
+			pxAD^.m_sName = "new_ability_"+Random.GetInt().ToString();
+			m_pxAbilities^.AddItem(pxAD^.m_sName, pxAD);
+			OnEditChanged();
+			return true;
+		endproc;
+
+		proc bool OnDelAbility()
+			var int iSel=m_pxAbilities^.GetSelectedItem();
+			if(iSel>=0) then
+				delete m_pxAbilities^.GetItemData(iSel);
+				m_pxAbilities^.DeleteItem(iSel);
+				OnEditChanged();
+				return true;
+			endif;
+			return false;
+		endproc;
+
+		proc bool OnEditAbility()
+			var int iSel = m_pxAbilities^.GetSelectedItem();
+			if(iSel>=0) then
+				var ^CTTEditor2.CAbilityData pxAD = cast<CTTEditor2.CAbilityData>(m_pxAbilities^.GetItemData(iSel));
+				new CTTEditor2.CAbilityEdit(pxAD, OnUpdate);
+				return true;
+			endif;
+			return false;
+		endproc;
+
+		proc bool OnUpdate(CAbilityDataWrap p_xData)
+			var ^CTTEditor2.CAbilityData pxData = p_xData.m_pxAbilityData;
+			if(pxData!=null) then
+				var int iSel = m_pxAbilities^.GetSelectedItem();
+				var ^CAbilityData pxAD = cast<CAbilityData>(m_pxAbilities^.GetItemData(iSel));
+				m_pxAbilities^.SetItemText(iSel, pxData^.m_sName);
+				OnEditChanged();
+				return true;
+			endif;
+			return false;
+		endproc;
+	endclass;
+
+	class CAbilityData inherit CItemData
+		export var string 		m_sName;
+		export var array string m_asData;
+	endclass;
+
+	class CAbilityEdit inherit CFrameWindow
+
+		class CVarData inherit CItemData
+			export var string m_sKey, m_sValue;
+		endclass;
+
+		var ^CEdit			m_pxName;
+		var ^CList			m_pxData;
+		var ^CEdit			m_pxKey, m_pxValue;
+		var ^CButton		m_pxAdd, m_pxDel;
+
+		var ^CAbilityData 	m_pxAbility;
+		var procref<bool,CAbilityDataWrap> m_xOnClosing;
+
+		export constructor(^CTTEditor2.CAbilityData p_pxAbility, procref<bool,CAbilityDataWrap> p_xOnClose)
+			if(!InitFromResource("options/TTEditor","AbilityEdit")) then
+				return;
+			endif;
+
+			m_xOnClosing = p_xOnClose;
+			CWindowMgr.Get().AddTopLevelWindow(this);
+			CWindowMgr.Get().BringWindowToTop(this,true);
+			CWindowMgr.Get().SetModal(this);
+
+			m_pxAbility = p_pxAbility;
+
+			m_pxName = cast<CEdit>(GetControl("Edit_Name"));
+			m_pxData = cast<CList>(GetControl("List_Data"));
+			m_pxKey = cast<CEdit>(GetControl("Edit_Key"));
+			m_pxValue = cast<CEdit>(GetControl("Edit_Value"));
+			m_pxAdd = cast<CButton>(GetControl("Btn_New"));
+			m_pxDel = cast<CButton>(GetControl("Btn_Del"));
+
+
+			m_pxName^.SetText(m_pxAbility^.m_sName);
+			var int i, iC = m_pxAbility^.m_asData.NumEntries();
+			for(i=0) cond(i<iC) iter(++i) do
+				var array string asToks;
+				m_pxAbility^.m_asData[i].Split(asToks, "/", false);
+				var ^CVarData pxVD = new CVarData();
+				if(asToks.NumEntries()>=1) then
+					pxVD^.m_sKey = asToks[0];
+				endif;
+				if(asToks.NumEntries()>=2) then
+					pxVD^.m_sValue = asToks[1];
+				endif;
+				m_pxData^.AddItem(pxVD^.m_sKey, pxVD);
+			endfor;
+
+			m_pxName^.m_xOnUpdate = OnChangeName;
+			m_pxKey^.m_xOnUpdate = OnChangeKey;
+			m_pxValue^.m_xOnUpdate = OnChangeValue;
+			m_pxData^.m_xOnSelect = OnSelect;
+			m_pxAdd^.m_xOnClick = OnAdd;
+			m_pxDel^.m_xOnClick = OnDel;
+			m_xOnClose = OnClose;
+		endconstructor;
+
+		export destructor()
+		enddestructor;
+
+		proc bool OnClose()
+			m_pxAbility^.m_asData=0;
+
+			var int i, iC = m_pxData^.NumItems();
+			for(i=0) cond(i<iC) iter(++i) do
+				var ^CVarData pxVD = cast<CVarData>(m_pxData^.GetItemData(i));
+				if(pxVD!=null) then
+					m_pxAbility^.m_asData.AddEntry(pxVD^.m_sKey + "/" + pxVD^.m_sValue);
+				endif;
+			endfor;
+
+			if(!m_xOnClosing.IsNull())then
+				var CAbilityDataWrap xWrap;
+				xWrap.m_pxAbilityData = m_pxAbility;
+				m_xOnClosing.Call(xWrap);
+			endif;
+
+			CWindowMgr.Get().ReleaseModal(this);
+			CWindowMgr.Get().DeleteWindowDelayed(this);
+			return true;
+		endproc;
+
+		proc bool OnChangeName()
+			m_pxAbility^.m_sName = m_pxName^.GetText();
+			return true;
+		endproc;
+
+		proc bool OnAdd()
+			var ^CVarData pxVD = new CVarData();
+			pxVD^.m_sKey = "NewData_"+Random.GetInt().ToString();
+			m_pxData^.AddItem(pxVD^.m_sKey, pxVD);
+			return true;
+		endproc;
+
+		proc bool OnDel()
+			var int iSel = m_pxData^.GetSelectedItem();
+			if(iSel>=0) then
+				delete m_pxData^.GetItemData(iSel);
+				m_pxData^.DeleteItem(iSel);
+				return true;
+			endif;
+			return false;
+		endproc;
+
+		proc bool OnSelect()
+			var int iSel = m_pxData^.GetSelectedItem();
+			if(iSel>=0) then
+				var ^CVarData pxVD = cast<CVarData>(m_pxData^.GetItemData(iSel));
+				if(pxVD!=null) then
+					m_pxKey^.m_xOnUpdate.Clear();
+					m_pxValue^.m_xOnUpdate.Clear();
+
+					m_pxKey^.SetText(pxVD^.m_sKey);
+					m_pxValue^.SetText(pxVD^.m_sValue);
+
+					m_pxKey^.m_xOnUpdate = OnChangeKey;
+					m_pxValue^.m_xOnUpdate = OnChangeValue;
+					return true;
+				endif;
+			endif;
+			return false;
+		endproc;
+
+		proc bool OnChangeKey()
+			var int iSel = m_pxData^.GetSelectedItem();
+			if(iSel>=0) then
+				var ^CVarData pxVD = cast<CVarData>(m_pxData^.GetItemData(iSel));
+				if(pxVD!=null) then
+					pxVD^.m_sKey = m_pxKey^.GetText();
+					m_pxData^.SetItemText(iSel, pxVD^.m_sKey);
+					return true;
+				endif;
+			endif;
+			return false;
+		endproc;
+
+		proc bool OnChangeValue()
+			var int iSel = m_pxData^.GetSelectedItem();
+			if(iSel>=0) then
+				var ^CVarData pxVD = cast<CVarData>(m_pxData^.GetItemData(iSel));
+				if(pxVD!=null) then
+					pxVD^.m_sValue = m_pxValue^.GetText();
+					return true;
+				endif;
+			endif;
+			return false;
+		endproc;
+	endclass;
+
+	class CWeaponEdit inherit CTTEditor2.CContent
+		var ^CEdit				m_pxDesc,m_pxIconPath,m_pxCaste;
+		var ^CSpinCtrlNumber	m_pxLevel,m_pxSlot;
+		var ^CStaticCtrl		m_pxRangeText;
+		var ^CSpinCtrlNumber	m_pxDefense,m_pxRangedDefense,m_pxArmorPiercing,m_pxDamage,m_pxMinAttackRange,m_pxRange,m_pxFreq,m_pxEndDamage,m_pxHitRange;
+		var ^CSpinCtrlNumber	m_pxSize;
+		var ^CSpinCtrlNumber	m_pxBulletSpeed,m_pxBulletFalloff,/*m_pxShootDelay,*/m_pxJitter;
+		var ^CCheckBox			m_pxPenetration,m_pxSecondary;
+		var ^CSpinCtrlNumber	m_pxPenetrationAngle;
+		var ^CSpinCtrlNumber	m_pxPoisonDamage,m_pxPoisonTickCount;
+
+		var ^CListCtrl			m_pxProjectiles,m_pxUsers,m_pxAnimations;
+		var ^CBonusEdit			m_pxAttackBonus,m_pxDefenseBonus;
+		var ^CPartsEdit			m_pxParts;
+		var ^CSpinCtrlNumber	m_pxAnimDelay, m_pxAnimShootDelay, m_pxAnimProjectileOn, m_pxAnimProjectileOff;
+		var ^CDropList			m_pxFollowAnim,m_pxFXClass;
+		var ^CCheckBox			m_pxAnimCombo;
+
+		export constructor()
+			if(!InitFromResource("options/TTEditor","WeaponEdit")) then
+				return;
+			endif;
+
+			m_pxDesc=cast<CEdit>(GetControl("description"));
+			m_pxLevel=cast<CSpinCtrlNumber>(GetControl("level"));
+			m_pxSlot=cast<CSpinCtrlNumber>(GetControl("slot"));
+			m_pxSecondary=cast<CCheckBox>(GetControl("secondary"));
+
+			m_pxDefense=cast<CSpinCtrlNumber>(GetControl("defense"));
+			m_pxRangedDefense=cast<CSpinCtrlNumber>(GetControl("rangeddefense"));
+			m_pxArmorPiercing=cast<CSpinCtrlNumber>(GetControl("armorpiercing"));
+			m_pxDamage=cast<CSpinCtrlNumber>(GetControl("damage"));
+			m_pxMinAttackRange=cast<CSpinCtrlNumber>(GetControl("minattackrange"));
+			m_pxRange=cast<CSpinCtrlNumber>(GetControl("range"));
+			m_pxRangeText=cast<CStaticCtrl>(GetControl("rangeText"));
+			m_pxSize=cast<CSpinCtrlNumber>(GetControl("unit_size"));
+
+			m_pxFreq=cast<CSpinCtrlNumber>(GetControl("frequency"));
+			m_pxEndDamage=cast<CSpinCtrlNumber>(GetControl("enddamage"));
+			m_pxHitRange=cast<CSpinCtrlNumber>(GetControl("hitrange"));
+
+			m_pxBulletSpeed=cast<CSpinCtrlNumber>(GetControl("bulletspeed"));
+			m_pxBulletFalloff=cast<CSpinCtrlNumber>(GetControl("bulletfalloff"));
+			//m_pxShootDelay=cast<CSpinCtrlNumber>(GetControl("shootdelay"));
+			m_pxJitter=cast<CSpinCtrlNumber>(GetControl("jitter"));
+			m_pxPenetration=cast<CCheckBox>(GetControl("penetration"));
+			m_pxPenetrationAngle=cast<CSpinCtrlNumber>(GetControl("penetration_angle"));
+
+			m_pxIconPath=cast<CEdit>(GetControl("iconpath"));
+			m_pxCaste=cast<CEdit>(GetControl("caste"));
+			m_pxPoisonDamage=cast<CSpinCtrlNumber>(GetControl("poison_damage"));
+			m_pxPoisonTickCount=cast<CSpinCtrlNumber>(GetControl("poison_tick_count"));
+
+			m_pxProjectiles=cast<CListCtrl>(GetControl("Projectiles"));
+			m_pxProjectiles^.SetIndexed(true);
+			m_pxUsers=cast<CListCtrl>(GetControl("Users"));
+			m_pxUsers^.SetIndexed(true);
+
+			m_pxAttackBonus=cast<CBonusEdit>(GetControl("AttackBonus"));
+			m_pxDefenseBonus=cast<CBonusEdit>(GetControl("DefenseBonus"));
+
+			m_pxParts=cast<CPartsEdit>(GetControl("Parts"));
+			m_pxAnimations=cast<CListCtrl>(GetControl("Animations"));
+			m_pxAnimations^.m_xOnListChanged=UpdateFollowAnim;
+			m_pxAnimations^.m_xOnSelect=OnAnimSelected;
+			m_pxAnimations^.SetIndexed(true);
+
+			m_pxAnimDelay=cast<CSpinCtrlNumber>(GetControl("animdelay"));
+			m_pxFollowAnim=cast<CDropList>(GetControl("followanim"));
+			m_pxFollowAnim^.SetAllowAnyText(true);
+			m_pxAnimCombo=cast<CCheckBox>(GetControl("animcombo"));
+			m_pxAnimShootDelay=cast<CSpinCtrlNumber>(GetControl("animshootdelay"));
+			m_pxAnimProjectileOn=cast<CSpinCtrlNumber>(GetControl("anim_projectile_on"));
+			m_pxAnimProjectileOff=cast<CSpinCtrlNumber>(GetControl("anim_projectile_off"));
+
+			m_pxFXClass=cast<CDropList>(GetControl("fx_class"));
+			m_pxFXClass^.AddItem("Proj_Wood_Small");
+			m_pxFXClass^.AddItem("Proj_Metal_Small");
+			m_pxFXClass^.AddItem("Proj_Metal");
+			m_pxFXClass^.AddItem("Gatling");
+			m_pxFXClass^.AddItem("Proj_Wood_Large");
+			m_pxFXClass^.AddItem("Proj_Stone_Large");
+			m_pxFXClass^.AddItem("Axe");
+			m_pxFXClass^.AddItem("Sword");
+			m_pxFXClass^.AddItem("Spear");
+			m_pxFXClass^.AddItem("Hammer");
+			m_pxFXClass^.AddItem("Club");
+			m_pxFXClass^.AddItem("Lance");
+			m_pxFXClass^.AddItem("Ram");
+			m_pxFXClass^.AddItem("Explo_Small");
+			m_pxFXClass^.AddItem("Explo_Large");
+			m_pxFXClass^.AddItem("Poison_Small");
+			m_pxFXClass^.AddItem("Poison_Large");
+			m_pxFXClass^.AddItem("Claw");
+			m_pxFXClass^.AddItem("Mouth");
+			m_pxFXClass^.AddItem("Dino_Foot");
+			m_pxFXClass^.AddItem("Dino_Tail");
+
+			Init(null);
+		endconstructor;
+
+		export proc void Init(^CPropDB.CNode p_pxNode)
+			super.Init(p_pxNode);
+			UpdateData(true);
+
+			m_pxProjectiles^.Init(GetNode("Projectile"));
+			m_pxUsers^.Init(GetNode("Users"));
+
+			m_pxAttackBonus^.Init(GetNode("AttackBonus"));
+			m_pxDefenseBonus^.Init(GetNode("DefenseBonus"));
+
+			m_pxParts^.Init(GetNode("Parts"));
+			m_pxAnimations^.Init(GetNode("Animations"));
+		endproc;
+
+		export static proc real MaxRange(real p_fSpeed,real p_fGravity)
+			if(p_fGravity==0.0f)then
+				return 10000000000000.0f;
+			endif;
+			return ((p_fSpeed*p_fSpeed)/p_fGravity)-20.0f;
+		endproc;
+
+		proc void UpdateData(bool p_bLoad)
+			begin;
+				m_pxDesc^.m_xOnChange.Clear();
+				m_pxLevel^.m_xOnChange.Clear();
+				m_pxSlot^.m_xOnChange.Clear();
+				m_pxSecondary^.m_xOnStateChange.Clear();
+
+				m_pxDefense^.m_xOnChange.Clear();
+				m_pxRangedDefense^.m_xOnChange.Clear();
+				m_pxArmorPiercing^.m_xOnChange.Clear();
+				m_pxDamage^.m_xOnChange.Clear();
+				m_pxMinAttackRange^.m_xOnChange.Clear();
+				m_pxRange^.m_xOnChange.Clear();
+				m_pxFreq^.m_xOnChange.Clear();
+				m_pxEndDamage^.m_xOnChange.Clear();
+				m_pxHitRange^.m_xOnChange.Clear();
+				m_pxSize^.m_xOnChange.Clear();
+
+				m_pxBulletSpeed^.m_xOnChange.Clear();
+				m_pxBulletFalloff^.m_xOnChange.Clear();
+				//m_pxShootDelay^.m_xOnChange.Clear();
+				m_pxJitter^.m_xOnChange.Clear();
+				m_pxPenetration^.m_xOnStateChange.Clear();
+				m_pxPenetrationAngle^.m_xOnChange.Clear();
+
+				m_pxIconPath^.m_xOnChange.Clear();
+				m_pxCaste^.m_xOnChange.Clear();
+				m_pxPoisonDamage^.m_xOnChange.Clear();
+				m_pxPoisonTickCount^.m_xOnChange.Clear();
+				m_pxFXClass^.m_xOnChange.Clear();
+			end;
+
+			if(m_pxEditNode!=null)then
+				if(p_bLoad)then
+					m_pxDesc^.SetText(GetSub(m_pxEditNode^,"description").Value());
+					m_pxLevel^.SetValue(GetSub(m_pxEditNode^,"level").ValueI());
+					m_pxSlot^.SetValue(GetSub(m_pxEditNode^,"slot").ValueI());
+					m_pxSecondary^.SetChecked(GetSub(m_pxEditNode^,"secondary").ValueI());
+
+					m_pxDefense^.SetValue(GetSub(m_pxEditNode^,"defense").ValueI());
+					m_pxRangedDefense^.SetValue(GetSub(m_pxEditNode^,"rangeddefense").ValueI());
+					m_pxArmorPiercing^.SetValue(GetSub(m_pxEditNode^,"armorpiercing").ValueI());
+					m_pxDamage^.SetValue(GetSub(m_pxEditNode^,"damage").ValueI());
+					m_pxMinAttackRange^.SetValue(GetSub(m_pxEditNode^,"minattackrange").ValueR());
+					m_pxRange^.SetValue(GetSub(m_pxEditNode^,"range").ValueR());
+					m_pxFreq^.SetValue(GetSub(m_pxEditNode^,"frequency").ValueI());
+					m_pxEndDamage^.SetValue(GetSub(m_pxEditNode^,"enddamage").ValueI());
+					m_pxHitRange^.SetValue(GetSub(m_pxEditNode^,"hitrange").ValueR());
+					m_pxSize^.SetValue(GetSub(m_pxEditNode^, "unit_size").ValueI());
+
+					m_pxBulletSpeed^.SetValue(GetSub(m_pxEditNode^,"bulletspeed").ValueR());
+					m_pxBulletFalloff^.SetValue(GetSub(m_pxEditNode^,"bulletfalloff").ValueR());
+					//m_pxShootDelay^.SetValue(GetSub(m_pxEditNode^,"shootdelay").ValueR());
+					m_pxJitter^.SetValue(GetSub(m_pxEditNode^,"jitter").ValueR());
+					m_pxPenetration^.SetChecked(GetSub(m_pxEditNode^,"penetration").ValueI());
+					var real fAngle=GetSub(m_pxEditNode^,"penetration_angle").ValueR();
+					if(m_pxPenetration^.GetCheckMark() && fAngle<=0.0)then
+						fAngle=30.0;
+					endif;
+					m_pxPenetrationAngle^.SetValue(fAngle);
+
+					m_pxIconPath^.SetText(GetSub(m_pxEditNode^,"iconpath").Value());
+					m_pxCaste^.SetText(GetSub(m_pxEditNode^,"caste").Value());
+					m_pxPoisonDamage^.SetValue(GetSub(m_pxEditNode^,"poison_damage").ValueR());
+					m_pxPoisonTickCount^.SetValue(GetSub(m_pxEditNode^,"poison_tick_count").ValueI());
+					m_pxFXClass^.SetText(GetSub(m_pxEditNode^,"fx_class").Value());
+				else
+					m_pxEditNode^.SetValue("description",m_pxDesc^.GetText());
+					m_pxEditNode^.SetValue("level",m_pxLevel^.GetValueInt());
+					m_pxEditNode^.SetValue("slot",m_pxSlot^.GetValueInt());
+					m_pxEditNode^.SetValue("secondary",m_pxSecondary^.GetChecked());
+
+					m_pxEditNode^.SetValue("defense",m_pxDefense^.GetValueInt());
+					m_pxEditNode^.SetValue("rangeddefense",m_pxRangedDefense^.GetValueInt());
+					m_pxEditNode^.SetValue("armorpiercing",m_pxArmorPiercing^.GetValueInt());
+					m_pxEditNode^.SetValue("damage",m_pxDamage^.GetValueInt());
+					m_pxEditNode^.SetValue("minattackrange",m_pxMinAttackRange^.GetValueFloat());
+					m_pxEditNode^.SetValue("range",m_pxRange^.GetValueFloat());
+					m_pxEditNode^.SetValue("frequency",m_pxFreq^.GetValueInt());
+					m_pxEditNode^.SetValue("enddamage",m_pxEndDamage^.GetValueInt());
+					m_pxEditNode^.SetValue("hitrange",m_pxHitRange^.GetValueFloat());
+					m_pxEditNode^.SetValue("unit_size", m_pxSize^.GetValueInt());
+
+					m_pxEditNode^.SetValue("bulletspeed",m_pxBulletSpeed^.GetValueFloat());
+					m_pxEditNode^.SetValue("bulletfalloff",m_pxBulletFalloff^.GetValueFloat());
+					//m_pxEditNode^.SetValue("shootdelay",m_pxShootDelay^.GetValueFloat());
+					m_pxEditNode^.SetValue("jitter",m_pxJitter^.GetValueFloat());
+					m_pxEditNode^.SetValue("penetration",m_pxPenetration^.GetChecked());
+					var real fAngle=m_pxPenetrationAngle^.GetValueFloat();
+					if(m_pxPenetration^.GetCheckMark() && fAngle<=0.0)then
+						fAngle=30.0;
+					endif;
+					m_pxEditNode^.SetValue("penetration_angle",fAngle);
+					m_pxEditNode^.SetValue("iconpath",m_pxIconPath^.GetText());
+					m_pxEditNode^.SetValue("caste",m_pxCaste^.GetText());
+					m_pxEditNode^.SetValue("poison_damage",m_pxPoisonDamage^.GetValueFloat());
+					m_pxEditNode^.SetValue("poison_tick_count",m_pxPoisonTickCount^.GetValueInt());
+					m_pxEditNode^.SetValue("fx_class",m_pxFXClass^.GetText());
+				endif;
+			endif;
+
+			begin;
+				if(MaxRange(m_pxBulletSpeed^.GetValueFloat(),m_pxBulletFalloff^.GetValueFloat())<m_pxRange^.GetValueFloat())then
+					m_pxRangeText^.SetBackgroundType(CWindow.BT_Color.ToInt());
+					m_pxRangeText^.SetBackgroundColor({{255,0,0,255}});
+				else
+					m_pxRangeText^.SetBackgroundType(CWindow.BT_Normal.ToInt());
+				endif;
+			end;
+
+			begin;
+				m_pxDesc^.m_xOnChange=OnEditChanged;
+				m_pxLevel^.m_xOnChange=OnEditChanged;
+				m_pxSlot^.m_xOnChange=OnEditChanged;
+				m_pxSecondary^.m_xOnStateChange=OnEditChanged;
+
+				m_pxDefense^.m_xOnChange=OnEditChanged;
+				m_pxRangedDefense^.m_xOnChange=OnEditChanged;
+				m_pxArmorPiercing^.m_xOnChange=OnEditChanged;
+				m_pxDamage^.m_xOnChange=OnEditChanged;
+				m_pxMinAttackRange^.m_xOnChange=OnEditChanged;
+				m_pxRange^.m_xOnChange=OnEditChanged;
+				m_pxFreq^.m_xOnChange=OnEditChanged;
+				m_pxEndDamage^.m_xOnChange=OnEditChanged;
+				m_pxHitRange^.m_xOnChange=OnEditChanged;
+				m_pxSize^.m_xOnChange=OnEditChanged;
+				m_pxFXClass^.m_xOnChange=OnEditChanged;
+
+				m_pxBulletSpeed^.m_xOnChange=OnEditChanged;
+				m_pxBulletFalloff^.m_xOnChange=OnEditChanged;
+				//m_pxShootDelay^.m_xOnChange=OnEditChanged;
+				m_pxJitter^.m_xOnChange=OnEditChanged;
+				m_pxPenetration^.m_xOnStateChange=OnEditChanged;
+				m_pxPenetrationAngle^.m_xOnChange=OnEditChanged;
+
+				m_pxIconPath^.m_xOnChange=OnEditChanged;
+				m_pxCaste^.m_xOnChange=OnEditChanged;
+				m_pxPoisonDamage^.m_xOnChange=OnEditChanged;
+				m_pxPoisonTickCount^.m_xOnChange=OnEditChanged;
+			end;
+		endproc;
+
+		proc bool OnEditChanged()
+			UpdateData(false);
+			return true;
+		endproc;
+
+		proc void UpdateAnimData(bool p_bLoad)
+			begin;
+				m_pxAnimDelay^.m_xOnChange.Clear();
+				m_pxFollowAnim^.m_xOnChange.Clear();
+				m_pxAnimCombo^.m_xOnStateChange.Clear();
+				m_pxAnimShootDelay^.m_xOnChange.Clear();
+				m_pxAnimProjectileOn^.m_xOnChange.Clear();
+				m_pxAnimProjectileOff^.m_xOnChange.Clear();
+			end;
+
+			var ^CPropDB.CNode pxAnim=m_pxAnimations^.GetItemNode();
+			if(pxAnim!=null)then
+				if(p_bLoad)then
+					m_pxAnimDelay^.SetValue(GetSub(pxAnim^,"delay").ValueR());
+					m_pxFollowAnim^.SetText(GetSub(pxAnim^,"followanim").Value());
+					m_pxAnimCombo^.SetChecked(GetSub(pxAnim^,"combo").ValueI());
+					m_pxAnimShootDelay^.SetValue(GetSub(pxAnim^,"shootdelay").ValueR());
+					m_pxAnimProjectileOn^.SetValue(GetSub(pxAnim^,"projectile_on").ValueR());
+					m_pxAnimProjectileOff^.SetValue(GetSub(pxAnim^,"projectile_off").ValueR());
+				else
+					pxAnim^.SetValue("delay",m_pxAnimDelay^.GetValueFloat());
+					var string sFA=m_pxFollowAnim^.GetText();
+					if(sFA=="None")then sFA.Empty(); endif;
+					pxAnim^.SetValue("followanim",sFA);
+					pxAnim^.SetValue("combo",m_pxAnimCombo^.GetChecked());
+					pxAnim^.SetValue("shootdelay",m_pxAnimShootDelay^.GetValueFloat());
+					pxAnim^.SetValue("projectile_on",m_pxAnimProjectileOn^.GetValueFloat());
+					pxAnim^.SetValue("projectile_off",m_pxAnimProjectileOff^.GetValueFloat());
+				endif;
+			endif;
+
+			m_pxAnimDelay^.SetDisabled(pxAnim==null);
+			m_pxFollowAnim^.SetDisabled(pxAnim==null);
+			m_pxAnimCombo^.SetDisabled(pxAnim==null);
+			m_pxAnimShootDelay^.SetDisabled(pxAnim==null);
+			m_pxAnimProjectileOn^.SetDisabled(pxAnim==null);
+			m_pxAnimProjectileOff^.SetDisabled(pxAnim==null);
+
+			begin;
+				m_pxAnimDelay^.m_xOnChange=OnAnimChanged;
+				m_pxFollowAnim^.m_xOnChange=OnAnimChanged;
+				m_pxAnimCombo^.m_xOnStateChange=OnAnimChanged;
+				m_pxAnimShootDelay^.m_xOnChange=OnAnimChanged;
+				m_pxAnimProjectileOn^.m_xOnChange=OnAnimChanged;
+				m_pxAnimProjectileOff^.m_xOnChange=OnAnimChanged;
+			end;
+		endproc;
+
+		proc bool UpdateFollowAnim()
+			if(m_pxFollowAnim==null)then return true; endif;
+			m_pxFollowAnim^.m_xOnChange.Clear();
+			m_pxFollowAnim^.Clear();
+			m_pxFollowAnim^.AddItem("None");
+			var int i,iC=m_pxAnimations^.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				m_pxFollowAnim^.AddItem(m_pxAnimations^[i]);
+			endfor;
+			OnAnimSelected();
+			return true;
+		endproc;
+
+		proc bool OnAnimSelected()
+			UpdateAnimData(true);
+			return true;
+		endproc;
+
+		proc bool OnAnimChanged()
+			UpdateAnimData(false);
+			return true;
+		endproc;
+
+		proc ^CPropDB.CNode GetNode(string p_sName)
+			var ^CPropDB.CNode pxNode;
+			if(m_pxEditNode!=null)then
+				pxNode=^(GetSub(m_pxEditNode^,p_sName));
+			endif;
+			return pxNode;
+		endproc;
+
+		class CBonusEdit inherit CTTEditor2.CContent
+			var ^CDropList			m_pxType;
+			var ^CList				m_pxItems;
+			var ^CEdit				m_pxName;
+			var ^CSpinCtrlNumber	m_pxValue;
+			var ^CButton			m_pxAdd,m_pxDel;
+
+			export constructor()
+				if(!InitFromResource("options/TTEditor","BonusCtrl")) then
+					return;
+				endif;
+
+				m_pxType=cast<CDropList>(GetControl("BonusType"));
+				m_pxType^.AddItem("Type");
+				m_pxType^.AddItem("Class");
+				m_pxType^.m_xOnChange=OnChangeType;
+				m_pxItems=cast<CList>(GetControl("Items"));
+				m_pxItems^.m_xOnSelect=OnItemSelected;
+
+				m_pxName=cast<CEdit>(GetControl("Name"));
+				m_pxName^.m_xOnChange=OnItemNameChanged;
+				m_pxValue=cast<CSpinCtrlNumber>(GetControl("Bonus"));
+
+				m_pxAdd=cast<CButton>(GetControl("Add"));
+				m_pxAdd^.m_xOnClick=OnItemAdd;
+				m_pxDel=cast<CButton>(GetControl("Del"));
+				m_pxDel^.m_xOnClick=OnItemDel;
+
+				Init(null);
+			endconstructor;
+
+			export proc void Init(^CPropDB.CNode p_pxNode)
+				super.Init(p_pxNode);
+				OnItemNameChanged();
+				OnItemSelected();
+				OnChangeType();
+			endproc;
+
+			proc ^CPropDB.CNode GetListNode()
+				var ^CPropDB.CNode pxListNode;
+				if((m_pxEditNode!=null)&&(m_pxType^.GetSelectedItem()!=-1))then
+					pxListNode=^(GetSub(m_pxEditNode^,m_pxType^.GetSelectedItemAsString()));
+				endif;
+				return pxListNode;
+			endproc;
+
+			proc ^CPropDB.CNode GetItemNode()
+				var ^CPropDB.CNode pxItemNode;
+				var ^CPropDB.CNode pxListNode=GetListNode();
+				if((pxListNode!=null)&&(m_pxItems^.GetSelectedItem()!=-1))then
+					pxItemNode=^(GetSub(pxListNode^,m_pxItems^.GetSelectedItemAsString()));
+				endif;
+				return pxItemNode;
+			endproc;
+
+			proc bool OnChangeType()
+				m_pxItems^.Clear();
+				var ^CPropDB.CNode pxListNode=GetListNode();
+				if(pxListNode==null)then return true; endif;
+				var int i,iC=pxListNode^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					m_pxItems^.AddItem(pxListNode^.Get(i).Name());
+				endfor;
+				return true;
+			endproc;
+
+			proc bool OnItemSelected()
+				m_pxValue^.m_xOnChange.Clear();
+
+				var ^CPropDB.CNode pxItemNode=GetItemNode();
+				if(pxItemNode!=null)then
+					m_pxValue^.SetValue(pxItemNode^.ValueI());
+				endif;
+
+				m_pxValue^.SetDisabled(pxItemNode==null);
+				m_pxDel^.SetDisabled(pxItemNode==null);
+
+				m_pxValue^.m_xOnChange=OnValueChanged;
+				return true;
+			endproc;
+
+			proc bool OnItemNameChanged()
+				m_pxAdd^.SetDisabled((m_pxName^.GetText().IsEmpty())||
+									(m_pxItems^.FindItem(m_pxName^.GetText())!=-1));
+				return true;
+			endproc;
+
+			proc bool OnItemAdd()
+				var ^CPropDB.CNode pxListNode=GetListNode();
+				if(pxListNode!=null)then
+					GetSub(pxListNode^,m_pxName^.GetText());
+					m_pxItems^.Select(m_pxItems^.AddItem(m_pxName^.GetText()));
+				endif;
+				OnItemNameChanged();
+				return true;
+			endproc;
+
+			proc bool OnItemDel()
+				var ^CPropDB.CNode pxListNode=GetListNode();
+				if((pxListNode!=null)&&(m_pxItems^.GetSelectedItem()!=-1))then
+					pxListNode^.Remove(m_pxItems^.GetSelectedItemAsString());
+				endif;
+				m_pxItems^.DeleteItem(m_pxItems^.GetSelectedItem());
+				OnItemNameChanged();
+				return true;
+			endproc;
+
+			proc bool OnValueChanged()
+				var ^CPropDB.CNode pxItemNode=GetItemNode();
+				if(pxItemNode!=null)then
+					pxItemNode^.SetValue("",m_pxValue^.GetValueInt());
+				endif;
+				return true;
+			endproc;
+		endclass;
+
+
+		class CPartsEdit inherit CTTEditor2.CContent
+			var ^CListCtrl	m_pxItems;
+			var ^CListCtrl	m_pxGfxList;
+			var ^CDropList	m_pxLinks;
+
+			export constructor()
+				if(!InitFromResource("options/TTEditor","PartsCtrl")) then
+					return;
+				endif;
+
+				m_pxItems=cast<CListCtrl>(GetControl("Items"));
+				m_pxItems^.SetIndexed(true);
+				m_pxItems^.m_xOnSelect=OnItemSelected;
+
+				m_pxGfxList=cast<CListCtrl>(GetControl("gfxlist"));
+				m_pxGfxList^.SetIndexed(true);
+
+				m_pxLinks=cast<CDropList>(GetControl("links"));
+				m_pxLinks^.AddItem("HndR");
+				m_pxLinks^.AddItem("HndL");
+				m_pxLinks^.AddItem("Shld");
+				m_pxLinks^.AddItem("Back");
+				m_pxLinks^.AddItem("HR_2");
+				m_pxLinks^.AddItem("HL_2");
+
+				Init(null);
+			endconstructor;
+
+			export proc void Init(^CPropDB.CNode p_pxNode)
+				super.Init(p_pxNode);
+				m_pxItems^.Init(m_pxEditNode);
+				OnItemSelected();
+			endproc;
+
+			proc void UpdateData(bool p_bLoad)
+				m_pxLinks^.m_xOnChange.Clear();
+
+				var ^CPropDB.CNode pxItem=m_pxItems^.GetItemNode();
+				if(pxItem!=null)then
+					m_pxGfxList^.Init(^(GetSub(pxItem^,"Gfx")));
+					if(p_bLoad)then
+						m_pxLinks^.SetText(GetSub(pxItem^,"Links").Value());
+					else
+						pxItem^.SetValue("Links",m_pxLinks^.GetText());
+					endif;
+				else
+					m_pxGfxList^.Init(null);
+				endif;
+				m_pxLinks^.SetDisabled(pxItem==null);
+
+				m_pxLinks^.m_xOnChange=OnEditChanged;
+			endproc;
+
+			proc bool OnItemSelected()
+				UpdateData(true);
+				return true;
+			endproc;
+
+			proc bool OnEditChanged()
+				UpdateData(false);
+				return true;
+			endproc;
+		endclass;
+	endclass;
+
+	class CActionEdit inherit CTTEditor2.CContent
+		var ^CSpinCtrlNumber		m_pxDuration,m_pxVisibility;
+		var ^CLocationsEdit			m_pxLocations;
+		var ^CChoiceListCtrl		m_pxSecondary;
+		var ^CChoiceListCtrl		m_pxSecondaryOwner;
+		var ^CResultsEdit			m_pxResults;
+		var ^CCharConditionsCtrl	m_pxCharConds;
+		var ^CResCostCtrl			m_pxResCosts;
+		var ^CListCtrl				m_pxCondInventObjects;
+		var ^CListCtrl				m_pxCondBuildObjects;
+
+		class CLocationsEdit inherit CTTEditor2.CContent
+			var ^CListCtrl			m_pxLocations;
+			var ^CEdit				m_pxLocDescription,m_pxLocToolTip,m_pxLocIconPath;
+			var ^CSpinCtrlNumber	m_pxLocPage,m_pxLocPlace;
+			var ^CDropList			m_pxCategory,m_pxMenu;
+			var ^CSpinCtrlNumber	m_pxMenuPosition;
+			var ^CListCtrl			m_pxLocalFlags;
+
+			var string				m_sDefEditText;
+			var bool				m_bEditsDisabled;
+
+			export constructor()
+				if(!InitFromResource("options/TTEditor","LocationsCtrl")) then
+					return;
+				endif;
+				m_pxLocations=cast<CListCtrl>(GetControl("Locations"));
+				m_pxLocations^.UseSelector();
+				m_pxLocations^.SetIndexed(true);
+				m_pxLocations^.m_xOnSelect=OnLocationSelected;
+				m_pxLocDescription=cast<CEdit>(GetControl("LocDescription"));
+				m_pxLocToolTip=cast<CEdit>(GetControl("LocTooltip"));
+				m_pxLocIconPath=cast<CEdit>(GetControl("LocIconPath"));
+				m_pxLocPage=cast<CSpinCtrlNumber>(GetControl("LocPage"));
+				m_pxLocPlace=cast<CSpinCtrlNumber>(GetControl("LocPlace"));
+
+				m_pxCategory=cast<CDropList>(GetControl("LocCat"));
+				/*m_pxCategory^.AddItem("PROD");
+				m_pxCategory^.AddItem("INVE");
+				m_pxCategory^.AddItem("SLOT");
+				m_pxCategory^.AddItem("TRDE");
+				m_pxCategory^.AddItem("BUIL");
+				m_pxCategory^.AddItem("STAN");
+				m_pxCategory^.AddItem("SPEC");
+				m_pxCategory^.AddItem("ACTN");
+				m_pxCategory^.AddItem("STNC");
+				m_pxCategory^.AddItem("FORM");
+				m_pxCategory^.AddItem("SPMG");
+				m_pxCategory^.AddItem("SPMR");
+				m_pxCategory^.AddItem("GLOB");
+				m_pxCategory^.AddItem("TRAD");
+				m_pxCategory^.AddItem("BGLB");
+				m_pxCategory^.AddItem("BECO");
+				m_pxCategory^.AddItem("BDEF");
+				m_pxCategory^.AddItem("BCMB");
+				m_pxCategory^.AddItem("UGLB");
+				m_pxCategory^.AddItem("UECO");
+				m_pxCategory^.AddItem("UDEF");
+				m_pxCategory^.AddItem("UCMB");
+				m_pxCategory^.AddItem("IGLB");
+				m_pxCategory^.AddItem("IECO");
+				m_pxCategory^.AddItem("IDEF");
+				m_pxCategory^.AddItem("ICMB");
+				m_pxCategory^.AddItem("CGLB");
+				m_pxCategory^.AddItem("CECO");
+				m_pxCategory^.AddItem("CDEF");
+				m_pxCategory^.AddItem("CCMB");
+				m_pxCategory^.AddItem("BWTR");
+				m_pxCategory^.AddItem("BWOR");*/
+				m_pxCategory^.AddItem("");
+				m_pxMenu=cast<CDropList>(GetControl("LocMenu"));
+				m_pxMenu^.AddItem("");
+				m_pxCategory^.AddItem("PROD");
+				m_pxCategory^.AddItem("BUIL");
+				m_pxCategory^.AddItem("STNC");
+				m_pxCategory^.AddItem("SLOT");
+				m_pxCategory^.AddItem("TRDE");
+				m_pxCategory^.AddItem("SPEC");
+				m_pxCategory^.AddItem("ACTN");
+
+				m_pxMenu^.AddItem("UNIT");
+				m_pxMenu^.AddItem("ECON");
+				m_pxMenu^.AddItem("DEFE");
+				m_pxMenu^.AddItem("COMB");
+				m_pxMenu^.AddItem("UPGR");
+				m_pxMenu^.AddItem("UMGR");
+				m_pxMenu^.AddItem("ALTR");
+				/*m_pxMenu^.AddItem("ACTN");
+				m_pxMenu^.AddItem("STNC");
+				m_pxMenu^.AddItem("FORM");
+				m_pxMenu^.AddItem("SPMG");
+				m_pxMenu^.AddItem("SPMR");
+				m_pxMenu^.AddItem("GLOB");
+				m_pxMenu^.AddItem("TRAD");
+				m_pxMenu^.AddItem("BGLB");
+				m_pxMenu^.AddItem("BECO");
+				m_pxMenu^.AddItem("BDEF");
+				m_pxMenu^.AddItem("BCMB");
+				m_pxMenu^.AddItem("UGLB");
+				m_pxMenu^.AddItem("UECO");
+				m_pxMenu^.AddItem("UDEF");
+				m_pxMenu^.AddItem("UCMB");
+				m_pxMenu^.AddItem("IGLB");
+				m_pxMenu^.AddItem("IECO");
+				m_pxMenu^.AddItem("IDEF");
+				m_pxMenu^.AddItem("ICMB");
+				m_pxMenu^.AddItem("CGLB");
+				m_pxMenu^.AddItem("CECO");
+				m_pxMenu^.AddItem("CDEF");
+				m_pxMenu^.AddItem("CCMB");
+				m_pxMenu^.AddItem("BWTR");
+				m_pxMenu^.AddItem("BWOR");*/
+				m_pxMenuPosition=cast<CSpinCtrlNumber>(GetControl("LocMenuPos"));
+
+				m_pxLocalFlags=cast<CListCtrl>(GetControl("localflags"));
+
+				Init(null);
+			endconstructor;
+
+			export proc void Init(^CPropDB.CNode p_pxNode)
+				super.Init(p_pxNode);
+				m_pxLocations^.Init(m_pxEditNode);
+				UpdateLocations(true);
+			endproc;
+
+			export proc void SetDefaultEditsText(string p_sText,bool p_bDisabled)
+				m_sDefEditText=p_sText;
+				var int i,iC=m_pxLocations^.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CPropDB.CNode pxN=m_pxLocations^.GetItemNode(i);
+					if(pxN!=null)then
+						pxN^.SetValue("description",m_sDefEditText);
+						pxN^.SetValue("tooltip",m_sDefEditText);
+						pxN^.SetValue("iconpath",m_sDefEditText);
+					endif;
+				endfor;
+				m_bEditsDisabled=p_bDisabled;
+				UpdateLocations(true);
+			endproc;
+
+			export proc void AddLocation(string p_sName)
+				m_pxLocations^.IncludeItem(p_sName);
+			endproc;
+
+			export proc void RemLocation(string p_sName)
+				m_pxLocations^.RemoveItem(p_sName);
+			endproc;
+
+			export proc int NumEntries()
+				return m_pxLocations^.NumEntries();
+			endproc;
+
+			export proc string op_Index(int p_iIdx)
+				return (m_pxLocations^)[p_iIdx];
+			endproc;
+
+			proc void UpdateLocations(bool p_bLoad)
+				m_pxLocDescription^.m_xOnChange.Clear();
+				m_pxLocToolTip^.m_xOnChange.Clear();
+				m_pxLocIconPath^.m_xOnChange.Clear();
+				m_pxLocPage^.m_xOnChange.Clear();
+				m_pxLocPlace^.m_xOnChange.Clear();
+
+				m_pxCategory^.m_xOnChange.Clear();
+				m_pxMenu^.m_xOnChange.Clear();
+				m_pxMenuPosition^.m_xOnChange.Clear();
+
+				var ^CPropDB.CNode pxItemNode=m_pxLocations^.GetItemNode();
+				if(pxItemNode!=null)then
+					if(p_bLoad)then
+						m_pxLocDescription^.SetText(GetSub(pxItemNode^,"description").Value());
+						if(m_pxLocDescription^.GetText().IsEmpty())then
+							pxItemNode^.SetValue("description",m_sDefEditText);
+							m_pxLocDescription^.SetText(m_sDefEditText);
+						endif;
+						m_pxLocToolTip^.SetText(GetSub(pxItemNode^,"tooltip").Value());
+						if(m_pxLocToolTip^.GetText().IsEmpty())then
+							pxItemNode^.SetValue("tooltip",m_sDefEditText);
+							m_pxLocToolTip^.SetText(m_sDefEditText);
+						endif;
+						m_pxLocIconPath^.SetText(GetSub(pxItemNode^,"iconpath").Value());
+						if(m_pxLocIconPath^.GetText().IsEmpty())then
+							pxItemNode^.SetValue("iconpath",m_sDefEditText);
+							m_pxLocIconPath^.SetText(m_sDefEditText);
+						endif;
+						//m_pxLocPage^.SetValue(GetSub(GetSub(pxItemNode^,"uiposition"),"page").ValueI());
+						//m_pxLocPlace^.SetValue(GetSub(GetSub(pxItemNode^,"uiposition"),"place").ValueI());
+
+						m_pxCategory^.SetText(GetSub(GetSub(pxItemNode^,"uiposition"),"cat").Value());
+						m_pxMenu^.SetText(GetSub(GetSub(pxItemNode^,"uiposition"),"subcat").Value());
+						m_pxMenuPosition^.SetValue(GetSub(GetSub(pxItemNode^,"uiposition"),"menupos").ValueI());
+					else
+						pxItemNode^.SetValue("description",m_pxLocDescription^.GetText());
+						pxItemNode^.SetValue("tooltip",m_pxLocToolTip^.GetText());
+						pxItemNode^.SetValue("iconpath",m_pxLocIconPath^.GetText());
+						//GetSub(pxItemNode^,"uiposition").SetValue("page",m_pxLocPage^.GetValueInt());
+						//GetSub(pxItemNode^,"uiposition").SetValue("place",m_pxLocPlace^.GetValueInt());
+
+						GetSub(pxItemNode^,"uiposition").SetValue("cat",m_pxCategory^.GetText());
+						GetSub(pxItemNode^,"uiposition").SetValue("subcat",m_pxMenu^.GetText());
+						GetSub(pxItemNode^,"uiposition").SetValue("menupos",m_pxMenuPosition^.GetValueInt());
+					endif;
+					m_pxLocalFlags^.Init(^(GetSub(pxItemNode^,"localflags")));
+				else
+					m_pxLocalFlags^.Init(null);
+				endif;
+				m_pxLocDescription^.SetDisabled((pxItemNode==null)||m_bEditsDisabled);
+				m_pxLocToolTip^.SetDisabled((pxItemNode==null)||m_bEditsDisabled);
+				m_pxLocIconPath^.SetDisabled((pxItemNode==null)||m_bEditsDisabled);
+				m_pxLocPage^.SetDisabled(pxItemNode==null);
+				m_pxLocPlace^.SetDisabled(pxItemNode==null);
+
+				m_pxCategory^.SetDisabled(pxItemNode==null);
+				m_pxMenu^.SetDisabled(pxItemNode==null);
+				m_pxMenuPosition^.SetDisabled(pxItemNode==null);
+
+
+				m_pxLocDescription^.m_xOnChange=OnLocationChanged;
+				m_pxLocToolTip^.m_xOnChange=OnLocationChanged;
+				m_pxLocIconPath^.m_xOnChange=OnLocationChanged;
+				m_pxLocPage^.m_xOnChange=OnLocationChanged;
+				m_pxLocPlace^.m_xOnChange=OnLocationChanged;
+
+				m_pxCategory^.m_xOnChange=OnLocationChanged;
+				m_pxMenu^.m_xOnChange=OnLocationChanged;
+				m_pxMenuPosition^.m_xOnChange=OnLocationChanged;
+			endproc;
+
+			proc bool OnLocationSelected()
+				UpdateLocations(true);
+				return true;
+			endproc;
+
+			proc bool OnLocationChanged()
+				UpdateLocations(false);
+				return true;
+			endproc;
+		endclass;
+
+		class CResultsEdit inherit CTTEditor2.CContent
+			var ^CListCtrl			m_pxResults;
+			var ^CDropList			m_pxResultClass,m_pxResultType;
+			var ^CEdit				m_pxResultRider;
+			var ^CSpinCtrlNumber	m_pxRiderLevel;
+
+			export constructor()
+				if(!InitFromResource("options/TTEditor","ResultsCtrl")) then
+					return;
+				endif;
+
+				m_pxResults=cast<CListCtrl>(GetControl("Results"));
+				m_pxResults^.UseSelector();
+				m_pxResults^.SetIndexed(true);
+				m_pxResults^.m_xOnSelect=OnResultSelected;
+				m_pxResultClass=cast<CDropList>(GetControl("ResultClass"));
+				m_pxResultClass^.AddItem("player");
+				m_pxResultClass^.AddItem("local");
+				m_pxResultClass^.AddItem("global");
+				m_pxResultType=cast<CDropList>(GetControl("ResultType"));
+				m_pxResultType^.AddItem("activate");
+				m_pxResultType^.AddItem("deactivate");
+				m_pxResultRider=cast<CEdit>(GetControl("ResultRider"));
+				m_pxRiderLevel=cast<CSpinCtrlNumber>(GetControl("ResultFlagsLevel"));
+
+				Init(null);
+			endconstructor;
+
+			export proc void Init(^CPropDB.CNode p_pxNode)
+				super.Init(p_pxNode);
+				m_pxResults^.Init(m_pxEditNode);
+				UpdateResults(true);
+			endproc;
+
+			export proc void AddResult(string p_sName)
+				m_pxResults^.IncludeItem(p_sName);
+			endproc;
+
+			export proc void RemResult(string p_sName)
+				m_pxResults^.RemoveItem(p_sName);
+			endproc;
+
+			export proc int NumEntries()
+				return m_pxResults^.NumEntries();
+			endproc;
+
+			export proc string op_Index(int p_iIdx)
+				return (m_pxResults^)[p_iIdx];
+			endproc;
+
+			proc void UpdateResults(bool p_bLoad)
+				begin;
+					m_pxResultClass^.m_xOnChange.Clear();
+					m_pxResultType^.m_xOnChange.Clear();
+					m_pxResultRider^.m_xOnChange.Clear();
+					m_pxRiderLevel^.m_xOnChange.Clear();
+				end;
+
+				var ^CPropDB.CNode pxItemNode=m_pxResults^.GetItemNode();
+				if(pxItemNode!=null)then
+					if(p_bLoad)then
+						begin;
+							var string sClass=GetSub(pxItemNode^,"class").Value();
+							var int iClassIdx=m_pxResultClass^.FindItem(sClass);
+							if(iClassIdx==-1)then
+								iClassIdx=0;
+							endif;
+							m_pxResultClass^.Select(iClassIdx);
+							GetSub(pxItemNode^,"class").Value()=m_pxResultClass^.GetSelectedItemAsString();
+						end;
+						begin;
+							var string sType=GetSub(pxItemNode^,"type").Value();
+							var int iTypeIdx=m_pxResultType^.FindItem(sType);
+							if(iTypeIdx==-1)then
+								iTypeIdx=0;
+							endif;
+							m_pxResultType^.Select(iTypeIdx);
+							GetSub(pxItemNode^,"type").Value()=m_pxResultType^.GetSelectedItemAsString();
+						end;
+						m_pxResultRider^.SetText(GetSub(pxItemNode^,"rider").Value());
+						m_pxRiderLevel^.SetValue(GetSub(GetSub(pxItemNode^,"flags"),"level").ValueI());
+					else
+						pxItemNode^.SetValue("class",m_pxResultClass^.GetSelectedItemAsString());
+						pxItemNode^.SetValue("type",m_pxResultType^.GetSelectedItemAsString());
+
+						pxItemNode^.SetValue("rider",m_pxResultRider^.GetText());
+						GetSub(pxItemNode^,"flags").SetValue("level",m_pxRiderLevel^.GetValueInt());
+					endif;
+				endif;
+/*				m_pxResultClass^.SetDisabled(pxItemNode==null);
+				m_pxResultType^.SetDisabled(pxItemNode==null);*/
+
+				begin;
+					m_pxResultClass^.m_xOnChange=OnResultChanged;
+					m_pxResultType^.m_xOnChange=OnResultChanged;
+					m_pxResultRider^.m_xOnChange=OnResultChanged;
+					m_pxRiderLevel^.m_xOnChange=OnResultChanged;
+				end;
+			endproc;
+
+			proc bool OnResultSelected()
+				UpdateResults(true);
+				return true;
+			endproc;
+
+			proc bool OnResultChanged()
+				UpdateResults(false);
+				return true;
+			endproc;
+		endclass;
+
+		class CCharConditionsCtrl inherit CTTEditor2.CContent
+			var ^CSpinCtrlNumber	m_pxLevel;
+			var array ^CCheckBox	m_apxCastes,m_apxTribes;
+
+			export constructor()
+				InitControls(false);
+				Init(null);
+			endconstructor;
+
+			export constructor(bool p_bNoTribe)
+				InitControls(p_bNoTribe);
+				Init(null);
+			endconstructor;
+
+			export proc void Init(^CPropDB.CNode p_pxNode)
+				super.Init(p_pxNode);
+				UpdateData(true);
+			endproc;
+
+			proc void InitControls(bool p_bNoTribe)
+				var ^CBoxLayout pxLM=new CBoxLayout("main",1);
+				pxLM^.SetCellPadding(5,3);
+				SetLayoutMgr(pxLM);
+				pxLM^.AddBox("main",CBoxLayout.BT_Fixed,30.0,"levelrow");
+				pxLM^.AddBox("levelrow",CBoxLayout.BT_Fixed,40.0,"levelhead");
+				AddChildWithLayout(new CStaticCtrl({0,0},"level",0),"levelhead");
+				pxLM^.AddBox("levelrow",CBoxLayout.BT_Fill,1.0,"level");
+				m_pxLevel=new CSpinCtrlNumber({0,0},0.0,0.0,5.0,1.0,0);
+				AddChildWithLayout(m_pxLevel,"level");
+
+				begin Castes;
+					pxLM^.AddBox("main",CBoxLayout.BT_Fixed,20.0,"castesrow");
+					pxLM^.AddBox("castesrow",CBoxLayout.BT_Fixed,40.0,"casteshead");
+					AddChildWithLayout(new CStaticCtrl({0,0},"caste",0),"casteshead");
+					var int i,iC=CTTEditor2.ms_asCastes.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						pxLM^.AddBox("castesrow",CBoxLayout.BT_Fill,1.0,"caste_"+CTTEditor2.ms_asCastes[i]);
+						var ^CCheckBox pxTmp=new CCheckBox({0,0},CTTEditor2.ms_asCastes[i],false);
+						AddChildWithLayout(pxTmp,"caste_"+CTTEditor2.ms_asCastes[i]);
+						m_apxCastes.AddEntry(pxTmp);
+					endfor;
+				end Castes;
+
+				if(!p_bNoTribe)then
+					pxLM^.AddBox("main",CBoxLayout.BT_Fixed,20.0,"tribesrow");
+					pxLM^.AddBox("tribesrow",CBoxLayout.BT_Fixed,40.0,"tribeshead");
+					AddChildWithLayout(new CStaticCtrl({0,0},"tribe",0),"tribeshead");
+					var int i,iC=CTTEditor2.ms_asTribes.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						pxLM^.AddBox("tribesrow",CBoxLayout.BT_Fill,1.0,"tribe_"+CTTEditor2.ms_asTribes[i]);
+						var ^CCheckBox pxTmp=new CCheckBox({0,0},CTTEditor2.ms_asTribes[i],false);
+						AddChildWithLayout(pxTmp,"tribe_"+CTTEditor2.ms_asTribes[i]);
+						m_apxTribes.AddEntry(pxTmp);
+					endfor;
+				endif;
+			endproc;
+
+			proc void UpdateData(bool p_bLoad)
+				begin;
+					m_pxLevel^.m_xOnChange.Clear();
+					var int i,iC=CTTEditor2.ms_asCastes.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						(m_apxCastes[i])^.m_xOnStateChange.Clear();
+					endfor;
+
+					iC=m_apxTribes.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						(m_apxTribes[i])^.m_xOnStateChange.Clear();
+					endfor;
+				end;
+
+				if(m_pxEditNode!=null)then
+					if(p_bLoad)then
+						m_pxLevel^.SetValue(GetSub(m_pxEditNode^,"level").ValueI());
+						begin;
+							var int i,iC=CTTEditor2.ms_asCastes.NumEntries();
+							var ^CPropDB.CNode pxCasteNode=^(GetSub(m_pxEditNode^,"caste"));
+							for(i=0)cond(i<iC)iter(i++)do
+								var int iChecked=0;
+								var int j,ijC=pxCasteNode^.NumSubs();
+								for(j=0)cond(j<ijC)iter(j++)do
+									if(pxCasteNode^.Get(j).Value()==CTTEditor2.ms_asCastes[i])then
+										iChecked=1;
+										break;
+									endif;
+								endfor;
+								(m_apxCastes[i])^.SetChecked(iChecked);
+							endfor;
+						end;
+						if(m_apxTribes.NumEntries()!=0)then
+							var int i,iC=CTTEditor2.ms_asTribes.NumEntries();
+							var ^CPropDB.CNode pxTribeNode=^(GetSub(m_pxEditNode^,"tribe"));
+							for(i=0)cond(i<iC)iter(i++)do
+								var int iChecked=0;
+								var int j,ijC=pxTribeNode^.NumSubs();
+								for(j=0)cond(j<ijC)iter(j++)do
+									if(pxTribeNode^.Get(j).Value()==CTTEditor2.ms_asTribes[i])then
+										iChecked=1;
+										break;
+									endif;
+								endfor;
+								(m_apxTribes[i])^.SetChecked(iChecked);
+							endfor;
+						endif;
+					else
+						m_pxEditNode^.SetValue("level",m_pxLevel^.GetValueInt());
+						begin;
+							var int i,iC=CTTEditor2.ms_asCastes.NumEntries();
+							var ^CPropDB.CNode pxCasteNode=^(GetSub(m_pxEditNode^,"caste"));
+							pxCasteNode^.Clear();
+							for(i=0)cond(i<iC)iter(i++)do
+								if((m_apxCastes[i])^.GetCheckMark())then
+									pxCasteNode^.SetValue(pxCasteNode^.NumSubs().ToString(),CTTEditor2.ms_asCastes[i]);
+								endif;
+							endfor;
+						end;
+						if(m_apxTribes.NumEntries()!=0)then
+							var int i,iC=CTTEditor2.ms_asTribes.NumEntries();
+							var ^CPropDB.CNode pxTribeNode=^(GetSub(m_pxEditNode^,"tribe"));
+							pxTribeNode^.Clear();
+							for(i=0)cond(i<iC)iter(i++)do
+								if((m_apxTribes[i])^.GetCheckMark())then
+									pxTribeNode^.SetValue(pxTribeNode^.NumSubs().ToString(),CTTEditor2.ms_asTribes[i]);
+								endif;
+							endfor;
+						endif;
+					endif;
+				endif;
+
+				begin;
+					m_pxLevel^.m_xOnChange=OnEditChanged;
+					var int i,iC=CTTEditor2.ms_asCastes.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						(m_apxCastes[i])^.m_xOnStateChange=OnEditChanged;
+					endfor;
+
+					iC=m_apxTribes.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						(m_apxTribes[i])^.m_xOnStateChange=OnEditChanged;
+					endfor;
+				end;
+			endproc;
+
+			proc bool OnEditChanged()
+				UpdateData(false);
+				return true;
+			endproc;
+		endclass;
+
+		class CResCostCtrl inherit CTTEditor2.CContent
+			var ^CSpinCtrlNumber		m_pxUnits;
+			var array ^CSpinCtrlNumber	m_apxRes;
+
+			export constructor()
+				var ^CBoxLayout pxLM=new CBoxLayout("main",1);
+				pxLM^.SetCellPadding(5,3);
+				SetLayoutMgr(pxLM);
+				pxLM^.AddBox("main",CBoxLayout.BT_Fixed,15.0,"header");
+				pxLM^.AddBox("main",CBoxLayout.BT_Fixed,25.0,"costrow");
+
+				pxLM^.AddBox("header",CBoxLayout.BT_Fill,1.0,"header_units");
+				AddChildWithLayout(new CStaticCtrl({0,0},"units",0),"header_units");
+				pxLM^.AddBox("costrow",CBoxLayout.BT_Fill,1.0,"cost_units");
+				m_pxUnits=new CSpinCtrlNumber({0,0},0.0,0.0,1000000.0,5.0,0);
+				AddChildWithLayout(m_pxUnits,"cost_units");
+
+				var ^CPropDB.CNode pxResNode=CTTEditor2.Get().GetResourcesNode();
+				var int i,iC=pxResNode^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					var string sRes=pxResNode^.Get(i).Value();
+					pxLM^.AddBox("header",CBoxLayout.BT_Fill,1.0,"header_"+sRes);
+					AddChildWithLayout(new CStaticCtrl({0,0},sRes,0),"header_"+sRes);
+					pxLM^.AddBox("costrow",CBoxLayout.BT_Fill,1.0,"cost_"+sRes);
+					var ^CSpinCtrlNumber pxTmp=new CSpinCtrlNumber({0,0},0.0,0.0,1000000.0,5.0,0);
+					m_apxRes.AddEntry(pxTmp);
+					AddChildWithLayout(pxTmp,"cost_"+sRes);
+				endfor;
+
+				Init(null);
+			endconstructor;
+
+			export proc void Init(^CPropDB.CNode p_pxNode)
+				super.Init(p_pxNode);
+				UpdateData(true);
+			endproc;
+
+			proc void UpdateData(bool p_bLoad)
+				var ^CPropDB.CNode pxResNode=CTTEditor2.Get().GetResourcesNode();
+
+				begin;
+					m_pxUnits^.m_xOnChange.Clear();
+					var int i,iC=pxResNode^.NumSubs();
+					if(iC!=m_apxRes.NumEntries())then
+						Windows.DbgBreak();
+						return;
+					endif;
+					for(i=0)cond(i<iC)iter(i++)do
+						(m_apxRes[i])^.m_xOnChange.Clear();
+					endfor;
+				end;
+
+				if(m_pxEditNode!=null)then
+					if(p_bLoad)then
+						m_pxUnits^.SetValue(GetSub(m_pxEditNode^,"units").ValueI());
+						var int i,iC=pxResNode^.NumSubs();
+						for(i=0)cond(i<iC)iter(i++)do
+							(m_apxRes[i])^.SetValue(GetSub(m_pxEditNode^,pxResNode^.Get(i).Value()).ValueI());
+						endfor;
+					else
+						m_pxEditNode^.SetValue("units",m_pxUnits^.GetValueInt());
+						var int i,iC=pxResNode^.NumSubs();
+						for(i=0)cond(i<iC)iter(i++)do
+							m_pxEditNode^.SetValue(pxResNode^.Get(i).Value(),(m_apxRes[i])^.GetValueInt());
+						endfor;
+					endif;
+				endif;
+
+				begin;
+					m_pxUnits^.m_xOnChange=OnEditChanged;
+					var int i,iC=pxResNode^.NumSubs();
+					for(i=0)cond(i<iC)iter(i++)do
+						(m_apxRes[i])^.m_xOnChange=OnEditChanged;
+					endfor;
+				end;
+			endproc;
+
+			proc bool OnEditChanged()
+				UpdateData(false);
+				return true;
+			endproc;
+		endclass;
+
+		export constructor()
+			if(!InitFromResource("options/TTEditor","ActionCtrl")) then
+				return;
+			endif;
+
+			m_pxDuration=cast<CSpinCtrlNumber>(GetControl("duration"));
+			m_pxVisibility=cast<CSpinCtrlNumber>(GetControl("visibility"));
+
+			m_pxLocations=cast<CLocationsEdit>(GetControl("locations/Locations"));
+
+			begin;
+				m_pxSecondary=cast<CChoiceListCtrl>(GetControl("secondary/secondary"));
+				var array string asTypes;
+				asTypes.AddEntry("VEC3");
+				asTypes.AddEntry("FGHT");
+				asTypes.AddEntry("ALL ");
+				var int i,iC=CTTEditor2.ms_asObjTypes.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					asTypes.AddEntry(CTTEditor2.ms_asObjTypes[i]);
+				endfor;
+				m_pxSecondary^.InitList(asTypes);
+			end;
+
+			begin;
+				m_pxSecondaryOwner=cast<CChoiceListCtrl>(GetControl("secondary/secondary_owner"));
+				var array string asTypes;
+				asTypes.AddEntry("Owner");
+				asTypes.AddEntry("Allies");
+				asTypes.AddEntry("Neutrals");
+				asTypes.AddEntry("Enemies");
+				asTypes.AddEntry("Jans");
+				asTypes.AddEntry("Steffens");
+				m_pxSecondaryOwner^.InitList(asTypes);
+			end;
+
+			m_pxResults=cast<CResultsEdit>(GetControl("results/Results"));
+			m_pxCharConds=cast<CCharConditionsCtrl>(GetControl("conditions/charconds"));
+			m_pxResCosts=cast<CResCostCtrl>(GetControl("conditions/rescosts"));
+			m_pxCondInventObjects=cast<CListCtrl>(GetControl("conditions/inventobjects"));
+			m_pxCondInventObjects^.SetIndexed(true);
+			m_pxCondBuildObjects=cast<CListCtrl>(GetControl("conditions/buildobjects"));
+			m_pxCondBuildObjects^.SetIndexed(true);
+
+			Init(null);
+		endconstructor;
+
+		export proc void Init(^CPropDB.CNode p_pxNode)
+			super.Init(p_pxNode);
+			UpdateData(true);
+			if(m_pxEditNode!=null)then
+				m_pxLocations^.Init(^(GetSub(m_pxEditNode^,"locations")));
+				m_pxSecondary^.Init(^(GetSub(m_pxEditNode^,"secondarycontroller")));
+				m_pxSecondaryOwner^.Init(^(GetSub(m_pxEditNode^,"secondarycontrollerowner")));
+				m_pxResults^.Init(^(GetSub(m_pxEditNode^,"results")));
+				var ^CPropDB.CNode pxCondNode=^(GetSub(m_pxEditNode^,"conditions"));
+				m_pxCharConds^.Init(pxCondNode);
+				m_pxResCosts^.Init(^(GetSub(pxCondNode^,"rescosts")));
+				m_pxCondInventObjects^.Init(^(GetSub(pxCondNode^,"inventobjects")));
+				m_pxCondBuildObjects^.Init(^(GetSub(pxCondNode^,"buildobjects")));
+			else
+				m_pxLocations^.Init(null);
+				m_pxSecondary^.Init(null);
+				m_pxSecondaryOwner^.Init(null);
+				m_pxResults^.Init(null);
+				m_pxCharConds^.Init(null);
+				m_pxResCosts^.Init(null);
+				m_pxCondInventObjects^.Init(null);
+				m_pxCondBuildObjects^.Init(null);
+			endif;
+		endproc;
+
+		proc void UpdateData(bool p_bLoad)
+			begin;
+				m_pxDuration^.m_xOnChange.Clear();
+				m_pxVisibility^.m_xOnChange.Clear();
+			end;
+
+			if(m_pxEditNode!=null)then
+				if(p_bLoad)then
+					m_pxDuration^.SetValue(GetSub(m_pxEditNode^,"duration").ValueI());
+					m_pxVisibility^.SetValue(m_pxEditNode^.GetValueI("visibility",1));
+				else
+					m_pxEditNode^.SetValue("duration",m_pxDuration^.GetValueInt());
+					m_pxEditNode^.SetValue("visibility",m_pxVisibility^.GetValueInt());
+				endif;
+			endif;
+
+			begin;
+				m_pxDuration^.m_xOnChange=OnEditChanged;
+				m_pxVisibility^.m_xOnChange=OnEditChanged;
+			end;
+		endproc;
+
+		proc bool OnEditChanged()
+			UpdateData(false);
+			return true;
+		endproc;
+	endclass;
+
+	class CFilterEdit inherit CTTEditor2.CContent
+		var ^CSpinCtrlNumber	m_pxPriority;
+		var ^CListCtrl			m_pxPartList;
+		var ^CFilterModCtrl		m_pxPartCtrl;
+
+		export constructor()
+			if(!InitFromResource("options/TTEditor","FilterEdit")) then
+				return;
+			endif;
+
+			m_pxPriority=cast<CSpinCtrlNumber>(GetControl("priority"));
+			m_pxPriority^.m_xOnChange=OnPriority;
+			m_pxPartList=cast<CListCtrl>(GetControl("parts"));
+			m_pxPartList^.SetIndexed(false);
+			m_pxPartList^.m_xOnSelect=OnFilterSelected;
+			m_pxPartCtrl=cast<CFilterModCtrl>(GetControl("part"));
+
+			Init(null);
+		endconstructor;
+
+		export proc void Init(^CPropDB.CNode p_pxNode)
+			super.Init(p_pxNode);
+			if(m_pxEditNode!=null)then
+				m_pxPriority^.SetValue(GetSub(m_pxEditNode^,"priority").ValueI());
+				m_pxPartList^.Init(^GetSub(m_pxEditNode^,"Modificators"));
+			else
+				m_pxPartList^.Init(null);
+			endif;
+			OnFilterSelected();
+		endproc;
+
+		proc bool OnPriority()
+			m_pxEditNode^.SetValue("priority",m_pxPriority^.GetValueInt());
+			return true;
+		endproc;
+
+		proc bool OnFilterSelected()
+			m_pxPartCtrl^.Init(m_pxPartList^.GetItemNode());
+			return true;
+		endproc;
+
+		class CFilterModCtrl inherit CTTEditor2.CContent
+			var ^CDropList		m_pxOperator;
+			var ^CEdit			m_pxPath,m_pxValue;
+			var ^CToggleButton	m_pxSelector;
+
+			export constructor()
+				if(!InitFromResource("options/TTEditor","FilterModCtrl")) then
+					return;
+				endif;
+
+				m_pxOperator=cast<CDropList>(GetControl("operator"));
+				m_pxOperator^.AddItem("append");
+				m_pxOperator^.AddItem("remove");
+				m_pxOperator^.AddItem("replace");
+				m_pxOperator^.AddItem("add");
+				m_pxOperator^.AddItem("multiply");
+				m_pxOperator^.AddItem("visible");
+				m_pxOperator^.AddItem("invisible");
+				m_pxPath=cast<CEdit>(GetControl("path"));
+				m_pxSelector=cast<CToggleButton>(GetControl("select"));
+				m_pxSelector^.m_xOnClick=OnSelectPath;
+				m_pxValue=cast<CEdit>(GetControl("value"));
+				m_pxValue^.SetForceFixedFont(true);
+
+				Init(null);
+			endconstructor;
+
+			export proc void Init(^CPropDB.CNode p_pxNode)
+				super.Init(p_pxNode);
+				UpdateData(true);
+			endproc;
+
+			proc bool OnSelectPath()
+				CTTEditor2.Get().SetSelector(OnPathSelected);
+				return true;
+			endproc;
+
+			proc void OnPathSelected(string p_sPath)
+				m_pxPath^.SetText(p_sPath);
+				m_pxSelector^.SetToggleButtonState(false);
+			endproc;
+
+			proc bool OnEditChanged()
+				UpdateData(false);
+				return true;
+			endproc;
+
+			proc void UpdateData(bool p_bLoad)
+				m_pxOperator^.m_xOnChange.Clear();
+				m_pxPath^.m_xOnChange.Clear();
+				m_pxValue^.m_xOnChange.Clear();
+
+				if(m_pxEditNode!=null)then
+					if(p_bLoad)then
+						begin;
+							var int iIdx=m_pxOperator^.FindItem(GetSub(m_pxEditNode^,"op").Value());
+							if(iIdx==-1)then
+								iIdx=0;
+							endif;
+							m_pxOperator^.Select(iIdx);
+							GetSub(m_pxEditNode^,"op").Value()=m_pxOperator^.GetSelectedItemAsString();
+						end;
+						m_pxPath^.SetText(GetSub(m_pxEditNode^,"path").Value());
+						begin;
+							var CPropDB xTmp;
+							xTmp.GetRoot().Value()=GetSub(m_pxEditNode^,"value").Value();
+							xTmp.GetRoot().Join(^GetSub(m_pxEditNode^,"value"));
+							var string sTmp=xTmp.ToString();
+							m_pxValue^.SetText(sTmp);
+						end;
+					else
+						GetSub(m_pxEditNode^,"op").Value()=m_pxOperator^.GetSelectedItemAsString();
+						GetSub(m_pxEditNode^,"path").Value()=m_pxPath^.GetText();
+						GetSub(m_pxEditNode^,"value").Clear();
+						var CPropDB xTmp;
+						xTmp.FromString(m_pxValue^.GetText());
+						GetSub(m_pxEditNode^,"value").Value()=xTmp.GetRoot().Value();
+						GetSub(m_pxEditNode^,"value").Join(^(xTmp.GetRoot()));
+					endif;
+				endif;
+
+				m_pxOperator^.m_xOnChange=OnEditChanged;
+				m_pxPath^.m_xOnChange=OnEditChanged;
+				m_pxValue^.m_xOnChange=OnEditChanged;
+			endproc;
+		endclass;
+	endclass;
+
+	class CItemEdit inherit CTTEditor2.CContent
+
+		var ^CEdit					m_pxDesc;
+		var ^CSpinCtrlNumber		m_pxDuration, m_pxReload;
+		var ^CCheckBox				m_pxEffectIn,m_pxEffectOut;
+		var ^CCheckBox				m_pxTypeGlobal,m_pxTypeLocal,m_pxTypeWeapon,m_pxTypeRadius;
+		var ^CCheckBox				m_pxTypeEffect, m_pxTypeBonus;
+		var ^CSelectEdit			m_pxGlobalStartTT,m_pxLocalStartTT,m_pxWeaponPath;
+		var ^CDropList				m_pxEffect;
+		var ^CSpinCtrlNumber		m_pxRange, m_pxBonus;
+
+		export constructor()
+			if(!InitFromResource("options/TTEditor","ItemEdit")) then
+				return;
+			endif;
+
+			m_pxDesc=cast<CEdit>(GetControl("description"));
+			m_pxDuration=cast<CSpinCtrlNumber>(GetControl("duration"));
+			m_pxReload=cast<CSpinCtrlNumber>(GetControl("reload"));
+
+			m_pxEffectIn=cast<CCheckBox>(GetControl("EffectInInv"));
+			m_pxEffectOut=cast<CCheckBox>(GetControl("EffectOutInv"));
+
+			m_pxTypeGlobal=cast<CCheckBox>(GetControl("TypeGlobal"));
+			m_pxTypeLocal=cast<CCheckBox>(GetControl("TypeLocal"));
+			m_pxTypeWeapon=cast<CCheckBox>(GetControl("TypeWeapon"));
+			m_pxTypeRadius=cast<CCheckBox>(GetControl("TypeRadius"));
+			m_pxTypeEffect=cast<CCheckBox>(GetControl("TypeEffect"));
+			m_pxTypeBonus=cast<CCheckBox>(GetControl("TypeBonus"));
+
+			m_pxGlobalStartTT=cast<CSelectEdit>(GetControl("globalStartTT"));
+			m_pxGlobalStartTT^.UseSelector(true);
+			m_pxLocalStartTT=cast<CSelectEdit>(GetControl("localStartTT"));
+			m_pxLocalStartTT^.UseSelector(true);
+			m_pxWeaponPath=cast<CSelectEdit>(GetControl("weaponPath"));
+			m_pxWeaponPath^.UseSelector(true);
+			m_pxRange=cast<CSpinCtrlNumber>(GetControl("range"));
+			m_pxEffect=cast<CDropList>(GetControl("Effect"));
+			m_pxEffect^.SetAllowAnyText(true);
+			m_pxBonus = cast<CSpinCtrlNumber>(GetControl("bonus"));
+			Init(null);
+		endconstructor;
+
+		export proc void Init(^CPropDB.CNode p_pxNode)
+			super.Init(p_pxNode);
+			UpdateData(true);
+		endproc;
+
+		proc bool OnEditChanged()
+			UpdateData(false);
+			return true;
+		endproc;
+
+		proc void UpdateData(bool p_bLoad)
+			begin;
+				m_pxDesc^.m_xOnChange.Clear();
+				m_pxDuration^.m_xOnChange.Clear();
+				m_pxReload^.m_xOnChange.Clear();
+
+				m_pxEffectIn^.m_xOnStateChange.Clear();
+				m_pxEffectOut^.m_xOnStateChange.Clear();
+
+				m_pxTypeGlobal^.m_xOnStateChange.Clear();
+				m_pxTypeLocal^.m_xOnStateChange.Clear();
+				m_pxTypeWeapon^.m_xOnStateChange.Clear();
+				m_pxTypeRadius^.m_xOnStateChange.Clear();
+				m_pxTypeEffect^.m_xOnStateChange.Clear();
+				m_pxTypeBonus^.m_xOnStateChange.Clear();
+
+				m_pxGlobalStartTT^.m_xOnChange.Clear();
+				m_pxLocalStartTT^.m_xOnChange.Clear();
+				m_pxWeaponPath^.m_xOnChange.Clear();
+				m_pxRange^.m_xOnChange.Clear();
+				m_pxEffect^.m_xOnChange.Clear();
+				m_pxBonus^.m_xOnChange.Clear();
+			end;
+
+			if(m_pxEditNode!=null)then
+				if(p_bLoad)then
+					m_pxDesc^.SetText(GetSub(m_pxEditNode^,"description").Value());
+					m_pxDuration^.SetValue(GetSub(m_pxEditNode^,"duration").ValueR());
+					m_pxReload^.SetValue(GetSub(m_pxEditNode^,"reload").ValueR());
+					m_pxBonus^.SetValue(GetSub(m_pxEditNode^, "bonus").ValueR());
+
+					var bitset dwEffect=GetSub(m_pxEditNode^,"effect").ValueI().ToBitset();
+					m_pxEffectIn^.SetChecked(((dwEffect&01b)>>0).ToInt());
+					m_pxEffectOut^.SetChecked(((dwEffect&010b)>>1).ToInt());
+
+					var bitset dwType=GetSub(m_pxEditNode^,"type").ValueI().ToBitset();
+					m_pxTypeGlobal^.SetChecked(((dwType&01b)>>0).ToInt());
+					m_pxTypeLocal^.SetChecked(((dwType&010b)>>1).ToInt());
+					m_pxTypeWeapon^.SetChecked(((dwType&0100b)>>2).ToInt());
+					m_pxTypeRadius^.SetChecked(((dwType&01000b)>>3).ToInt());
+					m_pxTypeBonus^.SetChecked(((dwType&010000b)>>4).ToInt());
+
+					m_pxGlobalStartTT^.SetText(GetSub(m_pxEditNode^,"GlobalTT").Value());
+					m_pxLocalStartTT^.SetText(GetSub(m_pxEditNode^,"LocalTT").Value());
+					m_pxWeaponPath^.SetText(GetSub(m_pxEditNode^,"WeaponPath").Value());
+					m_pxRange^.SetValue(GetSub(m_pxEditNode^,"range").ValueR());
+					m_pxEffect^.SetText(GetSub(m_pxEditNode^,"EffectName").Value());
+
+					var int iE=0;
+					if(!m_pxEffect^.GetText().IsEmpty()) then iE=1; endif;
+					m_pxTypeEffect^.SetChecked(iE);
+				else
+					m_pxEditNode^.SetValue("description",m_pxDesc^.GetText());
+					m_pxEditNode^.SetValue("duration",m_pxDuration^.GetValueFloat());
+					m_pxEditNode^.SetValue("reload", m_pxReload^.GetValueFloat());
+
+					var bitset dwEffect=(m_pxEffectIn^.GetChecked().ToBitset()<<0)|
+										(m_pxEffectOut^.GetChecked().ToBitset()<<1);
+					m_pxEditNode^.SetValue("effect",dwEffect.ToInt());
+
+					var bitset dwType=(m_pxTypeGlobal^.GetChecked().ToBitset()<<0)|
+										(m_pxTypeLocal^.GetChecked().ToBitset()<<1)|
+										(m_pxTypeWeapon^.GetChecked().ToBitset()<<2)|
+										(m_pxTypeRadius^.GetChecked().ToBitset()<<3)|
+										(m_pxTypeBonus^.GetChecked().ToBitset()<<4);
+					m_pxEditNode^.SetValue("type",dwType.ToInt());
+
+					m_pxEditNode^.SetValue("GlobalTT",m_pxGlobalStartTT^.GetText());
+					m_pxEditNode^.SetValue("LocalTT",m_pxLocalStartTT^.GetText());
+					m_pxEditNode^.SetValue("WeaponPath",m_pxWeaponPath^.GetText());
+					m_pxEditNode^.SetValue("range",m_pxRange^.GetValueFloat());
+					m_pxEditNode^.SetValue("bonus", m_pxBonus^.GetValueFloat());
+
+					var string sEffect = m_pxEffect^.GetText();
+					if (!m_pxTypeEffect^.GetCheckMark()) then sEffect=""; endif;
+					m_pxEditNode^.SetValue("EffectName", sEffect);
+				endif;
+			endif;
+
+			m_pxGlobalStartTT^.SetDisabled(!m_pxTypeGlobal^.GetCheckMark());
+			m_pxLocalStartTT^.SetDisabled(!m_pxTypeLocal^.GetCheckMark());
+			m_pxWeaponPath^.SetDisabled(!m_pxTypeWeapon^.GetCheckMark());
+			m_pxRange^.SetDisabled(!m_pxTypeRadius^.GetCheckMark());
+			m_pxEffect^.SetDisabled(!m_pxTypeEffect^.GetCheckMark());
+			m_pxBonus^.SetDisabled(!m_pxTypeBonus^.GetCheckMark());
+
+			begin;
+				m_pxDesc^.m_xOnChange=OnEditChanged;
+				m_pxDuration^.m_xOnChange=OnEditChanged;
+				m_pxReload^.m_xOnChange=OnEditChanged;
+
+				m_pxEffectIn^.m_xOnStateChange=OnEditChanged;
+				m_pxEffectOut^.m_xOnStateChange=OnEditChanged;
+
+				m_pxTypeGlobal^.m_xOnStateChange=OnEditChanged;
+				m_pxTypeLocal^.m_xOnStateChange=OnEditChanged;
+				m_pxTypeWeapon^.m_xOnStateChange=OnEditChanged;
+				m_pxTypeRadius^.m_xOnStateChange=OnEditChanged;
+				m_pxTypeEffect^.m_xOnStateChange=OnEditChanged;
+				m_pxTypeBonus^.m_xOnStateChange=OnEditChanged;
+
+				m_pxGlobalStartTT^.m_xOnChange=OnEditChanged;
+				m_pxLocalStartTT^.m_xOnChange=OnEditChanged;
+				m_pxWeaponPath^.m_xOnChange=OnEditChanged;
+				m_pxRange^.m_xOnChange=OnEditChanged;
+				m_pxEffect^.m_xOnChange=OnEditChanged;
+				m_pxBonus^.m_xOnChange=OnEditChanged;
+			end;
+		endproc;
+	endclass;
+
+	class CWizard inherit CWindow
+
+		class CPage
+			export var bool		m_bEnabled;
+			export var string	m_sDesc;
+			export var ^CWindow	m_pxWin;
+		endclass;
+
+		var array CPage	m_axPages;
+		var int			m_iCurrent;
+		var string		m_sName;
+		var int			m_iPreviewIdx;
+		var ^CEdit		m_pxPreview;
+
+		export var procref<bool>	m_xOnStateChange;
+
+		export constructor()
+			m_sName="Dummy-Wizard";
+			m_iCurrent=-1;
+			m_iPreviewIdx=-1;
+			var ^CBoxLayout pxLM=new CBoxLayout("main",1);
+			SetLayoutMgr(pxLM);
+		endconstructor;
+
+		export proc string GetName()
+			if(m_iCurrent==-1)then return m_sName; endif;
+			var ^CWizard pxTmp=cast<CWizard>((m_axPages[m_iCurrent]).m_pxWin);
+			if(pxTmp==null)then
+				return m_sName;
+			else
+				return m_sName+" -> "+pxTmp^.GetName();
+			endif;
+		endproc;
+
+		export proc string GetCurrentStep()
+			if(m_iCurrent==-1)then return "none"; endif;
+			var string sRes=/*(m_iCurrent+1).ToString()+" "+*/(m_axPages[m_iCurrent]).m_sDesc;
+			var ^CWizard pxTmp=cast<CWizard>((m_axPages[m_iCurrent]).m_pxWin);
+			if(pxTmp!=null)then
+				sRes+=" -> "+pxTmp^.GetCurrentStep();
+			endif;
+			return sRes;
+		endproc;
+
+		export proc bool IsFirst()
+			if(m_iCurrent==-1)then return true; endif;
+
+			var int i,iC=m_axPages.NumEntries();
+			for(i=0)cond(i<m_iCurrent)iter(i++)do
+				if(i==m_iPreviewIdx)then continue; endif;
+				if(m_axPages[i].m_bEnabled)then return false; endif;
+			endfor;
+
+			var ^CWizard pxTmp=cast<CWizard>((m_axPages[m_iCurrent]).m_pxWin);
+			if(pxTmp!=null)then return pxTmp^.IsFirst(); endif;
+
+			return true;
+		endproc;
+
+		export proc bool IsLast()
+			if(m_iCurrent==-1)then return true; endif;
+
+			var int i,iC=m_axPages.NumEntries();
+			for(i=m_iCurrent+1)cond(i<iC)iter(i++)do
+				if(i==m_iPreviewIdx)then continue; endif;
+				if(m_axPages[i].m_bEnabled)then return false; endif;
+			endfor;
+
+			var ^CWizard pxTmp=cast<CWizard>((m_axPages[m_iCurrent]).m_pxWin);
+			if(pxTmp!=null)then return pxTmp^.IsLast();	endif;
+
+			return true;
+		endproc;
+
+		export proc bool Next()
+			if(m_iCurrent==-1)then
+				SetCurrent(m_iCurrent+1);
+				return true;
+			endif;
+			var ^CWizard pxTmp=cast<CWizard>((m_axPages[m_iCurrent]).m_pxWin);
+			if(pxTmp==null || !pxTmp^.Next())then
+//				if(IsLast())then return false; endif;
+				var int i,iC=m_axPages.NumEntries();
+				for(i=m_iCurrent+1)cond(i<iC)iter(i++)do
+					if(i==m_iPreviewIdx)then continue; endif;
+					if(m_axPages[i].m_bEnabled)then
+						SetCurrent(i);
+						return true;
+					endif;
+				endfor;
+			endif;
+			return false;
+		endproc;
+
+		export proc bool Prev()
+			var ^CWizard pxTmp=cast<CWizard>((m_axPages[m_iCurrent]).m_pxWin);
+			if(pxTmp==null || !pxTmp^.Prev())then
+				var int i,iC=m_axPages.NumEntries();
+				for(i=m_iCurrent-1)cond(i>=0)iter(i--)do
+					if(i==m_iPreviewIdx)then continue; endif;
+					if(m_axPages[i].m_bEnabled)then
+						SetCurrent(i);
+						return true;
+					endif;
+				endfor;
+			endif;
+			return false;
+		endproc;
+
+		export proc bool CanPreview()
+			return (m_pxPreview!=null);
+		endproc;
+
+		export proc bool IsInPreview()
+			return (m_pxPreview!=null) && (m_pxPreview^.GetParentWindow()==this);
+		endproc;
+
+		export proc string GetPreviewText()
+			return "Dummy-Preview";
+		endproc;
+
+		export proc void Preview()
+			if(m_pxPreview!=null)then
+				m_pxPreview^.SetText(GetPreviewText());
+				SetCurrent(m_iPreviewIdx);
+			endif;
+		endproc;
+
+		export proc bool CanFinish()
+			var int i,iC=m_axPages.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!m_axPages[i].m_bEnabled)then continue; endif;
+				var ^CWizard pxTmp=cast<CWizard>((m_axPages[i]).m_pxWin);
+				if(pxTmp!=null && !pxTmp^.CanFinish())then return false; endif;
+			endfor;
+			return IsLast();
+		endproc;
+
+		export proc void Finish()
+//			Windows.DbgPrint("Finished");
+		endproc;
+
+		proc int AddPage(^CWindow p_pxPage,string p_sDesc,bool p_bEnabled)
+			var int iRet=m_axPages.NewEntry();
+			m_axPages[iRet].m_pxWin=p_pxPage;
+			m_axPages[iRet].m_sDesc=p_sDesc;
+			m_axPages[iRet].m_bEnabled=p_bEnabled;
+			var ^CWizard pxWiz=cast<CWizard>(p_pxPage);
+			if(pxWiz!=null)then
+				pxWiz^.m_xOnStateChange=NotifyStateChange;
+			endif;
+			return iRet;
+		endproc;
+
+		proc void AddPreview()
+			if(m_pxPreview!=null)then
+				Windows.DbgBreak();
+				return;
+			endif;
+			m_pxPreview=new CEdit({0,0},"",true);
+			m_iPreviewIdx=AddPage(m_pxPreview,"Preview",true);
+		endproc;
+
+		proc void SetPageEnabled(int p_iPageIdx,bool p_bEnabled)
+			m_axPages[p_iPageIdx].m_bEnabled=p_bEnabled;
+			NotifyStateChange();
+		endproc;
+
+		proc void SetCurrent(int p_iVal)
+			m_iCurrent=p_iVal;
+			RemoveAllChildren();
+			AddChildWithLayout(m_axPages[m_iCurrent].m_pxWin,"main");
+			NotifyStateChange();
+		endproc;
+
+		proc bool NotifyStateChange()
+			if(!m_xOnStateChange.IsNull())then
+				m_xOnStateChange.Call();
+			endif;
+			return true;
+		endproc;
+	endclass;
+
+	class CNewObjWizard inherit CTTEditor2.CWizard
+
+		// page 1
+		var ^CDropList			m_pxType;
+		var ^CEdit				m_pxName,m_pxGfx;
+
+		class CObjDetails inherit CWindow
+			var ^CSpinCtrlNumber	m_pxHitpoints,m_pxFOW,
+									m_pxDefSpeed,m_pxMaxSpeed,
+									m_pxCaptainLvl, m_pxMaxPas;
+			var ^CDropList			m_pxCaptainClass;
+			// hidden value
+			var int					m_iAggressive;
+
+			export constructor()
+				if(!InitFromResource("options/TTEditor","NewObjWizardPage2")) then
+					return;
+				endif;
+				m_pxHitpoints=cast<CSpinCtrlNumber>(GetControl("Hitpoints"));
+				m_pxFOW=cast<CSpinCtrlNumber>(GetControl("FOW"));
+				m_pxDefSpeed=cast<CSpinCtrlNumber>(GetControl("DefSpeed"));
+				m_pxMaxSpeed=cast<CSpinCtrlNumber>(GetControl("MaxSpeed"));
+				m_pxCaptainLvl=cast<CSpinCtrlNumber>(GetControl("CaptainLvl"));
+				m_pxCaptainClass=cast<CDropList>(GetControl("CaptainClass"));
+				m_pxMaxPas=cast<CSpinCtrlNumber>(GetControl("maxpassengers"));
+
+				m_pxCaptainClass^.Clear();
+				var ^CPropDB.CNode pxObjs = CTTEditor2.Get().GetObjectsNode();
+				if(pxObjs!=null) then
+					var ^CPropDB.CNode pxChars = pxObjs^.Get("CHTR");
+					if(pxChars!=null) then
+						var int i, iC = pxChars^.NumSubs();
+						for(i=0) cond(i<iC) iter(++i) do
+							m_pxCaptainClass^.AddItem(pxChars^.Get(i).Name());
+						endfor;
+					endif;
+				endif;
+				m_pxCaptainClass^.AddItem("");
+			endconstructor;
+
+			export proc void OnTypeChange(string p_sType)
+				var bool bBldg=(p_sType=="BLDG");
+				var bool bChtr=(p_sType=="CHTR");
+				m_pxDefSpeed^.SetDisabled(bBldg);
+				m_pxMaxSpeed^.SetDisabled(bBldg);
+				m_pxCaptainLvl^.SetDisabled(bBldg||bChtr);
+				m_pxCaptainClass^.SetDisabled(bBldg||bChtr);
+				m_pxMaxPas^.SetDisabled(bBldg||bChtr);
+				m_iAggressive=1;
+				if(bBldg||bChtr)then
+					if(bBldg)then
+						m_iAggressive=0;
+						m_pxDefSpeed^.SetValue(0);
+						m_pxMaxSpeed^.SetValue(0);
+					endif;
+					m_pxCaptainLvl^.SetValue(0);
+					m_pxCaptainClass^.SetText("");
+				endif;
+			endproc;
+
+			export proc void WriteData(ref CPropDB.CNode p_rxNode)
+				p_rxNode.SetValue("aggressive",m_iAggressive);
+				p_rxNode.SetValue("hitpoints",m_pxHitpoints^.GetValueFloat());
+				p_rxNode.SetValue("FOW",m_pxFOW^.GetValueFloat());
+
+				p_rxNode.SetValue("growup_duration",0.0);
+				p_rxNode.SetValue("defaultspeed",m_pxDefSpeed^.GetValueInt());
+				p_rxNode.SetValue("maxspeed",m_pxMaxSpeed^.GetValueInt());
+				p_rxNode.SetValue("captainlevel",m_pxCaptainLvl^.GetValueInt());
+				p_rxNode.SetValue("captainclass",m_pxCaptainClass^.GetText());
+				p_rxNode.SetValue("max_passengers",m_pxMaxPas^.GetValueInt());
+				p_rxNode.SetValue("scalps",5);
+				p_rxNode.SetValue("timefactor",2);
+			endproc;
+
+			export proc string GetPreviewText()
+				var string sT="hitpoints: "+m_pxHitpoints^.GetValueInt().ToString()+" FOW: "+m_pxFOW^.GetValueInt().ToString()+"\n";
+				if(!m_pxDefSpeed^.GetDisabled())then
+					sT+="default speed: "+m_pxDefSpeed^.GetValueInt().ToString()+" max speed: "+m_pxMaxSpeed^.GetValueInt().ToString()+"\n";
+				endif;
+				if(!m_pxCaptainLvl^.GetDisabled())then
+					sT+="captain  level: "+m_pxCaptainLvl^.GetValueInt().ToString();
+					if(!m_pxCaptainClass^.GetText().IsEmpty())then
+						sT+=" class: "+m_pxCaptainClass^.GetText();
+					endif;
+					sT+="\n";
+				endif;
+				return sT;
+			endproc;
+		endclass;
+
+		// level pages
+		var ^CObjDetails		m_pxLevel1;
+		var ^CObjDetails		m_pxLevel2;
+		var int					m_iLevel2Page;
+		var ^CObjDetails		m_pxLevel3;
+		var int					m_iLevel3Page;
+		var ^CObjDetails		m_pxLevel4;
+		var int					m_iLevel4Page;
+		var ^CObjDetails		m_pxLevel5;
+		var int					m_iLevel5Page;
+
+		// page
+		var ^CCheckBox			m_pxBuildAction;
+
+		// last page
+		var ^CActionWizard		m_pxActionWiz;
+		var int					m_iActionPage;
+
+		export constructor()
+			InitControls();
+		endconstructor;
+
+		export constructor(string p_sObjClass)
+			InitControls();
+			m_pxType^.Select(m_pxType^.FindItem(p_sObjClass));
+			m_pxType^.SetDisabled(true);
+		endconstructor;
+
+		proc void InitControls()
+			m_sName="object wizard";
+
+			begin Page1;
+				var ^CWindow pxPage1=new CWindow();
+				AddPage(pxPage1,"Basics",true);
+				if(!pxPage1^.InitFromResource("options/TTEditor","NewObjWizardPage1")) then
+					return;
+				endif;
+				m_pxType=cast<CDropList>(pxPage1^.GetControl("ObjType"));
+				m_pxType^.Clear();
+				var int i,iC=CTTEditor2.ms_asObjTypes.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					m_pxType^.AddItem(CTTEditor2.ms_asObjTypes[i]);
+				endfor;
+				m_pxType^.m_xOnChange=OnTypeChange;
+				m_pxName=cast<CEdit>(pxPage1^.GetControl("ObjName"));
+				m_pxName^.m_xOnChange=OnNameChanged;
+				m_pxGfx=cast<CEdit>(pxPage1^.GetControl("ObjGfx"));
+			end Page1;
+
+			begin LevelPages;
+				m_pxLevel1=new CObjDetails();
+				AddPage(m_pxLevel1,"Details",true);
+				m_pxLevel2=new CObjDetails();
+				m_iLevel2Page=AddPage(m_pxLevel2,"Level 2",false);
+				m_pxLevel3=new CObjDetails();
+				m_iLevel3Page=AddPage(m_pxLevel3,"Level 3",false);
+				m_pxLevel4=new CObjDetails();
+				m_iLevel4Page=AddPage(m_pxLevel4,"Level 4",false);
+				m_pxLevel5=new CObjDetails();
+				m_iLevel5Page=AddPage(m_pxLevel5,"Level 5",false);
+			end LevelPages;
+
+			begin Page3;
+				m_pxBuildAction=new CCheckBox({0,0},"add build action",false);
+				m_pxBuildAction^.m_xOnStateChange=OnBuildAction;
+				AddPage(m_pxBuildAction,"Choose build action",true);
+			end Page3;
+
+			begin Page4;
+				m_pxActionWiz=new CTTEditor2.CActionWizard("Build");
+				m_iActionPage=AddPage(m_pxActionWiz,"Build action",false);
+			end Page4;
+
+			AddPreview();
+			Next();
+			OnBuildAction();
+			OnTypeChange();
+		endproc;
+
+		proc bool OnNameChanged()
+			m_pxActionWiz^.SetTypeAndName(m_pxType^.GetText(),m_pxName^.GetText(),true);
+			return true;
+		endproc;
+
+		proc bool OnTypeChange()
+			var bool bChtr=(m_pxType^.GetText()=="CHTR");
+			// currently disabled
+/*
+			SetPageEnabled(m_iLevel2Page,bChtr);
+			SetPageEnabled(m_iLevel3Page,bChtr);
+			SetPageEnabled(m_iLevel4Page,bChtr);
+			SetPageEnabled(m_iLevel5Page,bChtr);
+*/
+			m_pxLevel1^.OnTypeChange(m_pxType^.GetText());
+			m_pxLevel2^.OnTypeChange(m_pxType^.GetText());
+			m_pxLevel3^.OnTypeChange(m_pxType^.GetText());
+			m_pxLevel4^.OnTypeChange(m_pxType^.GetText());
+			m_pxLevel5^.OnTypeChange(m_pxType^.GetText());
+
+			return OnNameChanged();
+		endproc;
+
+		proc bool OnBuildAction()
+			SetPageEnabled(m_iActionPage,m_pxBuildAction^.GetCheckMark());
+			return true;
+		endproc;
+
+		export proc string GetPreviewText()
+			var string sT="create new "+m_pxType^.GetText()+"-object\n";
+			sT+="named "+m_pxName^.GetText()+" with gfx "+m_pxGfx^.GetText()+"\n";
+
+			var bool bChtr=(m_pxType^.GetText()=="CHTR");
+			// currently disabled
+			bChtr=false;
+			if(bChtr)then
+				sT+="Level 1:\n"+m_pxLevel1^.GetPreviewText()+"\n";
+				sT+="Level 2:\n"+m_pxLevel2^.GetPreviewText()+"\n";
+				sT+="Level 3:\n"+m_pxLevel3^.GetPreviewText()+"\n";
+				sT+="Level 4:\n"+m_pxLevel4^.GetPreviewText()+"\n";
+				sT+="Level 5:\n"+m_pxLevel5^.GetPreviewText()+"\n";
+			else
+				sT+=m_pxLevel1^.GetPreviewText();
+			endif;
+			if(m_pxBuildAction^.GetCheckMark())then
+				sT+="\n"+m_pxActionWiz^.GetPreviewText();
+			endif;
+			return sT;
+		endproc;
+
+		export proc void Finish()
+			var ^CPropDB.CNode pxObjects=CTTEditor2.Get().GetObjectsNode();
+			var ^CPropDB.CNode pxType=^(CTTEditor2.CContent.GetSub(pxObjects^,m_pxType^.GetText()));
+			var ^CPropDB.CNode pxObject=^(CTTEditor2.CContent.GetSub(pxType^,m_pxName^.GetText()));
+			pxObject^.SetValue("description",m_pxName^.GetText());
+			pxObject^.SetValue("gfx",m_pxGfx^.GetText());
+			m_pxLevel1^.WriteData(pxObject^);
+
+			var bool bChtr=(m_pxType^.GetText()=="CHTR");
+			if(bChtr)then
+				var ^CPropDB.CNode pxFilters=CTTEditor2.Get().GetFiltersNode();
+				var ^CPropDB.CNode pxUpgrades=^(CTTEditor2.CContent.GetSub(pxFilters^,"Upgrades"));
+				var ^CPropDB.CNode pxObjUpgrades=^(CTTEditor2.CContent.GetSub(pxUpgrades^,m_pxName^.GetText()));
+
+				var string sObjPath=CTTEditor2.Get().GetObjectsPath()+"/"+m_pxType^.GetText()+"/"+m_pxName^.GetText();
+				begin Level2;
+					var ^CPropDB.CNode pxFilter=^(CTTEditor2.CContent.GetSub(pxObjUpgrades^,"Lvl2_Bonus"));
+					pxFilter^.SetValue("priority","1000");
+					var ^CPropDB.CNode pxModificators=^(CTTEditor2.CContent.GetSub(pxFilter^,"Helper"));
+					var ^CPropDB.CNode pxMod=^(CTTEditor2.CContent.GetSub(pxModificators^,"LevelBonusData"));
+					var ^CPropDB.CNode pxObj=pxMod;
+					pxObj^.SetValue("description",m_pxName^.GetText());
+					pxObj^.SetValue("gfx",m_pxGfx^.GetText());
+					m_pxLevel1^.WriteData(pxObj^);
+				end Level2;
+				begin Level3;
+					var ^CPropDB.CNode pxFilter=^(CTTEditor2.CContent.GetSub(pxObjUpgrades^,"Lvl3_Bonus"));
+					pxFilter^.SetValue("priority","1000");
+					var ^CPropDB.CNode pxModificators=^(CTTEditor2.CContent.GetSub(pxFilter^,"Helper"));
+					var ^CPropDB.CNode pxMod=^(CTTEditor2.CContent.GetSub(pxModificators^,"LevelBonusData"));
+					var ^CPropDB.CNode pxObj=pxMod;
+					pxObj^.SetValue("description",m_pxName^.GetText());
+					pxObj^.SetValue("gfx",m_pxGfx^.GetText());
+					m_pxLevel1^.WriteData(pxObj^);
+				end Level3;
+				begin Level4;
+					var ^CPropDB.CNode pxFilter=^(CTTEditor2.CContent.GetSub(pxObjUpgrades^,"Lvl4_Bonus"));
+					pxFilter^.SetValue("priority","1000");
+					var ^CPropDB.CNode pxModificators=^(CTTEditor2.CContent.GetSub(pxFilter^,"Helper"));
+					var ^CPropDB.CNode pxMod=^(CTTEditor2.CContent.GetSub(pxModificators^,"LevelBonusData"));
+					var ^CPropDB.CNode pxObj=pxMod;
+					pxObj^.SetValue("description",m_pxName^.GetText());
+					pxObj^.SetValue("gfx",m_pxGfx^.GetText());
+					m_pxLevel1^.WriteData(pxObj^);
+				end Level4;
+				begin Level5;
+					var ^CPropDB.CNode pxFilter=^(CTTEditor2.CContent.GetSub(pxObjUpgrades^,"Lvl5_Bonus"));
+					pxFilter^.SetValue("priority","1000");
+					var ^CPropDB.CNode pxModificators=^(CTTEditor2.CContent.GetSub(pxFilter^,"Helper"));
+					var ^CPropDB.CNode pxMod=^(CTTEditor2.CContent.GetSub(pxModificators^,"LevelBonusData"));
+					var ^CPropDB.CNode pxObj=pxMod;
+					pxObj^.SetValue("description",m_pxName^.GetText());
+					pxObj^.SetValue("gfx",m_pxGfx^.GetText());
+					m_pxLevel1^.WriteData(pxObj^);
+				end Level5;
+			endif;
+
+			if(m_pxBuildAction^.GetCheckMark())then
+				m_pxActionWiz^.Finish();
+			endif;
+
+			CTTEditor2.Get().ContentChanged();
+		endproc;
+	endclass;
+
+	class CInventedObjectsCtrl inherit CTTEditor2.CContent
+		var ^CList	m_pxInventedObjs;
+
+		export constructor()
+			var ^CBoxLayout pxLM=new CBoxLayout("main",0);
+			SetLayoutMgr(pxLM);
+			m_pxInventedObjs=new CList;
+			m_pxInventedObjs^.AllowMultiSelection(true);
+			var ^CPropDB.CNode pxFilters=CTTEditor2.Get().GetFiltersNode();
+			begin Upgrades;
+				var ^CPropDB.CNode pxUpgrades=^(GetSub(pxFilters^,"Upgrades"));
+				var int i,iC=pxUpgrades^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CPropDB.CNode pxObj=^(pxUpgrades^.Get(i));
+					var int j,ijC=pxObj^.NumSubs();
+					for(j=0)cond(j<ijC)iter(j++)do
+						m_pxInventedObjs^.AddItem(pxObj^.Get(j).Name());
+					endfor;
+				endfor;
+			end Upgrades;
+			begin Invent;
+				var ^CPropDB.CNode pxInvent=^(GetSub(pxFilters^,"Invent"));
+				var int i,iC=pxInvent^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					m_pxInventedObjs^.AddItem(pxInvent^.Get(i).Name());
+				endfor;
+			end Invent;
+			m_pxInventedObjs^.m_xOnSelect=OnInventSelect;
+			AddChildWithLayout(m_pxInventedObjs,"main");
+
+			Init(null);
+		endconstructor;
+
+		export proc void Init(^CPropDB.CNode p_pxNode)
+			super.Init(p_pxNode);
+			UpdateData(true);
+		endproc;
+
+		proc void UpdateData(bool p_bLoad)
+			m_pxInventedObjs^.m_xOnSelect.Clear();
+
+			if(m_pxEditNode!=null)then
+				if(p_bLoad)then
+					m_pxInventedObjs^.RemoveSelection();
+					var int i,iC=m_pxEditNode^.NumSubs();
+					for(i=0)cond(i<iC)iter(i++)do
+						var string sInv=m_pxEditNode^.Get(i).Value();
+						var int iIdx=m_pxInventedObjs^.FindItem(sInv);
+						if(iIdx!=-1)then
+							m_pxInventedObjs^.Select(iIdx,false);
+						endif;
+					endfor;
+				else
+					m_pxEditNode^.Clear();
+					var int i,iC=m_pxInventedObjs^.NumItems();
+					for(i=0)cond(i<iC)iter(i++)do
+						if(m_pxInventedObjs^.IsItemSelected(i))then
+							m_pxEditNode^.SetValue(m_pxEditNode^.NumSubs().ToString(),m_pxInventedObjs^.GetItem(i));
+						endif;
+					endfor;
+				endif;
+			endif;
+
+			m_pxInventedObjs^.m_xOnSelect=OnInventSelect;
+		endproc;
+
+		proc bool OnInventSelect()
+			UpdateData(false);
+			return true;
+		endproc;
+	endclass;
+
+	class CActionWizard inherit CTTEditor2.CWizard
+		var string				m_sActionType;
+		// page 1
+		var ^CDropList			m_pxName;
+		var ^CSpinCtrlNumber	m_pxDuration;
+
+		// page 2
+		var ^CTTEditor2.CActionEdit.CLocationsEdit	m_pxLocations;
+
+		// page 3
+		var ^CTTEditor2.CActionEdit.CResultsEdit	m_pxResults;
+
+		// page 4
+		var ^CTTEditor2.CActionEdit.CCharConditionsCtrl	m_pxCharCond;
+
+		// page 5
+		var ^CTTEditor2.CActionEdit.CResCostCtrl	m_pxResCost;
+
+		// page 6
+		var ^CTTEditor2.CInventedObjectsCtrl		m_pxInventedObjs;
+
+		// rider page
+		var ^CSpinCtrlNumber	m_pxRiderDuration;
+		var ^CSpinCtrlNumber	m_pxRiderLevel;
+		var int					m_iRider;
+
+		// hidden value
+		var string	m_sType;
+
+		// save data here temporary
+		var CPropDB	m_xDB;
+		var string	m_sLastName;		// last name of action, used to remove result
+
+		export constructor(string p_sActionType)
+			m_sActionType=p_sActionType;
+			InitControls();
+			SetTypeAndName("","",false);
+		endconstructor;
+
+		export constructor(string p_sActionType,string p_sType)
+			m_sActionType=p_sActionType;
+			InitControls();
+			SetTypeAndName(p_sType,"",false);
+		endconstructor;
+
+		proc void InitControls()
+			m_sName=m_sActionType+" action wizard";
+
+			begin Page1;
+				var ^CWindow pxPage=new CWindow();
+				AddPage(pxPage,"Basics",true);
+				if(!pxPage^.InitFromResource("options/TTEditor","ActionWizardPage1")) then
+					return;
+				endif;
+				m_pxName=cast<CDropList>(pxPage^.GetControl("Name"));
+				m_pxName^.SetAllowAnyText(true);
+				m_pxName^.m_xOnChange=OnNameChanged;
+				m_pxDuration=cast<CSpinCtrlNumber>(pxPage^.GetControl("Duration"));
+			end Page1;
+
+			m_pxLocations=new CTTEditor2.CActionEdit.CLocationsEdit;
+			m_pxLocations^.Init(^(m_xDB["base/locations"]));
+			AddPage(m_pxLocations,"Locations",true);
+
+			m_pxResults=new CTTEditor2.CActionEdit.CResultsEdit;
+			m_pxResults^.Init(^(m_xDB["base/results"]));
+			AddPage(m_pxResults,"Results",true);
+
+			m_pxCharCond=new CTTEditor2.CActionEdit.CCharConditionsCtrl(true);
+			m_pxCharCond^.Init(^(m_xDB["basic/conditions"]));
+			AddPage(m_pxCharCond,"Character conditions",true);
+
+			m_pxResCost=new CTTEditor2.CActionEdit.CResCostCtrl;
+			m_pxResCost^.Init(^(m_xDB["basic/conditions/rescosts"]));
+			AddPage(m_pxResCost,"Resource costs",true);
+
+			m_pxInventedObjs=new CTTEditor2.CInventedObjectsCtrl;
+			m_pxInventedObjs^.Init(^(m_xDB["basic/conditions/inventobjects"]));
+			AddPage(m_pxInventedObjs,"Invention conditions",true);
+
+			if(m_sActionType=="Build" && 1==2)then
+				var ^CWindow pxPage=new CWindow();
+				m_iRider=AddPage(pxPage,"Rider",true);
+				var ^CBoxLayout pxLM=new CBoxLayout("main",1);
+				pxLM^.SetCellPadding(5,3);
+				pxPage^.SetLayoutMgr(pxLM);
+				pxLM^.AddBox("main",CBoxLayout.BT_Fixed,30.0f,"header");
+				pxLM^.AddBox("header",CBoxLayout.BT_Fixed,60.0f,"caption");
+				pxPage^.AddChildWithLayout(new CStaticCtrl({0,0},"level",0),"caption");
+				pxLM^.AddBox("header",CBoxLayout.BT_Fill,1.0f,"level");
+				m_pxRiderLevel=new CSpinCtrlNumber({0,0},1.0,1.0,5.0,1.0,0);
+				pxPage^.AddChildWithLayout(m_pxRiderLevel,"level");
+				pxLM^.AddBox("main",CBoxLayout.BT_Fixed,30.0f,"header_1");
+				pxLM^.AddBox("header_1",CBoxLayout.BT_Fixed,60.0f,"caption_1");
+				pxPage^.AddChildWithLayout(new CStaticCtrl({0,0},"duration",0),"caption_1");
+				pxLM^.AddBox("header_1",CBoxLayout.BT_Fill,1.0f,"duration");
+				m_pxRiderDuration=new CSpinCtrlNumber({0,0},10.0,0.0,10000.0,1.0,0);
+				pxPage^.AddChildWithLayout(m_pxRiderDuration,"duration");
+
+				pxLM^.AddBox("main",CBoxLayout.BT_Fill,1.0f,"test");
+				var ^CTTEditor2.CActionEdit.CResCostCtrl pxRiderResCost=new CTTEditor2.CActionEdit.CResCostCtrl;
+				pxRiderResCost^.Init(^(m_xDB["rider/conditions/rescosts"]));
+				pxPage^.AddChildWithLayout(pxRiderResCost,"test");
+			else
+				m_iRider=-1;
+			endif;
+
+			AddPreview();
+			Next();
+		endproc;
+
+		export proc void SetTypeAndName(string p_sType,string p_sName,bool p_bDisabled)
+			m_pxName^.m_xOnChange.Clear();
+
+			// little HACK, but better that four times the same code
+			if(m_sActionType=="Build")then
+				if(!m_sLastName.IsEmpty())then
+					m_pxResults^.RemResult(CTTEditor2.Get().GetObjectsPath()+"/"+m_sType+"/"+m_sLastName);
+				endif;
+				begin Name;
+					if(m_sType!=p_sType)then
+						var ^CPropDB.CNode pxObjects=CTTEditor2.Get().GetObjectsNode();
+						m_pxName^.Clear();
+						var int i,iC=pxObjects^.NumSubs();
+						for(i=0)cond(i<iC)iter(i++)do
+							var ^CPropDB.CNode pxO=^(pxObjects^.Get(i));
+							if(p_sType.IsEmpty() || pxO^.Name()==p_sType)then
+								var int j,ijC=pxO^.NumSubs();
+								for(j=0)cond(j<ijC)iter(j++)do
+									m_pxName^.AddItem(pxO^.Get(j).Name());
+								endfor;
+							endif;
+						endfor;
+					endif;
+					m_pxName^.SetText(p_sName);
+					m_pxName^.SetDisabled(p_bDisabled);
+					m_sLastName=p_sName;
+				end Name;
+				m_sType=p_sType;
+				if(!m_pxName^.GetText().IsEmpty())then
+					m_pxResults^.AddResult(CTTEditor2.Get().GetObjectsPath()+"/"+m_sType+"/"+m_pxName^.GetText());
+				endif;
+			elseif(m_sActionType=="Upgrades")then
+				if(!m_sLastName.IsEmpty())then
+					m_pxResults^.RemResult(CTTEditor2.Get().GetFiltersPath()+"/"+m_sActionType+"/"+m_sType+"/"+m_sLastName);
+				endif;
+				m_pxName^.SetText(p_sName);
+				m_pxName^.SetDisabled(p_bDisabled);
+				m_sLastName=p_sName;
+				m_sType=p_sType;
+				if(!m_pxName^.GetText().IsEmpty())then
+					m_pxResults^.AddResult(CTTEditor2.Get().GetFiltersPath()+"/"+m_sActionType+"/"+m_sType+"/"+m_pxName^.GetText());
+				endif;
+			else
+				m_pxName^.SetText(p_sName);
+				m_pxName^.SetDisabled(p_bDisabled);
+				m_sLastName=p_sName;
+				m_sType=p_sType;
+			endif;
+			// END little HACK
+
+			if(m_iRider!=-1)then
+				SetPageEnabled(m_iRider,(m_sType=="ANML" || m_sType=="VHCL" || m_sType=="SHIP"));
+			endif;
+
+			m_pxName^.m_xOnChange=OnNameChanged;
+		endproc;
+
+		export proc string GetPreviewText()
+			var string sT="create "+m_sType+"-"+m_sActionType+" action\n";
+			sT+="named "+m_pxName^.GetText()+" with duration "+m_pxDuration^.GetValueInt().ToString()+"\n";
+			begin Loc;
+				sT+="available on locations:\n";
+				var int i,iC=m_pxLocations^.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					sT+=" - "+(m_pxLocations^)[i]+"\n";
+				endfor;
+			end Loc;
+			begin Res;
+				sT+="results:\n";
+				var int i,iC=m_pxResults^.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					sT+=" - "+(m_pxResults^)[i]+"\n";
+				endfor;
+			end Res;
+			begin Cond;
+				var ^CPropDB.CNode pxConditions=^(m_xDB["basic/conditions"]);
+				sT+="needs\n";
+				begin Char;
+					var int iLvl=pxConditions^.GetValueI("level",0);
+					var ^CPropDB.CNode pxCaste=^(CTTEditor2.CContent.GetSub(pxConditions^,"caste"));
+					var int i,iC=pxCaste^.NumSubs();
+					if(iC!=0)then
+						for(i=0)cond(i<iC)iter(i++)do
+							sT+=(pxCaste^).Get(i).Value()+" or ";
+						endfor;
+						sT=sT.Left(sT.GetLength()-3);
+					endif;
+					if(iLvl!=0)then
+						sT+="character level "+iLvl.ToString()+"\n";
+					elseif(iC!=0)then
+						sT+="character\n";
+					endif;
+				end Char;
+				begin Cost;
+					var ^CPropDB.CNode pxRes=^(CTTEditor2.CContent.GetSub(pxConditions^,"rescosts"));
+					var int i,iC=pxRes^.NumSubs();
+					if(iC!=0)then
+						sT+="resources:\n";
+					endif;
+					for(i=0)cond(i<iC)iter(i++)do
+						sT+=" - "+pxRes^.Get(i).Name()+": "+pxRes^.Get(i).Value()+"\n";
+					endfor;
+				end Cost;
+				begin Inv;
+					var ^CPropDB.CNode pxInv=^(CTTEditor2.CContent.GetSub(pxConditions^,"inventobjects"));
+					var int i,iC=pxInv^.NumSubs();
+					if(iC!=0)then
+						sT+="inventions:\n";
+					endif;
+					for(i=0)cond(i<iC)iter(i++)do
+						sT+=" - "+pxInv^.Get(i).Value()+"\n";
+					endfor;
+				end Inv;
+			end Cond;
+			return sT;
+		endproc;
+
+		export proc void Finish()
+			var ^CPropDB.CNode pxActions=^(CTTEditor2.CContent.GetSub((CTTEditor2.Get().GetActionsNode())^,m_sActionType));
+			if(!m_sType.IsEmpty())then
+				pxActions=^(CTTEditor2.CContent.GetSub(pxActions^,m_sType));
+			endif;
+			var ^CPropDB.CNode pxAction=^(CTTEditor2.CContent.GetSub(pxActions^,m_pxName^.GetText()));
+
+			pxAction^.SetValue("duration",m_pxDuration^.GetValueInt());
+			pxAction^.SetValue("visibility",1);
+			pxAction^.SetValue("secondarycontroller",0);
+
+			m_xDB["base/conditions/tribe"].SetValue("0",CTTEditor2.Get().GetTribe());
+			pxAction^.Join(^(m_xDB["base"]));
+			pxAction^.Join(^(m_xDB["basic"]));
+
+			if((m_iRider!=-1) && (m_sType=="ANML" || m_sType=="VHCL" || m_sType=="SHIP"))then
+				var ^CPropDB.CNode pxRiderAction=^(CTTEditor2.CContent.GetSub(pxActions^,m_pxName^.GetText()+"_rider"));
+
+				pxRiderAction^.SetValue("duration",m_pxRiderDuration^.GetValueInt());
+				pxRiderAction^.SetValue("visibility",1);
+				pxRiderAction^.SetValue("secondarycontroller",0);
+
+				pxRiderAction^.Join(^(m_xDB["base"]));
+				pxRiderAction^.Join(^(m_xDB["rider"]));
+				pxRiderAction^.Join(^(m_xDB["basic"]));
+
+				begin PatchLocations;
+					var ^CPropDB.CNode pxRiderLocs=^(CTTEditor2.CContent.GetSub(pxRiderAction^,"locations"));
+					var int i,iC=pxRiderLocs^.NumSubs();
+					for(i=0)cond(i<iC)iter(i++)do
+						CTTEditor2.CContent.GetSub(pxRiderLocs^.Get(i),"uiposition").SetValue("page",0);
+					endfor;
+				end PatchLocations;
+
+				begin PatchResults;
+					var ^CPropDB.CNode pxRiderRes=^(CTTEditor2.CContent.GetSub(pxRiderAction^,"results"));
+					var int i,iC=pxRiderRes^.NumSubs();
+					for(i=0)cond(i<iC)iter(i++)do
+						pxRiderRes^.Get(i).SetValue("rider",m_pxRiderLevel^.GetValueInt());
+					endfor;
+				end PatchResults;
+			endif;
+
+			CTTEditor2.Get().ContentChanged();
+		endproc;
+
+		proc bool OnNameChanged()
+			SetTypeAndName(m_sType,m_pxName^.GetText(),m_pxName^.GetDisabled());
+			m_pxLocations^.SetDefaultEditsText(m_pxName^.GetText(),true);
+			return true;
+		endproc;
+	endclass;
+
+	class CFilterWizard inherit CTTEditor2.CWizard
+		class CModificationWizard inherit CTTEditor2.CWizard
+			var ^CDropList	m_pxType;
+
+			var int						m_iActionPage;
+			var ^CDropList				m_pxActions;
+			var ^CTTEditor2.CActionEdit	m_pxActionEdit;
+
+			var int						m_iObjectPage;
+			var ^CDropList				m_pxObjects;
+			var ^CTTEditor2.CObjectEdit	m_pxObjectEdit;
+
+			var int						m_iWeaponPage;
+			var ^CDropList				m_pxWeapons;
+			var ^CTTEditor2.CWeaponEdit	m_pxWeaponEdit;
+
+			// last page
+			var ^CCheckBox	m_pxOneMore;
+
+			// the node we save to in finish
+			var ^CPropDB.CNode	m_pxNode;
+			// save data here temporary
+			var CPropDB	m_xDB;
+
+			export constructor(ref CPropDB.CNode p_rxNode)
+				m_sName="modification wizard";
+				m_pxNode=^(p_rxNode);
+
+				begin Page1;
+					var ^CWindow pxPage=new CWindow();
+					AddPage(pxPage,"Type",true);
+					var ^CBoxLayout pxLM=new CBoxLayout("main",1);
+					pxLM^.SetCellPadding(5,3);
+					pxPage^.SetLayoutMgr(pxLM);
+					pxLM^.AddBox("main",CBoxLayout.BT_Fixed,30.0f,"header");
+					pxLM^.AddBox("main",CBoxLayout.BT_Fill,1.0f,"test");
+					m_pxType=new CDropList();
+					pxPage^.AddChildWithLayout(m_pxType,"header");
+					m_pxType^.m_xOnChange=OnTypeChanged;
+					m_pxType^.AddItem("Action");
+					m_pxType^.AddItem("Object");
+					m_pxType^.AddItem("Weapon");
+				end Page1;
+
+				begin Actions;
+					var ^CWindow pxPage=new CWindow();
+					m_iActionPage=AddPage(pxPage,"Action",false);
+					var ^CBoxLayout pxLM=new CBoxLayout("main",1);
+					pxLM^.SetCellPadding(5,3);
+					pxPage^.SetLayoutMgr(pxLM);
+					pxLM^.AddBox("main",CBoxLayout.BT_Fixed,30.0f,"header");
+					m_pxActions=new CDropList;
+					pxPage^.AddChildWithLayout(m_pxActions,"header");
+					m_pxActions^.m_xOnChange=OnActionChanged;
+					pxLM^.AddBox("main",CBoxLayout.BT_Fill,1.0f,"content");
+					m_pxActionEdit=new CTTEditor2.CActionEdit;
+					pxPage^.AddChildWithLayout(m_pxActionEdit,"content");
+					begin Fill;
+						var ^CPropDB.CNode pxAct=CTTEditor2.Get().GetActionsNode();
+						var string sActionPath=CTTEditor2.Get().GetActionsPath();
+						begin;
+							var ^CPropDB.CNode pxUpgradeAct=^(CTTEditor2.CContent.GetSub(pxAct^,"Upgrades"));
+							var int i,iC=pxUpgradeAct^.NumSubs();
+							for(i=0)cond(i<iC)iter(i++)do
+								var ^CPropDB.CNode pxUpgradeObj=^(pxUpgradeAct^.Get(i));
+								var int j,ijC=pxUpgradeObj^.NumSubs();
+								for(j=0)cond(j<ijC)iter(j++)do
+									m_pxActions^.AddItem("Upgrades/"+pxUpgradeObj^.Name()+"/"+pxUpgradeObj^.Get(j).Name(),new CTTEditor2.CAction(sActionPath+"/Upgrades/"+pxUpgradeObj^.Name()+"/"+pxUpgradeObj^.Get(j).Name(),^(pxUpgradeObj^.Get(j))));
+								endfor;
+							endfor;
+						end;
+						begin;
+							var ^CPropDB.CNode pxInventAct=^(CTTEditor2.CContent.GetSub(pxAct^,"Invent"));
+							var int i,iC=pxInventAct^.NumSubs();
+							for(i=0)cond(i<iC)iter(i++)do
+								m_pxActions^.AddItem("Invent/"+pxInventAct^.Get(i).Name(),new CTTEditor2.CAction(sActionPath+"Invent/"+pxInventAct^.Get(i).Name(),^(pxInventAct^.Get(i))));
+							endfor;
+						end;
+						begin;
+							var ^CPropDB.CNode pxBuildAct=^(CTTEditor2.CContent.GetSub(pxAct^,"Build"));
+							var int i,iC=CTTEditor2.ms_asObjTypes.NumEntries();
+							for(i=0)cond(i<iC)iter(i++)do
+								var ^CPropDB.CNode pxObjClassNode=^(CTTEditor2.CContent.GetSub(pxBuildAct^,CTTEditor2.ms_asObjTypes[i]));
+								var int j,ijC=pxObjClassNode^.NumSubs();
+								for(j=0)cond(j<ijC)iter(j++)do
+									m_pxActions^.AddItem("Build/"+CTTEditor2.ms_asObjTypes[i]+"/"+pxObjClassNode^.Get(j).Name(),new CTTEditor2.CAction(sActionPath+"/Build/"+CTTEditor2.ms_asObjTypes[i]+"/"+pxObjClassNode^.Get(j).Name(),^(pxObjClassNode^.Get(j))));
+								endfor;
+							endfor;
+						end;
+						begin;
+							var ^CPropDB.CNode pxMovesAct=^(CTTEditor2.CContent.GetSub(pxAct^,"Moves"));
+							var int i,iC=CTTEditor2.ms_asObjTypes.NumEntries();
+							for(i=0)cond(i<iC)iter(i++)do
+								var ^CPropDB.CNode pxObjClassNode=^(CTTEditor2.CContent.GetSub(pxMovesAct^,CTTEditor2.ms_asObjTypes[i]));
+								var int j,ijC=pxObjClassNode^.NumSubs();
+								for(j=0)cond(j<ijC)iter(j++)do
+									m_pxActions^.AddItem("Moves/"+CTTEditor2.ms_asObjTypes[i]+"/"+pxObjClassNode^.Get(j).Name(),new CTTEditor2.CAction(sActionPath+"/Moves/"+CTTEditor2.ms_asObjTypes[i]+"/"+pxObjClassNode^.Get(j).Name(),^(pxObjClassNode^.Get(j))));
+								endfor;
+							endfor;
+						end;
+					end Fill;
+				end Actions;
+
+				begin Objects;
+					var ^CWindow pxPage=new CWindow();
+					m_iObjectPage=AddPage(pxPage,"Object",false);
+					var ^CBoxLayout pxLM=new CBoxLayout("main",1);
+					pxLM^.SetCellPadding(5,3);
+					pxPage^.SetLayoutMgr(pxLM);
+					pxLM^.AddBox("main",CBoxLayout.BT_Fixed,30.0f,"header");
+					m_pxObjects=new CDropList;
+					pxPage^.AddChildWithLayout(m_pxObjects,"header");
+					m_pxObjects^.m_xOnChange=OnObjectChanged;
+					pxLM^.AddBox("main",CBoxLayout.BT_Fill,1.0f,"content");
+					m_pxObjectEdit=new CTTEditor2.CObjectEdit(CTTEditor2.Get().GetResourcesNode());
+					pxPage^.AddChildWithLayout(m_pxObjectEdit,"content");
+					begin Fill;
+						var ^CPropDB.CNode pxObjects=CTTEditor2.Get().GetObjectsNode();
+						var string sObjectPath=CTTEditor2.Get().GetObjectsPath();
+						var int i,iC=CTTEditor2.ms_asObjTypes.NumEntries();
+						for(i=0)cond(i<iC)iter(i++)do
+							var ^CPropDB.CNode pxObjType=^(CTTEditor2.CContent.GetSub(pxObjects^,CTTEditor2.ms_asObjTypes[i]));
+							var int j,ijC=pxObjType^.NumSubs();
+							for(j=0)cond(j<ijC)iter(j++)do
+								m_pxObjects^.AddItem(CTTEditor2.ms_asObjTypes[i]+"/"+pxObjType^.Get(j).Name(),new CTTEditor2.CObject(sObjectPath+"/"+CTTEditor2.ms_asObjTypes[i]+"/"+pxObjType^.Get(j).Name(),^(pxObjType^.Get(j))));
+							endfor;
+						endfor;
+					end Fill;
+				end Objects;
+
+				begin Weapons;
+					var ^CWindow pxPage=new CWindow();
+					m_iWeaponPage=AddPage(pxPage,"Weapon",false);
+					var ^CBoxLayout pxLM=new CBoxLayout("main",1);
+					pxLM^.SetCellPadding(5,3);
+					pxPage^.SetLayoutMgr(pxLM);
+					pxLM^.AddBox("main",CBoxLayout.BT_Fixed,30.0f,"header");
+					m_pxWeapons=new CDropList;
+					pxPage^.AddChildWithLayout(m_pxWeapons,"header");
+					m_pxWeapons^.m_xOnChange=OnWeaponChanged;
+					pxLM^.AddBox("main",CBoxLayout.BT_Fill,1.0f,"content");
+					m_pxWeaponEdit=new CTTEditor2.CWeaponEdit;
+					pxPage^.AddChildWithLayout(m_pxWeaponEdit,"content");
+					begin Fill;
+						var ^CPropDB.CNode pxWeapons=CTTEditor2.Get().GetWeaponsNode();
+						var string sWeaponsPath=CTTEditor2.Get().GetWeaponsPath();
+
+						var int j,ijC=pxWeapons^.NumSubs();
+						for(j=0)cond(j<ijC)iter(j++)do
+							m_pxWeapons^.AddItem(pxWeapons^.Get(j).Name(),new CTTEditor2.CWeapon(sWeaponsPath+"/"+pxWeapons^.Get(j).Name(),^(pxWeapons^.Get(j))));
+						endfor;
+					end Fill;
+				end Weapons;
+
+				begin;
+					m_pxOneMore=new CCheckBox({0,0},"next modification",false);
+					m_pxOneMore^.m_xOnStateChange=NotifyStateChange;
+					AddPage(m_pxOneMore,"next modification",true);
+				end;
+
+				Next();
+				OnTypeChanged();
+			endconstructor;
+
+			export proc bool GetOneMore()
+				return m_pxOneMore^.GetCheckMark();
+			endproc;
+
+			proc bool OnTypeChanged()
+				SetPageEnabled(m_iActionPage,(m_pxType^.GetText()=="Action"));
+				SetPageEnabled(m_iObjectPage,(m_pxType^.GetText()=="Object"));
+				SetPageEnabled(m_iWeaponPage,(m_pxType^.GetText()=="Weapon"));
+				return true;
+			endproc;
+
+			proc bool OnActionChanged()
+				m_xDB.GetRoot().Clear();
+				var int iSel=m_pxActions^.GetSelectedItem();
+				if(iSel==-1)then
+					m_pxActionEdit^.Init(null);
+				else
+					var ^CTTEditor2.CTTItem pxItem=cast<CTTEditor2.CTTItem>(m_pxActions^.GetItemData(iSel));
+					if(pxItem!=null)then
+						m_xDB.GetRoot().Join(pxItem^.GetNode());
+						m_pxActionEdit^.Init(^(m_xDB.GetRoot()));
+					else
+						m_pxActionEdit^.Init(null);
+					endif;
+				endif;
+				return true;
+			endproc;
+
+			proc bool OnObjectChanged()
+				m_xDB.GetRoot().Clear();
+				var int iSel=m_pxObjects^.GetSelectedItem();
+				if(iSel==-1)then
+					m_pxObjectEdit^.Init(null);
+				else
+					var ^CTTEditor2.CTTItem pxItem=cast<CTTEditor2.CTTItem>(m_pxObjects^.GetItemData(iSel));
+					if(pxItem!=null)then
+						m_xDB.GetRoot().Join(pxItem^.GetNode());
+						m_pxObjectEdit^.Init(^(m_xDB.GetRoot()));
+					else
+						m_pxObjectEdit^.Init(null);
+					endif;
+				endif;
+				return true;
+			endproc;
+
+			proc bool OnWeaponChanged()
+				m_xDB.GetRoot().Clear();
+				var int iSel=m_pxWeapons^.GetSelectedItem();
+				if(iSel==-1)then
+					m_pxWeaponEdit^.Init(null);
+				else
+					var ^CTTEditor2.CTTItem pxItem=cast<CTTEditor2.CTTItem>(m_pxWeapons^.GetItemData(iSel));
+					if(pxItem!=null)then
+						m_xDB.GetRoot().Join(pxItem^.GetNode());
+						m_pxWeaponEdit^.Init(^(m_xDB.GetRoot()));
+					else
+						m_pxWeaponEdit^.Init(null);
+					endif;
+				endif;
+				return true;
+			endproc;
+/*
+			export proc string GetPreviewText()
+				// make preview here
+				return super.GetPreviewText();
+			endproc;
+*/
+			export proc void Finish()
+				m_pxNode^.Clear();
+				if(m_pxType^.GetText()=="Action")then
+					var int iSel=m_pxActions^.GetSelectedItem();
+					if(iSel!=-1)then
+						var ^CTTEditor2.CTTItem pxItem=cast<CTTEditor2.CTTItem>(m_pxActions^.GetItemData(iSel));
+						if(pxItem!=null)then
+							MakeDiffMods(pxItem^.GetPath(),pxItem^.GetNode(),^(m_xDB.GetRoot()));
+						endif;
+					endif;
+				elseif(m_pxType^.GetText()=="Object")then
+					var int iSel=m_pxObjects^.GetSelectedItem();
+					if(iSel!=-1)then
+						var ^CTTEditor2.CTTItem pxItem=cast<CTTEditor2.CTTItem>(m_pxObjects^.GetItemData(iSel));
+						if(pxItem!=null)then
+							MakeDiffMods(pxItem^.GetPath(),pxItem^.GetNode(),^(m_xDB.GetRoot()));
+						endif;
+					endif;
+				elseif(m_pxType^.GetText()=="Weapon")then
+					var int iSel=m_pxWeapons^.GetSelectedItem();
+					if(iSel!=-1)then
+						var ^CTTEditor2.CTTItem pxItem=cast<CTTEditor2.CTTItem>(m_pxWeapons^.GetItemData(iSel));
+						if(pxItem!=null)then
+							MakeDiffMods(pxItem^.GetPath(),pxItem^.GetNode(),^(m_xDB.GetRoot()));
+						endif;
+					endif;
+				endif;
+			endproc;
+
+			proc void MakeDiffMods(string p_sPath,^CPropDB.CNode p_pxOrg,^CPropDB.CNode p_pxRes)
+				if(p_pxOrg==null)then
+					if(p_pxRes!=null && !p_pxRes^.Value().IsEmpty())then
+						var ^CPropDB.CNode pxN=^(CTTEditor2.CContent.GetSub(m_pxNode^,m_pxNode^.NumSubs().ToString()));
+						pxN^.SetValue("op","append");
+						pxN^.SetValue("path",p_sPath);
+						var ^CPropDB.CNode pxVal=^(CTTEditor2.CContent.GetSub(pxN^,"value"));
+						pxVal^.Value()=p_pxRes^.Value();
+						pxVal^.Join(p_pxRes);
+					endif;
+				else
+					if(p_pxRes==null)then
+						var ^CPropDB.CNode pxN=^(CTTEditor2.CContent.GetSub(m_pxNode^,m_pxNode^.NumSubs().ToString()));
+						pxN^.SetValue("op","remove");
+						pxN^.SetValue("path",p_sPath);
+					else
+						var int i,iC=p_pxOrg^.NumSubs();
+						var int iRC=p_pxRes^.NumSubs();
+						if(iC==0 && iRC==0)then
+							if(p_pxOrg^.Value()!=p_pxRes^.Value())then
+								var ^CPropDB.CNode pxN=^(CTTEditor2.CContent.GetSub(m_pxNode^,m_pxNode^.NumSubs().ToString()));
+								pxN^.SetValue("op","replace");
+								pxN^.SetValue("path",p_sPath);
+								var ^CPropDB.CNode pxVal=^(CTTEditor2.CContent.GetSub(pxN^,"value"));
+								pxVal^.Value()=p_pxRes^.Value();
+								pxVal^.Join(p_pxRes);
+							endif;
+							return;
+						endif;
+						for(i=0)cond(i<iC)iter(i++)do
+							var string sN=p_pxOrg^.Get(i).Name();
+							MakeDiffMods(p_sPath+"/"+sN,^(p_pxOrg^.Get(i)),p_pxRes^.Get(sN));
+						endfor;
+						for(i=0)cond(i<iRC)iter(i++)do
+							var string sN=p_pxRes^.Get(i).Name();
+							var ^CPropDB.CNode pxN=p_pxOrg^.Get(sN);
+							if(pxN==null)then
+								MakeDiffMods(p_sPath+"/"+sN,pxN,^(p_pxRes^.Get(i)));
+							endif;
+						endfor;
+					endif;
+				endif;
+			endproc;
+		endclass;
+
+		// page 1
+		var ^CDropList	m_pxName;
+
+		var array ^CModificationWizard	m_apxMods;
+
+		var string						m_sFilterType,m_sType;
+
+		// save data here temporary
+		var CPropDB	m_xDB;
+
+		export constructor(string p_sFilterType,string p_sType)
+			m_sFilterType=p_sFilterType;
+			m_sType=p_sType;
+			m_sName=m_sFilterType+" filter wizard";
+
+			begin Page1;
+				var ^CWindow pxPage=new CWindow();
+				AddPage(pxPage,"Basics",true);
+				var ^CBoxLayout pxLM=new CBoxLayout("main",1);
+				pxLM^.SetCellPadding(5,3);
+				pxPage^.SetLayoutMgr(pxLM);
+				pxLM^.AddBox("main",CBoxLayout.BT_Fixed,30.0f,"header");
+				pxLM^.AddBox("header",CBoxLayout.BT_Fixed,50.0f,"name");
+				pxPage^.AddChildWithLayout(new CStaticCtrl({0,0},"name",0),"name");
+				pxLM^.AddBox("header",CBoxLayout.BT_Fill,1.0f,"name_edit");
+				pxLM^.AddBox("main",CBoxLayout.BT_Fill,1.0f,"test");
+				m_pxName=new CDropList();
+				pxPage^.AddChildWithLayout(m_pxName,"name_edit");
+				m_pxName^.SetAllowAnyText(true);
+
+				begin FillNames;
+					var ^CPropDB.CNode pxActions=^(CTTEditor2.CContent.GetSub((CTTEditor2.Get().GetActionsNode())^,m_sFilterType));
+					var ^CPropDB.CNode pxFilters=^(CTTEditor2.CContent.GetSub((CTTEditor2.Get().GetFiltersNode())^,m_sFilterType));
+					if(!m_sType.IsEmpty())then
+						pxActions=^(CTTEditor2.CContent.GetSub(pxActions^,m_sType));
+						pxFilters=^(CTTEditor2.CContent.GetSub(pxFilters^,m_sType));
+					endif;
+					var int i,iC=pxActions^.NumSubs();
+					for(i=0)cond(i<iC)iter(i++)do
+						var string sN=pxActions^.Get(i).Name();
+						var ^CPropDB.CNode pxF=pxFilters^.Get(sN);
+						if((pxF==null)||(pxF^.NumSubs()==0 && pxF^.Value().IsEmpty()))then
+							m_pxName^.AddItem(sN);
+						endif;
+					endfor;
+				end FillNames;
+//				m_pxName^.m_xOnChange=OnNameChanged;
+			end Page1;
+
+			AddModification();
+
+//			AddPreview();
+			Next();
+		endconstructor;
+
+		proc void AddModification()
+			var ^CPropDB.CNode pxMod=^(CTTEditor2.CContent.GetSub(m_xDB.GetRoot(),m_xDB.GetRoot().NumSubs().ToString()));
+			var ^CModificationWizard pxWiz=new CModificationWizard(pxMod^);
+			pxWiz^.m_xOnStateChange=NotifyStateChange;
+			m_apxMods.AddEntry(pxWiz);
+			AddPage(pxWiz,"Modification "+m_xDB.GetRoot().NumSubs().ToString(),true);
+		endproc;
+
+		export proc bool IsLast()
+			if(m_iCurrent==-1)then return true; endif;
+
+			var ^CModificationWizard pxModWiz=cast<CModificationWizard>(m_axPages[m_iCurrent].m_pxWin);
+			if(pxModWiz!=null && pxModWiz^.IsLast())then
+				if(!pxModWiz^.GetOneMore())then
+					return true;
+				elseif(super.IsLast())then
+					AddModification();
+				endif;
+			endif;
+			return super.IsLast();
+		endproc;
+
+		export proc bool CanFinish()
+			var int i,iC=m_axPages.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!m_axPages[i].m_bEnabled)then continue; endif;
+				var ^CWizard pxTmp=cast<CWizard>((m_axPages[i]).m_pxWin);
+				if(pxTmp!=null)then
+					if(!pxTmp^.CanFinish())then return false; endif;
+					var ^CModificationWizard pxModWiz=cast<CModificationWizard>(pxTmp);
+					if(!pxModWiz^.GetOneMore())then break; endif;
+				endif;
+			endfor;
+			return IsLast();
+		endproc;
+
+		export proc void Finish()
+			var int i,iC=m_apxMods.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				(m_apxMods[i])^.Finish();
+				if(!(m_apxMods[i])^.GetOneMore())then break; endif;
+			endfor;
+
+
+			var ^CPropDB.CNode pxFilters=^(CTTEditor2.CContent.GetSub((CTTEditor2.Get().GetFiltersNode())^,m_sFilterType));
+			if(!m_sType.IsEmpty())then
+				pxFilters=^(CTTEditor2.CContent.GetSub(pxFilters^,m_sType));
+			endif;
+			var ^CPropDB.CNode pxFilter=^(CTTEditor2.CContent.GetSub(pxFilters^,m_pxName^.GetText()));
+
+			pxFilter^.SetValue("priority",10);
+			var ^CPropDB.CNode pxMods=^(CTTEditor2.CContent.GetSub(pxFilter^,"Modificators"));
+
+			iC=m_xDB.GetRoot().NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxT=^(m_xDB.GetRoot().Get(i));
+				var int j,ijC=pxT^.NumSubs();
+				for(j=0)cond(j<ijC)iter(j++)do
+					var ^CPropDB.CNode pxMod=^(CTTEditor2.CContent.GetSub(pxMods^,"Mod"+i.ToString()+"_"+j.ToString()));
+					pxMod^.Join(^(pxT^.Get(j)));
+				endfor;
+			endfor;
+			begin InventObj;
+				var ^CPropDB.CNode pxIO=^(CTTEditor2.CContent.GetSub(pxMods^,"AddInventObj"));
+				pxIO^.SetValue("op","append");
+				pxIO^.SetValue("path",CTTEditor2.Get().GetObjectsPath()+"/InventObjects/"+m_pxName^.GetText()+"/invented");
+				pxIO^.SetValue("value",1);
+			end InventObj;
+			begin RemoveMe;
+				var ^CPropDB.CNode pxIO=^(CTTEditor2.CContent.GetSub(pxMods^,"RemoveMe"));
+				pxIO^.SetValue("op","remove");
+				var string sPath=CTTEditor2.Get().GetActionsPath()+"/"+m_sFilterType;
+				if(!m_sType.IsEmpty())then
+					sPath+="/"+m_sType;
+				endif;
+				pxIO^.SetValue("path",sPath+"/"+m_pxName^.GetText());
+
+				begin Filter;
+					var ^CPropDB.CNode pxRFilter=^(CTTEditor2.CContent.GetSub(pxFilters^,m_pxName^.GetText()+"_RemoveMe"));
+					pxRFilter^.SetValue("priority",10);
+					var ^CPropDB.CNode pxRMods=^(CTTEditor2.CContent.GetSub(pxRFilter^,"Modificators"));
+					var ^CPropDB.CNode pxRIO=^(CTTEditor2.CContent.GetSub(pxRMods^,"RemoveMe"));
+					pxRIO^.SetValue("op","append");
+					pxRIO^.SetValue("path",sPath+"/"+m_pxName^.GetText()+"/disabled");
+					pxRIO^.SetValue("value",1);
+				end Filter;
+			end RemoveMe;
+
+			CTTEditor2.Get().ContentChanged();
+		endproc;
+	endclass;
+
+	class CWizardDlg inherit CFrameWindow
+		var ^CStaticCtrl	m_pxSteps;
+		var ^CButton		m_pxBack,m_pxNext,m_pxFinish;
+		var ^CWizard		m_pxWiz;
+
+		export constructor()
+			if(!InitFromResource("options/TTEditor","WizardDlg")) then
+				return;
+			endif;
+
+			m_pxSteps=cast<CStaticCtrl>(GetControl("Steps"));
+			m_pxBack=cast<CButton>(GetControl("Back"));
+			m_pxBack^.m_xOnClick=OnBack;
+			m_pxNext=cast<CButton>(GetControl("Next"));
+			m_pxNext^.m_xOnClick=OnNext;
+			m_pxFinish=cast<CButton>(GetControl("Finish"));
+			m_pxFinish^.m_xOnClick=OnFinish;
+
+			UpdateState();
+		endconstructor;
+
+		export proc void SetWizard(^CTTEditor2.CWizard p_pxWiz)
+			if(m_pxWiz!=null)then
+				m_pxWiz^.m_xOnStateChange.Clear();
+//				RemoveChild(m_pxWiz);
+				delete m_pxWiz;
+			endif;
+			m_pxWiz=p_pxWiz;
+			if(m_pxWiz!=null)then
+				m_pxWiz^.m_xOnStateChange=UpdateState;
+				AddChildWithLayout(m_pxWiz,"content");
+			endif;
+			UpdateState();
+		endproc;
+
+		proc bool OnBack()
+			m_pxWiz^.Prev();
+			return true;
+		endproc;
+
+		proc bool OnNext()
+			m_pxWiz^.Next();
+			return true;
+		endproc;
+
+		proc bool OnFinish()
+			if(!m_pxWiz^.IsInPreview() && m_pxWiz^.CanPreview())then
+				m_pxWiz^.Preview();
+			else
+				m_pxWiz^.Finish();
+				// hack, there is no close function in the framewindow
+				if(!m_xOnClose.IsNull())then
+					m_xOnClose.Call();
+				endif;
+			endif;
+			return true;
+		endproc;
+
+		proc bool UpdateState()
+			if(m_pxWiz==null)then
+				SetCaption("Wizard");
+
+				m_pxSteps^.SetText("No wizard given");
+				m_pxBack^.SetDisabled(true);
+				m_pxNext^.SetDisabled(true);
+				m_pxFinish^.SetDisabled(true);
+			else
+				SetCaption(m_pxWiz^.GetName());
+
+				m_pxSteps^.SetText("Step "+m_pxWiz^.GetCurrentStep());
+				m_pxBack^.SetDisabled(m_pxWiz^.IsFirst());
+				m_pxNext^.SetDisabled(m_pxWiz^.IsLast());
+				if(m_pxWiz^.IsInPreview() || !m_pxWiz^.CanPreview())then
+					m_pxFinish^.SetText("Finish");
+				else
+					m_pxFinish^.SetText("Preview");
+				endif;
+				m_pxFinish^.SetDisabled(!m_pxWiz^.CanFinish());
+			endif;
+			return true;
+		endproc;
+	endclass;
+endclass;
+
+class CAbilityDataWrap
+	export var ^CTTEditor2.CAbilityData m_pxAbilityData;
+endclass;

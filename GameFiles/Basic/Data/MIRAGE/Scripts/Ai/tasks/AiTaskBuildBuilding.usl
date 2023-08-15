@@ -1,0 +1,861 @@
+class CAiTaskBuildBuilding inherit CAiTaskTargetRealization
+
+	static var CAiMap 				ms_xCostMap;				///<cost AI-map to evaluate the best build position
+	var CAiMap 						m_xInvalidMap;				///<AI-map, which contains values at invalid build positions (positions at which building has failed)
+	var CAiMap						m_xGenInflMap;				///<generic influence map (if we have no BLDG its the infl map else it's the bldg infl map)
+	var CAiArea 					m_xMaxArea;					///<the computed best area to build
+	var CAiArea						m_xMaxInflArea;				///<the infuence center area(based on generic influence map)
+	var CAiArea						m_xResArea;					///<the area, which contains a specific resource, at which we place the bldg near to it
+	var CAiArea						m_xResBuildArea;			///<the nearest build place area forpropsites, nearest to m_xResArea
+	var CAiPointList				m_xBuildPositions;			///<List of possible build positions in the current max area
+	
+	var bool 						m_bIsCoastal;				///<true if this task should build a coastal building (i.e. harbour)
+	var bool						m_bWaitForKill;
+	var bool						m_bWaitingForInitialBuildPosition;
+	var bool						m_bPlaced;
+	
+	var string						m_sMiscParam;				///<the classname (misc param forgpc of the build solution)
+	var string						m_sDropsitePrimaryType;		///<the computed dropsite FourCC type as string
+	var string						m_sClassName;				///<ClassName (not GPC (exclude ";[objflag]"))
+	var string						m_sLevelName;
+	var string						m_sBuildCmd;
+	
+	var vec3						m_vBuildRot;				///<the bldg rotation
+	var vec3						m_vBuildNearTo;
+	var vec3						m_vBuildPos;
+	
+	var real						m_fPathDestTolerance;		///<How much distance between the path destination and the checked target(buildplace) is allowed
+	
+	var int							m_iTelescopeTowers;
+	var int							m_iSmokeTowers;
+	
+	
+
+
+	///constructor
+	export constructor()
+	endconstructor;
+
+
+	///destructor
+	export destructor()
+	enddestructor;
+
+
+	///Init
+	export proc void Init(^CAiGoal p_pxGoal)
+		super.Init(p_pxGoal);
+		m_pxBrain = GetGoal()^.GetAiBrain();
+		if(m_pxBrain==null)then return; endif;
+
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return; endif;
+		
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		m_sTribe=m_pxSensor^.GetTechTree().GetTribe();
+
+		var ^CAiMaps	pxMaps = ^(m_pxSensor^.GetAiMaps());
+		m_xInvalidMap.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID);
+		m_xInvalidMap.ClearTo(0.0);
+
+		m_iMaxChkPointTimeouts = 10;
+		m_fPathDestTolerance = 12.0;
+		m_bWaitForKill=false;
+		m_bWaitingForInitialBuildPosition=true;
+		m_bPlaced = false;
+		m_xBuildPositions.Clear();
+		m_iTelescopeTowers=0;
+		m_iSmokeTowers=0;
+
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+		var int iType = 1+Random.GetInt()%iNumPlayers;
+		iType += 15;
+
+		SetThinkWait(iType);
+	endproc;
+
+
+	///ComputeCoastal
+	export proc void ComputeCostal()
+		if(GetSolution()==null)then return; endif;
+		if(m_sClassName.Right(7) == "harbour"||m_sClassName.Find("seas_carrier")!=-1)then
+			m_bIsCoastal=true;
+		else
+			m_bIsCoastal=false;
+		endif;
+	endproc;
+
+
+	///GetBLDGResultNI
+	proc ^CAiNodeInstance GetBLDGResultNI()
+		var ^CAiSolution pxSol = GetSolution();
+		if(pxSol == null)then return null; endif;
+		var int iResult;
+		var int iCResult = pxSol^.NumResults();
+		if(iCResult <= 0)then
+			return null;
+		endif;
+		for(iResult = 0)cond(iResult < iCResult)iter(iResult++)do
+			var ^CAiNodeInstance pxNI = pxSol^.GetResult(iResult);
+			if(pxNI == null)then
+				return null;
+			endif;
+			if(pxNI^.GetTTPath().Find("/BLDG/") != -1)then
+				return pxNI;
+			endif;
+		endfor;
+		return null;
+	endproc;
+
+
+	///ParseClassName
+	proc void ParseClassName()
+		var ^CAiSolution pxSol = GetSolution();
+		var array string asCNAndObjFlag;
+		pxSol^.GetAdditionalAttribs().Split(asCNAndObjFlag, ";", false);
+		if(asCNAndObjFlag.NumEntries() > 0)then
+			m_sClassName = asCNAndObjFlag[0];
+		endif;
+	endproc;
+
+	///CalculateStartCost
+	export proc real CalculateStartCost()
+		if(m_pxBrain==null)then return 1.0; endif;
+		if(m_pxSensor==null)then return 1.0; endif;
+		var real fCost = 1.0;
+		m_bWaitForKill=false;
+		ParseClassName();
+		var ^CAiNodeInstance pxResult = GetBLDGResultNI();
+		if(pxResult == null)then
+			SetImpossible();
+			return 99999999.0f;
+		endif;
+		pxResult^.DebugDump();
+		begin GetNodeAndCost;
+			if(pxResult^.GetNumDropsites()>0)then
+				m_sDropsitePrimaryType = pxResult^.GetDropsite(0);
+				ComputeSpecialDropsites();
+				m_sDropsitePrimaryType = m_pxSensor^.ResourceTypeFromResourceName(m_sDropsitePrimaryType);
+					if(m_sDropsitePrimaryType == "FOOD")then
+						m_sDropsitePrimaryType = "FRUI";
+					endif;
+					if((m_sDropsitePrimaryType == "HIDE") || (m_sDropsitePrimaryType == "BONE") || (m_sDropsitePrimaryType == "RESN") || (m_sDropsitePrimaryType == "IRON"))then
+						m_sDropsitePrimaryType = "";
+					endif;
+			else
+				m_sDropsitePrimaryType = "";
+			endif;
+				ComputeCostal();
+		
+		end GetNodeAndCost;
+
+		begin FindArea;
+			var ^CAiMaps pxMaps=^(m_pxSensor^.GetAiMaps());
+			var ^CAiMaps pxGlobalMaps=^(m_pxSensor^.GetGlobalAiMaps());
+			var ^CAiMap pxInflBuildMap=^(pxMaps^.GetAiMap("InflBuild", m_iPlayerID));
+			var CAiArea xMaxInflBuildArea=pxInflBuildMap^.FindMaxArea();
+
+		if(pxInflBuildMap^.GetValue(xMaxInflBuildArea) > 0.0) then
+			m_xGenInflMap.CopyFromFast(pxInflBuildMap^);
+		else
+			m_xGenInflMap.CopyFromFast(pxMaps^.GetAiMap("Infl", m_iPlayerID));
+		endif;
+		m_xGenInflMap.OpAdd(0.3);
+		m_xMaxInflArea = m_xGenInflMap.FindMaxArea();
+		var bool bResourceFound = false;
+		if(m_sDropsitePrimaryType!="")then
+			if(ComputeResourceAreas() == true)then
+				bResourceFound = true;
+			endif;
+		endif;
+		if(!bResourceFound)then
+			var CAiMap xRangeMap;
+				xRangeMap.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID);
+				xRangeMap.ClearToFast(0.0);
+				var int		iOPX;
+				var int		iOPY;
+				var vec3	vBuildNearPos;
+				if(m_vPos == {0.0, 0.0, 0.0})then
+					vBuildNearPos = m_pxSensor^.GetOutpost(m_iOutpostId).GetWorldPos();
+				else
+					vBuildNearPos = m_vPos;
+				endif;
+				CAiArea.Vec3ToArea(vBuildNearPos, iOPX, iOPY);
+				xRangeMap.AddInfluenceFast(iOPX, iOPY, 10.0, 0.0, 1.0);
+				CAiArea.Vec3ToArea(vBuildNearPos, iOPX, iOPY);
+				m_sDropsitePrimaryType = "";
+				if(m_bIsCoastal == true)then
+					ms_xCostMap.CopyFromFast(pxGlobalMaps^.GetAiMap("Coast", m_iPlayerID));
+					ms_xCostMap.MultiplyFast(pxMaps^.GetAiMap("CoastModifier", m_iPlayerID), true);
+					ms_xCostMap.MultiplyFast(xRangeMap);
+				else
+					var int iIslandId = m_pxSensor^.GetOutpost(m_iOutpostId).GetIslandId();
+					var int iMinFree = m_pxSensor^.ComputeNeededArea(pxResult^.ComputeClassName());
+					iMinFree /= 4;
+					iMinFree = Math.Max(1, iMinFree);
+					if(iMinFree == -1)then
+						fCost = 99999999.0f;
+						SetImpossible();
+						return fCost;
+					endif;
+					ms_xCostMap.CopyFromFast(pxGlobalMaps^.GetAiMap("Build", m_iPlayerID));
+					ms_xCostMap.QuantisationFast(Math.Min(iMinFree.ToReal(), 64.0), 100000.0, 1.0);
+					ms_xCostMap.MultiplyFast(pxMaps^.GetAiMap("BuildModifier", m_iPlayerID), true);
+					ms_xCostMap.MultiplyFast(xRangeMap);
+					ms_xCostMap.OpAdd(0.5);
+					ms_xCostMap.MultMosaicFast(iIslandId);
+				endif;
+				var CAiMap xEnemyMap;
+				xEnemyMap.CopyFromFast(pxMaps^.GetAiMap("Enemy", m_iPlayerID));
+				xEnemyMap.MultiplyFast(100.0);
+				ms_xCostMap.AddFast(xEnemyMap);
+				ms_xCostMap.SubtractFast(m_xInvalidMap);
+				m_xMaxArea = ms_xCostMap.FindMaxArea();
+				if(ms_xCostMap.GetValue(m_xMaxArea) == 0.0)then
+					fCost = 99999999.0f;
+					SetImpossible();
+				//if there is an enemy near the building place, go and kill the enemy first
+				elseif(ms_xCostMap.GetValue(m_xMaxArea) < 0.0)then
+					if(!CAiUtilityMgr.Get()^.CheckForEnemy(m_pxBrain,vBuildNearPos))then
+						m_bWaitForKill=true;
+					endif;
+				endif;
+			endif;
+		end FindArea;
+		return fCost;
+	endproc;
+
+
+	///Start
+	export proc bool Start()
+		if(m_sLevelName!="_MN_MP_2_PIRATES")then
+			if(!CheckPathToBuildPlace())then
+				if(!m_bIsCoastal)then
+					return false;
+				endif;
+			endif;
+		endif;
+		
+		if(!CAiUtilityMgr.Get()^.CheckForEnemy(m_pxBrain,m_xMaxArea.GetWorldCenterPos()))then return false; endif;
+		
+		if(!m_bWaitForKill)then
+			SetStarted();
+
+			var bool bSuccess = TryAllocate(GetSolution(), m_iOutpostId, 10);
+			if(bSuccess == false)then
+				return false;
+			endif;
+			GetAllocation()^.SetTarget(m_xMaxArea.GetWorldCenterPos());
+		endif;
+
+		return true;
+	endproc;
+
+
+	///ExecuteSolution
+	export proc void ExecuteSolution(int p_iObject, vec3 p_vPos)
+		if(m_pxSensor==null)then return; endif;
+
+		if(m_xLockedObjs.Validate()==0)then
+			if(m_sTribe=="Aje")then
+				m_xLockedObjs.AddEntry(CheckForSpearman());
+			endif;
+		endif;
+		
+		m_xLockedObjs.Validate();
+		
+		m_pxSensor^.RemoveCheckpoint(this,0);
+		m_pxSensor^.RemoveCheckpoint(this,100);
+		m_pxSensor^.AddCheckpoint(this,0,"nobj:"+m_sClassName, 1.0);
+		m_pxSensor^.AddCheckpoint(this,100,"attc:"+m_sClassName+",CurTask,==,BuildUpB", 360.0);
+
+		var array string asBuild;
+		var string sBuild = m_sMiscParam;
+		m_sMiscParam.Split(asBuild, ";", true);
+
+		var real fMinDist=1000000.0f;
+		iterloop(m_xLockedObjs,i)do
+			var real fDist=(m_xLockedObjs[i].GetPos()-p_vPos).Abs2();
+			if(fDist<fMinDist) then fMinDist=fDist; endif;
+		enditerloop;
+
+		if(asBuild.NumEntries()>1)then
+			sBuild = asBuild[0]+";Actions/"+m_pxSensor^.GetTechTree().GetTribe()+"/Build/BLDG/"+asBuild[1];
+		endif;
+
+		if((sBuild.Find("_wall")!=-1)||(sBuild.Find("_gate")!=-1)||(sBuild.Find("_palisade")!=-1)
+			||(sBuild.Find("_skewer")!=-1)||(sBuild.Find("_fence")!=-1)
+			||(sBuild.Find("_pitfall")!=-1)||(sBuild.Find("ninigi_smoke_tower")!=-1))then
+			CAiUtilityMgr.Get()^.UnlockExternal(this, m_xLockedObjs);
+			SetImpossible();
+			Abort();
+			return;
+		endif;
+
+		if(!CAiUtilityMgr.Get()^.CheckForEnemy(m_pxBrain,p_vPos))then
+			CAiUtilityMgr.Get()^.UnlockExternal(this, m_xLockedObjs);
+			SetImpossible();
+			Abort();
+			return;
+		endif;
+		
+		m_sBuildCmd.Empty();
+		
+		if(sBuild.Find("ninigi_telescope_tower")==(-1))then
+			if(fMinDist>32.0f) then
+				m_sBuildCmd=sBuild;
+				m_vBuildPos=p_vPos;
+				m_pxSensor^.RemoveCheckpoint(this,0);
+				m_pxSensor^.RemoveCheckpoint(this,100);
+				m_pxSensor^.ExecuteGamePlayCommand(m_xLockedObjs, "Action", -1 , p_vPos, "/Walk");
+				return;
+			endif;
+//			CMirageAIMgr.Debug("ai placing obj loc A: '"+sBuild+"'");
+			if(!m_pxSensor^.PlaceObj(sBuild, p_vPos, m_vBuildRot, m_xLockedObjs)) then
+				if(m_xBuildPositions.NumEntries()>0) then
+					//try next pos
+					m_xBuildPositions.DeleteEntry(0);
+				else
+					//request new BPs
+					m_bWaitingForInitialBuildPosition=true;
+				endif;
+			endif;
+		
+		elseif(sBuild.Find("ninigi_telescope_tower")!=(-1))then
+			if(m_iTelescopeTowers<=1)then
+				m_pxSensor^.PlaceObj(sBuild, p_vPos, m_vBuildRot, m_xLockedObjs);
+				m_iTelescopeTowers++;
+			else
+				Abort();
+				return;
+			endif;
+		endif;
+
+		if(sBuild.Find("_tower")!=(-1))then
+			var ^CAiMaps pxMaps=^(m_pxSensor^.GetAiMaps());
+			var ^CAiMap pxDefMap=^(pxMaps^.GetAiMap("DefensiveCoverage",m_iPlayerID));
+			var int iPosX,iPosY;
+			CAiArea.Vec3ToArea(p_vPos,iPosX,iPosY);
+			pxDefMap^.AddValueFast(iPosX,iPosY,0.1);
+			pxDefMap^.UpdateBitmap();
+			pxDefMap^.SetDirty(false);
+		endif;
+
+	endproc;
+
+
+	///ComputeSpecialDropsites
+	proc void ComputeSpecialDropsites()
+		if(m_sClassName=="hu_lumberjack_cottage")then
+			m_sDropsitePrimaryType="wood";
+		endif;
+		if(m_sClassName=="hu_warehouse")then
+			m_sDropsitePrimaryType="";
+			//m_sDropsitePrimaryType="food";
+		endif;
+		if(m_sClassName=="aje_bazaar")then
+			m_sDropsitePrimaryType="";
+		endif;
+		if(m_sClassName=="hu_fireplace")then
+			m_sDropsitePrimaryType="";
+		endif;
+		if(m_sClassName=="ninigi_fireplace")then
+			m_sDropsitePrimaryType="";
+		endif;
+	endproc;
+	
+	///DumpAiPath
+	proc void DumpAiPath(^CAiPath p_pxPath)
+	endproc;
+	
+	///CheckPathToBuildPlace
+	proc bool CheckPathToBuildPlace()
+		if(m_pxBrain==null)then return true; endif;
+		if(m_pxSensor==null)then return true; endif;
+
+		var CAiPathPtr	pxPath;
+		var vec3		vStartLoc	= m_pxSensor^.GetOutpost(m_iOutpostId).GetWorldPos();
+		var vec3		vToCheck;
+		var bool		bPathFound = true;
+		var bool		bFoundEnemy;
+		var vec3 		vFoundDest;
+
+		CAiArea.AreaToVec3(m_xMaxArea.GetX(), m_xMaxArea.GetY(), vToCheck);
+
+		var real fDist=((vStartLoc-vToCheck).Abs2S())/100.0;
+		if(fDist<=30.00)then return true; endif;
+
+		pxPath = m_pxSensor^.CalcPath(vStartLoc, vToCheck, false, false);
+		if(pxPath == null)then
+			bPathFound = false;
+		else
+			if(pxPath.GetPath()^.NumEntries() <= 0)then
+				bPathFound = false;
+			else
+				vFoundDest = pxPath.GetPath()^.Get(pxPath.GetPath()^.NumEntries() - 1);
+				if(m_sClassName.Find("_harbour")!=(-1)||m_sClassName.Find("seas_carrier")!=-1)then
+					m_fPathDestTolerance=10.0;
+				else
+					m_fPathDestTolerance=12.0;
+				endif;
+				
+				if((vToCheck - vFoundDest).Abs2() > m_fPathDestTolerance)then
+					bPathFound = false;
+				endif;
+			endif;
+		endif;
+		
+		if(!bPathFound)then
+			var ^CAiMap pxBuildModifierMap = ^(m_pxSensor^.GetAiMaps().GetAiMap("BuildModifier", m_iPlayerID));
+			pxBuildModifierMap^.SetValueFast(m_xMaxArea, 0.0);
+			return false;
+		else
+			if(pxPath==null)then return false; endif;
+
+			var CAiPathObjInfo 			xPathInfoList;
+			var CAiPathObjInfo.CSpot 	xSpot;
+
+			if((vFoundDest-vStartLoc).Abs2()<60.0)then return true; endif;
+			xPathInfoList.Clear();
+
+			bFoundEnemy=pxPath.GetPath()^.CalcPathInfo(xPathInfoList, m_iPlayerID, 20.0);
+			var int i, iC=xPathInfoList.NumEntries();
+
+			if(iC<=0)then return true; endif;
+
+			for(i=0)cond(i<iC)iter(i++)do
+				xSpot=xPathInfoList.Get(i);
+				var int j, iD=xSpot.m_axNearObjects.NumEntries();
+				if(iD>0)then
+					for(j=0)cond(j<iD)iter(j++)do
+						if(xSpot.m_axNearObjects[j].IsValid())then
+							if((xSpot.m_axNearObjects[j].GetOwner()==(-1))&&xSpot.m_axNearObjects[j].GetType()=="ANML"&&(!xSpot.m_axNearObjects[j].IsHostile()))then
+								xSpot.m_axNearObjects.RemEntry(xSpot.m_axNearObjects[j]);
+								j--;
+								iD--;
+							endif;
+						endif;
+					endfor;
+				endif;
+			endfor;
+			
+			if(xSpot.m_axNearObjects.NumEntries()>0)then
+				RequestPestPatrol(xPathInfoList.m_vMaxThreatPos);
+				return false;
+			else
+				return true;
+			endif;
+						
+		endif;
+	endproc;
+
+
+	///RequestPestPatrol
+	proc bool RequestPestPatrol(vec3 p_vPos)
+		if(m_pxBrain==null)then return false; endif;
+
+		var bool bSucceed=false;
+		var ^CAiModuleFightDefault pxFM = cast<CAiModuleFightDefault>(m_pxBrain^.GetFightModule());
+
+		if(pxFM == null)then return false; endif;
+
+		if(pxFM^.RequestPestPatrol(p_vPos))then
+			bSucceed=true;
+		endif;
+
+		return bSucceed;
+	endproc;
+
+
+	///EvtAllocationComplete
+	export proc void EvtAllocationComplete(^CAiAllocation p_pxAllocation)
+		var vec3 		vBuildPos;
+		var vec3 		vNewBuildPos;
+		var bool		bNewBuildPos = false; //if true the task has found a new buildpos due to near placing
+		var bool 		bPossibleWalk;
+
+		if((m_sClassName=="hu_warehouse")||(m_sClassName=="hu_corn_field")||(m_sClassName=="hu_arena")||(m_sClassName=="hu_small_animal_farm")||(m_sClassName=="hu_machine_maker"))then
+		elseif(!m_sDropsitePrimaryType.IsEmpty())then
+			vBuildPos = ComputeResourcePosition();
+			bNewBuildPos = true;
+		endif;
+
+		m_vBuildRot.SetX(0.0);
+		m_vBuildRot.SetY(0.0);
+		m_vBuildRot.SetZ(0.0);
+
+		var bool bSuccess = false;
+		if(bNewBuildPos)then
+			m_vBuildNearTo = vBuildPos;
+		else
+			if(m_vPos == {0.0, 0.0, 0.0})then
+				m_vBuildNearTo = m_xMaxInflArea.GetWorldCenterPos(); //if no new near-to-build-pos is given take infl-build-center-pos
+			else
+				m_vBuildNearTo = m_vPos;
+			endif;
+		endif;
+		m_xLockedObjs=p_pxAllocation^.GetAllObjs();
+		if(m_xLockedObjs.Validate()<=0)then
+			if(m_sTribe=="Aje")then	
+				m_xLockedObjs.AddEntry(CheckForSpearman());
+			endif;
+		endif;
+		
+		if(m_xLockedObjs.Validate()>0)then
+			iterloop(m_xLockedObjs,i)do
+				var int iUnitHandle=m_xLockedObjs[i].GetHandle();
+				m_pxSensor^.AddCheckpoint(this,1000+i,"dhnd:"+iUnitHandle.ToString()+" Name: "+m_xLockedObjs[i].GetName(),0.0);
+			enditerloop;
+		endif;
+		
+	endproc;
+
+
+	///EvtCheckpointReached
+	export proc void EvtCheckpointReached(int p_iCheckpointId, int p_iObjHandle)
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+
+		if(p_iCheckpointId < 100)then
+			m_bPlaced = true;
+		elseif((p_iCheckpointId >= 100) && (p_iCheckpointId < 200))then
+			m_pxSensor^.AddCheckpoint(this, p_iCheckpointId + 100, "atto:"+p_iObjHandle.ToString()+",AIRelevant,==,1", 120.0);
+		elseif((p_iCheckpointId >= 200) && (p_iCheckpointId < 300))then
+			m_pxSensor^.RemoveCheckpoints(this);
+			SetCompleted();
+			m_pxBrain^.GetEconomyModule()^.SetConstructionFinished(true);
+		endif;
+		
+		m_pxSensor^.RemoveCheckpoint(this,p_iCheckpointId);
+	endproc;
+
+
+	///EvtCheckpointTimeout
+	export proc void EvtCheckpointTimeout(int p_iCheckpointId)
+		if(m_pxSensor==null)then return; endif;
+		if(p_iCheckpointId>=1000) then return; endif;
+		
+		if(p_iCheckpointId < 100)then
+			m_pxSensor^.RemoveCheckpoint(this,p_iCheckpointId);
+
+			if(m_xBuildPositions.GetNumEntries()<=0)then
+				m_bWaitingForInitialBuildPosition=true;
+				return;
+			endif;
+
+			m_xBuildPositions.DeleteEntry(0);
+			return;
+		elseif((p_iCheckpointId >= 100) && (p_iCheckpointId < 200))then
+		elseif((p_iCheckpointId >= 200) && (p_iCheckpointId < 300))then
+			m_pxSensor^.RemoveCheckpoints(this);
+			SetCompleted();
+			return;
+		endif;
+		m_pxSensor^.RemoveCheckpoint(this,p_iCheckpointId);
+		Abort();
+	endproc;
+
+
+	///RotateBuilding
+	proc vec3 RotateBuilding(string p_sDropsite, vec3 p_vBuildPos, string p_sClassName)
+		var vec3 vBuildingRot = {0.0, 0.0, 0.0};
+		var vec3 vResPos = ComputeResourcePosition();
+		var vec3 vDir = vResPos - p_vBuildPos;
+		vDir.SetZ(0.0);
+		var Quat qDir;
+		qDir.FromDir(vDir);
+		qDir.ToVec3(vBuildingRot);
+		vBuildingRot.SetZ(vBuildingRot.GetZ()+1.57);
+		if(p_sClassName == "hu_stone_quarry")then
+			vBuildingRot.SetZ(vBuildingRot.GetZ() + 1.57 * 2.0);
+		endif;
+		return vBuildingRot;
+	endproc;
+
+
+	///GetCloserPos
+	proc vec3 GetCloserPos(string p_sClassName)
+		if(m_pxBrain==null)then return {0.0,0.0,0.0}; endif;
+		if(m_pxSensor==null)then return {0.0,0.0,0.0}; endif;
+
+		var string 		sClassName=" ";
+		var vec3		vTargetPos={0.0,0.0,0.0};
+
+		var ^CAiMaps	pxMaps=^(m_pxSensor^.GetAiMaps());
+		var ^CAiMap		pxMap;
+		pxMap=^(pxMaps^.GetAiMap("InflObjBuild", m_iPlayerID));
+
+		var CAiObjQuery 	xOQ;
+		var CAiObjWrapList 	xOL;
+		var CAiObjWrap 		xObj;
+		var CFourCC 		xType;
+		xOQ.SetOwner(m_iPlayerID);
+		xType="BLDG";
+		xOQ.SetType(xType);
+		xOQ.Execute(xOL);
+
+		if(xOL.NumEntries()>0)then
+			var int i, iC=xOL.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				xObj=xOL[i];
+				sClassName=xObj.GetClassName();
+				if((((p_sClassName=="hu_warehouse")||(p_sClassName=="hu_corn_field"))&&(sClassName=="hu_fireplace"))||
+				(((p_sClassName=="hu_machine_maker")||(p_sClassName=="hu_small_animal_farm"))&&(sClassName=="hu_arena")))then
+					vTargetPos=xObj.GetPos();
+				endif;
+			endfor;
+		endif;
+		return vTargetPos;
+	endproc;
+
+
+	///GetCloserArea
+	proc CAiArea GetCloserArea(vec3 p_vTargetPos)
+		if(m_pxBrain==null)then return m_xMaxArea; endif;
+		if(m_pxSensor==null)then return m_xMaxArea; endif;
+
+		var ^CAiMaps	pxGlobalMaps=^(m_pxBrain^.GetSensor().GetGlobalAiMaps());
+		var ^CAiMaps	pxMaps=^(m_pxSensor^.GetAiMaps());
+		var ^CAiMap		pxBuildMap;
+		var CAiMap		xBuildMap;
+		var CAiMap 		xBuilPosMap;
+
+		xBuildMap.CopyFromFast(pxGlobalMaps^.GetAiMap("Build", m_iPlayerID));
+		xBuildMap.OpMultiplication(pxMaps^.GetAiMap("BuildModifier", m_iPlayerID), true);
+		xBuildMap.QuantisationFast(0.0, 10000.0, 1.0);
+		xBuilPosMap.Init(pxGlobalMaps^.GetMapWidth(), pxGlobalMaps^.GetMapHeight(), m_iPlayerID);
+		xBuilPosMap.AddInfluence(p_vTargetPos.GetX().ToInt() / 32, p_vTargetPos.GetY().ToInt() / 32, 10.0, 0.0, 20.0);
+		xBuilPosMap.OpMultiplication(xBuildMap);
+
+		var CAiArea xTmpArea=xBuilPosMap.FindMaxArea();
+		if(xBuilPosMap.GetValue(xTmpArea)==0.0)then
+		else
+			m_xMaxArea = xTmpArea;
+		endif;
+		return m_xMaxArea;
+	endproc;
+
+
+	///ComputeResourceAreas
+	proc bool ComputeResourceAreas()
+		if(m_pxBrain==null)then return true; endif;
+		if(m_pxSensor==null)then return true; endif;
+
+		var ^CAiMaps	pxGlobalMaps = ^(m_pxSensor^.GetGlobalAiMaps());
+		var ^CAiMaps	pxMaps = ^(m_pxSensor^.GetAiMaps());
+		var CAiMap 		xResMap;
+		var CAiMap 		xTmpMap;
+		var CAiMap		xRangeMap;
+
+		xRangeMap.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID);
+		xRangeMap.ClearToFast(0.0);
+
+		var vec3	vOPPos		= m_pxSensor^..GetOutpost(m_iOutpostId).GetWorldPos();
+		var int		iOPX;
+		var int		iOPY;
+
+		CAiArea.Vec3ToArea(vOPPos, iOPX, iOPY);
+		xRangeMap.AddInfluenceFast(iOPX, iOPY, 5.0, 0.0, 1.0);
+
+		xTmpMap.Init(pxGlobalMaps^.GetMapWidth(), pxGlobalMaps^.GetMapHeight(), m_iPlayerID,false);
+		xResMap.Init(pxGlobalMaps^.GetMapWidth(), pxGlobalMaps^.GetMapHeight(), m_iPlayerID,false);
+		xResMap.CopyFromFast(pxGlobalMaps^.GetAiMap(m_sDropsitePrimaryType, -1));
+
+		if(m_sDropsitePrimaryType=="WOOD")then
+			xResMap.AddFast(pxGlobalMaps^.GetAiMap("Forest", m_iPlayerID));
+		endif;
+
+		var int	iIslandId=m_pxSensor^.GetOutpost(m_iOutpostId).GetIslandId();
+
+		xResMap.FilterFast(0.0,0.0,0.0,1.0);
+		xResMap.MultiplyFast(xRangeMap);
+		xResMap.MultMosaicFast(iIslandId);
+		m_xResArea = xResMap.FindMaxArea();
+
+		if(xResMap.GetValue(m_xResArea)==0.0)then return false; endif;
+		
+		xTmpMap.CopyFromFast(pxGlobalMaps^.GetAiMap("Build", m_iPlayerID));
+		xTmpMap.OpMultiplication(pxMaps^.GetAiMap("BuildModifier", m_iPlayerID), true);
+		xTmpMap.QuantisationFast(4.0, 10000.0, 1.0);
+		xTmpMap.SubtractFast(m_xInvalidMap);
+		xTmpMap.MultMosaicFast(iIslandId);
+
+		xTmpMap.AddInfluenceFast(m_xResArea.GetX(), m_xResArea.GetY(), 3.0, 0.0, 20.0);
+		m_xResBuildArea = xTmpMap.FindMaxArea();
+		
+		if(xTmpMap.GetValue(m_xResBuildArea)<=0.0)then return false; endif;
+		m_xMaxArea=m_xResBuildArea;
+		return true;
+	endproc;
+
+
+	///ComputeResourcePosition
+	proc vec3 ComputeResourcePosition()
+		var vec3		vResPos;
+		var CFourCC 	xType = m_sDropsitePrimaryType;
+		var CAiObjQuery 	xOQ;
+		var CAiObjWrapList 	xOL;
+
+		xOQ.SetType(xType);
+		xOQ.RegionArea(m_xResArea);
+		xOQ.Execute(xOL);
+
+		if(xOL.NumEntries() <= 0)then
+			vResPos = m_xResArea.GetWorldCenterPos();
+		else
+			vResPos = xOL[0].GetPos();
+		endif;
+
+		return vResPos;
+	endproc;
+
+
+	///Think
+	export proc void Think()
+		super.Think();
+		if(m_pxSensor==null)then return; endif;
+		if(!IsRunning())then return; endif;
+		if(!m_sBuildCmd.IsEmpty()&&m_xLockedObjs.NumEntries()>0) then
+			var vec3 vPos=m_vBuildPos;
+			var string sTasks;
+			var real fMinDist=1000000.0f;
+			iterloop(m_xLockedObjs,i)do
+				if(!m_xLockedObjs[i].IsValid()) then continue; endif;
+				sTasks+=m_xLockedObjs[i].GetCurrentTask()+",";
+				var real fDist=(m_xLockedObjs[i].GetPos()-vPos).Abs2();
+				if(fDist<fMinDist) then fMinDist=fDist; endif;
+			enditerloop;
+			var bool bFailed=false;
+			if(fMinDist<16.0f||sTasks.Find("Idle")!=-1) then
+				m_pxSensor^.RemoveCheckpoint(this,0);
+				m_pxSensor^.RemoveCheckpoint(this,100);
+				m_pxSensor^.AddCheckpoint(this,0,"nobj:"+m_sClassName, 1.0);
+				m_pxSensor^.AddCheckpoint(this,100,"attc:"+m_sClassName+",CurTask,==,BuildUpB", 360.0);
+//				CMirageAIMgr.Debug("ai placing obj loc B: '"+m_sBuildCmd+"'");
+				if(!m_pxSensor^.PlaceObj(m_sBuildCmd, m_vBuildPos, m_vBuildRot, m_xLockedObjs)) then
+					//already blocked?
+					if(m_xBuildPositions.NumEntries()>0) then
+						//try next pos
+						m_xBuildPositions.DeleteEntry(0);
+						bFailed=true;
+					else
+						//request new BPs
+						m_bWaitingForInitialBuildPosition=true;
+					endif;
+				endif;
+				m_sBuildCmd.Empty();
+			endif;
+			
+			if(!bFailed) then return; endif;
+		endif;
+		
+		if(m_bPlaced)then return; endif;
+	
+		var bool bSuccess=true;
+
+		if(m_bWaitingForInitialBuildPosition)then
+			if((m_sClassName.Find("_wall")!=-1)||(m_sClassName.Find("_gate")!=-1)||(m_sClassName.Find("_palisade")!=-1)
+				||(m_sClassName.Find("_skewer")!=-1)||(m_sClassName.Find("_fence")!=-1)
+				||(m_sClassName.Find("_pitfall")!=-1)||(m_sClassName.Find("_smoke_tower")!=-1))then
+				SetImpossible();
+				Abort();
+				return;
+			endif;
+
+			bSuccess = m_pxSensor^.FindBuildPosition(m_xBuildPositions, m_xMaxArea, m_sClassName, m_vBuildNearTo, m_vBuildRot, m_bIsCoastal, true,m_iOutpostId);
+			if(!bSuccess)then return; endif;
+			m_bWaitingForInitialBuildPosition = false;
+		endif;
+		
+		if(bSuccess)then
+			if(m_xBuildPositions.GetNumEntries()<=0)then bSuccess = false; endif;
+		endif;
+
+		if(bSuccess)then
+			m_sMiscParam = GetSolution()^.GetAdditionalAttribs();
+			ExecuteSolution(-1, m_xBuildPositions.GetEntry(0)^);
+		else
+			m_xInvalidMap.AddValue(m_xMaxArea.GetX(), m_xMaxArea.GetY(), 1000.0);
+			CalculateStartCost();
+			m_iChkPointTimeouts++;
+			m_bWaitingForInitialBuildPosition = true;
+			m_xBuildPositions.Clear();
+			Abort();
+			
+			if((m_iChkPointTimeouts>m_iMaxChkPointTimeouts)||(IsNotPossible()))then return; endif;
+			
+			if(!Start())then Abort(); endif;
+			return;
+		endif;
+	endproc;
+	
+	
+	///CheckForSpearman
+	proc CAiObjWrap CheckForSpearman()
+		var CAiObjWrap xInvalid;
+		var CAiObjWrapList xSpearmanList;
+		var CAiObjQuery xQuery;
+		
+		xQuery.SetOwner(m_iPlayerID);
+		xQuery.SetClass("aje_spearman");
+		xQuery.Execute(xSpearmanList);
+		
+		if(xSpearmanList.Validate()<=0)then return xInvalid; endif;
+		
+		var int i, iC=xSpearmanList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(xSpearmanList[i].GetCurrentTask()=="Idle")then
+				return xSpearmanList[i];
+			else
+				return xInvalid;
+			endif;
+		endfor;
+	endproc;
+
+
+	///EvtRequestAccepted
+	export proc void EvtRequestAccepted(^CAiRequestInfo p_pxInfo)
+		var CFourCC xType="ATCK";
+		if(p_pxInfo^.GetType()==xType)then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+		endif;
+	endproc;
+
+
+	///EvtRequestRejected
+	export proc void EvtRequestRejected(^CAiRequestInfo p_pxInfo)
+		var CFourCC xType="ATCK";
+		if(p_pxInfo^.GetType()==xType)then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+			CalculateStartCost();
+			if((!Start())||IsNotPossible())then Abort(); endif;
+		endif;
+	endproc;
+
+
+	///EvtRequestFailed
+	export proc void EvtRequestFailed(^CAiRequestInfo p_pxInfo)
+		var CFourCC xType="ATCK";
+		if(p_pxInfo^.GetType()==xType)then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+			CalculateStartCost();
+			if((!Start())||IsNotPossible())then Abort(); endif;
+		endif;
+	endproc;
+
+
+	///EvtRequestSucceeded
+	export proc void EvtRequestSucceeded(^CAiRequestInfo p_pxInfo)
+		var CFourCC xType="ATCK";
+		if(p_pxInfo^.GetType()==xType)then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+			CalculateStartCost();
+			if((!Start())||IsNotPossible())then Abort(); endif;
+		endif;
+	endproc;
+
+endclass;
+

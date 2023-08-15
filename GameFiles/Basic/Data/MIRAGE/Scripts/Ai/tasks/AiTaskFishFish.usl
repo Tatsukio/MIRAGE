@@ -1,0 +1,137 @@
+class CAiTaskFishFish inherit CAiTaskGetResource
+	var CAiObjWrapList 	m_xList;
+	var string			m_sLevelName;
+	var bool			m_bHarbour;
+	var bool			m_bMultimap;
+	
+	///CalculateStartCost
+	export proc real CalculateStartCost()
+		m_pxBrain = GetGoal()^.GetAiBrain(); 
+		if(m_pxBrain==null)then return 1.0; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return 1.0; endif;
+		m_bMultimap=m_pxSensor^.GetMultimap();
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		
+		var ^CAiBrain.ICostFunction pxCostFunc = m_pxBrain^.GetCostFunction();		
+		var real fCost = 1.0;		
+		var ^CAiMaps pxMaps = ^(m_pxBrain^.GetSensor().GetAiMaps());
+		var ^CAiMaps pxGlobalMaps = ^(m_pxSensor^.GetGlobalAiMaps());
+		var ^CAiMap		pxCostMap;
+		var ^CAiMap		pxInflBuildMap = ^(pxMaps^.GetAiMap("InflBuild", m_iPlayerID));
+		
+		pxInflBuildMap^.OpAdd(0.1); 
+		pxCostMap=^(pxMaps^.GetAiMap("Fish",m_pxBrain^.GetPlayerId()));
+		
+		if((pxCostMap^.IsDirty())||(m_xInvalidMap.IsDirty()))then
+			pxCostMap^.CopyFromFast(pxGlobalMaps^.GetAiMap("Fish",m_iPlayerID));
+			pxCostMap^.MultiplyFast(pxInflBuildMap^);
+			pxCostMap^.MultiplyFast(m_xInvalidMap);
+			pxCostMap^.UpdateBitmap();
+			pxCostMap^.SetDirty(false);
+			m_xInvalidMap.SetDirty(false);
+		endif;
+
+		m_xMaxArea = pxCostMap^.FindMaxArea();
+		
+		if(pxCostMap^.GetValue(m_xMaxArea) == 0.0) then
+			SetImpossible();
+			fCost = 99999999.0f;
+		endif;
+		return fCost;
+	endproc;
+	
+	
+	///Start
+	export proc bool Start()
+		m_pxBrain = GetGoal()^.GetAiBrain(); 
+		if(m_pxBrain==null)then return false; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		m_bHarbour=m_pxSensor^.GetHarbour();
+		
+		if(!m_bHarbour)then
+			return false;
+		endif;
+		
+//		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		
+		SetStarted();
+
+		var int iDifficulty;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		if(pxCM^.GetDifficulty()=="Easy")then
+			iDifficulty=30;
+		elseif(pxCM^.GetDifficulty()=="Medium")then
+			iDifficulty=20;
+		else
+			iDifficulty=10;
+		endif;
+		SetThinkWait(iDifficulty+iType);
+		
+		var CFourCC xResource = "FRUI";
+		var CAiObjQuery xQuery;
+
+		xQuery.SetType(xResource);
+		xQuery.SetClass("FishShoal_Tristychius");
+		xQuery.RegionArea(m_xMaxArea);
+		
+		if(!xQuery.Execute(m_xList))then
+	   		m_xInvalidMap.AddValue(m_xMaxArea.GetX(), m_xMaxArea.GetY(), 1000.0);
+			CalculateStartCost();
+			Abort();
+			m_iChkPointTimeouts++;
+			if((m_iChkPointTimeouts > m_iMaxChkPointTimeouts) || (IsNotPossible() == true))then
+				return false;
+			endif;
+			
+			return Start();
+		endif;
+
+		var bool bSuccess = TryAllocate(GetSolution(), m_iOutpostId, 10);
+
+		if(bSuccess==false)then return false; endif;
+		GetAllocation()^.SetTarget(m_xList[0].GetPos());
+		
+		return true;
+	endproc;
+
+
+	///ExecuteSolution
+	export proc void ExecuteSolution(int p_iObject, vec3 p_vPos)
+		if(m_pxSensor==null)then return; endif;
+		
+		var int iSubjectHandle=m_xSubjects[0].GetHandle();
+		var int iObjectHandle=-1;
+		if(p_iObject>=0)then
+			iObjectHandle=m_xObjects[p_iObject].GetHandle();
+		endif;
+
+		m_pxSensor^.AddCheckpoint(this,0,"atto:"+iSubjectHandle.ToString()+",CurTask,==,Idle",0.0);
+		m_pxSensor^.AddCheckpoint(this,100,"atto:"+iSubjectHandle.ToString()+",CurTask,==,Fishing",0.0);
+		
+		if(m_xList[0].IsValid() == false)then
+			Abort();
+			return;
+		endif;
+		
+		if(m_sLevelName=="Single 12"&&!m_bMultimap&& m_iPlayerID==5)then
+			return;
+		endif;
+		if(m_sLevelName=="Single 12"&&m_bMultimap&& m_iPlayerID==3)then
+			return;
+		endif;
+		
+		m_pxSensor^.ExecuteGamePlayCommand(m_xSubjects, GetSolution()^.GetGPCmd(), m_xList[0].GetHandle(), p_vPos, GetSolution()^.GetAdditionalAttribs());
+	endproc;
+	
+endclass;

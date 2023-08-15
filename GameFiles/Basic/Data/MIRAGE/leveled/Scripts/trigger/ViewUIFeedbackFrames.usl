@@ -1,0 +1,432 @@
+class CViewUIFeedbackFrames inherit CEnhancedFrameWindow
+	
+	var ^CList 				m_pxList;
+	var ^CButton 			m_pxNew;
+	var ^CButton 			m_pxRem;
+	
+	var ^CEdit				m_pxName;
+	var ^CDropList			m_pxType;
+	var ^CSpinCtrlNumber	m_pxFrameWidth;
+	var ^CEdit 				m_pxColor1;
+	var ^CEdit 				m_pxColor2;	
+	
+	var ^CUIFeedbackFrameScreen		m_pxParamScreen;
+	var ^CUIFeedbackFrameWorldPos	m_pxParamWorldPos;
+	var ^CUIFeedbackFrameObj		m_pxParamObj;
+	
+	class CFrameData inherit CItemData
+		export var CPropDB m_xData;
+					
+		export constructor(^CPropDB.CNode p_pxNode)
+			m_xData.GetRoot().Clear();
+			if(p_pxNode==null)then
+				m_xData.GetRoot().Name()="New Frame";
+				return;
+			endif;
+			m_xData.GetRoot().Name()=p_pxNode^.Name();
+			m_xData.GetRoot().Join(p_pxNode);
+		endconstructor;
+		
+		export proc string GetName()
+			return m_xData.GetRoot().Name();
+		endproc;
+		
+		export proc void SetName(string p_sName)
+			m_xData.GetRoot().Name()=p_sName;
+		endproc;
+		
+		export proc ref CPropDB GetData()
+			return m_xData;
+		endproc;
+		
+		export proc string GetValueS(string p_sName,string p_sDefault)
+			return m_xData.GetRoot().GetValueS(p_sName,p_sDefault);
+		endproc;
+		
+		export proc void SetValue(string p_sName, string p_sValue)
+			m_xData.GetRoot().SetValue(p_sName,p_sValue);
+		endproc;
+		
+		export proc int GetValueI(string p_sName,int p_iDefault)
+			return m_xData.GetRoot().GetValueI(p_sName,p_iDefault);
+		endproc;
+		
+		export proc void SetValue(string p_sName, int p_iValue)
+			m_xData.GetRoot().SetValue(p_sName,p_iValue);
+		endproc;
+	endclass;
+	
+	export constructor()
+		if(!InitFromResource("Trigger/ViewUIFeedbackFrames","UIFeedbackFrames"))then
+			KLog.LogError("UI.ViewUIFeedbackFrames", "InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxParamScreen=new CUIFeedbackFrameScreen;
+		m_pxParamWorldPos=new CUIFeedbackFrameWorldPos;
+		m_pxParamObj=new CUIFeedbackFrameObj;
+		
+		m_pxList 	= cast<CList>(GetControl("List"));
+		m_pxNew		= cast<CButton>(GetControl("Btn_New"));
+		m_pxRem		= cast<CButton>(GetControl("Btn_Rem"));
+		
+		m_pxName	= cast<CEdit>(GetControl("Name"));
+		m_pxType	= cast<CDropList>(GetControl("Type"));
+		m_pxFrameWidth	= cast<CSpinCtrlNumber>(GetControl("Frame"));
+		m_pxColor1	= cast<CEdit>(GetControl("Color1"));
+		m_pxColor2	= cast<CEdit>(GetControl("Color2"));
+		
+		m_pxList^.m_xOnSelect = OnSelectFrame;
+		m_pxNew^.m_xOnClick = OnNewFrame;
+		m_pxRem^.m_xOnClick = OnRem;
+		
+		m_pxType^.AddItem("screen rect");
+		m_pxType^.AddItem("world pos");
+		m_pxType^.AddItem("object");		
+				
+		LoadData();
+	endconstructor;
+	
+	destructor()
+		m_pxParamWorldPos^.Deactivate();
+		Clear();
+		m_pxParamScreen^.RemoveFromParent();
+		delete m_pxParamScreen;
+		m_pxParamWorldPos^.RemoveFromParent();
+		delete m_pxParamWorldPos;
+		m_pxParamObj^.RemoveFromParent();
+		delete m_pxParamObj;
+	enddestructor;
+	
+	proc void Clear()
+		var int i,iC=m_pxList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CFrameData pxFD=cast<CFrameData>(m_pxList^.GetItemData(i));
+			delete pxFD;			
+		endfor;	
+		m_pxList^.Clear();
+	endproc;
+	
+	proc void OnChange_Set()
+		m_pxName^.m_xOnUpdate = OnChange;
+		m_pxType^.m_xOnChange = OnChange;
+		m_pxFrameWidth^.m_xOnChange = OnChange;
+		m_pxColor1^.m_xOnUpdate = OnChange;
+		m_pxColor2^.m_xOnUpdate = OnChange;
+	endproc;
+	
+	proc void OnChange_Clear()
+		m_pxName^.m_xOnUpdate.Clear();
+		m_pxType^.m_xOnChange.Clear();
+		m_pxFrameWidth^.m_xOnChange.Clear();
+		m_pxColor1^.m_xOnUpdate.Clear();
+		m_pxColor2^.m_xOnUpdate.Clear();
+	endproc;
+	
+	proc bool OnSelectFrame()
+		OnChange_Clear();
+		m_pxName^.SetText("");
+		m_pxType^.Select(0);
+		m_pxFrameWidth^.SetValue(0);
+		m_pxColor1^.SetText("");
+		m_pxColor2^.SetText("");
+		m_pxParamScreen^.SetNode(null);		
+		m_pxParamWorldPos^.SetNode(null);
+		m_pxParamObj^.SetNode(null);
+		
+		var int iIdx=m_pxList^.GetSelectedItem();
+		if(iIdx!=-1)then 
+			var ^CFrameData pxFD=cast<CFrameData>(m_pxList^.GetItemData(iIdx));
+			if(pxFD!=null)then
+				m_pxName^.SetText(pxFD^.GetName());
+				m_pxType^.Select(pxFD^.GetValueI("type",0));
+				m_pxFrameWidth^.SetValue(pxFD^.GetValueI("framewidth",5));
+				m_pxColor1^.SetText(pxFD^.GetValueS("color1","255 0 0 255"));
+				m_pxColor2^.SetText(pxFD^.GetValueS("color2","0 255 0 255"));				
+				m_pxParamScreen^.SetNode(^(pxFD^.GetData().GetRoot()));				
+				m_pxParamWorldPos^.SetNode(^(pxFD^.GetData().GetRoot()));
+				m_pxParamObj^.SetNode(^(pxFD^.GetData().GetRoot()));
+			endif;
+		endif;		
+		
+		OnChange_Set();
+		OnChange();
+		return true;
+	endproc;
+	
+	proc bool OnNewFrame()
+		var int iIdx=m_pxList^.AddItem("New Frame",new CFrameData(null));
+		m_pxList^.Select(iIdx);
+		return true;
+	endproc;
+	
+	proc bool OnRem()
+		var int iIdx=m_pxList^.GetSelectedItem();
+		if(iIdx!=-1)then
+			var ^CFrameData pxFD=cast<CFrameData>(m_pxList^.GetItemData(iIdx));
+			delete pxFD;
+			m_pxList^.DeleteItem(iIdx);
+			OnSelectFrame();
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnChange()
+		m_pxParamScreen^.RemoveFromParent();
+		m_pxParamWorldPos^.RemoveFromParent();
+		m_pxParamObj^.RemoveFromParent();
+		m_pxParamWorldPos^.Deactivate();
+		
+		var int iIdx=m_pxList^.GetSelectedItem();
+		if(iIdx==-1)then return true; endif;
+		var ^CFrameData pxFD=cast<CFrameData>(m_pxList^.GetItemData(iIdx));
+		if(pxFD==null)then return true; endif;
+		pxFD^.SetName(m_pxName^.GetText());
+		m_pxList^.SetItemText(iIdx,pxFD^.GetName());
+		var int iType=m_pxType^.GetSelectedItem();		
+		if(iType<0 || iType>2)then
+			iType=0;
+		endif;
+		pxFD^.SetValue("type",iType);
+		
+		pxFD^.SetValue("framewidth",m_pxFrameWidth^.GetValueInt());
+		pxFD^.SetValue("color1",m_pxColor1^.GetText());
+		pxFD^.SetValue("color2",m_pxColor2^.GetText());		
+		
+		if(iType==0)then
+			AddChildWithLayout(m_pxParamScreen,"SpecialParamsContainer");
+		elseif(iType==1)then
+			AddChildWithLayout(m_pxParamWorldPos,"SpecialParamsContainer");
+			m_pxParamWorldPos^.Activate();
+		elseif(iType==2)then
+			AddChildWithLayout(m_pxParamObj,"SpecialParamsContainer");
+		endif;		
+		
+		return true;
+	endproc;
+	
+	proc void LoadData()
+		OnChange_Clear();
+		Clear();
+		var int iSelIdx=-1;
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxFFNode=^((pxLevelInfo^.GetGenericData())["FeedbackFrames"]);
+		var int i,iC=pxFFNode^.NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPropDB.CNode pxWalk=^(pxFFNode^.Get(i));
+			var ^CFrameData pxNewFrame=new CFrameData(pxWalk);			
+			iSelIdx=m_pxList^.AddItem(pxNewFrame^.GetName(),pxNewFrame);
+		endfor;
+		OnChange_Set();
+		m_pxList^.Select(iSelIdx);		
+	endproc;
+	
+	proc void SaveData()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxFFNode=^((pxLevelInfo^.GetGenericData())["FeedbackFrames"]);
+		pxFFNode^.Clear();
+		var int i,iC=m_pxList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CFrameData pxFD=cast<CFrameData>(m_pxList^.GetItemData(i));
+			if(pxFD==null)then continue; endif;
+			var string sName=pxFD^.GetName();
+			if(sName.IsEmpty())then continue; endif;
+			
+			var ^CPropDB.CNode pxNewFrameNode=^(pxFFNode^.SetValue(sName,""));
+			pxNewFrameNode^.Join(^(pxFD^.GetData().GetRoot()));			
+		endfor;
+		
+	endproc;
+		
+	export proc bool OnClose()
+		SaveData();
+		super.OnClose();
+		Destroy();
+		return true;
+	endproc;
+endclass;
+
+class CUIFeedbackFrameScreen inherit CWindow
+	var ^CSpinCtrlNumber m_pxLeft;
+	var ^CSpinCtrlNumber m_pxTop;
+	var ^CSpinCtrlNumber m_pxRight;
+	var ^CSpinCtrlNumber m_pxBottom;
+	var ^CPropDB.CNode m_pxNode;
+	
+	export constructor()
+		if(!InitFromResource("Trigger/ViewUIFeedbackFrames","FrameScreen"))then
+			KLog.LogError("UI.ViewUIFeedbackFrames", "InitFromResource failed");
+			return;
+		endif;
+		m_pxNode=null;
+		
+		m_pxLeft=cast<CSpinCtrlNumber>(GetControl("Left"));
+		m_pxTop=cast<CSpinCtrlNumber>(GetControl("Top"));
+		m_pxRight=cast<CSpinCtrlNumber>(GetControl("Right"));
+		m_pxBottom=cast<CSpinCtrlNumber>(GetControl("Bottom"));
+		m_pxRight^.m_xOnChange=OnChange;
+		m_pxTop^.m_xOnChange=OnChange;
+		m_pxRight^.m_xOnChange=OnChange;
+		m_pxBottom^.m_xOnChange=OnChange;
+		
+	endconstructor;	
+		
+	export proc void SetNode(^CPropDB.CNode p_pxNode)
+		m_pxNode=p_pxNode;
+		var rect xRect;
+		if(m_pxNode!=null)then
+			xRect.FromString(m_pxNode^.GetValueS("screenrect",""));
+		endif;
+		m_pxLeft^.SetValue(xRect.GetLeft());
+		m_pxTop^.SetValue(xRect.GetTop());
+		m_pxRight^.SetValue(xRect.GetRight());
+		m_pxBottom^.SetValue(xRect.GetBottom());		
+	endproc;	
+	
+	export proc bool OnChange()
+		if(m_pxNode==null)then return true; endif;
+		var rect xRect;
+		xRect.SetLeft(m_pxLeft^.GetValueInt());
+		xRect.SetTop(m_pxTop^.GetValueInt());
+		xRect.SetRight(m_pxRight^.GetValueInt());
+		xRect.SetBottom(m_pxBottom^.GetValueInt());
+		m_pxNode^.SetValue("screenrect",xRect.ToString());
+		return true;
+	endproc;
+endclass;
+
+
+
+class CUIFeedbackFrameWorldPos inherit CWindow
+	var ^CEdit	m_pxPosEdit;
+	var ^CSpinCtrlNumber m_pxWidth;
+	var ^CSpinCtrlNumber m_pxHeight;
+	var ^CPropDB.CNode m_pxNode;
+	
+	export constructor()
+		if(!InitFromResource("Trigger/ViewUIFeedbackFrames","FrameWorldPos"))then
+			KLog.LogError("UI.ViewUIFeedbackFrames", "InitFromResource failed");
+			return;
+		endif;	
+		m_pxNode=null;		
+		m_pxPosEdit=cast<CEdit>(GetControl("Pos"));
+		m_pxPosEdit^.m_xOnChange=OnChange;
+		
+		m_pxWidth=cast<CSpinCtrlNumber>(GetControl("SizeX"));
+		m_pxWidth^.m_xOnChange=OnChange;
+		m_pxHeight=cast<CSpinCtrlNumber>(GetControl("SizeY"));
+		m_pxHeight^.m_xOnChange=OnChange;
+	endconstructor;	
+	
+	export proc void SetNode(^CPropDB.CNode p_pxNode)
+		m_pxNode=p_pxNode;
+		m_pxPosEdit^.m_xOnChange.Clear();
+		m_pxWidth^.m_xOnChange.Clear();
+		m_pxHeight^.m_xOnChange.Clear();
+		
+		var vec3 vPos;
+		var point xSize;
+		if(m_pxNode!=null)then			
+			vPos.FromString(m_pxNode^.GetValueS("worldpos",""));
+			xSize.FromString(m_pxNode^.GetValueS("size",""));
+		endif;
+		m_pxPosEdit^.SetText(vPos.ToString());	
+		
+		m_pxWidth^.SetValue(xSize.GetX());	
+		m_pxHeight^.SetValue(xSize.GetY());	
+		
+		m_pxPosEdit^.m_xOnChange=OnChange;
+		m_pxWidth^.m_xOnChange=OnChange;
+		m_pxHeight^.m_xOnChange=OnChange;
+	endproc;	
+	
+	export proc bool OnChange()
+		if(m_pxNode==null)then return true; endif;		
+		var vec3 vPos;
+		var point xSize;
+		vPos.FromString(m_pxPosEdit^.GetText());		
+		xSize.SetX(m_pxWidth^.GetValueInt());
+		xSize.SetY(m_pxHeight^.GetValueInt());		
+		
+		m_pxNode^.SetValue("worldpos",vPos.ToString());
+		m_pxNode^.SetValue("size",xSize.ToString());	
+		return true;
+	endproc;
+	
+	export proc void Activate()		
+		CMainController.Get().AddClickProcRef(OnSetPos);
+	endproc;
+	
+	export proc void Deactivate();		
+		CMainController.Get().RemoveClickProcRef(OnSetPos);
+	endproc;
+	
+	
+	proc bool OnSetPos()
+		var vec3 vPos=CClientWrap.GetScapeMgr().GetPickPoint();		
+		m_pxPosEdit^.SetText(vPos.ToString());
+		return true;
+	endproc;
+endclass;
+
+
+class CUIFeedbackFrameObj inherit CWindow
+	var ^CObjSelector m_pxObjSelector;
+	var ^CSpinCtrlNumber m_pxWidth;
+	var ^CSpinCtrlNumber m_pxHeight;
+	var ^CPropDB.CNode m_pxNode;
+	
+	export constructor()
+		if(!InitFromResource("Trigger/ViewUIFeedbackFrames","FrameObj"))then
+			KLog.LogError("UI.ViewUIFeedbackFrames", "InitFromResource failed");
+			return;
+		endif;
+		m_pxNode=null;
+		m_pxWidth=cast<CSpinCtrlNumber>(GetControl("SizeX"));
+		m_pxWidth^.m_xOnChange=OnChange;
+		m_pxHeight=cast<CSpinCtrlNumber>(GetControl("SizeY"));
+		m_pxHeight^.m_xOnChange=OnChange;
+		m_pxObjSelector=cast<CObjSelector>(GetControl("ObjSelector"));
+		m_pxObjSelector^.m_xOnStateChange=OnChange;
+	endconstructor;	
+	
+	export proc void SetNode(^CPropDB.CNode p_pxNode)
+		m_pxObjSelector^.m_xOnStateChange.Clear();
+		m_pxWidth^.m_xOnChange.Clear();
+		m_pxHeight^.m_xOnChange.Clear();
+		m_pxNode=p_pxNode;
+		var point xSize;
+		if(m_pxNode!=null)then							
+			xSize.FromString(m_pxNode^.GetValueS("size",""));		
+			var ^CPropDB.CNode pxOQNode=m_pxNode^.Get("ObjQuery");
+			if(pxOQNode==null)then
+				pxOQNode=^(m_pxNode^.AddValue("ObjQuery",""));			
+			endif;
+			m_pxObjSelector^.LoadFromNode(pxOQNode^);
+		endif;		
+		m_pxWidth^.SetValue(xSize.GetX());	
+		m_pxHeight^.SetValue(xSize.GetY());	
+		
+		m_pxObjSelector^.m_xOnStateChange=OnChange;
+		m_pxWidth^.m_xOnChange=OnChange;
+		m_pxHeight^.m_xOnChange=OnChange;
+	endproc;
+	
+	export proc bool OnChange()		
+		if(m_pxNode==null)then return true; endif;		
+		var point xSize;
+		xSize.SetX(m_pxWidth^.GetValueInt());
+		xSize.SetY(m_pxHeight^.GetValueInt());		
+		m_pxNode^.SetValue("size",xSize.ToString());	
+		
+		var ^CPropDB.CNode pxOQNode=m_pxNode^.Get("ObjQuery");
+		if(pxOQNode==null)then
+			pxOQNode=^(m_pxNode^.AddValue("ObjQuery",""));			
+		else
+			pxOQNode^.Clear();
+		endif;
+		m_pxObjSelector^.SaveToNode(pxOQNode^);		
+		return true;
+	endproc;
+endclass;
+

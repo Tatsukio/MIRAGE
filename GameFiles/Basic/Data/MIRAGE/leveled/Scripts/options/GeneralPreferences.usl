@@ -1,0 +1,639 @@
+class CGeneralPreferences inherit CEnhancedFrameWindow;
+	
+	//Autosave variables
+	var	int			m_iAutosaveTimer;
+	var string		m_sAutosaveActive;
+	var int			m_iAutosaveIntervall;
+	var int			m_iAutosaveAmount;
+	var int 		m_iCurrentSave;
+	
+	//Tooltip variables
+	var string		m_sTooltipsActive;
+	var int			m_iTooltipsDelay;
+	
+	//Screen elements
+	var string		m_sShowIconBar;
+	var string		m_sShowInfoBar;
+	
+	var string		m_sGameCameraSnapBack;
+	var string		m_sGameCameraAllowTurn;
+	var string		m_sGameCameraAllowZoom;
+	var string		m_sFreeCameraRotate;
+	
+	//Misc
+	var string		m_sShowWarnings;
+	var string		m_sAlternativeEditMode;
+		
+	//Layout variables
+	var string		m_sCurrentLayout;
+	var string		m_sNewLayoutName;
+	var ^CAddLayout	m_pxAddLayout;
+	
+	export constructor()
+		if(!InitFromResource("options/GeneralPreferences","GeneralPreferences")) then
+			CLevelEditorWrap.LogError("UI.GeneralPreferences","InitFromResource failed");
+			return;
+		endif;
+	
+		//Initalize General Preferences on first start
+		if(CSettings.NumSubs("Editor/Preferences/GeneralPreferences")==0)then
+			CSettings.Set("Editor/Preferences/GeneralPreferences/AutosaveActive","true");
+			CSettings.Set("Editor/Preferences/GeneralPreferences/AutosaveIntervall",10);
+			CSettings.Set("Editor/Preferences/GeneralPreferences/AutosaveAmount",1);
+			
+			CSettings.Set("Editor/Preferences/GeneralPreferences/TooltipsActive","true");
+			CSettings.Set("Editor/Preferences/GeneralPreferences/TooltipsDelay",1000);
+			
+			CSettings.Set("Editor/Preferences/GeneralPreferences/ShowIconBar","true");
+			CSettings.Set("Editor/Preferences/GeneralPreferences/ShowInfoBar","true");
+			CSettings.Set("Editor/Preferences/GeneralPreferences/GameCameraSnapBack","true");
+			CSettings.Set("Editor/Preferences/GeneralPreferences/GameCameraAllowTurn","true");
+			CSettings.Set("Editor/Preferences/GeneralPreferences/GameCameraAllowZoom","true");
+			CSettings.Set("Editor/Preferences/GeneralPreferences/FreeCameraRotate","false");
+						
+			CSettings.Set("Editor/Preferences/GeneralPreferences/ShowWarnings","true");
+			
+			CSettings.Set("Editor/Preferences/GeneralPreferences/Layout","Default");
+		endif;
+		
+		//Hack wegen RT#4047
+		CSettings.Set("Editor/Preferences/GeneralPreferences/ShowWarnings","true");
+		
+		if(!CSettings.Get("Editor/Preferences/GeneralPreferences/AlternativeEditMode",m_sAlternativeEditMode))then
+			CSettings.Set("Editor/Preferences/GeneralPreferences/AlternativeEditMode","false");
+		endif;
+		CSettings.Get("Editor/Preferences/GeneralPreferences/ShowWarnings",m_sShowWarnings);
+		
+		//Read settings from config
+		CSettings.Get("Editor/Preferences/GeneralPreferences/AutosaveActive",m_sAutosaveActive);
+		CSettings.Get("Editor/Preferences/GeneralPreferences/AutosaveIntervall",m_iAutosaveIntervall);
+		CSettings.Get("Editor/Preferences/GeneralPreferences/AutosaveAmount",m_iAutosaveAmount);
+		
+		CSettings.Get("Editor/Preferences/GeneralPreferences/TooltipsActive",m_sTooltipsActive);
+		CSettings.Get("Editor/Preferences/GeneralPreferences/TooltipsDelay",m_iTooltipsDelay);
+		
+		CSettings.Get("Editor/Preferences/GeneralPreferences/ShowIconBar",m_sShowIconBar);
+		CSettings.Get("Editor/Preferences/GeneralPreferences/ShowInfoBar",m_sShowInfoBar);
+		CSettings.Get("Editor/Preferences/GeneralPreferences/GameCameraSnapBack",m_sGameCameraSnapBack);
+		CSettings.Get("Editor/Preferences/GeneralPreferences/GameCameraAllowTurn",m_sGameCameraAllowTurn);
+		CSettings.Get("Editor/Preferences/GeneralPreferences/GameCameraAllowZoom",m_sGameCameraAllowZoom);
+		CSettings.Get("Editor/Preferences/GeneralPreferences/FreeCameraRotate",m_sFreeCameraRotate);
+
+		CSettings.Get("Editor/Preferences/GeneralPreferences/ShowWarnings",m_sShowWarnings);
+		
+			
+		CSettings.Get("Editor/Preferences/GeneralPreferences/Layout",m_sCurrentLayout);
+		
+		//UI Groupbox
+		var ^CGroupBox pxGroupBoxUI = cast<CGroupBox>(GetControl("LeftSide/GroupBoxUI"));
+		var ^CDropList pxDropListSkin = cast<CDropList>(GetControl("LeftSide/GroupBoxUI/DropListSkin"));
+		pxDropListSkin^.AddItem("Standard");
+		
+		//Layout droplist
+		var ^CDropList pxDropListLayout = cast<CDropList>(GetControl("LeftSide/GroupBoxUI/DropListLayout"));
+		//pxDropListLayout^.m_xOnChange=OnChangeLayout;
+
+		//Add layout button
+		var ^CButton pxAddLayout = cast<CButton>(GetControl("LeftSide/GroupBoxUI/AddButton"));
+		pxAddLayout^.m_xOnClick=OnAddLayout;
+		
+		//Delete layout button
+		var ^CButton pxDeleteLayout = cast<CButton>(GetControl("LeftSide/GroupBoxUI/DelButton"));
+		pxDeleteLayout^.m_xOnClick=OnDeleteLayout;
+		
+		//Autosave Groupbox
+		var ^CGroupBox pxGroupBoxAutosave = cast<CGroupBox>(GetControl("LeftSide/GroupBoxAutosave"));
+		pxGroupBoxAutosave^.SetDisabled(true);
+
+		//Autosave CheckBox
+		var ^CCheckBox pxCheckBoxAutosave = cast<CCheckBox>(GetControl("LeftSide/CheckBoxAutosave"));
+		pxCheckBoxAutosave^.m_xOnClick = OnChangeAutosave;
+		
+		//Check if Autosave is active
+		if(m_sAutosaveActive=="true")then
+			pxCheckBoxAutosave^.SetChecked(1);
+			EnableAutoSave();
+		else
+			pxCheckBoxAutosave^.SetChecked(0);
+			DisableAutosave();
+		endif;
+		
+		if(pxCheckBoxAutosave^.GetCheckMark()==true)then
+			pxGroupBoxAutosave^.SetDisabled(false);	
+		else
+			pxGroupBoxAutosave^.SetDisabled(true);	
+		endif;
+		
+		//Check autosave intervall
+		var ^CSpinCtrlNumber pxIntervall = cast<CSpinCtrlNumber>(GetControl("LeftSide/GroupBoxAutosave/SpinCtrlIntervall"));
+		pxIntervall^.SetLimits(1,120,1);
+		pxIntervall^.SetValue(m_iAutosaveIntervall);
+		pxIntervall^.m_xOnChange = OnChangeIntervall;
+		
+		//Check autosave amount
+		var ^CSpinCtrlNumber pxAmount = cast<CSpinCtrlNumber>(GetControl("LeftSide/GroupBoxAutosave/SpinCtrlAmount"));
+		pxAmount^.SetLimits(1,10,1);
+		pxAmount^.SetValue(m_iAutosaveAmount);
+		pxAmount^.m_xOnChange = OnChangeAmount;
+		
+		m_iCurrentSave=1;
+				
+		//Tooltips Groupbox
+		var ^CGroupBox pxGroupBoxTooltips = cast<CGroupBox>(GetControl("LeftSide/GroupBoxTooltips"));
+		pxGroupBoxTooltips^.SetDisabled(true);
+
+		//Tooltips CheckBox
+		var ^CCheckBox pxCheckBoxTooltips = cast<CCheckBox>(GetControl("LeftSide/CheckBoxTooltips"));
+		pxCheckBoxTooltips^.m_xOnClick = OnChangeTooltips;
+		
+		//Check if tooltips are active
+		if(m_sTooltipsActive=="true")then
+			pxCheckBoxTooltips^.SetChecked(1);
+			EnableTooltips();
+		else
+			pxCheckBoxTooltips^.SetChecked(0);
+			DisableTooltips();
+		endif;
+		
+		if(pxCheckBoxTooltips^.GetCheckMark()==true)then
+			pxGroupBoxTooltips^.SetDisabled(false);	
+		else
+			pxGroupBoxTooltips^.SetDisabled(true);	
+		endif;
+		
+		//Check tooltips delay
+		var ^CSpinCtrlNumber pxTooltipsDelay = cast<CSpinCtrlNumber>(GetControl("LeftSide/GroupBoxTooltips/SpinCtrlDelay"));
+		pxTooltipsDelay^.SetLimits(0,3000,100);
+		pxTooltipsDelay^.SetValue(m_iTooltipsDelay);
+		pxTooltipsDelay^.m_xOnChange = OnChangeTooltipsDelay;
+		
+		//WASD Groupbox
+		var ^CGroupBox pxGroupBoxWASD = cast<CGroupBox>(GetControl("LeftSide/GroupBoxWASD"));
+		var ^CDropList pxDropListWASD = cast<CDropList>(GetControl("LeftSide/GroupBoxWASD/DropListWASD"));
+		pxDropListWASD^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_WASD_NONE"));
+		pxDropListWASD^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_WASD_GAME"));
+		pxDropListWASD^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_WASD_SDK"));
+		pxDropListWASD^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_WASD_BOTH"));
+		var CConfig xConf;
+		var int iSel=Math.Clamp(xConf.GetSetI("Client/GameplayOptions/WASDSwitch",0),0,(pxDropListWASD^.NumItems()-1));
+		if(pxDropListWASD^.NumItems()>0)then
+			pxDropListWASD^.Select(iSel);
+		endif;
+		pxDropListWASD^.m_xOnChange=OnChangeWASD;
+		
+		//Game camera snap back
+		var ^CCheckBox pxGameCameraSnapBack = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/GameCameraSnapBackCheckBox"));
+		if(m_sGameCameraSnapBack=="true")then
+			pxGameCameraSnapBack^.SetChecked(1);
+		endif;
+		pxGameCameraSnapBack^.m_xOnClick = OnChangeGameCameraSnapBack;
+		
+		//Game camera allow turn
+		var ^CCheckBox pxGameCameraAllowTurn = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/GameCameraAllowTurnCheckBox"));
+		if(m_sGameCameraAllowTurn=="true")then
+			pxGameCameraAllowTurn^.SetChecked(1);
+		endif;
+		pxGameCameraAllowTurn^.m_xOnClick = OnChangeGameCameraAllowTurn;
+		
+		//Game camera allow turn
+		var ^CCheckBox pxGameCameraAllowZoom = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/GameCameraAllowZoomCheckBox"));
+		if(m_sGameCameraAllowZoom=="true")then
+			pxGameCameraAllowZoom^.SetChecked(1);
+		endif;
+		pxGameCameraAllowZoom^.m_xOnClick = OnChangeGameCameraAllowZoom;
+		
+		//Free camera rotate around selection
+		var ^CCheckBox pxFreeCameraRotate = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/FreeCameraRotateCheckBox"));
+		if(m_sFreeCameraRotate=="true")then
+			pxFreeCameraRotate^.SetChecked(1);
+			CMultiCameraController.Get().GetFreeCameraModule()^.SetRotateAroundSelection(true);
+		endif;
+		pxFreeCameraRotate^.m_xOnClick = OnChangeFreeCameraRotate;
+		
+		//Alternative edit mode
+		var ^CCheckBox pxAlternativeEditMode = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/AlternativeEditMode"));
+		pxAlternativeEditMode^.m_xOnClick = OnChangeAlternativEditMode;
+		
+		//m_sAlternativeEditMode
+		
+	endconstructor;
+
+	destructor()
+		if(m_iAutosaveTimer!=0)then
+			UnsetTimer(m_iAutosaveTimer);
+			m_iAutosaveTimer=0;
+		endif;
+	enddestructor;
+
+	proc void EnableAutoSave()
+		m_iAutosaveTimer=CWindowMgr.Get().SetTimer(this, m_iAutosaveIntervall*60000, true);
+	endproc;
+	
+	export proc void DisableAutosave()
+		if(m_iAutosaveTimer!=0)then
+			UnsetTimer(m_iAutosaveTimer);
+			m_iAutosaveTimer=0;
+		endif;
+	endproc;
+
+	export proc bool UpdateBars()
+		var ^CCheckBox pxIconBar = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/IconBarCheckBox"));
+		pxIconBar^.m_xOnClick = OnChangeIconBar;
+		
+		//Check if iconbar is active
+		if(m_sShowIconBar=="true")then
+			pxIconBar^.SetChecked(1);
+			EnableIconBar(true);
+		else
+			pxIconBar^.SetChecked(0);
+			EnableIconBar(false);
+		endif;
+		
+		//Infobar CheckBox
+		var ^CCheckBox pxInfoBar = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/InfoBarCheckBox"));
+		pxInfoBar^.m_xOnClick = OnChangeInfoBar;
+		
+		//Check if infobar is active
+		if(m_sShowInfoBar=="true")then
+			pxInfoBar^.SetChecked(1);
+			EnableInfoBar(true);
+		else
+			pxInfoBar^.SetChecked(0);
+			EnableInfoBar(false);
+		endif;
+		
+		var ^CCheckBox pxShowWarnings = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/ShowWarningsCheckBox"));
+		pxShowWarnings^.m_xOnClick = OnChangeShowWarnings;
+		
+		if(m_sShowWarnings=="true")then
+			pxShowWarnings^.SetChecked(1);
+			CEnhancedMenu.Get().SetShowWarnings(true);
+		else
+			pxShowWarnings^.SetChecked(0);
+			CEnhancedMenu.Get().SetShowWarnings(false);
+		endif;
+		
+		return(true);
+	endproc;
+
+	proc bool OnTimer(int p_iID);
+		if(m_iAutosaveTimer==p_iID)then
+			//If server and map are valid, save the level
+			if(CLevelEditorWrap.HasServer())then
+				if(CLevelEditorWrap.GetScapeMgr().HasMap())then
+					var string s="Autosave_00"+m_iCurrentSave.ToString();
+					//Currently the window looses its focus after saving. Bug?
+					CEnhancedMenu.Get().GetViewLevelInfo()^.SaveLevelInfo();
+					//CEnhancedMenu.Get().GetViewQuestEditor()^.SaveLevelInfo();
+					CEnhancedMenu.Get().GetViewPlayerInfo()^.SaveLevelInfo();
+					if(CMirageSDKMgr.ms_iDTU!=1)then
+						CEvt_SendTriggerDescMgr.Send();
+					endif;
+					if(!Filesystem.DirExists(CSettings.GetUserSettingsDir()+"Autosave/Editor"))then
+						Filesystem.MkDir(CSettings.GetUserSettingsDir()+"Autosave/Editor");
+					endif;
+					CEvt_SaveLevel.Send(CSettings.GetUserSettingsDir()+"Autosave/Editor/"+s+".ula");
+					m_iCurrentSave++;
+					if(m_iCurrentSave>m_iAutosaveAmount)then
+						m_iCurrentSave=1;
+					endif;
+				endif;
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool OnChangeAutosave()
+		var ^CCheckBox pxCheckBoxAutosave = cast<CCheckBox>(GetControl("LeftSide/CheckBoxAutosave"));
+		var ^CGroupBox pxGroupBoxAutosave = cast<CGroupBox>(GetControl("LeftSide/GroupBoxAutosave"));
+		
+		if(!pxCheckBoxAutosave^.GetCheckMark())then
+			pxCheckBoxAutosave^.SetChecked(1);
+			pxGroupBoxAutosave^.SetDisabled(false);
+			EnableAutoSave();
+		else
+			pxCheckBoxAutosave^.SetChecked(0);
+			pxGroupBoxAutosave^.SetDisabled(true);
+			DisableAutosave();
+		endif;
+		CSettings.Set("Editor/Preferences/GeneralPreferences/AutosaveActive",pxCheckBoxAutosave^.GetCheckMark().ToString());
+		return(true);
+	endproc;
+	
+	proc bool OnChangeIntervall()
+		var ^CSpinCtrlNumber pxIntervall = cast<CSpinCtrlNumber>(GetControl("LeftSide/GroupBoxAutosave/SpinCtrlIntervall"));
+		m_iAutosaveIntervall=pxIntervall^.GetValueInt();
+		if(m_iAutosaveTimer!=0)then
+			UnsetTimer(m_iAutosaveTimer);
+			m_iAutosaveTimer=CWindowMgr.Get().SetTimer(this, m_iAutosaveIntervall*60000, true);
+		endif;
+		CSettings.Set("Editor/Preferences/GeneralPreferences/AutosaveIntervall",pxIntervall^.GetValueInt().ToString());
+		return(true);
+	endproc;
+	
+	proc bool OnChangeAmount()
+		var ^CSpinCtrlNumber pxAmount = cast<CSpinCtrlNumber>(GetControl("LeftSide/GroupBoxAutosave/SpinCtrlAmount"));
+		m_iAutosaveAmount=pxAmount^.GetValueInt();
+		CSettings.Set("Editor/Preferences/GeneralPreferences/AutosaveAmount",pxAmount^.GetValueInt().ToString());
+		return(true);
+	endproc;
+	
+	proc void EnableTooltips()
+		CWindowMgr.Get().m_xOnToolTip.Clear();//=OnToolTipOn;
+		CWindowMgr.Get().SetToolTipDelay(m_iTooltipsDelay);		
+	endproc;
+	
+	proc void DisableTooltips()
+		CWindowMgr.Get().m_xOnToolTip=OnToolTipOff;		
+	endproc;
+	
+	proc bool OnToolTipOn(string p_sTitle, string p_sString)
+		return(true);
+	endproc;
+	
+	proc bool OnToolTipOff(string p_sTitle, string p_sString)
+		//By returning false, tooltips are disabled
+		return(false);
+	endproc;
+	
+	proc bool OnChangeTooltips()
+		var ^CCheckBox pxCheckBoxTooltips = cast<CCheckBox>(GetControl("LeftSide/CheckBoxTooltips"));
+		var ^CGroupBox pxGroupBoxTooltips = cast<CGroupBox>(GetControl("LeftSide/GroupBoxTooltips"));
+		
+		if(!pxCheckBoxTooltips^.GetCheckMark())then
+			pxCheckBoxTooltips^.SetChecked(1);
+			pxGroupBoxTooltips^.SetDisabled(false);
+			EnableTooltips();
+		else
+			pxCheckBoxTooltips^.SetChecked(0);
+			pxGroupBoxTooltips^.SetDisabled(true);
+			DisableTooltips();
+		endif;
+		CSettings.Set("Editor/Preferences/GeneralPreferences/TooltipsActive",pxCheckBoxTooltips^.GetCheckMark().ToString());
+		return(true);	
+	endproc;
+	
+	proc bool OnChangeTooltipsDelay()
+		var ^CSpinCtrlNumber pxTooltipsDelay = cast<CSpinCtrlNumber>(GetControl("LeftSide/GroupBoxTooltips/SpinCtrlDelay"));
+		m_iTooltipsDelay=pxTooltipsDelay^.GetValueInt();
+		
+		CWindowMgr.Get().SetToolTipDelay(m_iTooltipsDelay);
+		
+		CSettings.Set("Editor/Preferences/GeneralPreferences/TooltipsDelay",pxTooltipsDelay^.GetValueInt().ToString());
+		return(true);
+	endproc;
+	
+	proc bool OnChangeWASD()
+		var ^CDropList pxDrop = cast<CDropList>(GetControl("LeftSide/GroupBoxWASD/DropListWASD"));
+		var int iIndex=pxDrop^.GetSelectedItem();
+		var CConfig xConf;
+		xConf.SetI("Client/GameplayOptions/WASDSwitch",iIndex);
+		var ^CGameCameraModule pxGCM=CMultiCameraController.Get().GetGameCameraModule();
+		if(pxGCM!=null)then
+			pxGCM^.SetMovementKeys(iIndex);
+		endif;
+		var ^CFreeCameraModule pxFCM=CMultiCameraController.Get().GetFreeCameraModule();
+		if(pxFCM!=null)then
+			pxFCM^.SetMovementKeys(iIndex);
+		endif;
+		return(true);
+	endproc;
+	
+	//All existing layouts are added to the layout droplist
+	proc bool FillLayoutDropList()
+		var ^CDropList pxDropListLayout = cast<CDropList>(GetControl("LeftSide/GroupBoxUI/DropListLayout"));
+		var int i;
+		var int iLayoutCount=CSettings.NumSubs("Editor/Layouts");
+		if(iLayoutCount==0)then
+			CreateLayout("Default");
+			pxDropListLayout^.Select(pxDropListLayout^.FindItem("Default"));
+			return(false);
+		endif;
+		for(i=0)cond(i<iLayoutCount)iter(i++)do
+			var string sTemp;
+			sTemp=CSettings.GetSubName("Editor/Layouts",i);
+			pxDropListLayout^.AddItem(sTemp);
+		endfor;
+		var int iIndex=pxDropListLayout^.FindItem(m_sCurrentLayout);
+		pxDropListLayout^.Select(iIndex);
+		pxDropListLayout^.m_xOnChange=OnChangeLayout;
+		return(true);
+	endproc;
+	
+	proc bool OnChangeLayout()
+		var ^CDropList pxDropListLayout = cast<CDropList>(GetControl("LeftSide/GroupBoxUI/DropListLayout"));
+		if(pxDropListLayout^.GetSelectedItemAsString()==m_sCurrentLayout)then
+			return(false);
+		else
+			m_sCurrentLayout=pxDropListLayout^.GetSelectedItemAsString();
+			if(m_sCurrentLayout=="")then
+				return(false);
+			endif;
+			CSettings.RemAllSubs("Editor/Windows");
+			var int i,j;
+			var int iNumWindows=CSettings.NumSubs("Editor/Layouts/"+m_sCurrentLayout);
+			
+			var int iTemp=CSettings.NumSubs("Editor/Windows");
+			
+			for(i=0)cond(i<iNumWindows)iter(i++)do
+				var string sNode=CSettings.GetSubName("Editor/Layouts/"+m_sCurrentLayout,i);
+				var int iNumValues=CSettings.NumSubs("Editor/Layouts/"+m_sCurrentLayout+"/"+sNode);
+				for(j=0)cond(j<iNumValues)iter(j++)do
+					var string sEntry=CSettings.GetSubName("Editor/Layouts/"+m_sCurrentLayout+"/"+sNode,j);
+					if(!CSettings.Get("Editor/Layouts/"+m_sCurrentLayout+"/"+sNode+"/"+sEntry,iTemp))then
+						KLog.LogError("Layout","Layout "+m_sCurrentLayout+" was not found. Path: "+"Editor/Layouts/"+m_sCurrentLayout+"/"+sNode+"/"+sEntry+" = "+iTemp.ToString());
+					endif;
+					CSettings.Set("Editor/Windows/"+sNode+"/"+sEntry,iTemp);
+				endfor;
+				var int iTemp2=CSettings.NumSubs("Editor/Windows");
+			endfor;
+			CEnhancedMenu.Get().ReloadWindowPositions();
+			CSettings.Set("Editor/Preferences/GeneralPreferences/Layout",m_sCurrentLayout);	
+			iTemp=CSettings.NumSubs("Editor/Windows");
+		endif;		
+		return(true);
+	endproc;
+	
+	proc bool OnAddLayout()
+		m_pxAddLayout=new CAddLayout();
+		CClientWrap.GetDesktop()^.AddChild(m_pxAddLayout);
+		CWindowMgr.Get().BringWindowToTop(m_pxAddLayout,true);
+		CWindowMgr.Get().SetModal(m_pxAddLayout);
+		return(true);
+	endproc;
+	
+	export proc bool CreateLayout(string p_sName)
+		var ^CDropList pxDropListLayout = cast<CDropList>(GetControl("LeftSide/GroupBoxUI/DropListLayout"));
+		
+		//Update settings
+		CEnhancedMenu.Get().SaveWindowPositions();
+		CSettings.Save();
+		
+		var int i,j;
+		for(i=0)cond(i<pxDropListLayout^.NumItems())iter(i++)do
+			if(pxDropListLayout^.GetItem(i)==p_sName)then
+				CMessageBox.MsgBox("Operation not allowed!","Layout '"+p_sName+"' is already existing.");
+				m_pxAddLayout^.Destroy();
+				return(false);
+			endif;
+		endfor;
+		pxDropListLayout^.AddItem(p_sName);
+		
+		var int iNumWindows=CSettings.NumSubs("Editor/Windows");
+		for(i=0)cond(i<iNumWindows)iter(i++)do
+			var string sNode=CSettings.GetSubName("Editor/Windows",i);
+			var int iNumValues=CSettings.NumSubs("Editor/Windows/"+sNode);
+			for(j=0)cond(j<iNumValues)iter(j++)do
+				var string sEntry=CSettings.GetSubName("Editor/Windows/"+sNode,j);
+				var int iTemp;
+				CSettings.Get("Editor/Windows/"+sNode+"/"+sEntry,iTemp);
+				CSettings.Set("Editor/Layouts/"+p_sName+"/"+sNode+"/"+sEntry,iTemp);
+			endfor;
+		endfor;
+		m_sCurrentLayout=p_sName;
+		CSettings.Set("Editor/Preferences/GeneralPreferences/Layout",m_sCurrentLayout);	
+		var int iIndex=pxDropListLayout^.FindItem(m_sCurrentLayout);
+		pxDropListLayout^.Select(iIndex);
+		return(true);
+	endproc;
+	
+	proc bool OnDeleteLayout()
+		var ^CDropList pxDropListLayout = cast<CDropList>(GetControl("LeftSide/GroupBoxUI/DropListLayout"));
+		var string sTemp=pxDropListLayout^.GetSelectedItemAsString();
+		if(sTemp=="Default")then
+			CMessageBox.MsgBox("Operation not allowed!","Layout 'Default' cannot be deleted.");
+		else
+			pxDropListLayout^.DeleteItem(pxDropListLayout^.FindItem(sTemp));
+			CSettings.RemAllSubs("Editor/Layouts/"+sTemp);
+			
+			var int i;
+			for(i=0)cond(i<CSettings.NumSubs("Editor/Layouts"))iter(i++)do
+				if(CSettings.GetSubName("Editor/Layouts",i)==sTemp)then
+					CSettings.Rem("Editor/Layouts",i);
+				endif;
+			endfor;
+			pxDropListLayout^.Select(0);
+		endif;	
+		return(true);
+	endproc;
+	
+	export proc bool LoadLayout()
+		FillLayoutDropList();
+		return(true);
+	endproc;
+	
+	proc bool OnChangeIconBar()
+		var ^CCheckBox pxIconBar = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/IconBarCheckBox"));
+		
+		if(!pxIconBar^.GetCheckMark())then
+			pxIconBar^.SetChecked(1);
+			EnableIconBar(true);
+		else
+			pxIconBar^.SetChecked(0);
+			EnableIconBar(false);
+		endif;
+		CSettings.Set("Editor/Preferences/GeneralPreferences/ShowIconBar",pxIconBar^.GetCheckMark().ToString());
+		return(true);	
+	endproc;
+	
+	proc bool OnChangeInfoBar()
+		var ^CCheckBox pxInfoBar = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/InfoBarCheckBox"));
+		
+		if(!pxInfoBar^.GetCheckMark())then
+			pxInfoBar^.SetChecked(1);
+			EnableInfoBar(true);
+		else
+			pxInfoBar^.SetChecked(0);
+			EnableInfoBar(false);
+		endif;
+		CSettings.Set("Editor/Preferences/GeneralPreferences/ShowInfoBar",pxInfoBar^.GetCheckMark().ToString());
+		return(true);
+	endproc;
+	
+	export proc bool EnableIconBar(bool p_bParam);
+		CIconBar.Get().SetVisible(p_bParam);
+		return(true);
+	endproc;
+	
+	export proc bool EnableInfoBar(bool p_bParam);
+		CStatusBar.Get().SetVisible(p_bParam);
+		return(true);
+	endproc;	
+	
+	proc bool OnChangeGameCameraSnapBack();
+		var ^CCheckBox pxGameCameraSnapBack = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/GameCameraSnapBackCheckBox"));
+		if(!pxGameCameraSnapBack^.GetCheckMark())then
+			pxGameCameraSnapBack^.SetChecked(1);
+		else
+			pxGameCameraSnapBack^.SetChecked(0);
+		endif;
+		CSettings.Set("Editor/Preferences/GeneralPreferences/GameCameraSnapBack",pxGameCameraSnapBack^.GetCheckMark().ToString());
+		CMultiCameraController.Get().GetGameCameraModule()^.ChangeSnap(pxGameCameraSnapBack^.GetCheckMark());
+		return(true);
+	endproc;
+	
+	proc bool OnChangeGameCameraAllowTurn();
+		var ^CCheckBox pxGameCameraAllowTurn = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/GameCameraAllowTurnCheckBox"));
+		if(!pxGameCameraAllowTurn^.GetCheckMark())then
+			pxGameCameraAllowTurn^.SetChecked(1);
+		else
+			pxGameCameraAllowTurn^.SetChecked(0);
+		endif;
+		CSettings.Set("Editor/Preferences/GeneralPreferences/GameCameraAllowTurn",pxGameCameraAllowTurn^.GetCheckMark().ToString());
+		CMultiCameraController.Get().GetGameCameraModule()^.ChangeAllowTurn(pxGameCameraAllowTurn^.GetCheckMark());
+		return(true);
+	endproc;
+	
+	proc bool OnChangeGameCameraAllowZoom();
+		var ^CCheckBox pxGameCameraAllowZoom = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/GameCameraAllowZoomCheckBox"));
+		if(!pxGameCameraAllowZoom^.GetCheckMark())then
+			pxGameCameraAllowZoom^.SetChecked(1);
+		else
+			pxGameCameraAllowZoom^.SetChecked(0);
+		endif;
+		CSettings.Set("Editor/Preferences/GeneralPreferences/GameCameraAllowZoom",pxGameCameraAllowZoom^.GetCheckMark().ToString());
+		CMultiCameraController.Get().GetGameCameraModule()^.ChangeAllowZoom(pxGameCameraAllowZoom^.GetCheckMark());
+		return(true);
+	endproc;
+	
+	proc bool OnChangeFreeCameraRotate()
+		var ^CCheckBox pxFreeCameraRotate = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/FreeCameraRotateCheckBox"));
+		if(!pxFreeCameraRotate^.GetCheckMark())then
+			pxFreeCameraRotate^.SetChecked(1);
+		else
+			pxFreeCameraRotate^.SetChecked(0);
+		endif;
+		CSettings.Set("Editor/Preferences/GeneralPreferences/FreeCameraRotate",pxFreeCameraRotate^.GetCheckMark().ToString());
+		CMultiCameraController.Get().GetFreeCameraModule()^.SetRotateAroundSelection(pxFreeCameraRotate^.GetCheckMark());
+		return(true);
+	endproc;
+	
+	proc bool OnChangeShowWarnings()
+		
+		var ^CCheckBox pxShowWarnings = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/ShowWarningsCheckBox"));
+		if(!pxShowWarnings^.GetCheckMark())then
+			pxShowWarnings^.SetChecked(1);
+			CEnhancedMenu.Get().SetShowWarnings(true);
+		else
+			pxShowWarnings^.SetChecked(0);
+			CEnhancedMenu.Get().SetShowWarnings(false);
+		endif;
+		CSettings.Set("Editor/Preferences/GeneralPreferences/ShowWarnings",pxShowWarnings^.GetCheckMark().ToString());
+		return(true);
+	endproc;
+	
+	proc bool OnChangeAlternativEditMode()
+		var ^CCheckBox pxAlternativEditMode = cast<CCheckBox>(GetControl("RightSide/GroupBoxMisc/AlternativeEditMode"));
+		if(!pxAlternativEditMode^.GetCheckMark())then
+			pxAlternativEditMode^.SetChecked(1);
+			CMainController.Get().SetAlternativeEditMode(true);
+		else
+			pxAlternativEditMode^.SetChecked(0);
+			CMainController.Get().SetAlternativeEditMode(false);
+		endif;
+		CSettings.Set("Editor/Preferences/GeneralPreferences/AlternativeEditMode",pxAlternativEditMode^.GetCheckMark().ToString());
+		return(true);
+	endproc;
+	
+	
+endclass;

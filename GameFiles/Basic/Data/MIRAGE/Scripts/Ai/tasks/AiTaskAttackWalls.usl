@@ -1,0 +1,214 @@
+///CAiTaskAttackWalls
+class CAiTaskAttackWalls inherit CAiTask
+
+	var array CAiObjWrap 	m_axUnits;
+	var vec3 				m_vTargetPos;
+	var bool 				m_bJustWalk;
+	var CAiObjWrap 			m_xWallWrap;
+	var int 				m_iActiveUnits;
+	var ^CAiSolution 		m_pxSolution;
+	var ^CAiBrain			m_pxBrain;
+	var ^CAiSensor			m_pxSensor;
+	var int					m_iPlayerID;
+	var string				m_sPlayerID;
+
+	///contsructor
+	export constructor()
+	endconstructor;
+	
+	
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	
+	///Start
+	export proc bool Start()
+		super.Start();	
+		
+		m_pxBrain = GetGoal()^.GetAiBrain(); 
+		if(m_pxBrain==null)then return false; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		
+//		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(pxCM^.GetDifficultyInt()+iType);
+		
+		begin FindSomeWalls;
+			var ^CAiMap pxMap=^(m_pxSensor^.GetAiMaps().GetAiMap("Enemy",m_iPlayerID));
+			var CAiArea xMinArea=pxMap^.FindMinArea();
+			var real fMinValue=pxMap^.GetValue(xMinArea);
+			// get a nice spot and search forpotential prey!
+			if(fMinValue<0.0)then
+				var CAiObjQuery xOQ;
+				var CFourCC xType;
+				xOQ.AddMyEnemiesToSearch(m_iPlayerID, true);
+				xType="BLDG";
+				xOQ.SetType(xType,true);
+				xOQ.RegionArea(xMinArea);
+				var CAiObjWrapList xOL;
+				xOQ.Execute(xOL);
+				if(xOL.NumEntries()<1)then
+					m_vTargetPos=xMinArea.GetWorldCenterPos();
+					m_bJustWalk=true;
+				else
+					m_xWallWrap=xOL[0];
+					if((m_xWallWrap.GetClassName()=="hu_palisade")||(m_xWallWrap.GetClassName()=="hu_small_wall")||(m_xWallWrap.GetClassName()=="hu_re_enforced_wall"))then
+						m_vTargetPos=m_xWallWrap.GetPos();
+						m_bJustWalk=false;
+					else
+						m_vTargetPos=xMinArea.GetWorldCenterPos();
+						m_bJustWalk=true;
+					endif;
+				endif;
+			else
+				return false;
+			endif;
+		end FindSomeWalls;
+		
+		var int iMaxUnitsToAllocate=5;
+		// find out how many units to allocate at most
+		begin GetMaxUnits;
+			var ^CAiPyramid pxPyr=m_pxSensor^.GetPyramid();
+			if(pxPyr!=null)then
+				var int iTotalUnits=pxPyr^.GetTotalNumUnits();
+				// keep at least one unit at home!
+				iMaxUnitsToAllocate=Math.Min(iTotalUnits-2,5);
+			else
+				KLog.LogWarn("AiTaskAttackWalls","Couldn't access AiPyramid!");
+				iMaxUnitsToAllocate=5;
+			endif;
+			if(iMaxUnitsToAllocate<1)then
+				return false;
+			endif;
+		end GetMaxUnits;
+		
+		begin CreateSolutions;
+			var CAiNeedPtr pxNd;
+			var ^CAiTechTree pxTT=GetAiTechTree();
+			var ^CAiAllocationMgr pxAM=GetAiAllocationMgr();
+			
+			// let's create a solution  to our problem
+			// it should give us up to five units forattacking
+			m_pxSolution = new CAiSolution();
+			
+			pxNd = CAiNeed.Create();
+			pxNd.GetNeed()^.SetLockable(true);
+			pxTT^.AddCharNIs(pxNd, "", 2, true, false);		// add all level 3 char NodeInstances
+			pxTT^.AddCharNIs(pxNd, "", 3, true, false);		// add all level 4 char NodeInstances
+			pxTT^.AddCharNIs(pxNd, "", 4, true, false);		// add all level 5 char NodeInstances
+			pxNd.GetNeed()^.SetNeededInstanceCount(5);				// we want 2 units...
+			m_pxSolution^.AddRequired(pxNd);				// ... and this is required!
+			
+			pxNd = CAiNeed.Create();
+			pxNd.GetNeed()^.SetLockable(true);
+			pxTT^.AddCharNIs(pxNd, "", -1, true, false);			// add all normal char NodeInstances
+			pxNd.GetNeed()^.SetNeededInstanceCount(iMaxUnitsToAllocate-2);	// we want 3 units...
+			m_pxSolution^.AddOptional(pxNd);						// ... but that is optional (at least 1 would be fine)
+			
+			if(pxAM^.CanAllocate(m_pxSolution, 0, false)==false)then
+				// we can't allocate that - what now?
+				// i know! we just change the allocation and try again!
+				pxNd=m_pxSolution^.GetRequired(0);
+				pxTT^.AddCharNIs(pxNd, "", 1, true, false);	// add all level 2 char NodeInstances as well			
+				if(pxAM^.CanAllocate(m_pxSolution, 0, false)==false)then
+					// we still can't allocate that - hmm
+					// last try - we don't care foranything anymore
+					pxNd=m_pxSolution^.GetRequired(0);
+					pxTT^.AddCharNIs(pxNd, "", 0, true, false);	// add all level 1 char NodeInstances
+					pxNd.GetNeed()^.SetNeededInstanceCount(1);					
+					pxNd=m_pxSolution^.GetOptional(0);
+					pxNd.GetNeed()^.SetNeededInstanceCount(iMaxUnitsToAllocate-1);					
+					if(pxAM^.CanAllocate(m_pxSolution, 0, false)==false)then
+						// there seems to be no way to attack - we don't even have a single character!
+						// give it up!
+						return false;
+					endif;
+				endif;
+			endif;
+		end CreateSolutions;
+		TryAllocate(m_pxSolution, 0, 5);
+		return true;
+	endproc;
+	
+
+	///Shut
+	export proc void Shut()
+		Abort();
+	endproc;
+	
+	
+	///Think
+	export proc void Think()
+		SetPriority(10000.00);
+		if(IsRunning())then
+			if(m_pxSensor==null)then return; endif;
+			// check how many are dead
+			var int iC=m_axUnits.NumEntries();
+			if(iC>0)then
+				var int i;
+				for(i=0)cond(i<iC)iter(i++)do
+					if(!m_axUnits[i].IsValid())then
+						m_iActiveUnits--;
+						m_pxSensor^.RemoveCheckpoint(this,i);
+					endif;
+				endfor;
+				if(m_iActiveUnits<1)then
+					Abort();
+				elseif(m_iActiveUnits<iC)then
+				endif;				
+				if((m_bJustWalk==false)&&(!m_xWallWrap.IsValid()))then
+					SetCompleted();
+				endif;
+			else
+			endif;
+		endif;
+	endproc;
+	
+	
+	///EvtAllocationFailed
+	export proc void EvtAllocationFailed(^CAiAllocation p_pxAllocation)
+		Abort();
+	endproc;
+	
+
+	///EvtAllocationComplete
+	export proc void EvtAllocationComplete(^CAiAllocation p_pxAllocation)
+		// place check points forall units and issue attacking commands
+		if(m_pxSensor==null)then return; endif;
+		var int i;
+		var CAiObjWrapList xOWL;
+		xOWL.CopyFrom(p_pxAllocation^.GetAllObjs());
+		var int iC=xOWL.NumEntries();
+		m_axUnits=iC;
+		m_iActiveUnits=iC;
+		for(i=0)cond(i<iC)iter(i++)do
+			var int iUnitHandle=xOWL.GetAt(i).GetHandle();
+			m_axUnits[i]=m_pxSensor^.CreateObjWrap(iUnitHandle);
+			m_pxSensor^.AddCheckpoint(this,i,"atto:"+iUnitHandle.ToString()+",CurTask,!=,Fight",0.0);
+			if(m_bJustWalk)then
+				m_pxSensor^.ExecuteGamePlayCommand(iUnitHandle, "Fight", -1, m_vTargetPos, "Scape");
+			else
+				m_pxSensor^.ExecuteGamePlayCommand(iUnitHandle, "Fight", m_xWallWrap.GetHandle(), m_vTargetPos, "");
+			endif;
+		endfor;
+	endproc;
+
+
+	///EvtCheckpointReached
+	export proc void EvtCheckpointReached(int p_iCheckpointId, int p_iObjHandle)
+		m_iActiveUnits--;
+		if(m_iActiveUnits<1)then
+			SetCompleted();
+		endif;
+	endproc;
+		
+endclass;

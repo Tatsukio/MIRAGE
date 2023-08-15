@@ -1,0 +1,454 @@
+class CFlyout inherit CFlyoutWnd
+
+	const int					MAX_SLOTS_PER_ROW					= 12;
+	export const int			MAX_CATEGORIES						= 17;
+	export const int			MAX_SLOTS_PER_CATEGORY				= 200;
+
+	const int					CATBMP_UPGR							= 0;
+	const int					CATBMP_UNIT							= 1;
+	const int					CATBMP_ECON							= 2;
+	const int					CATBMP_DEFE							= 3;
+	const int					CATBMP_COMB							= 4;
+	const int					CATBMP_ALTR							= 5;
+	const int					CATBMP_UMGR							= 6;
+	const int					CATBMP_STAR							= 7;
+	const int					CATBMP_COUNT						= 8;
+	
+	var int						m_iBTN_WIDTH;
+	var int						m_iBTN_HEIGHT;
+	var int						m_iMARGIN_TOP;
+	var int						m_iMARGIN_BOTTOM;
+	var int						m_iMARGIN_LEFT;
+	var int						m_iMARGIN_RIGHT;
+	var int						m_iSPACE_BETWEEN;
+
+	class CCategoryEntry
+		
+		export var CFourCC m_xCat;
+		export var array ^CCmdButton m_apxCmd;
+		
+		export constructor()
+			m_xCat="****";
+		endconstructor;
+		
+		export constructor(ref CFlyout.CCategoryEntry p_rxRhs)
+			m_xCat=p_rxRhs.m_xCat;
+			m_apxCmd=p_rxRhs.m_apxCmd;
+		endconstructor;
+		
+		export proc ref CFlyout.CCategoryEntry op_Assign(ref CFlyout.CCategoryEntry p_rxRhs)
+			m_xCat=p_rxRhs.m_xCat;
+			m_apxCmd=p_rxRhs.m_apxCmd;
+			return(this^);
+		endproc;
+		
+		export proc void Clear()
+			m_xCat="****";
+			m_apxCmd=0;
+		endproc;
+		
+		export proc int NumEntries()
+			return(m_apxCmd.NumEntries());
+		endproc;
+		
+		export proc void Sort()
+			var int iMaxFixedIndex=-1;
+			var array ^CCmdButton apxCmdButtons;
+			var int iJ, iD=m_apxCmd.NumEntries();
+			for(iJ=0)cond(iJ<iD)iter(++iJ)do
+				var ^CCmdButton pxButton=m_apxCmd[iJ];
+				if(pxButton==null)then continue; endif;
+				var int iPosIndex = pxButton^.GetPositionIndex();
+				if(iPosIndex > iMaxFixedIndex)then
+					iMaxFixedIndex=iPosIndex;
+				endif;
+			endfor;
+			if(iMaxFixedIndex != -1)then
+				apxCmdButtons=iMaxFixedIndex+1;
+				for(iJ=0)cond(iJ<iD)iter(++iJ)do
+					var ^CCmdButton pxButton = m_apxCmd[iJ];
+					if(pxButton==null)then continue; endif;
+					var int iPosIndex=pxButton^.GetPositionIndex();
+					if(iPosIndex >= 0)then
+						if(apxCmdButtons[iPosIndex] != null)then
+//L							KLog.LogWarn("DaHo", "CFlyout::Sort() - Zwei Buttons versuchen den selben Fixed-Slot zu verwenden!");
+							var CConfig xConf;
+							var bool bShow=xConf.GetSetB("Game/CommandBar/ShowConflictingButtons",false);
+							if(!bShow)then
+								apxCmdButtons[iPosIndex]^.GetActiveControl()^.SetVisible(false);
+							endif;
+						endif;
+						apxCmdButtons[iPosIndex]=pxButton;
+					endif;
+				endfor;
+			endif;
+			for(iJ=0)cond(iJ<iD)iter(++iJ)do
+				var ^CCmdButton pxButton=m_apxCmd[iJ];
+				if(pxButton==null)then continue; endif;
+				var int iPosIndex=pxButton^.GetPositionIndex();
+				if(iPosIndex==-1)then
+					var int iIndex=-1, iK, iE=apxCmdButtons.NumEntries();
+					for(iK=0)cond(iK<iE)iter(++iK)do
+						if(apxCmdButtons[iK]==null)then
+							iIndex=iK;
+							break;
+						endif;
+					endfor;
+					if(iIndex != -1)then
+						apxCmdButtons[iIndex]=pxButton;
+					else
+						apxCmdButtons.AddEntry(pxButton);
+					endif;
+				endif;
+			endfor;
+			for(iJ=0)cond(iJ<iD)iter(++iJ)do
+				var ^CCmdButton pxButton=m_apxCmd[iJ];
+				if(pxButton==null)then continue; endif;
+				var int iPosIndex=pxButton^.GetPositionIndex();
+				if(iPosIndex==-2)then
+					apxCmdButtons.AddEntry(pxButton);
+				endif;
+			endfor;
+			m_apxCmd=apxCmdButtons;
+		endproc;
+	endclass;
+	
+	var array CCategoryEntry m_axCategory;
+	var array ^CStaticCtrl m_apxCatImg;
+	var array ^CCardBitmap m_apxCatBitmaps;
+	var array ^CCardBitmap m_apxCatBitmapsAccel;
+	var CClntHndl m_xCurObj;
+	var CFourCC m_xFlyoutCategory;
+	var string m_sLocalUpgrade;
+	export var ^CCommandBar m_pxCommandBar;
+	var bool m_bActiveFlyout;
+	var int m_iUsedCategories;
+	var string m_sTribe;
+	
+	export constructor()
+		m_iBTN_WIDTH = 37 * CGameInst.ms_iUIScaleFactor;
+		m_iBTN_HEIGHT = 36 * CGameInst.ms_iUIScaleFactor;
+		m_iMARGIN_TOP = 9 * CGameInst.ms_iUIScaleFactor;
+		m_iMARGIN_BOTTOM = 9 * CGameInst.ms_iUIScaleFactor;
+		m_iMARGIN_LEFT = 8 * CGameInst.ms_iUIScaleFactor;
+		m_iMARGIN_RIGHT = 10 * CGameInst.ms_iUIScaleFactor;
+		m_iSPACE_BETWEEN = 4 * CGameInst.ms_iUIScaleFactor;
+	
+		m_pxCommandBar=null;
+		Clear();
+		var string sBaseDef ="2, layer actmenu_cat_";
+		m_apxCatBitmaps								= CATBMP_COUNT;
+		m_apxCatBitmaps[CATBMP_UPGR]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"UPGR");
+		m_apxCatBitmaps[CATBMP_UNIT]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"UNIT");
+		m_apxCatBitmaps[CATBMP_ECON]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"ECON");
+		m_apxCatBitmaps[CATBMP_DEFE]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"DEFE");
+		m_apxCatBitmaps[CATBMP_COMB]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"COMB");
+		m_apxCatBitmaps[CATBMP_ALTR]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"ALTR");
+		m_apxCatBitmaps[CATBMP_UMGR]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"UMGR");
+		m_apxCatBitmaps[CATBMP_STAR]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"STAR");
+		m_apxCatBitmapsAccel							= CATBMP_COUNT;
+		m_apxCatBitmapsAccel[CATBMP_UPGR]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"UPGR, add 32 32 32 0");
+		m_apxCatBitmapsAccel[CATBMP_UNIT]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"UNIT, add 32 32 32 0");
+		m_apxCatBitmapsAccel[CATBMP_ECON]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"ECON, add 32 32 32 0");
+		m_apxCatBitmapsAccel[CATBMP_DEFE]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"DEFE, add 32 32 32 0");
+		m_apxCatBitmapsAccel[CATBMP_COMB]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"COMB, add 32 32 32 0");
+		m_apxCatBitmapsAccel[CATBMP_ALTR]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"ALTR, add 32 32 32 0");
+		m_apxCatBitmapsAccel[CATBMP_UMGR]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"UMGR, add 32 32 32 0");
+		m_apxCatBitmapsAccel[CATBMP_STAR]	= CGameInst.GetBitmapMgr().GetBlendBitmap(sBaseDef+"STAR, add 32 32 32 0");
+		EnableMsgHitTest(true);
+		m_apxCatImg=MAX_CATEGORIES;
+		var int iI, iC=MAX_CATEGORIES;
+		for(iI=0) cond(iI<iC) iter(++iI) do
+			m_apxCatImg[iI]=new CStaticCtrl();
+			m_apxCatImg[iI]^.SetTransparent(false);
+			m_apxCatImg[iI]^.SetVisible(true);
+			m_apxCatImg[iI]^.SetSuitAlpha(true);
+			m_apxCatImg[iI]^.SetDisabled(false);
+			m_apxCatImg[iI]^.EnableMsgHitTest(false);
+			m_apxCatImg[iI]^.SetSize(37 * CGameInst.ms_iUIScaleFactor, 36 * CGameInst.ms_iUIScaleFactor);
+			m_apxCatImg[iI]^.SetPos(m_iMARGIN_LEFT * CGameInst.ms_iUIScaleFactor, iI * (m_iBTN_HEIGHT * CGameInst.ms_iUIScaleFactor + m_iSPACE_BETWEEN * CGameInst.ms_iUIScaleFactor) + m_iMARGIN_TOP * CGameInst.ms_iUIScaleFactor);
+			AddChild(m_apxCatImg[iI]);
+		endfor;
+		m_sLocalUpgrade="";
+		m_bActiveFlyout=false;
+		var ^CPlayer pxPlayer=^(CGameWrap.GetClient().GetPlayer());
+		if(pxPlayer != null && pxPlayer^.GetPlayerSlot() != null)then
+			m_sTribe=pxPlayer^.GetPlayerSlot()^.GetTribe();
+		else
+			m_sTribe="Invalid";
+		endif;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc ^CCmdButton GetCommandButton(int p_iCategory, int p_iIndex)
+		if(p_iCategory<0||p_iCategory >= m_iUsedCategories)then
+			return(null);
+		endif;
+		var int iCategory=(m_iUsedCategories - p_iCategory) - 1;
+		if((iCategory<0)||(iCategory >= m_axCategory.NumEntries()))then
+			return(null);
+		endif;
+		if(p_iIndex<0||p_iIndex >= m_axCategory[iCategory].NumEntries())then
+			return(null);
+		endif;
+		return(m_axCategory[iCategory].m_apxCmd[p_iIndex]);
+	endproc;
+
+//	export proc ^CCmdButton GetCommandButton(string p_sAction)
+//		if(p_sAction=="")then return null; endif;
+//		var int i, iC=m_axCategory.NumEntries();
+//		for(i=0)cond(i<iC)iter(i++)do
+//			var int j, jC=m_axCategory[i].m_apxCmd.NumEntries();
+//			for(j=0)cond(j<jC)iter(j++)do
+//				if(m_axCategory[i].m_apxCmd[j]!=null && m_axCategory[i].m_apxCmd[j]^.GetCode()==p_sAction)then
+//					return m_axCategory[i].m_apxCmd[j];
+//				endif;
+//			endfor;
+//		endfor;
+//		return null;
+//	endproc;
+	
+	export proc bool GetCommandButtons(string p_sKey, ref array ^CCmdButton p_rapxButtons)
+		p_rapxButtons=0;
+		if(p_sKey=="")then return false; endif;
+		var int i, iCnt=0, iC=m_axCategory.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var int j, jC=m_axCategory[i].m_apxCmd.NumEntries();
+			for(j=0)cond(j<jC)iter(j++)do
+//				if(m_axCategory[i].m_apxCmd[j]!=null&&m_axCategory[i].m_apxCmd[j]^.GetActiveControl()^.GetVisible()&&!m_axCategory[i].m_apxCmd[j]^.IsDenied()&&!m_axCategory[i].m_apxCmd[j]^.IsDisabled()&&m_axCategory[i].m_apxCmd[j]^.GetHotKey()==p_sKey)then
+				if(m_axCategory[i].m_apxCmd[j]!=null&&m_axCategory[i].m_apxCmd[j]^.GetActiveControl()^.GetVisible()&&m_axCategory[i].m_apxCmd[j]^.GetHotKey()==p_sKey)then
+					iCnt++;
+					p_rapxButtons.AddEntry(m_axCategory[i].m_apxCmd[j]);
+				endif;
+			endfor;
+		endfor;
+		return iCnt>0;
+	endproc;
+	
+	export proc int GetCommandButtonCount(int p_iCategory)
+		if(p_iCategory<0||p_iCategory >= m_iUsedCategories)then
+			return(0);
+		endif;
+		var int iCategory=(m_iUsedCategories - p_iCategory) - 1;
+		if((iCategory<0)||(iCategory >= m_axCategory.NumEntries()))then
+			return(0);
+		endif;
+		return(m_axCategory[ iCategory ].NumEntries());
+	endproc;
+
+	export proc void SetActiveFlyout(bool p_bValue)
+		m_bActiveFlyout=p_bValue;
+	endproc;
+
+	export proc bool IsActiveFlyout()
+		return m_bActiveFlyout;
+	endproc;
+
+	export proc void SetLocalUpgrade(string p_sLocalUpgrade)
+		m_sLocalUpgrade=p_sLocalUpgrade;
+	endproc;
+
+	export proc void SetCategoryBitmap(int p_iIndex, string p_sCat, bool p_bAccel)
+		if((p_iIndex<0)||(p_iIndex >= MAX_CATEGORIES))then
+			return;
+		endif;
+		var int iBitmapIndex = -1;
+		if(m_xFlyoutCategory=="SPEC")then
+//			iBitmapIndex=-1;
+			if(p_sCat=="UNIT")then
+				iBitmapIndex=CATBMP_UNIT;
+			elseif(p_sCat=="HERO")then
+				iBitmapIndex=CATBMP_STAR;
+			elseif(p_sCat=="STAR")then
+				iBitmapIndex=CATBMP_STAR;
+			endif;
+		else
+			if(p_sCat=="UPGR")then
+				iBitmapIndex=CATBMP_UPGR;
+			elseif(p_sCat=="EXTE")then
+				iBitmapIndex=CATBMP_UPGR;
+			elseif(p_sCat=="RESE")then
+				iBitmapIndex=CATBMP_UPGR;
+			elseif(p_sCat=="UNIT")then
+				iBitmapIndex=CATBMP_UNIT;
+			elseif(p_sCat=="ENTY")then
+				iBitmapIndex=CATBMP_UNIT;
+			elseif(p_sCat=="CAVA")then
+				iBitmapIndex=CATBMP_UNIT;
+			elseif(p_sCat=="ECON")then
+				iBitmapIndex=CATBMP_ECON;
+			elseif(p_sCat=="DEFE")then
+				iBitmapIndex=CATBMP_DEFE;
+			elseif(p_sCat=="COMB")then
+				iBitmapIndex=CATBMP_COMB;
+			elseif(p_sCat=="UMGR")then
+				iBitmapIndex=CATBMP_UMGR;
+			elseif(p_sCat=="CONV")then
+				iBitmapIndex=CATBMP_UMGR;
+			endif;
+		endif;
+		if(iBitmapIndex==-1)then
+			m_apxCatImg[ p_iIndex ]^.SetVisible(false);
+		else
+			if(p_bAccel)then
+				m_apxCatImg[ p_iIndex ]^.SetBitmap(m_apxCatBitmapsAccel[ iBitmapIndex ]^.GetBitmap());
+			else
+				m_apxCatImg[ p_iIndex ]^.SetBitmap(m_apxCatBitmaps[ iBitmapIndex ]^.GetBitmap());
+			endif;
+			m_apxCatImg[ p_iIndex ]^.SetVisible(true);
+		endif;
+	endproc;
+
+	proc void SwapCategories()
+		//if((m_axCategory.NumEntries() >= 2) && (m_axCategory[1].m_xCat=="UPGR"))then
+			//var	CFlyout.CCategoryEntry	xTemp=m_axCategory[0];
+			//m_axCategory[0]=m_axCategory[1];
+			//m_axCategory[1]=xTemp;
+		//endif;
+	endproc;
+
+	export proc void SetCategory(int p_iIndex, string p_sCat)
+		if((p_iIndex<0)||(p_iIndex >= MAX_CATEGORIES))then
+			return;
+		endif;
+		m_axCategory[p_iIndex].m_xCat=p_sCat;
+		SetCategoryBitmap(p_iIndex, p_sCat, false);
+		if(m_iUsedCategories<(p_iIndex+1))then
+			m_iUsedCategories=p_iIndex+1;
+		endif;
+	endproc;
+
+	export proc void SetCommand(string p_sCategory, string p_sSubCategory, ^CCmdButton p_pxBtn)
+		var int iI, iC = MAX_CATEGORIES;
+		for(iI=0)cond(iI<iC)iter(++iI)do
+			if(m_axCategory[iI].m_xCat=="****")then
+				m_axCategory[iI].m_xCat=p_sSubCategory;
+			endif;
+			if(m_axCategory[iI].m_xCat==p_sSubCategory)then
+				m_axCategory[iI].m_apxCmd.AddEntry(p_pxBtn);
+				AddChild(p_pxBtn^.GetActiveControl());
+				if(m_iUsedCategories<(iI +1))then
+					m_iUsedCategories=iI+1;
+				endif;
+				break;
+			endif;
+		endfor;
+	endproc;
+
+	export proc void Clear()
+		var int iI, iC=MAX_CATEGORIES;
+		m_axCategory=MAX_CATEGORIES;
+		m_iUsedCategories = 0;
+		for(iI=0)cond(iI<iC)iter(++iI)do
+			m_axCategory[iI].Clear();
+		endfor;
+		if(m_pxCommandBar != null)then
+			m_pxCommandBar^.UpdateFlyout(false);
+		endif;
+	endproc;
+
+	export proc void SetVisible(bool p_bVis)
+		if(p_bVis==false)then
+			Clear();
+		endif;
+		super.SetVisible(p_bVis);
+	endproc;
+
+	export proc void Sort()
+		var int iI, iC=MAX_CATEGORIES;
+		for(iI=0)cond(iI<iC)iter(++iI)do
+			m_axCategory[iI].Sort();
+		endfor;
+	endproc;
+
+	export proc void SetFlyoutCategory(CFourCC p_xCategory)
+		m_xFlyoutCategory=p_xCategory;
+	endproc;
+
+	export proc void UpdateCommands()
+		var int iCurY=m_iMARGIN_TOP;
+		var array CFourCC axCats;
+		var array int aiNeededRows;
+		var int iFilledRows= 0;
+		var int iLastSlot=-1;
+		var int iCurRow=-1;
+		SwapCategories();
+		var int iI, iC=MAX_CATEGORIES;
+		for(iI=0) cond(iI<iC) iter(++iI) do
+			var CFourCC xCategory=m_axCategory[iI].m_xCat;
+			if((xCategory != "****") && (axCats.FindEntry(xCategory)==-1))then
+				axCats.AddEntry(xCategory);
+				var int iUsedSlots;
+				var int iLastUsedSlot;
+				var int iJ, iD=m_axCategory[ iI ].m_apxCmd.NumEntries();
+				for (iJ=0) cond (iJ<iD) iter (++iJ) do
+					if(m_axCategory[ iI ].m_apxCmd[ iJ ] != null)then
+						++iUsedSlots;
+						iLastUsedSlot=iJ;
+					endif;
+				endfor;
+				if(iLastUsedSlot > iLastSlot)then
+					iLastSlot=iLastUsedSlot;
+					if(iLastSlot >= MAX_SLOTS_PER_ROW)then
+						iLastSlot=MAX_SLOTS_PER_ROW-1;
+					endif;
+				endif;
+				aiNeededRows.AddEntry((iLastUsedSlot / MAX_SLOTS_PER_ROW)+1);
+				if(iUsedSlots==0)then
+					aiNeededRows[ aiNeededRows.NumEntries() - 1 ]=0;
+				endif;
+				var int iXBase=m_iMARGIN_LEFT+m_iBTN_WIDTH+m_iSPACE_BETWEEN;
+				var int iCurX=iXBase;
+				var int iRows=aiNeededRows[ aiNeededRows.NumEntries() - 1 ];
+				var int iSlot=0;
+				var int iRow=iFilledRows;
+				var int iAccel=(m_iUsedCategories - m_pxCommandBar^.GetAccelRow()) - 1;
+//				var	bool	bAccel	= m_pxCommandBar^.IsAccelActive() && (iAccel==iRow);
+				var bool bAccel=m_pxCommandBar^.IsAccelActive();
+				SetCategoryBitmap(iRow, m_axCategory[iI].m_xCat.AsString(), bAccel);
+				if((iFilledRows+iRows) <= MAX_CATEGORIES)then
+					var ^CCategoryEntry pxCatEntry=^(m_axCategory[ iI ]);
+					iD=pxCatEntry^.m_apxCmd.NumEntries();
+					for (iJ=0) cond(iJ<iD)iter(++iJ) do
+						if(iSlot==MAX_SLOTS_PER_ROW)then
+							iCurX=iXBase;
+							iCurY += m_iBTN_HEIGHT+m_iSPACE_BETWEEN;
+							++iFilledRows;
+							++iRow;
+							iSlot=0;
+						endif;
+						if(pxCatEntry^.m_apxCmd[iJ] != null)then
+							pxCatEntry^.m_apxCmd[ iJ ]^.SetPos(iCurX, iCurY);
+							pxCatEntry^.m_apxCmd[ iJ ]^.GetActiveControl()^.SetVisible(true);
+//							if((m_sLocalUpgrade.IsEmpty()==false) && (m_sLocalUpgrade != pxCatEntry^.m_apxCmd[iJ]^.GetTTPath()) && (m_sLocalUpgrade!="Actions/Ninigi/Upgrades/ninigi_fireplace/Explode"))then
+							if((!CMirageClnMgr.Get().IsMinorLocalUpgrade(m_sLocalUpgrade)) && !m_pxCommandBar^.SomeWhereAvailable(pxCatEntry^.m_apxCmd[iJ]^.GetTTPath()))then
+								pxCatEntry^.m_apxCmd[iJ]^.SetDisabled(true);
+							else
+								pxCatEntry^.m_apxCmd[iJ]^.Validate();
+							endif;
+							if(bAccel)then
+								pxCatEntry^.m_apxCmd[ iJ ]^.ShowAccelerator(true);
+							else
+								pxCatEntry^.m_apxCmd[ iJ ]^.ShowAccelerator(false);
+							endif;
+						endif;
+						iCurX += m_iBTN_WIDTH + m_iSPACE_BETWEEN;
+						iSlot += 1;
+					endfor;
+					++iFilledRows;
+					iCurY += m_iBTN_HEIGHT + m_iSPACE_BETWEEN;
+				endif;
+			endif;
+		endfor;
+		var int iW = (iLastSlot + 1) * (m_iBTN_WIDTH + m_iSPACE_BETWEEN) + m_iMARGIN_LEFT + m_iMARGIN_RIGHT + m_iBTN_WIDTH;
+		var int iH = iFilledRows * (m_iBTN_HEIGHT + m_iSPACE_BETWEEN) + m_iMARGIN_TOP + m_iMARGIN_BOTTOM;
+		var int iScrH = CClientWrap.GetDesktop()^.GetHeight();
+		var int iX = 212 * CGameInst.ms_iUIScaleFactor;
+		var int iY = iScrH - (59 * CGameInst.ms_iUIScaleFactor + iH);
+		SetPos(iX, iY);
+		SetSize(iW, iH);
+	endproc;
+	
+endclass;

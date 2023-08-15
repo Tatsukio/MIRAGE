@@ -1,0 +1,415 @@
+class CDominationFlag inherit CGameObj
+	
+	const int	TICK_TIMER	= 261273;
+	const int	OWNER_STACK_TIMER	= 12345;
+	var CGuid				m_xDominationArea;
+	var ^CRegion			m_pxDominationArea;
+	var CAreaChangeSink		m_xAreaChangeSink;
+	var bool				m_bInvalidateContent;
+	//var ^CTaskMgr			m_pxTaskMgr;
+	//var int				m_iTargetOwner;
+	var array int			m_aiOwnerStack;
+	
+	class CAreaChangeSink inherit CEvtSink
+		
+		export var procref<void> m_xOnChange;
+		
+		export proc bool OnPush(ref CEvtPointer  p_rxEP)
+			if(!m_xOnChange.IsNull())then
+				m_xOnChange.Call();
+			endif;
+			return true;
+		endproc;
+	endclass;
+	
+	export constructor()
+		m_bInvalidateContent=false;
+		//m_iTargetOwner=-1;
+	endconstructor;
+	
+	export destructor()
+		if(m_pxDominationArea!=null)then
+			m_pxDominationArea^.Unsubscribe(^m_xAreaChangeSink);
+		endif;
+		var ^CRegionMgr pxRM=^(CSrvWrap.GetRegionMgr());
+		pxRM^.DeleteRegion(m_xDominationArea);
+	enddestructor;
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		SetPlaceBlocker(true);
+		SetVisible(true);
+		SetVisInFOW(true);
+		SetFOW(25.0f);
+		
+		InitEvents();
+		/*
+		var ^CFSM pxFSM=GetFSM();
+		if(pxFSM==null) then
+			pxFSM=InitFSM();
+			m_pxTaskMgr=cast<CTaskMgr>(CSrvWrap.GetUSLFactoryMgr().CreateState(pxFSM,"TaskMgr"));
+		else
+			m_pxTaskMgr=cast<CTaskMgr>(pxFSM^.FindSubStateRecursive("TaskMgr"));
+		endif;
+		m_pxTaskMgr^.SetOwner(GetHandle());
+		*/
+		
+		var ^CRegionMgr pxRM=^(CSrvWrap.GetRegionMgr());
+		if(!p_bLoad)then
+			SetType("DOFL");
+			var ^CAttribs pxAttribs=GetAttribs();
+			if(pxAttribs==null)then
+				pxAttribs=InitAttribs();
+			endif;
+			var int iTmp=pxRM^.CreateRegion(GetName()+"_DominationArea",CSubRegion.RT_Oval,GetPos(),{20.0f,20.0f,0.0f});
+			m_pxDominationArea=pxRM^.GetRegion(iTmp);
+			m_xDominationArea=m_pxDominationArea^.GetGUID();
+			m_pxDominationArea^.SetColor({{255,0,0,255}});
+			CreateTimer(TICK_TIMER, CGameTimeSpan.OneSecond()*2.0,true);
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			pxAttribs^.SetValue("end_time",xNow);
+			pxAttribs^.SetValue("updown_dir","down");
+		else
+			m_pxDominationArea=pxRM^.GetRegionByGuid(m_xDominationArea);
+		endif;
+		m_pxDominationArea^.BindToObj(GetHandle());
+		SetAnim("down",0,0);
+		m_pxDominationArea^.Unsubscribe(^m_xAreaChangeSink);
+		m_pxDominationArea^.Subscribe(^m_xAreaChangeSink);
+		m_xAreaChangeSink.m_xOnChange=InvalidateContent;
+	endproc;
+	
+	proc void InvalidateContent()		
+		m_bInvalidateContent=true;
+	endproc;
+	
+	proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="DoFl";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,3);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		(pxArc^) << m_xDominationArea;
+		m_aiOwnerStack.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+	
+	proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="DoFl")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			(pxArc^) << m_xDominationArea;
+			if(iVersion==2)then
+				var int iTmp=0;
+				(pxArc^) << iTmp;
+			endif;
+			if(iVersion>=3)then
+				m_aiOwnerStack.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			var int iTimerID=p_rxEvtPtr.GetInt(0);
+			if(iTimerID==TICK_TIMER) then
+				Tick();
+				FindTraces();
+			elseif(iTimerID==OWNER_STACK_TIMER)then
+				if(m_aiOwnerStack.NumEntries()>0)then
+					var int iOwner=m_aiOwnerStack[0];
+					m_aiOwnerStack.DeleteEntry(0);
+					var int iLastOwner=GetOwner();
+					if(iLastOwner!=iOwner)then
+						SetOwner(iOwner);
+						DoFeedback(iLastOwner,iOwner);
+					endif;
+				endif;
+				DeleteTimer(OWNER_STACK_TIMER);
+				CheckOwnerStack();
+			endif;
+		endif;
+	endproc;
+	
+	proc void DoFeedback(int p_iLastOwner,int p_iNewOwner)
+		CSrvWrap.SendGenericEvtToClients(0ffh,"MiniMapEvent\t"+GetPos().ToString()+"\tDoflCapt_"+p_iNewOwner.ToString());
+		var ^CLevelInfoHost pxLevelInfo = CSrvWrap.GetLevelInfo(false);
+		if(pxLevelInfo==null)then
+			return;
+		endif;
+		var int iLastTeam=pxLevelInfo^.GetOwnerTeam(p_iLastOwner);
+		var int iNewTeam=pxLevelInfo^.GetOwnerTeam(p_iNewOwner);
+		//Fall 1: LastOwner und NewOwner gehören zum selben Team -> keine Newsticker Meldung
+		if(iNewTeam==iLastTeam)then
+			return;
+		endif;
+		var bool bAllDominations=true;
+		var ^CGameOverMgr pxGOM=^(CGameOverMgr.Get());
+		var CObjList xDominationPoints;
+		pxGOM^.GetDominationPoints(xDominationPoints);
+		var int i,iC=xDominationPoints.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxWalk=xDominationPoints[i].GetObj();
+			if(pxWalk!=null)then
+				var int iWalkOwner=pxWalk^.GetOwner();
+				var int iOwnerTeam=pxLevelInfo^.GetOwnerTeam(iWalkOwner);
+				if(iOwnerTeam!=iNewTeam || iWalkOwner==-1)then
+					bAllDominations=false;
+					break;
+				endif;
+			endif;
+		endfor;
+		var CPlayerSlotID xIter;
+		for(xIter=CPlayerSlotID.First())cond(xIter<=CPlayerSlotID.Last())iter(xIter.Incr())do
+			if(xIter.IsValid())then
+				var ^CLevelInfo.CPlayerSlot pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(xIter));
+				if(pxPlayerSlot!=null)then
+//					if(pxPlayerSlot^.IsFree()&&pxPlayerSlot^.GetValue("forced")!="true")then continue; endif;
+					if(pxPlayerSlot^.IsFree())then continue; endif;
+					var int iSlotTeam=pxPlayerSlot^.GetTeam();
+					var int iSlotOwner=pxPlayerSlot^.GetOwner();
+					if(iSlotTeam==-1 || iSlotOwner==-1)then 
+						continue;
+					endif;
+					if(iSlotTeam==iNewTeam)then//Flagge gehört jetzt diesem Owner
+						if(bAllDominations)then
+							CFeedback.Print(iSlotOwner, CFeedback.ATTACK, "_NT_Flag_WeAll");
+							CSrvWrap.SendGenericEvtToPlayer(iSlotOwner, "FlagWeAll");
+						else
+							CFeedback.Print(iSlotOwner, CFeedback.ATTACK, "_NT_Flag_Captured",GetPos());
+							CSrvWrap.SendGenericEvtToPlayer(iSlotOwner, "FlagCaptured");
+						endif;
+					else
+						if(iSlotTeam==iLastTeam)then
+							CFeedback.Print(iSlotOwner, CFeedback.ATTACK, "_NT_Flag_Lost",GetPos());
+							CSrvWrap.SendGenericEvtToPlayer(iSlotOwner, "FlagLost");
+						endif;
+						if(bAllDominations)then
+							CFeedback.Print(iSlotOwner, CFeedback.ATTACK, "_NT_Flag_EnemyAll");
+							CSrvWrap.SendGenericEvtToPlayer(iSlotOwner, "FlagEnemyAll");
+						else
+							if(iNewTeam!=-1)then
+								CFeedback.Print(iSlotOwner, CFeedback.ATTACK, "_NT_Flag_Enemy",GetPos());
+								CSrvWrap.SendGenericEvtToPlayer(iSlotOwner, "FlagEnemyCap");
+							endif;
+						endif;
+					endif;
+				endif;
+			endif;
+		endfor;
+		//voice_hu?_general_flag_captured
+		//voice_hu?_general_flag_lost
+	endproc;
+	
+	export proc void FindTraces()
+		if(m_pxDominationArea==null)then return; endif;
+		var CObjList xList;
+		var int i,iC=m_pxDominationArea^.NumObjects();
+		for(i=0)cond(i<iC)iter(i++)do
+			xList.Include(m_pxDominationArea^.GetObject(i));
+		endfor;
+		iC=xList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CFightingObj pxObj=cast<CFightingObj>(xList[i].GetObj());
+			if(pxObj==null)then continue; endif;
+			if(pxObj^.GetCamouflage())then
+				pxObj^.Reveal();
+			endif;
+		endfor;
+	endproc;
+	
+	proc void Tick()
+		if(m_bInvalidateContent==false)then
+			return;
+		endif;
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		m_bInvalidateContent=false;
+		System.Assert(m_pxDominationArea!=null);
+		var array int aiOwnerMap;
+		var array int aiOwners;
+		var array int aiTeams;
+		aiOwnerMap=8;
+		var int i,iC=m_pxDominationArea^.NumObjects();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxObj=m_pxDominationArea^.GetObject(i).GetObj();
+			if(pxObj==null)then continue; endif;
+			if(pxObj==this)then continue; endif;
+			var ^CFightingObj pxFO=cast<CFightingObj>(pxObj);
+			if(pxFO==null)then continue; endif;
+			if(!pxFO^.DoesCountInUnitLimit())then continue; endif;
+			if(pxObj^.GetType()=="OTHR")then continue; endif;
+			var int iOwner=pxObj^.GetOwner();
+			if(iOwner!=-1)then
+				System.Assert(iOwner>=0 && iOwner<8);
+				var ^CLevelInfo.CPlayerSlot pxPlayerSlot = pxLevel^.GetLevelInfo().GetOwnerPlayerSlot(iOwner);
+				if(pxPlayerSlot==null)then//owner besitzt kein player slot mehr (falls sowas möglich ist, dann zählt dieser owner nicht)
+					continue;
+				endif;
+				aiOwnerMap[iOwner]++;
+				aiOwners.Include(iOwner);
+				aiTeams.Include(pxPlayerSlot^.GetTeam());
+			endif;
+		endfor;
+		var int iDominationOwner=-1;
+		var int iTmp=0;
+		iC=aiOwnerMap.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(aiOwnerMap[i]>iTmp)then
+				iDominationOwner=i;
+				iTmp=aiOwnerMap[i];
+			endif;
+		endfor;
+		/*
+		var string sOwners="keine";
+		iC=aiOwners.NumEntries();
+		if(iC>0)then sOwners=""; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			sOwners+=" "+aiOwners[i].ToString();
+		endfor;
+		
+		var string sTeams="keine";
+		iC=aiTeams.NumEntries();
+		if(iC>0)then sTeams=""; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			sTeams+=" "+aiTeams[i].ToString();
+		endfor;
+		*/
+		
+		if(HasTimer(OWNER_STACK_TIMER) && m_aiOwnerStack.NumEntries()>0)then
+			if(aiOwners.FindEntry(m_aiOwnerStack[0])==-1)then//owner hat frühzeitig das Feld verlassen
+				DeleteTimer(OWNER_STACK_TIMER);
+				m_aiOwnerStack=0;
+				m_aiOwnerStack.AddEntry(-1);
+				CheckOwnerStack();
+				InvalidateContent();
+				return;
+			endif;
+		endif;
+		if(aiOwners.NumEntries()==0)then//wenn keine einheit in der region ist -> raus
+			return;
+		endif;
+		if(aiTeams.NumEntries()==0)then//wenn keine teams in der region sin (warum auch immer) -> raus
+			return;
+		endif;
+		var int iCurOwner=GetOwner();
+		if(iCurOwner==-1)then//wenn DominationPoint frei
+			if(aiOwners.NumEntries()==1)then//wenn nur ein owner in der Region ist, wird DominationPoint von ihm erobert
+				ChangeDominationOwner(aiOwners[0]);
+			else//mehrere owners in der Region
+				if(aiTeams.NumEntries()==1)then//wenn alle in einem Team sind, wird DominationPoint von dem owner erobert, der die meisten Einheiten in der Region hat
+					ChangeDominationOwner(iDominationOwner);
+				else// unentschieden
+					return;
+				endif;
+			endif;
+		else//DominationPoint ist schon besetzt
+			if(aiOwners.FindEntry(iCurOwner)!=-1)then//wenn aktueller owner noch in der Region ist, keine Änderung
+				return;
+			else//aktueller owner ist nicht mehr in der Region
+				var ^CLevelInfo.CPlayerSlot pxPlayerSlot = pxLevel^.GetLevelInfo().GetOwnerPlayerSlot(iCurOwner);
+				System.Assert(pxPlayerSlot!=null);
+				var int iCurTeam=pxPlayerSlot^.GetTeam();
+				if(aiTeams.FindEntry(iCurTeam)!=-1)then//wenn sein team noch in der region ist, keine änderung
+					return;
+				else//sein team ist nicht mehr in der region
+					if(aiTeams.NumEntries()==1)then///wenn nur ein team in der region ist
+						ChangeDominationOwner(iDominationOwner);
+					else//mehrere teams sind in der region -> unentschieden
+						return;
+					endif;
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	export proc void ChangeDominationOwner(int p_iOwner)
+		var int iOSNum=m_aiOwnerStack.NumEntries();
+		if(iOSNum==0 && GetOwner()==p_iOwner)then
+			return;
+		endif;
+		if(iOSNum==1 && m_aiOwnerStack[0]==p_iOwner)then
+			return;
+		endif;
+		if(iOSNum==2 && p_iOwner!=-1 && m_aiOwnerStack[0]==-1 && m_aiOwnerStack[1]==p_iOwner)then
+			return;
+		endif;
+		DeleteTimer(OWNER_STACK_TIMER);
+		m_aiOwnerStack=0;
+		/*
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs==null)then
+			return;
+		endif;
+		var string sUpDownDir=pxAttribs^.GetValue("updown_dir");
+		if(sUpDownDir=="up")then
+			
+		else//down
+			
+		endif;
+		*/
+		m_aiOwnerStack.AddEntry(-1);
+		if(p_iOwner!=-1)then
+			m_aiOwnerStack.AddEntry(p_iOwner);
+		endif;
+		CheckOwnerStack();
+	endproc;
+	
+	proc void CheckOwnerStack()
+		if(m_aiOwnerStack.NumEntries()==0)then
+			return;
+		endif;
+		/*if(m_iTargetOwner==p_iOwner)then
+			return;
+		endif;
+		m_iTargetOwner=p_iOwner;
+		*/
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs==null)then
+			return;
+		endif;
+		var CConfig xConf;
+		var real fUpDownDuration=xConf.GetSetF("Game/MPSettings/DominationUpDownTimer",10.0f);
+//		var real fUpDownDuration=CMirageSrvMgr.ms_fDFTimer;
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		var CGameTime xEndTime=pxAttribs^.GetValueGameTime("endtime");
+		var string sUpDownDir=pxAttribs^.GetValue("updown_dir");
+		var real fWeight=0.0f;
+		if(xNow>xEndTime)then
+			if(sUpDownDir=="up")then
+				fWeight=1.0f;
+			endif;
+		else
+			fWeight=(xEndTime-xNow).GetSecondsF()/fUpDownDuration;
+			fWeight=Math.Clamp(fWeight,0.0f,1.0f);
+			if(sUpDownDir=="up")then
+				fWeight=1.0f-fWeight;
+			endif;
+		endif;
+		var CGameTimeSpan xDuration;
+		var string sUpDown;
+		if(m_aiOwnerStack[0]==-1)then
+			//down
+			xDuration=(CGameTimeSpan.OneSecond()*fUpDownDuration)*fWeight;
+			sUpDown="down";
+		else
+			//up
+			xDuration=(CGameTimeSpan.OneSecond()*fUpDownDuration)*(1.0f-fWeight);
+			sUpDown="up";
+		endif;
+		var CGameTime xSet=xNow+xDuration;
+		pxAttribs^.SetValue("endtime",xSet);
+		var CGameTime xGet=pxAttribs^.GetValueGameTime("endtime");
+		pxAttribs^.SetValue("updown_dir",sUpDown);
+		CreateTimer(OWNER_STACK_TIMER,xDuration,false);
+		//SetTask() change_owner
+		/*
+		var ^CDominationOwnerChange pxTask=cast<CDominationOwnerChange>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(),"DomOwnCh"));
+		pxTask^.Init(GetHandle());
+		m_pxTaskMgr^.SetTask(pxTask);
+		//SetOwner(p_iOwner);
+		*/
+		
+	endproc;
+	
+endclass;

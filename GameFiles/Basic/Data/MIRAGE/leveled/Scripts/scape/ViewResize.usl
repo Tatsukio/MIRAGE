@@ -1,0 +1,334 @@
+class CViewResize inherit CEnhancedFrameWindow
+
+	var int						m_iResizeTimer;
+	var int						m_iFlattenTimer;
+	var array	point		m_axForestBlocks;
+	var int						m_iNewWidth,m_iNewHeight;
+	var ^CLoadWindow	m_pxLoadWindow;
+	var bool					m_bCheckNorth;
+	var bool					m_bCheckEast;
+	var bool					m_bCheckSouth;
+	var bool					m_bCheckWest;
+	var bool					m_bOk;
+
+	export constructor()
+		if(!InitFromResource("Scape/ViewResize","Resize"))then
+			CLevelEditorWrap.LogError("UI.ViewResize","InitFromResource failed");
+			return;
+		endif;
+		var ^CButton pxReset=cast<CButton>(GetControl("ResetButton"));
+		pxReset^.m_xOnClick=OnReset;
+		var ^CButton pxApply=cast<CButton>(GetControl("ApplyButton"));
+		pxApply^.m_xOnClick=OnApply;
+		var ^CSpinCtrlNumber pxNorth=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/SpinCtrlNorth"));
+		pxNorth^.m_xOnChange=OnNorth;
+		pxNorth^.SetLimits(-100,100,1);
+		var ^CSpinCtrlNumber pxSouth=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/BackgroundThree/SpinCtrlSouth"));
+		pxSouth^.m_xOnChange=OnSouth;
+		pxSouth^.SetLimits(-100,100,1);
+		var ^CSpinCtrlNumber pxWest=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/BackgroundTwo/SpinCtrlWest"));
+		pxWest^.m_xOnChange=OnWest;
+		pxWest^.SetLimits(-100,100,1);
+		var ^CSpinCtrlNumber pxEast=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/BackgroundTwo/SpinCtrlEast"));
+		pxEast^.m_xOnChange=OnEast;
+		pxEast^.SetLimits(-100,100,1);
+		m_bCheckNorth=false;
+		m_bCheckEast=false;
+		m_bCheckSouth=false;
+		m_bCheckWest=false;
+		m_bOk=true;
+		LoadPosition("Resize");
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc bool OnApply()
+		var ^CSpinCtrlNumber pxNorth=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/SpinCtrlNorth"));
+		var ^CSpinCtrlNumber pxSouth=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/BackgroundThree/SpinCtrlSouth"));
+		var ^CSpinCtrlNumber pxWest=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/BackgroundTwo/SpinCtrlWest"));
+		var ^CSpinCtrlNumber pxEast=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/BackgroundTwo/SpinCtrlEast"));
+		if(CLevelEditorWrap.GetScapeMgr().HasMap())then
+			var int iWidth=CLevelEditorWrap.GetScapeMgr().GetMapWidth();
+			var int iHeight=CLevelEditorWrap.GetScapeMgr().GetMapHeight();
+			m_iNewWidth=iWidth+(32*pxWest^.GetValueInt())+(32*pxEast^.GetValueInt());
+			m_iNewHeight=iHeight+(32*pxNorth^.GetValueInt())+(32*pxSouth^.GetValueInt());
+			if((m_iNewWidth<96)||(m_iNewHeight<96))then
+				OnReset();
+				return(false);
+			endif;
+//			CLevelEditorWrap.IdiObj2GameObj();
+			var bitset dwSetting;
+			var string sSetting=GetTerrainSetting(dwSetting);
+			CLevelEditorWrap.GetScapeMgr().ResizeMap(pxWest^.GetValueInt(),pxNorth^.GetValueInt(),pxEast^.GetValueInt(),pxSouth^.GetValueInt());
+//			var ^CList pxObjList = CEnhancedMenu.Get().GetObjFinder()^.GetObjList();
+//			var int i;
+//			for(i=0)cond(i<pxObjList^.NumItems())iter(i++)do
+//				var ^CFinderItem pxItem = cast<CFinderItem>(pxObjList^.GetItemData(i));
+//				if(pxItem==null)then continue; endif;
+//				if(pxItem^.GetType() == CFinderItem.TYPE_OBJECT)then
+//					var CClntHndl xHndl = (cast<CFinderItemObject>(pxItem))^.GetHndl();
+//					if(xHndl.IsValid())then
+//						pxSel^.Include(xHndl);
+//					endif;
+//				endif;
+//			endfor;
+			var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+			pxSel^.Clear();
+			var ^CObjMgr pxObjMgr=^(CClientWrap.GetObjMgr());
+			var int i,iC=pxObjMgr^.NumObjects();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CObj pxObj=pxObjMgr^.GetObjByID(i);
+				if(pxObj==null)then continue; endif;
+				pxSel^.Include(pxObj^.GetHandle());
+			endfor;
+			var vec3 vOffset={0.0,0.0,0.0};
+			vOffset.SetX((32*pxWest^.GetValueInt()).ToReal());
+			vOffset.SetY((32*pxNorth^.GetValueInt()).ToReal());
+			pxSel^.Translate(vOffset);
+			pxSel^.UpdatePos(); //invoke server position update
+			pxSel^.Clear();
+			begin MoveRegions;
+				var ^CRegionMgrClient pxRMgr=CClientWrap.GetRegionMgr();
+				var int i,iC=pxRMgr^.NumRegions();
+				for(i=0)cond(i<iC)iter(i++)do
+					pxRMgr^[i]^.Translate(vOffset);
+				endfor;
+			end MoveRegions;
+			/*m_pxLoadWindow=new CLoadWindow("Resizing Map");
+			CClientWrap.GetDesktop()^.AddChild(m_pxLoadWindow);
+			CWindowMgr.Get().BringWindowToTop(m_pxLoadWindow,true);
+			CWindowMgr.Get().SetModal(m_pxLoadWindow);
+			m_iResizeTimer=SetTimer(1000,true);
+			*/
+//			DeleteForest();
+			CLevelEditorWrap.GetScapeMgr().SetTerrainSetting(dwSetting);
+			CEnhancedMenu.Get().GetLevel().SetSetting(sSetting);
+			CLevelEditorWrap.GetForestMgr().LoadForestConfig(CLevelEditorWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/Classes/Vegetation/Forest_"+sSetting+".txt");
+			CEnhancedMenu.Get().GetMiniMap()^.Invalidate();
+//			CLevelEditorWrap.GameObj2IdiObj();
+			return(true);
+		else
+			return(false);
+		endif;
+	endproc;
+
+	proc bool OnTimer(int p_iTimerID)
+		if(p_iTimerID==m_iFlattenTimer)then
+			if(CClientWrap.HasServer())then
+				if(!m_bOk)then
+					m_bOk=true;
+					if(m_bCheckNorth==true)then
+						if(CLevelEditorWrap.GetScapeMgr().GetHeight(0.0,0.0)>0.0f)then
+							m_bCheckNorth=true;
+							m_bOk=false;
+						else
+							m_bCheckNorth=false;
+							m_bOk=true;
+						endif;
+					endif;
+					if(m_bCheckEast==true)then
+						if(CLevelEditorWrap.GetScapeMgr().GetHeight(CLevelEditorWrap.GetScapeMgr().GetMapWidth().ToReal(),0.0)>0.0f)then
+							m_bCheckEast=true;
+							m_bOk=false;
+						else
+							m_bCheckEast=false;
+							m_bOk=true;
+						endif;
+					endif;
+					if(m_bCheckSouth==true)then
+						if(CLevelEditorWrap.GetScapeMgr().GetHeight(0.0,CLevelEditorWrap.GetScapeMgr().GetMapHeight().ToReal())>0.0f)then
+							m_bCheckSouth=true;
+							m_bOk=false;
+						else
+							m_bCheckSouth=false;
+							m_bOk=true;
+						endif;
+					endif;
+					if(m_bCheckWest==true)then
+						if(CLevelEditorWrap.GetScapeMgr().GetHeight(0.0,0.0)>0.0f)then
+							m_bCheckWest=true;
+							m_bOk=false;
+						else
+							m_bCheckWest=false;
+							m_bOk=true;
+						endif;
+					endif;
+				else
+					UnsetTimer(p_iTimerID);
+					delete m_pxLoadWindow;
+//					SetForest();
+				endif;
+			endif;
+		elseif(p_iTimerID==m_iResizeTimer)then
+			if(CClientWrap.HasServer())then
+				m_bCheckNorth=false;
+				m_bCheckEast=false;
+				m_bCheckSouth=false;
+				m_bCheckWest=false;
+				var ^CSpinCtrlNumber pxNorth=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/SpinCtrlNorth"));
+				var ^CSpinCtrlNumber pxSouth=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/BackgroundThree/SpinCtrlSouth"));
+				var ^CSpinCtrlNumber pxWest=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/BackgroundTwo/SpinCtrlWest"));
+				var ^CSpinCtrlNumber pxEast=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/BackgroundTwo/SpinCtrlEast"));
+				var int iWidth=CLevelEditorWrap.GetScapeMgr().GetMapWidth();
+				var int iHeight=CLevelEditorWrap.GetScapeMgr().GetMapHeight();
+				if((iWidth==m_iNewWidth)&&(iHeight==m_iNewHeight))then
+					var int iOffsetNorth=pxNorth^.GetValueInt();
+					var int iOffsetWest=pxWest^.GetValueInt();
+					var int iOffsetSouth=pxSouth^.GetValueInt();
+					var int iOffsetEast=pxEast^.GetValueInt();
+					var ^CScapeHeightBrush pxHeightBrush;
+					var bitset dwS=Math.IntToBitset(4);
+					var int i,j;
+					//North
+					if(iOffsetNorth>0)then
+						for(i=0)cond(i<iOffsetNorth)iter(i++)do
+							for(j=0)cond(j<CLevelEditorWrap.GetScapeMgr().GetWidthInBlocks())iter(j++)do
+								//CLevelEditorWrap.GetScapeMgr().SetHeightRes(j,i,5);
+							endfor;
+						endfor;
+						pxHeightBrush=new CScapeHeightBrush(128*CLevelEditorWrap.GetScapeMgr().GetWidthInBlocks(),128*iOffsetNorth);
+						pxHeightBrush^.SetHeightValue(0.0);
+						CLevelEditorWrap.GetScapeMgr().SetHeightBrush(dwS,0.0,0.0,pxHeightBrush^);
+						m_bCheckNorth=true;
+						m_bOk=false;
+					endif;
+					//East
+					if(iOffsetEast>0)then
+						for(i=0)cond(i<iOffsetEast)iter(i++)do
+							for(j=0)cond(j<CLevelEditorWrap.GetScapeMgr().GetHeightInBlocks())iter(j++)do
+								//CLevelEditorWrap.GetScapeMgr().SetHeightRes(CLevelEditorWrap.GetScapeMgr().GetWidthInBlocks()-1-i,j,5);
+							endfor;
+						endfor;
+						pxHeightBrush=new CScapeHeightBrush(128*iOffsetEast,128*CLevelEditorWrap.GetScapeMgr().GetHeightInBlocks());
+						pxHeightBrush^.SetHeightValue(0.0);
+						CLevelEditorWrap.GetScapeMgr().SetHeightBrush(dwS,CLevelEditorWrap.GetScapeMgr().GetWidthInBlocks().ToReal()*32.0,0.0,pxHeightBrush^);
+						m_bCheckEast=true;
+						m_bOk=false;
+					endif;
+					//South
+					if(iOffsetSouth>0)then
+						for(i=0)cond(i<iOffsetSouth)iter(i++)do
+							for(j=0)cond(j<CLevelEditorWrap.GetScapeMgr().GetWidthInBlocks())iter(j++)do
+								//CLevelEditorWrap.GetScapeMgr().SetHeightRes(j,CLevelEditorWrap.GetScapeMgr().GetHeightInBlocks()-1-i,5);
+							endfor;
+						endfor;
+						pxHeightBrush=new CScapeHeightBrush(128*CLevelEditorWrap.GetScapeMgr().GetWidthInBlocks(),128*iOffsetSouth);
+						pxHeightBrush^.SetHeightValue(0.0);
+						CLevelEditorWrap.GetScapeMgr().SetHeightBrush(dwS,0.0,CLevelEditorWrap.GetScapeMgr().GetHeightInBlocks().ToReal()*32.0,pxHeightBrush^);
+						m_bCheckSouth=true;
+						m_bOk=false;
+					endif;
+					//West
+					if(iOffsetWest>0)then
+						for(i=0)cond(i<iOffsetWest)iter(i++)do
+							for(j=0)cond(j<CLevelEditorWrap.GetScapeMgr().GetHeightInBlocks())iter(j++)do
+								//CLevelEditorWrap.GetScapeMgr().SetHeightRes(i,j,5);
+							endfor;
+						endfor;
+						pxHeightBrush=new CScapeHeightBrush(128*iOffsetWest,128*CLevelEditorWrap.GetScapeMgr().GetHeightInBlocks());
+						pxHeightBrush^.SetHeightValue(0.0);
+						CLevelEditorWrap.GetScapeMgr().SetHeightBrush(dwS,0.0,0.0,pxHeightBrush^);
+						m_bCheckWest=true;
+						m_bOk=false;
+					endif;
+					UnsetTimer(p_iTimerID);
+					m_iFlattenTimer=SetTimer(1000,true);
+					m_pxLoadWindow^.SetText("Leveling Scape");
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	export proc bool DeleteForest()
+		var int i,j;
+		var int iX=CLevelEditorWrap.GetScapeMgr().GetWidthInBlocks();
+		var int iY=CLevelEditorWrap.GetScapeMgr().GetHeightInBlocks();
+		var ^CSpinCtrlNumber pxNorth=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/SpinCtrlNorth"));
+		var ^CSpinCtrlNumber pxWest=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/BackgroundTwo/SpinCtrlWest"));
+		var int iOffsetX=pxWest^.GetValueInt();
+		var int iOffsetY=pxNorth^.GetValueInt();
+		if(iOffsetX<0)then iOffsetX=0;endif;
+		if(iOffsetY<0)then iOffsetY=0;endif;
+		for(i=0)cond(i<(iX))iter(i++)do
+			for(j=0)cond(j<(iY))iter(j++)do
+				if(CClientWrap.GetForestMgr().IsForestBlock(i,j))then
+					var point xTemp={0,0};
+					xTemp.SetX(i+iOffsetX);
+					xTemp.SetY(j+iOffsetY);
+					m_axForestBlocks.AddEntry(xTemp);
+					CEvt_ForestBlock.Send(i,j,false,0);
+				endif;
+			endfor;
+		endfor;
+		return(true);
+	endproc;
+
+	export proc bool SetForest()
+		var int iX,iY,i;
+		for(i=0)cond(i<m_axForestBlocks.NumEntries())iter(i++)do
+			iX=m_axForestBlocks[i].GetX();
+			iY=m_axForestBlocks[i].GetY();
+			CEvt_ForestBlock.Send(iX,iY,true,0);
+		endfor;
+		return(true);
+	endproc;
+
+	export proc bool OnReset()
+		var ^CSpinCtrlNumber pxNorth=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/SpinCtrlNorth"));
+		var ^CSpinCtrlNumber pxSouth=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/BackgroundThree/SpinCtrlSouth"));
+		var ^CSpinCtrlNumber pxWest=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/BackgroundTwo/SpinCtrlWest"));
+		var ^CSpinCtrlNumber pxEast=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/BackgroundTwo/SpinCtrlEast"));
+		pxNorth^.SetValue(0);
+		pxSouth^.SetValue(0);
+		pxWest^.SetValue(0);
+		pxEast^.SetValue(0);
+		return(true);
+	endproc;
+
+	proc bool OnNorth()
+		var ^CSpinCtrlNumber pxNorth=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/SpinCtrlNorth"));
+		return(true);
+	endproc;
+
+	proc bool OnSouth()
+		var ^CSpinCtrlNumber pxNorth=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/SpinCtrlSouth"));
+		return(true);
+	endproc;
+
+	proc bool OnWest()
+		var ^CSpinCtrlNumber pxNorth=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/SpinCtrlWest"));
+		return(true);
+	endproc;
+
+	proc bool OnEast()
+		var ^CSpinCtrlNumber pxNorth=cast<CSpinCtrlNumber>(GetControl("MapGroupBox/SpinCtrlEast"));
+		return(true);
+	endproc;
+	
+	proc string GetTerrainSetting(ref bitset p_rdwSetting)
+		p_rdwSetting=CLevelEditorWrap.GetScapeMgr().GetTerrainSetting();
+		if(p_rdwSetting==00000b)then
+			return "Northland";
+		elseif(p_rdwSetting==00001b)then
+			return "Savanna";
+		elseif(p_rdwSetting==00010b)then
+			return "Jungle";
+		elseif(p_rdwSetting==00011b)then
+			return "Icewaste";
+		elseif(p_rdwSetting==00100b)then
+			return "Ashvalley";
+		elseif(p_rdwSetting==00101b)then
+			return "Test";
+		elseif(p_rdwSetting==00110b)then
+			return "Cave1";
+		elseif(p_rdwSetting==00111b)then
+			return "Cave2";
+		elseif(p_rdwSetting==01000b)then
+			return "Cave3";
+		endif;
+		return "";
+	endproc;
+	
+endclass;

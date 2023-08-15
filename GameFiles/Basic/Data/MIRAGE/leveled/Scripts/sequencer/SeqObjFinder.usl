@@ -1,0 +1,160 @@
+class CSeqObjFinder inherit CFrameWindow
+
+	export var procref<void,CClntHndl> m_xOnCloseOK;
+	var ^CTabCtrl 		m_pxTabCtrl;	
+	var ^CList 			m_pxObjList;
+	var ^CTreeCtrl 		m_pxObjTree;	
+	var ^CButton 		m_pxOK;
+	
+	
+	class CObjItemData inherit CItemData
+		export var CGuid		m_xGUID;
+		export var CClntHndl	m_xHndl;
+		
+		export constructor(CGuid p_xGuid,CClntHndl p_xHandle)
+			m_xGUID=p_xGuid;
+			m_xHndl=p_xHandle;
+		endconstructor;
+	endclass;
+
+	export constructor()
+		if(!InitFromResource("sequencer/SequenceEditor","SeqObjFinder")) then
+			CLevelEditorWrap.LogError("SeqObjFinder","InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxObjList = new CList();
+		//m_pxObjList^.m_xOnSelect = OnSelectItem;
+		//m_pxDirListObjFinder^.m_xOnLBtnDblClick = ShowItem;		
+        
+		m_pxObjTree = new CTreeCtrl();
+		//m_pxTreeCtrl^.m_xOnSelect = OnSelectItemTC;
+		//m_pxTreeCtrl^.m_xOnLBtnDblClick = ShowItem;
+		m_pxObjTree^.SetShowNumChildren(true);		
+		
+		var ^CGroupBox pxGBSearch = cast<CGroupBox>(GetControl("GroupBox"));		
+		m_pxOK=cast<CButton>(GetControl("GroupBox/OK"));
+		m_pxOK^.m_xOnClick = OnOK;
+		m_pxOK^.SetDisabled(true);
+		var ^CButton pxCancel = cast<CButton>(GetControl("GroupBox/Cancel"));
+		pxCancel^.m_xOnClick = OnCancel;		
+		m_pxTabCtrl = cast<CTabCtrl>(GetControl("GroupBox/TabCtrl"));
+		m_pxTabCtrl^.AddTab(" List ",m_pxObjList);
+		m_pxTabCtrl^.AddTab(" Tree ",m_pxObjTree);
+		m_pxTabCtrl^.m_xOnChangeTab=OnChangeTab;
+				
+		m_pxObjList^.m_xOnSelect=OnSelect;
+		m_pxObjList^.m_xOnLBtnDblClick=OnOK;		
+		m_pxObjTree^.m_xOnSelect=OnSelect;
+		m_pxObjTree^.m_xOnLBtnDblClick=OnOK;
+		
+		m_pxObjList^.SetDisabled(false);
+		m_pxObjTree^.SetDisabled(true);
+		
+		FillList();
+		FillTree();		
+	endconstructor;
+
+	export destructor()
+		Clear();		
+	enddestructor;
+
+	proc void Clear()
+		ClearList();
+		ClearTree();	
+	endproc;
+
+	proc void FillList()
+		ClearList();
+		var ^CObjMgr pxObjMgr=^(CClientWrap.GetObjMgr());
+		var int i,iC=pxObjMgr^.NumObjects();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CObj pxObj=pxObjMgr^.GetObjByID(i);
+			if(pxObj==null)then continue; endif;
+			m_pxObjList^.AddItem(pxObj^.GetName(),new CObjItemData(pxObj^.GetGuid(),pxObj^.GetHandle()));			
+		endfor;
+		m_pxObjList^.QSort();
+	endproc;
+	
+	proc void ClearList()
+		var int i,iC=m_pxObjList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CObjItemData pxItemData=cast<CObjItemData>(m_pxObjList^.GetItemData(i));
+			delete pxItemData;
+		endfor;
+		m_pxObjList^.Clear();
+	endproc;
+
+	proc void FillTree()
+		ClearTree();
+		var ^CObjMgr pxObjMgr=^(CClientWrap.GetObjMgr());
+		var int i,iC=pxObjMgr^.NumObjects();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CObj pxObj=pxObjMgr^.GetObjByID(i);
+			if(pxObj==null)then continue; endif;
+			var string sType=pxObj^.GetType().AsString();
+			var int iParentItem=m_pxObjTree^.FindItem(0,sType);
+			if(iParentItem==0)then
+				iParentItem=m_pxObjTree^.AddItem(0,sType,null);
+			endif;
+			m_pxObjTree^.AddItem(iParentItem,pxObj^.GetName(),new CObjItemData(pxObj^.GetGuid(),pxObj^.GetHandle()));			
+		endfor;		
+	endproc;
+	
+	proc void ClearTree()
+		var int iIterator=0;
+		m_pxObjTree^.StartIterate();	
+		while(m_pxObjTree^.Iterate(iIterator))do
+			delete m_pxObjTree^.GetItemData(iIterator);
+		endwhile;
+		m_pxObjTree^.Clear();
+	endproc;
+	
+	proc bool OnChangeTab(int p_iCurTub)
+		var ^CWindow pxCurWnd=m_pxTabCtrl^.GetTabWindow(p_iCurTub);		
+		if(pxCurWnd==m_pxObjList)then
+			m_pxObjList^.SetDisabled(false);
+			m_pxObjTree^.SetDisabled(true);		
+		else
+			m_pxObjList^.SetDisabled(true);
+			m_pxObjTree^.SetDisabled(false);
+		endif;	
+		OnSelect();	
+		return true;
+	endproc;
+	
+	proc bool OnOK()
+		var ^CObjItemData pxItemData=null;
+		if(m_pxObjList^.GetDisabled())then
+			var int iSelItem=m_pxObjTree^.GetSelectedItem();
+			pxItemData=cast<CObjItemData>(m_pxObjTree^.GetItemData(iSelItem));			
+		else
+			var int iSelItem=m_pxObjList^.GetSelectedItem();
+			pxItemData=cast<CObjItemData>(m_pxObjList^.GetItemData(iSelItem));			
+		endif;
+		if(pxItemData!=null)then
+			m_xOnCloseOK.Call(pxItemData^.m_xHndl);
+			Destroy();
+		endif;		
+		
+		return true;
+	endproc;
+	
+	proc bool OnCancel()
+		Destroy();
+		return true;
+	endproc;
+	
+	proc bool OnSelect()
+		var ^CObjItemData pxItemData=null;
+		if(m_pxObjList^.GetDisabled())then
+			var int iSelItem=m_pxObjTree^.GetSelectedItem();
+			pxItemData=cast<CObjItemData>(m_pxObjTree^.GetItemData(iSelItem));			
+		else
+			var int iSelItem=m_pxObjList^.GetSelectedItem();
+			pxItemData=cast<CObjItemData>(m_pxObjList^.GetItemData(iSelItem));			
+		endif;
+		m_pxOK^.SetDisabled(pxItemData==null);
+		return true;
+	endproc;
+endclass;

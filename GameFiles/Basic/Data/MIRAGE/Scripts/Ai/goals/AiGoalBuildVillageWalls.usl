@@ -1,0 +1,813 @@
+///class CAiGoalBuildVillageWalls
+class CAiGoalBuildVillageWalls inherit CAiGoal
+
+	class CGateInfo
+		export var ^CAiTaskBuildGate	m_pxTask;
+		export var ^CAiWallDef				m_pxWallDef;
+		export var int								m_iRetries;
+	endclass;
+
+	var array ^CAiTaskBuildWalls	m_apxWallTasks;
+	var array ^CAiTaskBuildTowers	m_apxTowerTasks1;
+	var array CGateInfo						m_axGateInfos;
+	var CAiObjWrapList						m_xUnits;
+	var CAiObjWrapList						m_xGates;
+	var array string							m_asWallClasses;
+	var int												m_iBestWallIdx;
+	export var bool								m_bCloseStartLocation;
+	var vec3											m_vStartLocation;
+	var real											m_fMinDistance;
+	var real											m_fMaxDistance;
+	var bool											m_bHasClosedStartLocation;
+	var int												m_iMaxGateRetryCount;
+	var int												m_iMaxGateCount;
+	var int												m_iGateCount;
+	var bool											m_bGateAllowed;
+	var int												m_iMaxTowerRetryCount1;
+	var int												m_iTowerRetryCount1;
+	export var bool								m_bCanUpgradeWalls;
+	var bool											m_bIsUpgradingWalls;
+	var bool											m_bIsPreparing;
+	var bool											m_bHasBuiltAnything;
+	var ^CAiModuleDefenseDefault	m_pxDM;
+	var vec3											m_vStart;
+	var vec3											m_vEnd;
+	var vec3											m_vGatePos;
+	var bool											m_bTwo;
+	var bool											m_bSend;
+	var bool											m_bTower;
+	var bool											m_bCalcPass;
+	var array vec3								m_avGatePos;
+	var int												m_iArchers;
+	var bool											m_bSpawnNow;
+	var bool											m_bCheckWalls;
+	var int												m_iUnitSendCount;
+	var ^CAiModuleControlDefault	m_pxCM;
+	var CAiObjWrap								m_xOW;
+	var int												m_iCountTowerTask;
+	var ^CAiBrain 								m_pxBrain;
+	var ^CAiSensor								m_pxSensor;
+	var string										m_sPlayerID;
+	var int												m_iPlayerID;
+	var string										m_sLevelName;
+
+	///constructor
+	export constructor()
+		m_apxWallTasks=0;
+		m_axGateInfos=0;
+		m_apxTowerTasks1=0;
+		m_bTwo=false;
+		m_bSend=false;
+		m_bTower=false;
+		m_bCalcPass=false;
+		m_bCheckWalls=false;
+		m_iArchers=0;
+		m_bSpawnNow=true;
+		m_iUnitSendCount=0;
+		m_iCountTowerTask=0;
+	endconstructor;
+
+	///destructor
+	export destructor()
+	enddestructor;
+
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		if(super.Init(p_pxBrain)==false)then return false; endif;
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null)then return false; endif;
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 25;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(pxCM^.GetDifficultyInt()+iType);
+		begin FillWallClassList;
+			var string sTribe=p_pxBrain^.GetSensor().GetTechTree().GetTribe();
+			if(sTribe=="Hu")then
+				m_asWallClasses=3;
+				m_asWallClasses[0]="hu_palisade";
+				m_asWallClasses[1]="hu_small_wall";
+				m_asWallClasses[2]="hu_re_enforced_wall";
+			elseif(sTribe=="Aje")then
+				m_asWallClasses=2;
+				m_asWallClasses[0]="aje_bone_palisade";
+				m_asWallClasses[1]="aje_clay_wall";
+			elseif(sTribe=="Ninigi")then
+				m_asWallClasses=2;
+				m_asWallClasses[0]="ninigi_defense_skewer";
+				m_asWallClasses[1]="ninigi_palisade";
+			elseif(sTribe=="SEAS")then
+				m_asWallClasses=2;
+				m_asWallClasses[0]="seas_fence";
+				m_asWallClasses[1]="seas_wall";
+			endif;
+			UpdateBestWallClass();
+		end FillWallClassList;
+		SetMinMaxDistance(1.0,10000.0);
+		m_vStartLocation.SetXYZ(0.0,0.0,0.0);
+		m_bIsUpgradingWalls = false;
+		m_bCanUpgradeWalls = false;
+		m_bCloseStartLocation = false;
+		m_bHasBuiltAnything = false;
+		m_bGateAllowed = true;
+		m_iMaxGateRetryCount = 2;
+		m_iMaxGateCount = 10;
+		m_iGateCount = 0;
+		m_iMaxTowerRetryCount1 = 5;
+		m_iTowerRetryCount1 = 0;
+		return true;
+	endproc;
+
+	///shut
+	export proc void Shut()
+		var int i,iC=m_apxWallTasks.NumEntries();
+		if(iC>0)then
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CAiTaskBuildWalls pxWallTask=m_apxWallTasks[i];
+				pxWallTask^.Shut();
+				RemoveTask(pxWallTask);
+				delete pxWallTask;
+			endfor;
+		endif;
+		m_apxWallTasks=0;
+		iC = m_axGateInfos.NumEntries();
+		if(iC>0)then
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CAiTaskBuildGate pxGateTask=m_axGateInfos[i].m_pxTask;
+				if(pxGateTask != null)then
+					pxGateTask^.Shut();
+					RemoveTask(pxGateTask);
+					delete pxGateTask;
+				endif;
+			endfor;
+		endif;
+		m_axGateInfos=0;
+		m_iMaxGateRetryCount = 10;
+		iC=m_apxTowerTasks1.NumEntries();
+		if(iC>0)then
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CAiTaskBuildTowers pxTowerTask=m_apxTowerTasks1[i];
+				pxTowerTask^.Shut();
+				RemoveTask(pxTowerTask);
+				delete pxTowerTask;
+			endfor;
+		endif;
+		m_apxTowerTasks1=0;
+		m_iMaxTowerRetryCount1=5;
+		m_iTowerRetryCount1=5;
+	endproc;
+
+	///SetMinMaxDistance
+	export proc void SetMinMaxDistance(real p_fMinDistance, real p_fMaxDistance)
+		m_fMinDistance=p_fMinDistance;
+		m_fMaxDistance=p_fMaxDistance;
+	endproc;
+
+	///SetCloseStartLocation
+	export proc void SetCloseStartLocation(bool p_bClose)
+		m_bCloseStartLocation=p_bClose;
+	endproc;
+
+	///ExistsGateInfo
+	proc bool ExistsGateInfo( ^CAiWallDef p_pxWallDef )
+		if(p_pxWallDef == null)then
+			return( true );
+		endif;
+		var int iI, iC = m_axGateInfos.NumEntries();
+		for(iI=0) cond(iI<iC) iter(++iI)do
+			if(( m_axGateInfos[iI].m_pxWallDef != null ) && ( m_axGateInfos[iI].m_pxWallDef^.GetGUID() == p_pxWallDef^.GetGUID() ))then
+				return( true );
+			endif;
+		endfor;
+		return( false );
+	endproc;
+
+	///build a wall around a region, specified by name
+	export proc bool BuildWallAroundRegion(string p_sRegionName)
+		return true;
+	endproc;
+
+	///build a wall around a village place
+	export proc bool BuildVillageWalls(string p_sRegionName)
+		return BuildWallAroundRegion(p_sRegionName);
+	endproc;
+
+	///build a wall to block a pass
+	export proc bool BlockPassAt(vec3 p_vPos)
+		return BuildWallsAroundPlace(p_vPos,false);
+	endproc;
+
+	///ReadyToBuildWall
+	export proc bool ReadyToBuildWall()
+		if(m_pxSensor==null||m_pxBrain==null)then
+			return false;
+		endif;
+		// Henry: HACK for seas to build fences and gates (CAiWallPlacer's CanBuildWall() is always returning false for seas)
+		var string sTribe=m_pxBrain^.GetSensor().GetTechTree().GetTribe();
+		if(sTribe=="SEAS"&&m_pxSensor^.GetMultimap()&&(m_sLevelName!="Single 01"&&
+		m_sLevelName!="Single 02"&&m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&
+		m_sLevelName!="Single 05"&&m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&
+		m_sLevelName!="Single 08"&&m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&
+		m_sLevelName!="Single 11"&&m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&
+		m_sLevelName!="Single 14"&&m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&
+		m_sLevelName!="Single B41"&&m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then
+			return CMirageAIMgr.Get().BuildWalls();
+		endif;
+		return m_pxSensor^.GetWallPlacer().CanBuildWall();
+	endproc;
+
+	///KillAllWallTasks
+	proc void KillAllWallTasks( )
+		var int iI, iC = m_apxWallTasks.NumEntries();
+		for(iI=0) cond(iI<iC) iter(++iI)do
+			var ^CAiTaskBuildWalls pxWallTask = m_apxWallTasks[iI];
+			if(pxWallTask != null)then
+				pxWallTask^.Shut();
+				RemoveTask( pxWallTask );
+				delete( pxWallTask );
+			endif;
+		endfor;
+		m_apxWallTasks = 0;
+	endproc;
+
+	///build a wall around a place
+	export proc bool BuildWallsAroundPlace(vec3 p_vPos,bool p_bVillageWall)
+		var string sIsVillageWall = "false";
+		if(p_bVillageWall)then sIsVillageWall = "true"; endif;
+		if(m_pxBrain==null)then return(false); endif;
+		if(m_pxSensor==null)then return( false );endif;
+		if(m_sLevelName == "Single 02")then return( false ); endif;
+		if(m_sLevelName == "Single 09")then return( false ); endif;
+		if(m_sLevelName == "Single 13")then return( false ); endif;
+		if(( m_bCheckWalls == false ) && ( CAiUtilityMgr.Get()^.GetCurrentAge( m_pxBrain ) >= 3 ) && ( ReadyToBuildWall() == true ))then
+			var ^CAiWallPlacer pxPlacer = ^(m_pxSensor^.GetWallPlacer());
+			if(pxPlacer != null)then
+				pxPlacer^.Update();
+				m_bCheckWalls = true;
+				KillAllWallTasks();
+			endif;
+		endif;
+		var string sWallClassName = GetBestWallClass();
+		if(sWallClassName == "")then
+			return( false );
+		endif;
+		var vec3 vStart, vEnd;
+		var ^CAiWallDef pxWallDef = m_pxSensor^.FindWallNear( sWallClassName, m_iPlayerID, p_vPos, m_fMinDistance, m_fMaxDistance, vStart, vEnd );
+		if(pxWallDef == null)then
+			return( false );
+		endif;
+		pxWallDef^.Dump();
+		var string sTribe = m_pxSensor^.GetTechTree().GetTribe();
+		sTribe.MakeLower();
+		var ^CAiTaskBuildWalls pxWallTask = new CAiTaskBuildWalls( vStart, vEnd, sWallClassName, pxWallDef, 10 );
+		pxWallTask^.Init( this, m_xOW );
+		pxWallTask^.SetVillageWall( p_bVillageWall );
+		pxWallTask^.CalculateStartCost( );
+		if(pxWallTask^.Start() == false)then
+			pxWallTask^.Abort();
+			delete( pxWallTask );
+			return( false );
+		endif;
+		m_apxWallTasks.AddEntry( pxWallTask );
+		AddTask( pxWallTask );
+		return( true );
+	endproc;
+
+	///return the name of the currently best wall class
+	proc string GetBestWallClass()
+		if(m_pxBrain==null)then return ""; endif;
+		if(m_pxSensor==null)then return ""; endif;
+		if((m_iBestWallIdx<0)||(m_iBestWallIdx>=m_asWallClasses.NumEntries()))then return ""; endif;
+		var string sWallClassName=m_asWallClasses[m_iBestWallIdx];
+		var string sTribe=m_pxSensor^.GetTechTree().GetTribe();
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		var bool bBuildHeroWall=false;
+		if(!CMirageAIMgr.Get().FreeSpecials())then
+			if(IsNPCReqOk("mayor_s0"))then
+				bBuildHeroWall=true;
+			endif;
+		elseif(CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)>=5)then
+			bBuildHeroWall=true;
+		endif;
+		if(bBuildHeroWall)then
+//		if(CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)>=5)then
+			if(sTribe=="Aje")then
+				sWallClassName="aje_clay_wall";
+			elseif(sTribe=="Ninigi")then
+				sWallClassName="ninigi_palisade";
+			elseif(sTribe=="SEAS")then
+				sWallClassName="seas_wall";
+			endif;
+		endif;
+		if(GetAiTechTree()^.GetNodeInstanceFromPartialName("BLDG/"+sWallClassName)==null)then
+			return "";
+		endif;
+		return sWallClassName;
+	endproc;
+
+	export proc string GetBestGateClass()
+		if(m_pxBrain==null)then return ""; endif;
+		if(m_pxSensor==null)then return ""; endif;
+		if((m_iBestWallIdx<0)||(m_iBestWallIdx>=m_asWallClasses.NumEntries()))then
+			return "";
+		endif;
+		var string sWallClassName=m_asWallClasses[m_iBestWallIdx];
+		var string sTribe=m_pxSensor^.GetTechTree().GetTribe();
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		var ^CAiNPCMgr pxNPCMgr = ^(pxCM^.GetNPCMgr());
+		var bool bBuildHeroWall=false;
+		if(!CMirageAIMgr.Get().FreeSpecials())then
+			if(pxNPCMgr^.HasNPC("mayor_s0", 3)==true||pxNPCMgr^.HasNPC("mayor_s0", 4)==true)then
+				bBuildHeroWall=true;
+			endif;
+		elseif(CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)>=5)then
+			bBuildHeroWall=true;
+		endif;
+		if(bBuildHeroWall)then
+			if(sTribe=="Aje")then
+				sWallClassName="aje_clay_wall";
+			elseif(sTribe=="Ninigi")then
+				sWallClassName="ninigi_palisade";
+			elseif(sTribe=="SEAS")then
+				sWallClassName="seas_wall";
+			endif;
+		endif;
+		//Henry: fix because seas gate is an exception (not seas_fence_gate)
+		if(sWallClassName=="seas_fence")then
+			sWallClassName = "seas_gate";
+		else
+			sWallClassName += "_gate";
+		endif;
+		if(GetAiTechTree()^.GetNodeInstanceFromPartialName("BLDG/"+sWallClassName)==null)then
+			return "";
+		endif;
+		return( sWallClassName );
+	endproc;
+
+	///find out which wall class is the best that is currently possible
+	proc void UpdateBestWallClass()
+		if(m_pxSensor==null)then return; endif;
+		var int iBestWallClass = -1, iI, iC = m_asWallClasses.NumEntries();
+		var string sTribe = m_pxSensor^.GetTechTree().GetTribe();
+		for(iI=0) cond(iI<iC) iter(++iI)do
+			var string sWallClassName = m_asWallClasses[iI];
+			var ^CAiNodeInstance pxWallInst = GetAiTechTree()^.GetNodeInstanceFromPartialName( "BLDG/" + sWallClassName );
+			if(pxWallInst == null)then
+				continue;
+			endif;
+			var int iSol, iSolC = pxWallInst^.NumSolutions();
+			for(iSol=0) cond(iSol<iSolC) iter(++iSol)do
+				var ^CAiSolution pxSol = pxWallInst^.GetSolution( iSol );
+				if(( pxSol != null ) && ( pxSol^.IsPossible() ) && ( pxSol^.IsVisible() ))then
+					iBestWallClass = iI;
+					break;
+				endif;
+			endfor;
+		endfor;
+		if((iBestWallClass >= 0) && (iBestWallClass != m_iBestWallIdx))then
+			m_iBestWallIdx = iBestWallClass;
+		endif;
+	endproc;
+
+	///upgrade existing walls and/or invent better wall types
+	export proc void UpgradeWalls()
+		if(m_pxBrain==null)then return; endif;
+		var int iNextWallIdx=m_iBestWallIdx+1;
+		if(m_asWallClasses.NumEntries()>iNextWallIdx)then
+			var string sNextWallClass=m_asWallClasses[iNextWallIdx];
+			var CAiConstructionInfoPtr pxCInfo=CAiConstructionInfo.Create();
+			var ^CAiNodeInstance pxNI=GetAiTechTree()^.GetNodeInstanceFromPartialName("BLDG/"+sNextWallClass);
+			if(pxNI==null)then return; endif;
+			var CAiNeedPtr pxNd=CAiNeed.Create(true,1);
+			pxNd.GetNeed()^.AddEntry(pxNI);
+			pxCInfo.GetConstructionInfo()^.SetNeed(pxNd);
+			pxCInfo.GetConstructionInfo()^.SetPrepare(true);
+			SetRequesterFor(pxCInfo.GetConstructionInfo());
+			var ^IAiModuleEconomy pxEMod=m_pxBrain^.GetEconomyModule();
+			if(pxEMod==null)then return; endif;
+			pxEMod^.ExternalRequestConstruction(pxCInfo);
+			m_bIsUpgradingWalls=true;
+		endif;
+	endproc;
+
+	proc void UpdateWallTasks( )
+		var int iI, iC = m_apxWallTasks.NumEntries();
+		var string sTribe = m_pxSensor^.GetTechTree().GetTribe();
+		for(iI=0) cond(iI<iC) iter(++iI)do
+			var ^CAiTaskBuildWalls pxWallTask = m_apxWallTasks[iI];
+			if(pxWallTask != null)then
+				if(pxWallTask^.IsWorking())then //
+					if(pxWallTask^.IsAborted() || pxWallTask^.IsCompleted())then
+						pxWallTask^.Start();
+					endif;
+				else
+					if(m_bHasBuiltAnything == false)then
+						m_bHasBuiltAnything = pxWallTask^.m_bHasBuiltAnything;
+					endif;
+					m_vStart = pxWallTask^.GetStartVec();
+					m_vEnd = pxWallTask^.GetEndVec();
+					var bool bHoleInWall = false;
+					begin AddGateInfo;
+						var ^CAiWallDef pxWallDef = pxWallTask^.GetWallDef();
+						if(pxWallDef == null)then
+							continue;
+						endif;
+						if(( ExistsGateInfo( pxWallDef ) == false ) && ( m_iGateCount < m_iMaxGateCount ) && ( pxWallDef^.GetTileCount() >= 4 ))then
+							var string sGateClass = GetBestGateClass();
+							var vec3 vGatePos;
+							var int iGateDir;
+							// Henry: seas capitalized
+//							if(sTribe == "SEAS")then
+//								sGateClass = "seas_gate";
+//							endif;
+							var CGateInfo xGateInfo;
+							xGateInfo.m_pxWallDef = pxWallDef;
+							xGateInfo.m_pxTask = null;
+							xGateInfo.m_iRetries = 0;
+							m_axGateInfos.AddEntry( xGateInfo );
+						else
+							var vec3 vStart = pxWallDef^.GetCurrentStart(), vEnd = pxWallDef^.GetCurrentEnd(), vPos;
+							if(m_pxSensor^.GetBestHolePoint( vStart, vEnd, vPos ) == true)then
+								var ^CAiWallPlacer pxPlacer = ^(m_pxSensor^.GetWallPlacer());
+								if(pxPlacer^.NeedHoles( vPos ) == true)then
+									pxPlacer^.PutHoleInWall( vPos );
+									bHoleInWall = true;
+								endif;
+							endif;
+						endif;
+					end AddGateInfo;
+					begin StartTowerTask;
+						if(( ( m_vEnd - m_vStart ).Abs() >= 24.0f ) && ( bHoleInWall == false ))then
+							var string sTowerClassName = "";
+							if(sTribe == "SEAS")then
+								sTowerClassName = "seas_turret_tower";
+							else
+								sTowerClassName = sTribe + "_small_tower";
+								sTowerClassName.MakeLower();
+							endif;
+							if(m_iCountTowerTask <= 1)then
+								var ^CAiTaskBuildTowers pxTowerTask = new CAiTaskBuildTowers( m_vStart, sTowerClassName );
+								pxTowerTask^.Init( this );
+								pxTowerTask^.CalculateStartCost();
+								if(pxTowerTask^.Start() == false)then
+									pxTowerTask^.Shut();
+									delete( pxTowerTask );
+									pxTowerTask = null;
+								else
+									m_apxTowerTasks1.AddEntry( pxTowerTask );
+									AddTask( pxTowerTask );
+									m_iCountTowerTask += 1;
+								endif;
+							endif;
+						endif;
+					end StartTowerTask;
+					var bool bVillageWall = pxWallTask^.GetVillageWall();
+					pxWallTask^.Shut();
+					RemoveTask( pxWallTask );
+					delete( pxWallTask );
+					m_apxWallTasks.DeleteEntryUS( iI );
+					iI--;
+					iC--;
+					if(bVillageWall && !m_bHasClosedStartLocation)then
+						if(BuildWallsAroundPlace( m_vStartLocation, true ) == false)then
+							m_vStartLocation.SetXYZ( -1.0, -1.0, -1.0 );
+						endif;
+					endif;
+				endif;
+			endif;
+		endfor;
+	endproc;
+
+	proc void UpdateGateTasks()
+		var int iI, iC = m_axGateInfos.NumEntries();
+		var string sGateClass = GetBestGateClass();
+		for(iI=0) cond(iI<iC) iter(++iI)do
+			if(m_axGateInfos[iI].m_pxTask == null)then
+				if(m_axGateInfos[iI].m_pxWallDef^.NumGates()>0)then continue; endif;
+				if(m_pxSensor^.GateClassNameExists( sGateClass ) == true)then
+					m_axGateInfos[iI].m_pxTask = new CAiTaskBuildGate( m_axGateInfos[iI].m_pxWallDef );
+					m_axGateInfos[iI].m_pxTask^.Init( this );
+					m_axGateInfos[iI].m_pxTask^.CalculateStartCost();
+					if(m_axGateInfos[iI].m_pxTask^.Start() == false)then
+						m_axGateInfos[iI].m_pxTask^.Abort();
+						delete( m_axGateInfos[iI].m_pxTask );
+						m_axGateInfos[iI].m_pxTask = null;
+						m_axGateInfos[iI].m_iRetries += 1;
+						if(m_axGateInfos[iI].m_iRetries == 5)then
+							m_axGateInfos.DeleteEntryUS( iI );
+							iI--;
+							iC--;
+						endif;
+					else
+						AddTask( m_axGateInfos[iI].m_pxTask );
+						m_bSend = false;
+						if(m_iArchers < 1)then
+							RequestUnits();
+						endif;
+					endif;
+				else
+					m_axGateInfos.DeleteEntryUS( iI );
+					iI--;
+					iC--;
+				endif;
+			else
+				var ^CAiTaskBuildGate pxTask = m_axGateInfos[iI].m_pxTask;
+				if(pxTask^.IsAborted() || pxTask^.IsInitState())then
+					if(m_axGateInfos[iI].m_iRetries < m_iMaxGateRetryCount)then
+						pxTask^.Shut();
+						pxTask^.Init( this );
+						pxTask^.Start( );
+						m_axGateInfos[iI].m_iRetries++;
+					else
+						pxTask^.Shut();
+						RemoveTask( pxTask );
+						delete( pxTask );
+						m_axGateInfos.DeleteEntryUS( iI );
+						iI--;
+						iC--;
+						pxTask = null;
+					endif;
+				elseif(pxTask^.IsCompleted())then
+					pxTask^.Shut();
+					RemoveTask( pxTask );
+					m_xGates.AddEntry( pxTask^.GetGate() );
+					delete( pxTask );
+					m_axGateInfos.DeleteEntryUS( iI );
+					iI--;
+					iC--;
+					pxTask = null;
+					m_iGateCount++;
+				endif;
+			endif;
+		endfor;
+		if(m_iGateCount >= m_iMaxGateCount)then
+			for(iI=0) cond(iI<iC) iter(++iI)do
+				if(m_axGateInfos[iI].m_pxTask != null)then
+					m_axGateInfos[iI].m_pxTask^.Shut();
+					RemoveTask( m_axGateInfos[iI].m_pxTask );
+					delete( m_axGateInfos[iI].m_pxTask );
+				endif;
+			endfor;
+			m_axGateInfos = 0;
+		endif;
+	endproc;
+
+	proc void UpdateTowerTasks( )
+		var int iI, iC = m_apxTowerTasks1.NumEntries();
+		for(iI=0) cond(iI<iC) iter(++iI)do
+			var ^CAiTaskBuildTowers pxTowerTask=m_apxTowerTasks1[iI];
+			if(!pxTowerTask^.IsWorking())then
+				if(pxTowerTask^.IsAborted() || pxTowerTask^.IsNotPossible())then
+					pxTowerTask^.Shut();
+					pxTowerTask^.Init(this);
+					pxTowerTask^.CalculateStartCost();
+					pxTowerTask^.Start();
+				elseif(pxTowerTask^.IsCompleted())then
+					pxTowerTask^.Shut();
+					RemoveTask(pxTowerTask);
+					delete pxTowerTask;
+					m_apxTowerTasks1.DeleteEntryUS(iI);
+					iI--;
+					iC--;
+					m_iCountTowerTask -= 1;
+				endif;
+			endif;
+		endfor;
+	endproc;
+
+	proc void CreateNewGates( )
+		if(m_pxSensor == null)then
+			return;
+		endif;
+		if(m_iGateCount >= m_iMaxGateCount)then
+			return;
+		endif;
+		var string sTribe = m_pxSensor^.GetTechTree().GetTribe();
+		var int iI, iC = m_pxSensor^.GetFinishedWallCount();
+		for(iI=0) cond(iI<iC) iter(++iI)do
+			var ^CAiWallDef pxWallDef = m_pxSensor^.GetFinishedWall( iI );
+			if(pxWallDef == null)then
+				continue;
+			endif;
+			if(( ExistsGateInfo( pxWallDef ) == false ) && ( m_iGateCount < m_iMaxGateCount )/* && ( pxWallDef^.GetTileCount() >= 4 )*/)then
+				if(pxWallDef^.GetTileCount()<pxWallDef^.GetPossibleTileCount())then continue; endif; //not yet ready
+				var string sGateClass = GetBestGateClass();
+				var vec3 vGatePos;
+				var int iGateDir;
+//				if(sTribe == "SEAS")then
+//					sGateClass = "seas_gate";
+//				endif;
+				var CGateInfo xGateInfo;
+				xGateInfo.m_pxWallDef = pxWallDef;
+				xGateInfo.m_pxTask = null;
+				xGateInfo.m_iRetries = 0;
+				m_axGateInfos.AddEntry( xGateInfo );
+			else
+				var vec3 vStart = pxWallDef^.GetCurrentStart(), vEnd = pxWallDef^.GetCurrentEnd(), vPos;
+				if(m_pxSensor^.GetBestHolePoint( vStart, vEnd, vPos ) == true)then
+					var ^CAiWallPlacer pxPlacer = ^(m_pxSensor^.GetWallPlacer());
+					if(pxPlacer^.NeedHoles( vPos ) == true)then
+						pxPlacer^.PutHoleInWall( vPos );
+					endif;
+				endif;
+			endif;
+		endfor;
+	endproc;
+
+	proc void CheckGates( )
+		var int iI, iC = m_xGates.NumEntries();
+		for(iI=0) cond(iI<iC) iter(++iI)do
+			if(m_xGates[iI].IsValid() == false)then
+				m_xGates.DeleteEntry( iI );
+				iI--;
+				iC--;
+				m_iGateCount--;
+			endif;
+		endfor;
+	endproc;
+
+	export proc void Think()
+		if(m_pxBrain == null)then
+			return;
+		endif;
+		if(m_pxSensor == null)then
+			return;
+		endif;
+		var bool bSkipWalls = false;
+		var string sTribe = m_pxSensor^.GetTechTree().GetTribe();
+		if(m_iBestWallIdx < 0)then
+			if(m_bIsUpgradingWalls == false)then
+				UpgradeWalls();
+			endif;
+			bSkipWalls = true;
+		endif;
+		if(bSkipWalls == false)then
+			UpdateBestWallClass();
+			if(m_bCloseStartLocation)then
+				if(m_vStartLocation.GetX() <= 0.0f)then
+					var ^CAiMaps pxMaps = ^(m_pxSensor^.GetAiMaps());
+					var ^CAiMaps pxGlobalMaps = ^(m_pxSensor^.GetGlobalAiMaps());
+					var ^CAiMap pxInflMap = ^(pxMaps^.GetAiMap( "InflBuild", m_iPlayerID ));
+					var CAiArea xMaxInflArea = pxInflMap^.FindMaxArea();
+					if(pxInflMap^.GetValue( xMaxInflArea ) <= 0.0f)then
+						pxInflMap = ^(pxMaps^.GetAiMap( "Infl", m_iPlayerID ) );
+						xMaxInflArea = pxInflMap^.FindMaxArea();
+					endif;
+					if(xMaxInflArea.GetX() >= 0)then
+						m_vStartLocation = xMaxInflArea.GetWorldCenterPos();
+						if(BuildWallsAroundPlace( m_vStartLocation, true ) == false)then
+							m_vStartLocation.SetXYZ( -1.0f, -1.0f, -1.0f );
+						endif;
+					endif;
+				endif;
+			endif;
+			UpdateWallTasks();
+			UpdateGateTasks();
+			UpdateTowerTasks();
+			CreateNewGates();
+			CheckGates();
+			UnitsOnWalls();
+			m_bSend = true;
+			m_bTower = true;
+			if(( m_bHasBuiltAnything == true ) && ( m_bCanUpgradeWalls == true ) && ( m_bIsUpgradingWalls == false ))then
+				UpgradeWalls( );
+			endif;
+		endif;
+	endproc;
+
+	//CreateRequest-> create a ConstructionInfo fora building an archer
+	proc CAiConstructionInfoPtr CreateRequest(string p_sName, int p_iLevel, int p_iNumber)
+		var CAiConstructionInfoPtr pxCI;
+		var CAiNeedPtr pxNd;
+		var ^CAiNodeInstance pxNI;
+		if(m_pxSensor==null)then return pxCI; endif;
+		var CAiAttribs xAttribs;
+		var ^CAiTechTree pxTT = ^(m_pxSensor^.GetTechTree());
+		xAttribs.SetValue("level", p_iLevel.ToString());
+		pxNI = pxTT^.GetNodeInstanceFromPartialName(p_sName, xAttribs);
+		if(pxNI!=null)then
+			pxNd = CAiNeed.Create(true,p_iNumber);
+			pxNd.GetNeed()^.AddEntry(pxNI);
+			pxCI = CAiConstructionInfo.Create();
+			SetRequesterFor(pxCI.GetConstructionInfo());
+			pxCI.GetConstructionInfo()^.SetNeed(pxNd);
+			pxCI.GetConstructionInfo()^.SetWantUnits(true);
+		endif;
+		return pxCI;
+	endproc;
+
+	//UnitsOnWalls
+	proc void UnitsOnWalls()
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		if(m_iGateCount <= 0)then return; endif;
+		if(CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)>=3)then
+			var int i, iC=m_xUnits.NumEntries();
+			if(iC<=0)then return; endif;
+			for(i=0)cond(i<iC)iter(i++)do
+				if(m_xUnits[i].IsValid()==true)then
+					var CAiObjQuery xOQ;
+					var CAiObjWrapList xOWL;
+					var int j, iK=m_asWallClasses.NumEntries();
+					for(j=0)cond(j<iK)iter(j++)do
+						// Henry: bugfix by Adder (it was 'i'). it caused once a server crash (array bounds exceeded, yada yada yada), SEK...
+						xOQ.SetClass(m_asWallClasses[j],true);
+					endfor;
+					xOQ.RegionCircle(m_vGatePos, 36.ToReal());
+					xOQ.Execute(xOWL);
+					if(xOWL.NumEntries()>0)then
+						if((m_bSend==true))then
+							var string sTribe=m_pxSensor^.GetTechTree().GetTribe();
+							if((sTribe=="Hu")&&((xOWL[0].GetClassName()=="hu_small_wall")||(xOWL[0].GetClassName()=="hu_re_enforced_wall"))||((sTribe=="Aje")&&(xOWL[0].GetClassName()=="aje_clay_wall"))||((sTribe=="Ninigi")&&(xOWL[0].GetClassName()=="ninigi_palisade"))||((sTribe=="SEAS")&&(xOWL[0].GetClassName()=="seas_wall")))then
+								var int j;
+								if(m_iUnitSendCount<10)then
+									for(j=0)cond(j<m_xUnits.NumEntries())iter(j++)do
+										m_pxSensor^.ExecuteGamePlayCommand(m_xUnits[j].GetHandle(),"Use",xOWL[0].GetHandle(), xOWL[0].GetPos(), "");
+									endfor;
+									m_iUnitSendCount++;
+								endif;
+								if(m_xUnits.NumEntries()>0)then
+									m_pxSensor^.SetAggroState(m_xUnits,0);
+								endif;
+							endif;
+							m_bTwo=false;
+							m_bSend=false;
+							m_bTower=false;
+						endif;
+					endif;
+				endif;
+			endfor;
+		endif;
+	endproc;
+
+	//RequestUnits()
+	proc void RequestUnits()
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		if(m_bTwo==false)then
+			//Create 2 Archers
+			var string sTribe=m_pxSensor^.GetTechTree().GetTribe();
+			var ^CAiTechTree pxTT = ^(m_pxSensor^.GetTechTree());
+			var ^CAiModuleEconomyDefault pxEM=cast<CAiModuleEconomyDefault>(m_pxBrain^.GetEconomyModule());
+			var CAiConstructionInfoPtr pxCI;
+			if(sTribe=="Hu")then
+				pxCI = CreateRequest("hu_archer", 1, 3);
+			elseif(sTribe=="Aje")then
+			// Henry: changed level from 0 to 1 (CreateRequest(string p_sName, int p_iLevel, int p_iNumber))
+				pxCI = CreateRequest("aje_archer", 1, 3);
+			// Henry: added dc
+			elseif(sTribe=="Ninigi")then
+				pxCI = CreateRequest("ninigi_archer", 1, 3);
+			// Henry: added seas
+			elseif(sTribe=="SEAS")then
+				pxCI = CreateRequest("seas_marksman", 1, 3);
+			endif;
+			if(pxCI!=null)then
+				pxEM^.ExternalRequestConstruction(pxCI);
+				m_bTwo=true;
+			endif;
+			m_iArchers++;
+		endif;
+	endproc;
+
+	///EvtRequestSucceeded
+	export proc void EvtRequestSucceeded(^CAiRequestInfo p_pxRequest)
+		var ^CAiConstructionInfo pxCI=cast<CAiConstructionInfo>(p_pxRequest);
+		if(pxCI!=null)then
+			m_bIsUpgradingWalls=false;
+			UpdateBestWallClass();
+			if(pxCI^.GetUnits().NumEntries()>=1)then
+				m_xUnits= pxCI^.GetUnits();
+			endif;
+			var int i, iC=m_xUnits.NumEntries();
+			var ^CAiAllocationMgr	pxAllocMgr	= GetAiAllocationMgr();
+			if(pxAllocMgr!=null)then
+				for(i=0)cond(i<iC)iter(i++)do
+					pxAllocMgr^.ExternalLock(m_xUnits[i]);
+				endfor;
+			endif;
+		endif;
+	endproc;
+	
+	///EvtRequestFailed
+	export proc void EvtRequestFailed(^CAiRequestInfo p_pxRequest)
+		var ^CAiConstructionInfo pxCInf=cast<CAiConstructionInfo>(p_pxRequest);
+		if(pxCInf!=null)then
+			m_bIsUpgradingWalls=false;
+			UpdateBestWallClass();
+		endif;
+	endproc;
+	
+	export proc bool IsNPCReqOk(string p_sNPC)
+		if(m_pxCM==null)then return false; endif;
+		var ^CAiNPCMgr pxNPCMgr = ^(m_pxCM^.GetNPCMgr());
+		if(pxNPCMgr==null)then return false; endif;
+		return pxNPCMgr^.NPCRequirementFulfilled(p_sNPC);
+	endproc;
+	
+endclass;

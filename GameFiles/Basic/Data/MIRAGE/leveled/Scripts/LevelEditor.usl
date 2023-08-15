@@ -1,0 +1,542 @@
+class CLevelEditorInst inherit IEvtInterfaceLE
+
+	var ^CDesktop 				m_pxDesktop;
+	var ^CIconBar	 			m_pxIconBar;
+	var ^CStatusBar 			m_pxStatus;
+	static var ^CLoadWindow		ms_pxLoadWindow;
+	var	^CLoadWindow			m_pxLoadGsfWindow;
+	var int						m_iGsfLoadCount;
+	var CLevel 					m_xActualLevel;
+	var ^CCamera 				m_pxCamera;
+	var ^CCamera				m_pxDefaultCamera;
+	var bool 					m_bProfiler;
+	
+	export static var bool ms_bMsgBoxOnSaveEnd;
+
+	constructor()
+		
+		CGameStateReporter.SetState("In ParaWorld SDK");
+		
+		CLevelEditorWrap.LogSpam("LevelEditor","constructor()");
+
+		CClientWrap.ResetAllCursors();
+
+		m_pxDesktop=CClientWrap.GetDesktop();
+
+		if(CClientWrap.HasServer()==false) then
+			ms_pxLoadWindow=new CLoadWindow("Starting Editor");
+			m_pxDesktop^.AddChild(ms_pxLoadWindow);
+			CWindowMgr.Get().BringWindowToTop(ms_pxLoadWindow,true);
+			CWindowMgr.Get().SetModal(ms_pxLoadWindow);
+			CClientWrap.StartLocalServer();
+			CLevelEditorWrap.GetScapeMgr().SetWaterDraw(false);
+			CLevelEditorWrap.SetFullColorClear(true);
+			// we just force the FOW off in the level editor
+			CClientWrap.SetFOWEnabled(false);
+		else
+			OnServerStarted();
+		endif;
+		CKeyHandler.Get();
+		//gsf LoadCount reset
+		m_iGsfLoadCount=0;
+
+		m_pxDesktop^.SetCmd("SwitchClientShell", SwitchClientShell);
+		m_pxDesktop^.SetCmd("SwitchServerShell", SwitchServerShell);
+		m_pxDesktop^.SetCmd("SwitchProfiler", SwitchProfiler);
+		m_pxDesktop^.SetCmd("SwitchServerProfiler", SwitchServerProfiler);
+		
+		ms_bMsgBoxOnSaveEnd=false;
+	endconstructor;
+
+	destructor()
+		m_pxDesktop^.SetInputController(null);		
+		// this doesn't hurt even if FOW is off
+		CClientWrap.SetFOWEnabled(true);
+		delete m_pxIconBar;
+		delete m_pxStatus;
+		CKeyHandler.ShutStatic();
+		CGraphicObjectMgr.ShutStatic();
+		CEnhancedMenu.ShutStatic();
+		CMainController.ShutStatic();
+	enddestructor;
+
+	export static proc ref CCardBitmapMgr GetBitmapMgr()
+		return CClientWrap.GetBitmapMgr();
+	endproc;
+
+	proc void Evt_OnShutInstance()
+		CTTEditor2.ShutStatic();
+		CEnhancedMenu.Get().GetSequenceEditor()^.OnShutInstance();
+	endproc;
+
+	export static proc void DeleteLoadWindow()
+		if(ms_pxLoadWindow!=null)then
+			CWindowMgr.Get().ReleaseModal(ms_pxLoadWindow);
+			ms_pxLoadWindow^.Destroy();
+			ms_pxLoadWindow=null;
+		endif;
+	endproc;
+
+	proc bool SwitchServerProfiler()
+		CEvt_GenericEvent.Send("SwitchServerProfiler");
+		return(true);
+	endproc;
+
+	proc bool SwitchProfiler()
+		if(m_bProfiler)then
+			KLog.LogSpam("JaNe","Client profiler stopped, check 'profiled_client.csv' for details.");
+			Profiler.Stop();
+			Profiler.ExportCSV("profiled_client.csv");
+			CClientWrap.ProfilingStop("profiled_client.kprof");
+			m_bProfiler = false;
+		else
+			KLog.LogSpam("JaNe","Client profiler started.");
+			Profiler.Start();
+			CClientWrap.ProfilingStart();
+			m_bProfiler = true;
+		endif;
+		return(true);
+	endproc;
+
+	export proc void SetDefaultCamera()
+		m_pxCamera=m_pxDefaultCamera;
+		CMultiCameraController.Get().SetCamera(m_pxCamera);
+		//REMOVE CMainController.Get().GetCameraCtrl()^.Control(m_pxCamera);
+		CLevelEditorWrap.SetCamera(m_pxDefaultCamera^);
+	endproc;
+
+	// called every tick, moves camera via cam controler and sets it to the new pos/rot
+	export proc void OnTick()
+		CClientWrap.SetCamera(m_pxCamera^);
+		//CEnhancedMenu.Get().GetInfoWin()^.Update();
+		CStatusBar.Get().Update();
+	endproc;
+
+	proc bool SwitchServerShell()
+		CLevelEditorWrap.SwitchServerShell();
+		return(true);
+	endproc;
+
+	proc bool SwitchClientShell()
+		CLevelEditorWrap.SwitchClientShell();
+		return(true);
+	endproc;
+
+	export proc void SetCamera(^CCamera p_pxCamera)
+		m_pxCamera=p_pxCamera;
+		CMultiCameraController.Get().SetCamera(m_pxCamera);
+	endproc;
+
+	//hides the iconbar
+	export proc bool OnHideWindow(bool p_bVisState)
+		m_pxIconBar^.SetVisible(p_bVisState);
+		m_pxStatus^.SetVisible(p_bVisState);
+		return(true);
+	endproc;
+
+//------> TerrainController
+/*	export proc void OnRender()
+		CClientWrap.SetCamera(m_xCamera);
+	endproc;
+*/
+
+	proc void Evt_OnCreateObj(CClntHndl p_xObj)
+		CEnhancedMenu.Get().GetObjFinder()^.Include2(p_xObj);
+
+		var ^CObj pxObj=p_xObj.GetObj();
+		if(pxObj!=null)then
+			var CFourCC xType = pxObj^.GetType();
+			if(xType=="SLOC")then
+				var ^CLevelInfoOptions2 pxOpt=CEnhancedMenu.Get().GetViewLevelInfo()^.GetLevelInfoOptions2();
+				var int iLimit=pxOpt^.GetMaxPlayersLimit()+1;
+				if(iLimit>8)then iLimit=8; endif;
+				pxOpt^.SetMaxPlayersLimit(iLimit);
+			elseif(xType=="GROU") then
+				var ^CViewGroups pxGroups = CEnhancedMenu.Get().GetViewTriggerCreate()^.m_pxGroupWnd;
+				if(pxGroups!=null) then
+					pxGroups^.OnGroupCreated(p_xObj);
+				endif;
+			elseif(xType=="CHTR") then
+				var CClntHndl xInvalid;
+				CEvt_ObjLECommand.Send(p_xObj, "LE_SetToMinLevel", xInvalid, {0.0f, 0.0f, 0.0f}, "");
+			elseif(xType=="BLDG")then
+				var string sParam=CEnhancedMenu.Get().GetObjInsert()^.GetBuildUp().ToString();
+				var CClntHndl xInvalid;
+//				CEvt_ObjLECommand.Send(p_xObj, "LE_SetReady", xInvalid, {0.0f, 0.0f, 0.0f}, "");
+				CEvt_ObjLECommand.Send(p_xObj, "LE_SetReady", xInvalid, {0.0f, 0.0f, 0.0f}, sParam);
+			endif;
+		endif;
+
+	endproc;
+
+	proc void Evt_OnDeleteEntry(CClntHndl p_xObj)
+		CLevelEditorWrap.LogSpam("LevelEditor","Object deleted "+ p_xObj.AsInt().ToString());
+		var ^CObj pxObj=p_xObj.GetObj();
+		CEnhancedMenu.Get().GetObjFinder()^.RemEntry(p_xObj);
+		if(pxObj!=null)then
+
+			if(pxObj^.GetType()=="SLOC")then
+				var CObjQueryCln xOQ;
+				xOQ.SetType("SLOC");
+				var CObjList xStartLocs;
+				xOQ.Execute(xStartLocs);
+				var int iLimit=xStartLocs.NumEntries();
+				if(iLimit>8)then iLimit=8; endif;
+				var ^CLevelInfoOptions2 pxOpt=CEnhancedMenu.Get().GetViewLevelInfo()^.GetLevelInfoOptions2();
+				pxOpt^.SetMaxPlayersLimit(iLimit);
+			elseif(pxObj^.GetType()=="GROU") then
+				var ^CViewGroups pxGroups = CEnhancedMenu.Get().GetViewTriggerCreate()^.m_pxGroupWnd;
+				if(pxGroups!=null) then
+					pxGroups^.OnGroupDeleted(p_xObj);
+				endif;
+			endif;
+			
+			CEnhancedMenu.Get().GetSequenceEditor()^.DeleteActor(pxObj^.GetGuid());
+		endif;
+	endproc;
+
+	proc void Evt_OnProcessFraction(real p_fPercentage, string p_sDescription)
+		if(ms_pxLoadWindow!=null) then
+			ms_pxLoadWindow^.SetProgress(p_fPercentage, p_sDescription);
+		endif;
+		//CUIStateMgr.Get().SetLoadingProgress(p_fPercentage, p_sDescription);
+	endproc;
+
+	proc void Evt_OnCreateRegion(CGuid p_xGuid)
+		KLog.LogSpam("MaZi", "CreateRegion");
+		CEnhancedMenu.Get().GetViewZoneCreate()^.AddRegion(p_xGuid);
+	endproc;
+
+	proc void Evt_OnChangeRegion(CGuid p_xGuid)
+		CEnhancedMenu.Get().GetViewZoneCreate()^.UpdateRegion(p_xGuid);
+	endproc;
+
+	proc void Evt_OnDeleteRegion(CGuid p_xGuid)
+		CEnhancedMenu.Get().GetViewZoneCreate()^.RemRegion(p_xGuid);
+	endproc;
+
+	proc void Evt_OnUpdateRegionTree()
+		KLog.LogSpam("MaZi", "Evt_OnUpdateRegionTree");
+		CEnhancedMenu.Get().GetViewZoneCreate()^.ClearRegionTree();
+		CEnhancedMenu.Get().GetViewZoneCreate()^.UpdateRegionTree();
+	endproc;
+
+	export static proc bool SetLoadWindow(string p_sLoadInfo)
+		CLevelEditorInst.DeleteLoadWindow();
+		ms_pxLoadWindow=new CLoadWindow(p_sLoadInfo);
+		CClientWrap.GetDesktop()^.AddChild(ms_pxLoadWindow);
+		CWindowMgr.Get().BringWindowToTop(ms_pxLoadWindow,true);
+		CWindowMgr.Get().SetModal(ms_pxLoadWindow);
+		return(true);
+	endproc;
+	
+	export static proc void SetLoadWindowProgress(real p_fProgress, string p_sText)
+		if(ms_pxLoadWindow!=null) then
+			ms_pxLoadWindow^.SetProgress(p_fProgress, p_sText, "");
+		endif;
+	endproc;
+
+	export static proc void SetLoadWindowLoadLevel()
+		if(ms_pxLoadWindow!=null) then
+			ms_pxLoadWindow^.m_bLoadLevelWindow=true;
+		endif;
+	endproc;
+
+	proc void Evt_OnProcessBegin(bitset p_dwProcessType)
+		if(p_dwProcessType==CGameBase.GPT_Load)then
+
+		elseif(p_dwProcessType==CGameBase.GPT_Save)then
+			CLevelEditorWrap.LogSpam("LevelEditor","Evt_OnSaveBegin");
+			ms_pxLoadWindow=new CLoadWindow(CLocalizer.Get().Translate("_LevelEditor_SavingMap"));
+			m_pxDesktop^.AddChild(ms_pxLoadWindow);
+			CWindowMgr.Get().BringWindowToTop(ms_pxLoadWindow,true);
+			CWindowMgr.Get().SetModal(ms_pxLoadWindow);
+		elseif(p_dwProcessType==CGameBase.GPT_StartServer)then
+
+		elseif(p_dwProcessType==CGameBase.GPT_LoadMap)then
+			CLevelEditorWrap.LogWarning("LevelEditor","-------LoadMap Start-------------");
+		elseif(p_dwProcessType==CGameBase.GPT_LoadGfxSet)then
+			if(m_iGsfLoadCount<1 && m_pxLoadGsfWindow==null)then
+				m_pxLoadGsfWindow=new CLoadWindow("Load Gfx");
+				m_pxDesktop^.AddChild(m_pxLoadGsfWindow);
+				CWindowMgr.Get().BringWindowToTop(m_pxLoadGsfWindow,true);
+				CWindowMgr.Get().SetModal(m_pxLoadGsfWindow);
+			endif;
+			m_iGsfLoadCount++;
+			//CLevelEditorWrap.LogError("LevelEditor","-------------- load GraphicSet "+m_iGsfLoadCount.ToString()+" start --------------");
+		endif;
+	endproc;
+
+	proc void Evt_OnProcessUpdate(bitset p_dwProcessType,string p_sUpdateString)
+		KLog.LogError("OnProcessUpdate","Info: "+p_sUpdateString);
+	endproc;
+
+	proc void Evt_OnGenericLongStringEvent(string p_sEvent);
+		KLog.LogSpam("ViewLevelInfo","Evt_OnGenericLongStringEvent "+p_sEvent);
+	endproc;
+
+	proc void Evt_OnLevelInfoUpdate(bitset p_dwUpdateFlags) ;
+		CEnhancedMenu.Get().GetViewLevelInfo()^.InvalidateContent();
+		CEnhancedMenu.Get().GetMaterialAtmos()^.InvalidateContent();
+		CEnhancedMenu.Get().GetViewPlayerInfo()^.InvalidateContent();
+	endproc;
+	
+	proc void Evt_OnUpdateQuest()
+		CEnhancedMenu.Get().GetViewQuestEditor()^.InvalidateContent();
+	endproc;
+
+	proc void SetCloudSettings(string p_sSettingName)
+		//If you update this function, make similar changes in Game.usl
+
+		if(p_sSettingName=="Ashvalley")then
+				CClientWrap.GetSkyMgr().SetCloudSpeed(8.0, 90.0);
+				CClientWrap.GetSkyMgr().SetCloudLifeTime(10.0, 250.0);
+				CClientWrap.GetSkyMgr().SetCloudSize(120.0, 700.0);
+				CClientWrap.GetSkyMgr().SetCloudHeightOffset(110.0);
+				CClientWrap.GetSkyMgr().SetNrOfClouds(100, 10);
+		elseif(p_sSettingName=="Icewaste")then
+				CClientWrap.GetSkyMgr().SetCloudSpeed(8.0, 90.0);
+				CClientWrap.GetSkyMgr().SetCloudLifeTime(10.0, 250.0);
+				CClientWrap.GetSkyMgr().SetCloudSize(120.0, 700.0);
+				CClientWrap.GetSkyMgr().SetCloudHeightOffset(110.0);
+				CClientWrap.GetSkyMgr().SetNrOfClouds(100, 10);
+		elseif(p_sSettingName=="Savanna")then
+				CClientWrap.GetSkyMgr().SetCloudSpeed(8.0, 90.0);
+				CClientWrap.GetSkyMgr().SetCloudLifeTime(10.0, 250.0);
+				CClientWrap.GetSkyMgr().SetCloudSize(120.0, 700.0);
+				CClientWrap.GetSkyMgr().SetCloudHeightOffset(110.0);
+				CClientWrap.GetSkyMgr().SetNrOfClouds(100, 10);
+		elseif(p_sSettingName=="Jungle")then
+				CClientWrap.GetSkyMgr().SetCloudSpeed(8.0, 90.0);
+				CClientWrap.GetSkyMgr().SetCloudLifeTime(10.0, 250.0);
+				CClientWrap.GetSkyMgr().SetCloudSize(120.0, 700.0);
+				CClientWrap.GetSkyMgr().SetCloudHeightOffset(110.0);
+				CClientWrap.GetSkyMgr().SetNrOfClouds(100, 10);
+		else
+			//Northland default
+//				CClientWrap.GetSkyMgr().SetCloudSpeed(50.0, 200.0);
+				CClientWrap.GetSkyMgr().SetCloudSpeed(2.0, 8.0);
+				CClientWrap.GetSkyMgr().SetCloudLifeTime(100.0, 250.0);
+				CClientWrap.GetSkyMgr().SetCloudSize(150.0, 400.0);
+//				CClientWrap.GetSkyMgr().SetCloudSize(150.0, 250.0);
+				CClientWrap.GetSkyMgr().SetCloudHeightOffset(80.0);
+//				CClientWrap.GetSkyMgr().SetCloudHeightOffset(32.0);
+				CClientWrap.GetSkyMgr().SetNrOfClouds(60, 50);   //default settings
+//				CClientWrap.GetSkyMgr().SetNrOfClouds(45, 18);
+		endif;
+		CClientWrap.GetSkyMgr().InitPostLevelLoaded();
+	endproc;
+
+	proc void Evt_OnProcessEnd(bitset p_dwProcessType)
+		if(p_dwProcessType==CGameBase.GPT_Load)then
+			if(ms_pxLoadWindow!=null&&ms_pxLoadWindow^.m_bLoadLevelWindow==false) then CLevelEditorInst.DeleteLoadWindow(); endif;
+			Evt_TimeOfDaySetting();
+			if(CLevelEditorWrap.GetScapeMgr().HasMap())then
+				var ^CViewScapeEdit pxScapeEdit;
+				var ^CViewLevelProp pxLP;
+				CEnhancedMenu.Get().GetScapeTemplates()^.SetDisabled(false);
+				pxScapeEdit=CEnhancedMenu.Get().GetScapeEdit();
+				pxLP=CEnhancedMenu.Get().GetLevelPropView();
+				pxLP^.ShowLevel();
+				if(pxScapeEdit!=null) then
+					var ^CGfxMgr pxGfxMgr=^(CLevelEditorWrap.GetGfxMgr());
+					var string sSetting;
+					if(CLevelEditorWrap.GetScapeMgr().GetTerrainSetting()==0000b)then
+							sSetting = "Northland";
+						elseif(CLevelEditorWrap.GetScapeMgr().GetTerrainSetting()==0001b)then
+							sSetting = "Savanna";
+						elseif(CLevelEditorWrap.GetScapeMgr().GetTerrainSetting()==0010b)then
+							sSetting = "Jungle";
+						elseif(CLevelEditorWrap.GetScapeMgr().GetTerrainSetting()==0011b)then
+							sSetting = "Icewaste";
+						elseif(CLevelEditorWrap.GetScapeMgr().GetTerrainSetting()==0100b)then
+							sSetting = "Ashvalley";
+						elseif(CLevelEditorWrap.GetScapeMgr().GetTerrainSetting()==0101b)then
+							sSetting = "Test";
+						elseif(CLevelEditorWrap.GetScapeMgr().GetTerrainSetting()==0110b)then
+							sSetting = "Cave1";
+						elseif(CLevelEditorWrap.GetScapeMgr().GetTerrainSetting()==0111b)then
+							sSetting = "Cave2";
+						elseif(CLevelEditorWrap.GetScapeMgr().GetTerrainSetting()==01000b)then
+							sSetting = "Cave3";
+						else
+							CMessageBox.MsgBox(CLocalizer.Get().Translate("_LevelEditor_Attention"), CLocalizer.Get().Translate("_LevelEditor_NoSetting")+CLevelEditorWrap.GetScapeMgr().GetTerrainSetting().ToString());
+					endif;
+					//pxMat^.SetSetting(sSetting);
+					pxScapeEdit^.SetSetting(sSetting);
+					CLevelEditorWrap.GetForestMgr().LoadForestConfig(CLevelEditorWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/Classes/Vegetation/Forest_"+sSetting+".txt");
+					SetCloudSettings(sSetting);
+					CLevelEditorWrap.LogSpam("LevelEditor","Setting--> "+sSetting);
+					CLevelEditorInst.DeleteLoadWindow();
+					if(CEnhancedMenu.Get().GetShowWarnings())then
+						var string sFile=CEnhancedMenu.Get().GetCurrentLoadingLevel();
+						var Filesystem.CFileAttributes xFileAttributes;
+						if(xFileAttributes.GetFromFile(sFile))then
+							if(xFileAttributes.m_bReadOnly==true)then
+//								CMessageBox.MsgBox("Schlachti's word of advice:","Level is write protected, and will not be saved!");
+							endif;
+						else
+							KLog.LogInfo("Editor","File not found!");
+						endif;
+					endif;
+				endif;
+			endif;
+			CEnhancedMenu.Get().GetViewQuestEditor()^.InvalidateContent();
+			CLevelEditorWrap.LogSpam("LevelEditor","WARNING: Evt_OnLoadEnd");
+			
+			InitInternalLevelVariables();
+		elseif(p_dwProcessType==CGameBase.GPT_Save)then
+			CLevelEditorWrap.LogSpam("LevelEditor","WARNING: Evt_OnSaveEnd");
+
+			CLevelEditorInst.DeleteLoadWindow();
+			if(ms_bMsgBoxOnSaveEnd)then
+				CMessageBox.MsgBox("Save Level","Finished.");
+			endif;
+			ms_bMsgBoxOnSaveEnd=false;
+		elseif(p_dwProcessType==CGameBase.GPT_StartServer)then
+			OnServerStarted();
+		elseif(p_dwProcessType==CGameBase.GPT_LoadMap)then
+			CLevelEditorWrap.LogWarning("LevelEditor","-------LoadMap End---------");
+			CLevelEditorWrap.GetForestMgr().LoadForestConfig(CLevelEditorWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/Classes/Vegetation/"+"Forest_"+CEnhancedMenu.Get().GetLevel().GetSetting()+".txt");
+			//Update ObjectInsert menu
+			CEnhancedMenu.Get().GetObjInsert()^.OnUpdateObjClassTree();
+			CEnhancedMenu.Get().GetObjInsert()^.EnableControls(true);
+			//Test
+			var int iTime;
+			CSettings.Get("Editor/ScapeOptions/Time",iTime);
+			CLevelEditorWrap.SetTime(iTime,0,0);
+			CEnhancedMenu.Get().GetScapeTemplates()^.SetDisabled(false);
+
+			CEvt_RequestLevelInfo.Send();
+			CEnhancedMenu.Get().GetViewLevelInfo()^.GetLevelInfoWeather()^.ActivateControls();
+			if(ms_pxLoadWindow!=null&&ms_pxLoadWindow^.m_bLoadLevelWindow==false) then CLevelEditorInst.DeleteLoadWindow(); endif;
+			CEnhancedMenu.Get().GetViewZoneCreate()^.UpdateRegionTree();
+			CEnhancedMenu.Get().GetSequenceEditor()^.SetDisabled(false);
+		elseif(p_dwProcessType==CGameBase.GPT_LoadGfxSet)then
+			//CLevelEditorWrap.LogError("LevelEditor","------------- load GraphicSet "+m_iGsfLoadCount.ToString()+" end ---------------");
+			m_iGsfLoadCount--;
+			if(m_iGsfLoadCount<1)then
+				delete m_pxLoadGsfWindow;
+				m_iGsfLoadCount=0;
+			endif;
+			CEnhancedMenu.Get().GetScapeTemplates()^.SetDisabled(false);
+		endif;
+	endproc;
+
+	export static proc void InitVariable(string p_sName, string p_sType, string p_sVal)
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		var ^CPropDB.CNode pxVars = pxLevelInfo^.GetGenericData().FindNode("Variables/"+p_sName, false);
+		if(pxVars==null) then
+			pxVars = pxLevelInfo^.GetGenericData().FindNode("Variables/"+p_sName, true);
+			if(pxVars!=null)then
+				pxVars^.SetValue("type", p_sType);
+				pxVars^.SetValue("value", p_sVal);
+			endif;
+		endif;
+	endproc;
+
+	export static proc void InitInternalLevelVariables()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		var int iMaxPlayers = pxBaseNode^.GetValueI("MaxPlayers",0);
+		InitVariable("_Internal_NumPlayers", "int", iMaxPlayers.ToString());
+		InitVariable("_Internal_NeededDeadEnemies", "int", 8.ToString());
+		InitVariable("_Internal_DeadEnemyCnt", "int", "0");
+	endproc;
+
+	proc void OnServerStarted()
+		CLevelEditorWrap.LogSpam("LevelEditor","Evt_OnServerStarted");
+		CEnhancedMenu.Get().SetLevelEditor(this);
+		m_pxIconBar=new CIconBar();
+		m_pxStatus=new CStatusBar();
+		m_pxCamera=CClientWrap.GetCamera();
+		m_pxDefaultCamera=CClientWrap.GetCamera();
+		m_pxCamera^.Eye()={0.0,0.0,50.0};
+		m_pxCamera^.LookAt()={16.0,16.0,32.0};
+		CMainController.Get().SetCamera(m_pxCamera);
+		CMultiCameraController.Get().GetFreeCameraModule()^.ResetCamera();
+		CMultiCameraController.Get().SwitchToModule("FreeCamera");
+		CMultiCameraController.Get().SetClampToWorld(false);
+		m_pxDesktop^.SetInputController(CMainController.^Get());
+		m_pxDesktop^.AddChild(m_pxIconBar);
+		m_pxIconBar^.SetVisible(false);
+		m_pxDesktop^.AddChild(m_pxStatus);
+		m_pxStatus^.SetVisible(false);
+		var procref<void> xProcRef=OnTick;
+		CClientWrap.SetProcRefTick(xProcRef);
+		CWindowMgr.Get().BringWindowToTop(m_pxDesktop,true);
+		CLevelEditorWrap.SetTimePaused(true);
+		CEnhancedMenu.Get().SetLevel(^m_xActualLevel);
+		m_pxDesktop^.AddChild(^(CEnhancedMenu.Get()));
+		CEnhancedMenu.Get().m_xOnHideWindow=OnHideWindow;
+		CEnhancedMenu.Get().GetPreferences()^.GetGeneralPreferences()^.UpdateBars();
+		CLevelEditorInst.DeleteLoadWindow();
+		//CIconBar.Get().SelectBrush(m_pxBrushes^.GetSelectedItem());
+		CIconBar.Get().Hack();
+		if(CClientWrap.GetGlobalAttribs().GetValue("autostart_client")=="LevelEditor")then
+			var string sAutoStartMap = CClientWrap.GetGlobalAttribs().GetValue("autostart_level");
+			CEnhancedMenu.Get().LoadFile(sAutoStartMap);
+		endif;
+	endproc;
+
+	proc void Evt_OnServerNotFound()
+		CMessageBox.MsgBox(CLocalizer.Get().Translate("_LevelEditor_Error"),CLocalizer.Get().Translate("_LevelEditor_NoServer"));
+		CEvt_ClientDisconnect.Send();
+	endproc;
+
+	proc void Evt_OnServerClosed()
+		CLevelEditorWrap.Quit();
+		CLevelEditorWrap.LogSpam("LevelEditor","Evt_OnServerClosed");
+	endproc;
+
+	proc void Evt_OnChangeSelection()
+		CEnhancedMenu.Get().GetObjFinder()^.OnSelectionChanged();
+		CEnhancedMenu.Get().GetViewAtmoMarkers()^.OnSelectionChanged();
+		CEnhancedMenu.Get().GetSequenceEditor()^.OnSelectionChanged();
+		CEnhancedMenu.Get().GetViewZoneCreate()^.OnSelectionChanged();
+	endproc;
+
+	proc void Evt_OnResetTriggerDescMgr()
+		CEnhancedMenu.Get().GetViewTriggerCreate()^.Reset();
+	endproc;
+
+	proc void Evt_OnSequenceStart()
+	endproc;
+
+	proc void Evt_OnSequenceEnd(string p_sSeqName,string p_sCameraData,bool p_bQuitAfterSequence)
+	endproc;
+
+	proc void Evt_OnUndoBufferChanged()
+		CEnhancedMenu.Get().OnUndoChanged();
+	endproc;
+	
+	proc void Evt_TimeOfDaySetting()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		var string sStartTime = pxBaseNode^.GetValueS("StartTime","12:0");
+		var array string asTime;
+		sStartTime.Split(asTime,":",false);
+		if(asTime.NumEntries()==2)then
+			CEvt_GenericEvent.Send("timeofday&"+asTime[0]+"&"+asTime[1]);
+		endif;
+	endproc;
+
+	export static proc void JoinDB( ^CPropDB.CNode p_pxDB1, ^CPropDB.CNode p_pxDB2 )
+		var int i;
+		for(i=0)cond(i<p_pxDB2^.NumSubs())iter(i++)do
+			var string sName = (p_pxDB2^)[i].Name();
+			var string sValue = (p_pxDB2^)[i].Value();
+			var int iIndex = p_pxDB1^.Find( sName );
+			if( iIndex != -1 )then
+				if(sValue != p_pxDB1^.GetValueS(sName))then
+					p_pxDB1^.SetValue(sName,sValue);
+				endif;
+			else
+				p_pxDB1^.AddValue(sName, sValue);
+			endif;
+			CLevelEditorInst.JoinDB(p_pxDB1^.Get(sName), p_pxDB2^.Get(sName));
+		endfor;
+	endproc;
+
+endclass;

@@ -1,0 +1,1064 @@
+class CRegionTree inherit CTreeCtrl
+	
+	var ^CViewRegionCreate m_pxOwner;
+	export const string REGION_PREFIX = ">>> ";
+	
+	export constructor()
+	endconstructor;
+	
+	export proc void Init(^CViewRegionCreate p_pxOwner)
+		m_pxOwner=p_pxOwner;
+	endproc;
+
+	proc bool OnRButtonDown()
+		super.OnRButtonDown();
+		var int iSelItem=GetSelectedItem();
+		if(iSelItem==-1)then return true; endif;
+		var ^CRegionData pxRD = cast<CRegionData>(GetItemData(iSelItem));
+		if(pxRD==null)then return true; endif;
+		var ^CContextMenu pxMenu=new CContextMenu(GetSHWND());
+		if(pxRD^.IsNode())then
+			pxMenu^.AddItem("add node",0);
+			pxMenu^.AddItem("region rect",2);
+			pxMenu^.AddItem("region oval",3);
+			//pxMenu^.AddItem("region box",4);
+			//pxMenu^.AddItem("region ellips",5);
+			pxMenu^.AddItem("rename",15);
+		elseif(pxRD^.IsBaseType())then
+			pxMenu^.AddItem("sub rect",6);
+			pxMenu^.AddItem("sub oval",7);
+			//pxMenu^.AddItem("sub box",8);
+			//pxMenu^.AddItem("sub ellips",9);
+			pxMenu^.AddItem("set color",10);
+			pxMenu^.AddItem("rename",15);
+		endif;
+		if(pxRD^.IsBaseType())then
+			pxMenu^.AddItem("convert to rect",11);
+			pxMenu^.AddItem("convert to oval",12);
+			var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+			var CGuid xBaseRegion=pxRD^.GetBaseRegion();
+			var ^CRegionBase pxBaseRgn=pxRM^.GetRegion(xBaseRegion);
+			if(pxBaseRgn!=null)then
+				if(pxBaseRgn^.GetEnable()) then
+					pxMenu^.AddItem("set disabled",17);
+				else
+					pxMenu^.AddItem("set enabled", 16);
+				endif;
+			endif;
+		elseif(pxRD^.IsSubType())then
+			var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+			var CGuid xBaseRegion=pxRD^.GetBaseRegion();
+			var ^CRegionBase pxBaseRgn=pxRM^.GetRegion(xBaseRegion);
+			if(pxBaseRgn!=null)then
+				var int iSubID=pxRD^.GetSubRegionID();
+				var ^CSubRegion pxSub=pxBaseRgn^[iSubID];
+				if(pxSub!=null)then
+					if(pxSub^.GetType()!=CSubRegion.RT_Rect)then
+						pxMenu^.AddItem("convert to rect",13);
+					elseif(pxSub^.GetType()!=CSubRegion.RT_Oval)then
+						pxMenu^.AddItem("convert to oval",14);
+					endif;
+					if(pxSub^.GetEnable()) then
+						pxMenu^.AddItem("set disabled", 19);
+					else
+						pxMenu^.AddItem("set enabled", 18);
+					endif;
+				endif;
+			endif;
+		endif;
+		pxMenu^.AddItem("delete",1);
+		pxMenu^.AddItem("cancel",-1);
+		pxMenu^.Show();
+		return true;
+	endproc;
+	
+	export proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+		var string sClass = p_rxEvt.GetClass().ToString();
+		//right mouse down
+		if(sClass=="sCtxBtnC")then
+			var ^CRegionData pxRD=null;
+			var int iSelItem=GetSelectedItem();
+			if(iSelItem!=0)then 
+				pxRD=cast<CRegionData>(GetItemData(iSelItem));
+			endif;
+			var int iID=p_rxEvt.GetInt16A();
+			if(iID==0)then//add node
+				AddRegionNode(pxRD);
+			elseif(iID==1)then//delete
+				DeleteElement(pxRD);
+			elseif(iID==2)then//rect region
+				OnNewRegion(pxRD,CSubRegion.RT_Rect);
+			elseif(iID==3)then//oval region
+				OnNewRegion(pxRD,CSubRegion.RT_Oval);
+			elseif(iID==4)then//box region
+				OnNewRegion(pxRD,CSubRegion.RT_Box);
+			elseif(iID==5)then//ellipsoid region
+				OnNewRegion(pxRD,CSubRegion.RT_Ellipsoid);
+			elseif(iID==6)then//sub rect
+				OnNewSubRegion(pxRD,CSubRegion.RT_Rect);
+			elseif(iID==7)then//sub oval
+				OnNewSubRegion(pxRD,CSubRegion.RT_Oval);
+			elseif(iID==8)then//sub box
+				OnNewSubRegion(pxRD,CSubRegion.RT_Box);
+			elseif(iID==9)then//sub ellips
+				OnNewSubRegion(pxRD,CSubRegion.RT_Ellipsoid);
+			elseif(iID==10)then//set color
+				OnSetColor(pxRD);
+			elseif(iID==11)then//convert to rect (base)
+				ChangeRegionType(pxRD,CSubRegion.RT_Rect);
+			elseif(iID==12)then//convert to oval (base)
+				ChangeRegionType(pxRD,CSubRegion.RT_Oval);
+			elseif(iID==13)then//convert to rect (sub)
+				ChangeSubRegionType(pxRD,CSubRegion.RT_Rect);
+			elseif(iID==14)then//convert to oval (sub)
+				ChangeSubRegionType(pxRD,CSubRegion.RT_Oval);
+			elseif(iID==15)then//rename
+				RenameItem(pxRD);
+			elseif(iID==16) then //enable base
+				EnableBaseRegion(pxRD, true);
+			elseif(iID==17) then //disable base
+				EnableBaseRegion(pxRD, false);
+			elseif(iID==18) then //enable sub
+				EnableSubRegion(pxRD, true);
+			elseif(iID==19) then //disable sub
+				EnableSubRegion(pxRD, false);
+			endif;
+		endif;
+		return super.HandleMessage(p_rxEvt);
+	endproc;
+	
+	proc void EnableBaseRegion(^CRegionData p_pxRD, bool p_bEnable)
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var CGuid xBaseRegion=p_pxRD^.GetBaseRegion();
+		var ^CRegionBase pxBaseRgn=pxRM^.GetRegion(xBaseRegion);
+		if(pxBaseRgn!=null) then
+			pxBaseRgn^.SetEnable(p_bEnable);
+			var int iItem = p_pxRD^.GetNodeIdx();
+			SetItemDisabled(iItem, !p_bEnable, false);
+//			if(!p_bEnable)then
+			if(true)then
+				var int i, iC = ItemNumChildren(iItem);
+				for(i=0) cond(i<iC) iter(++i) do
+					var ^CRegionData pxRD = cast<CRegionData>(GetItemData(GetChildItem(iItem, i)));
+					if(pxRD!=null) then
+						EnableSubRegion(pxRD,false);
+					endif;
+				endfor;
+			endif;
+		endif;
+	endproc;
+	
+	proc void EnableSubRegion(^CRegionData p_pxRD, bool p_bEnable)
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var CGuid xBaseRegion=p_pxRD^.GetBaseRegion();
+		var ^CRegionBase pxBaseRgn=pxRM^.GetRegion(xBaseRegion);
+		if(pxBaseRgn!=null)then
+			var int iSubID=p_pxRD^.GetSubRegionID();
+			var ^CSubRegion pxSub=pxBaseRgn^[iSubID];
+			if(pxSub!=null)then
+				pxSub^.SetEnable(p_bEnable);
+				var int iItem = p_pxRD^.GetNodeIdx();
+				SetItemDisabled(iItem, !p_bEnable, false);
+			endif;
+		endif;
+	endproc;
+	
+	proc void AddRegionNode(^CRegionData p_pxParent)
+		if(p_pxParent==null)then return; endif;
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var CRegionMgrClient.CNode xParent = p_pxParent^.GetNode();
+		var string sName = "NewNode_"+Random.GetInt().ToString();
+		var CRegionMgrClient.CNode xNewNode = pxRM^.CreateNewNode(xParent, sName);
+		var int iParentNode=p_pxParent^.GetNodeIdx();
+		var ^CRegionData pxNewRD = new CRegionData(xNewNode);
+		var int iIdx = AddItem(iParentNode,sName, pxNewRD);
+		cast<CRegionData>(GetItemData(iIdx))^.m_iNodeIdx = iIdx;
+		pxRM^.InvalidateNode(xParent, true);
+		Select(iIdx);
+		//EnsureVisible(iIdx);
+		//InvalidateWindow();
+	endproc;
+	
+	proc void DeleteElement(^CRegionData p_pxItemData)
+		if(p_pxItemData==null)then return; endif;
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		if(p_pxItemData^.IsNode()) then
+			var int iIdx = p_pxItemData^.GetNodeIdx();
+			var CRegionMgrClient.CNode xNode = p_pxItemData^.GetNode();
+			var CRegionMgrClient.CNode xParent = xNode.GetParent();
+			var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+			DeleteNode(xNode);
+			pxRM^.DeleteNode(xNode);
+			FreeUserData(iIdx);
+			DeleteItem(iIdx, true);
+		elseif(p_pxItemData^.IsBaseType())then
+			var CGuid xBase=p_pxItemData^.GetBaseRegion();
+			pxRM^.DeleteRegion(xBase);
+			CLevelEditorWrap.LogSpam("Region","delete base region");
+			DeleteItem(p_pxItemData^.GetNodeIdx(),true);
+		else
+			var CGuid xBase=p_pxItemData^.GetBaseRegion();
+			var int iSubID=p_pxItemData^.GetSubRegionID();
+			var ^CRegionBase pxRgn=pxRM^.GetRegion(xBase);
+			if(pxRgn!=null) then
+				pxRgn^.RemSubRegion(iSubID);
+				UpdateRegion(xBase);
+				if(pxRgn^.NumSubs()==0)then
+					//pxRM^.DeleteRegion(xBase);
+					//m_pxRegionTree^.DeleteItem(iSelItem,true);
+				endif;
+			endif;
+		endif;
+		CMainController.Get().GetRegionCtrl().Disable();	
+	endproc;
+	
+	proc void DeleteNode(CRegionMgrClient.CNode p_xNode)
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var int i, iC=p_xNode.GetData()^.NumRegions();
+		var CGuid xG;
+		for(i=0) cond(i<iC) iter(++i) do
+			KLog.LogSpam("MaZi", "NumRegion: " + iC.ToString() + " / Cur: " + i.ToString());
+			xG = p_xNode.GetData()^.GetRegionGuid(i);
+			pxRM^.DeleteRegion(xG);
+			--iC; --i;
+		endfor;
+		iC = p_xNode.NumChildren();
+		for(i=0) cond(i<iC) iter(++i) do
+			DeleteNode(p_xNode.GetChild(i));
+			--iC; --i;
+		endfor;
+	endproc;
+	
+	//Updates the region properties
+	export proc void UpdateRegion(CGuid p_xGuid)
+		var bool bNewRegion=true;
+		StartIterate();
+		var int iCur = 0;
+		repeat
+			Iterate(iCur);
+			if (iCur <= 1) then break; endif;
+			var ^CRegionData pxRD = cast<CRegionData>(GetItemData(iCur));
+			if (pxRD!=null) then
+				if (pxRD^.IsBaseType() && pxRD^.GetBaseRegion()==p_xGuid) then
+					bNewRegion=false;
+					while(ItemNumChildren(iCur)!=0)do
+						var int iChildIdx = GetChildItem(iCur,0);
+						delete GetItemData(iChildIdx);
+						DeleteItem(iChildIdx,false);
+					endwhile;
+					var ^CRegionBase pxRgn = CLevelEditorWrap.GetRegionMgr()^.GetRegion(p_xGuid);
+					if (pxRgn!=null) then
+						SetItemDisabled(iCur, !pxRgn^.GetEnable(), false);
+						var int i, iC = pxRgn^.NumSubs();
+						for(i=0) cond(i<iC) iter(++i) do
+							var ^CSubRegion pxSub = pxRgn^[i];
+							var int iNewSub = AddItem(iCur, i.ToString(), new CRegionData(pxRD^.GetNode(), p_xGuid, i));
+							cast<CRegionData>(GetItemData(iNewSub))^.m_iNodeIdx = iNewSub;
+							SetItemDisabled(iNewSub, !pxSub^.GetEnable(), false);
+						endfor;
+					else
+						delete GetItemData(iCur);
+						DeleteItem(iCur, true);
+					endif;
+					break;
+				endif;
+			endif;
+		until ( iCur <= 0 ) endrepeat;
+		if(bNewRegion)then
+			// ??AddRegion(p_xGuid);
+		endif;
+	endproc;
+	
+	proc void OnNewRegion(^CRegionData p_pxParent,bitset p_dwType)
+		if(!p_pxParent^.IsNode())then
+			KLog.LogError("Region","Parent must be node");
+			return;
+		endif;
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var CGuid xNewRegion=pxRM^.CreateRegion(p_pxParent^.GetNode());
+		var ^CRegionBase pxRgn=pxRM^.GetRegion(xNewRegion);
+		var int iIdx=AddItem(p_pxParent^.GetNodeIdx(), REGION_PREFIX + pxRgn^.GetName(), new CRegionData(p_pxParent^.GetNode(),xNewRegion));
+		var ^CRegionData pxNewRD = cast<CRegionData>(GetItemData(iIdx));
+		pxNewRD^.m_iNodeIdx = iIdx;
+		pxNewRD^.m_bVisible = p_pxParent^.m_bVisible;
+		OnNewSubRegion(pxNewRD,p_dwType);
+	endproc;
+	
+	proc void OnNewSubRegion(^CRegionData p_pxParent,bitset p_dwType)
+		if(!p_pxParent^.IsBaseType())then
+			KLog.LogError("Region","Parent must have Base type");
+			return;
+		endif;
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var CGuid xBaseRegion=p_pxParent^.GetBaseRegion();
+		var ^CRegionBase pxBaseRgn=pxRM^.GetRegion(xBaseRegion);
+		pxBaseRgn^.SetRendering(true);
+		//var vec3 vPos=CClientWrap.GetScapeMgr().GetPickPoint();
+		var vec3 vPos=CMultiCameraController.Get().GetLookAt();
+		vPos.SetZ(Math.Max(CLevelEditorWrap .GetScapeMgr().GetHeight(vPos.GetX(),vPos.GetY()),CLevelEditorWrap .GetScapeMgr().GetSeaLevel()));
+		var vec3 vExt(0.0f,0.0f,0.0f);
+		var int iSubRegionID=pxBaseRgn^.AddSubRegion(p_dwType,vPos,vExt);
+		//pxBaseRgn^[iSubRegionID]^.SetSelected(true);
+		//pxBaseRgn^.SetEditMode(true);
+		pxBaseRgn^[iSubRegionID]^.AdjustSize(10.0f,10.0f);
+		begin AddToTree;
+			var int iSubRgnIdx =AddItem(p_pxParent^.m_iNodeIdx,iSubRegionID.ToString(),new CRegionData(p_pxParent^.GetNode(), xBaseRegion, iSubRegionID));
+			var ^CRegionData pxNewRD = cast<CRegionData>(GetItemData(iSubRgnIdx));
+			pxNewRD^.m_iNodeIdx = iSubRgnIdx;
+			pxNewRD^.m_bVisible = p_pxParent^.m_bVisible;
+			Select(iSubRgnIdx);
+		end AddToTree;
+		//var ^CMainController pxMC=^(CMainController.Get());
+		//pxMC^.ActivateRegionCtrl();
+		//pxMC^.GetRegionCtrl().EditRegion(xBaseRegion,iSubRegionID);
+		//pxMC^.DeselectAllToggleButton();		
+	endproc;
+	
+	var CGuid m_xRenameItem;
+	
+	proc void RenameItem(^CRegionData p_pxRegionData)
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		if(!p_pxRegionData^.IsBaseType())then 
+			m_xRenameItem=p_pxRegionData^.m_xNode.GetData()^.GetGuid();
+			var ^CRenameDialog pxDlg=new CRenameDialog(p_pxRegionData^.GetNode().GetData()^.GetName());
+			pxDlg^.m_xOnOK=OnRenameItemOK;
+			pxDlg^.m_xOnCancel=OnRenameItemCancel;
+			pxDlg^.Show();
+			return;
+		endif;
+		m_xRenameItem=p_pxRegionData^.GetBaseRegion();
+		var ^CRegionBase pxBaseRgn=pxRM^.GetRegion(m_xRenameItem);
+		var ^CRenameDialog pxDlg=new CRenameDialog(pxBaseRgn^.GetName());
+		pxDlg^.m_xOnOK=OnRenameItemOK;
+		pxDlg^.m_xOnCancel=OnRenameItemCancel;
+		pxDlg^.Show();
+	endproc;
+	
+	proc void OnRenameItemOK(string p_sNewName)
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var CGuid xInvalid;
+		var ^CRegionBase pxBaseRgn=pxRM^.GetRegion(m_xRenameItem);
+		if(pxBaseRgn==null)then
+			var CRegionMgrClient.CNode xNode=pxRM^.FindNodeByGuid(m_xRenameItem);
+			pxRM^.RenameNode(xNode,p_sNewName);
+			var int iIterator=0;
+			StartIterate();
+			while(Iterate(iIterator))do
+				var ^CRegionData pxItemData=cast<CRegionData>(GetItemData(iIterator));
+				if(pxItemData!=null&&pxItemData^.IsNode())then
+					if(pxItemData^.GetNode().GetData()^.GetGuid()==m_xRenameItem)then
+						SetItemText(iIterator, xNode.GetData()^.GetName());
+						break;
+					endif;
+				endif;
+			endwhile;
+			m_xRenameItem=xInvalid;
+			return;
+		endif;
+		pxBaseRgn^.SetName(p_sNewName);
+		var int iIterator=0;
+		StartIterate();
+		while(Iterate(iIterator))do
+			var ^CRegionData pxItemData=cast<CRegionData>(GetItemData(iIterator));
+			if(pxItemData!=null && pxItemData^.IsBaseType())then
+				var CGuid xGuid=pxItemData^.GetBaseRegion();
+				if(xGuid==m_xRenameItem)then
+					SetItemText(iIterator, REGION_PREFIX + p_sNewName);
+					return;
+				endif;
+			endif;
+		endwhile;
+		m_xRenameItem=xInvalid;
+	endproc;
+
+	proc void OnRenameItemCancel()
+		var CGuid xInvalid;
+		m_xRenameItem=xInvalid;
+	endproc;
+	
+	export proc void FreeUserData(int p_iIdx)
+		delete GetItemData(p_iIdx);
+		var int i, iC = ItemNumChildren(p_iIdx);
+		for(i=0) cond(i<iC) iter(++i) do
+			var int iChild = GetChildItem(p_iIdx, i);
+			FreeUserData(iChild);
+		endfor;
+	endproc;
+	
+	export proc void Clear()
+		var int iIterator=0;
+		StartIterate();
+		while(Iterate(iIterator))do
+			var ^CRegionData pxItemData=cast<CRegionData>(GetItemData(iIterator));
+			delete pxItemData;
+		endwhile;
+		super.Clear();
+	endproc;
+	
+	export proc void Update()
+		Clear();
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var CRegionMgrClient.CNode xRoot = pxRM^.GetHierarchyRoot();
+		var ^CRegionBase.TNodeData pxRootData = xRoot.GetData();
+		var ^CRegionData pxRD=new CRegionData(xRoot);
+		var int iRootIdx = AddItem(0, pxRootData^.GetName());
+		pxRD^.m_iNodeIdx = iRootIdx;
+		pxRD^.m_bVisible = true;
+		SetItemData(iRootIdx, pxRD);
+		UpdateRec(xRoot, iRootIdx);
+	endproc;
+	
+	proc void UpdateRec(CRegionMgrClient.CNode p_xNode, int p_iNode)
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var int i, iC = p_xNode.NumChildren();
+		for(i=0) cond(i<iC) iter(++i) do
+			var CRegionMgrClient.CNode xChildNode = p_xNode.GetChild(i);
+			var ^CRegionBase.TNodeData pxData = xChildNode.GetData();
+			if(pxData==null)then continue; endif;
+			var ^CRegionData pxNewRD = new CRegionData(xChildNode);
+			var int iChildIdx=AddItem(p_iNode,pxData^.GetName(), pxNewRD);
+			pxNewRD^.m_iNodeIdx=iChildIdx;
+			UpdateRec(xChildNode,iChildIdx);
+		endfor;
+		
+		begin UpdateNodeRegions;
+			var ^CRegionBase.TNodeData pxNodeData = p_xNode.GetData();
+			var int iR,iRC=pxNodeData^.NumRegions();
+			for(iR=0)cond(iR<iRC)iter(iR++)do
+				var CGuid xRegionGuid=pxNodeData^.GetRegionGuid(iR);
+				var ^CRegionBase pxRegion=pxRM^.GetRegion(xRegionGuid);
+				if(pxRegion==null)then 
+					continue; 
+				endif;
+				var ^CRegionData pxNewRD=new CRegionData(p_xNode,xRegionGuid);
+				var int iIdx=AddItem(p_iNode, REGION_PREFIX + pxRegion^.GetName(),pxNewRD);
+				pxNewRD^.m_iNodeIdx = iIdx;
+				SetItemDisabled(iIdx, !pxRegion^.GetEnable(), false);
+				//?? pxNewRD^.m_bVisible = p_pxParent^.m_bVisible;
+				var int iS,iSC=pxRegion^.NumSubs();
+				for(iS=0)cond(iS<iSC)iter(iS++)do
+					var ^CSubRegion pxSub=(pxRegion^)[iS];
+					var int iSubRgnIdx =AddItem(iIdx,iS.ToString(),new CRegionData(p_xNode, xRegionGuid, iS));
+					var ^CRegionData pxNewRD = cast<CRegionData>(GetItemData(iSubRgnIdx));
+					pxNewRD^.m_iNodeIdx = iSubRgnIdx;
+					//?? pxNewRD^.m_bVisible = p_pxParent^.m_bVisible;
+					SetItemDisabled(iSubRgnIdx, !pxSub^.GetEnable(), false);
+				endfor;
+			endfor;
+		end UpdateNodeRegions;
+	endproc;
+	
+	proc bool OnSelect()
+		super.OnSelect();
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var ^CMainController pxMC=^(CMainController.Get());
+		var int i,iC=pxRM^.NumRegions();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CRegionBase pxWalk=pxRM^.GetRegion(i);
+			var int k,kC=pxWalk^.NumSubs();
+			for(k=0)cond(k<kC)iter(k++)do
+				pxWalk^[k]^.SetEditMode(false);
+			endfor;
+			pxWalk^.SetSelected(false);
+		endfor;
+		pxMC^.GetRegionCtrl().Disable();
+		var int iSelItem=GetSelectedItem();
+		if(iSelItem==0)then return true; endif;
+		var ^CRegionData pxRD=cast<CRegionData>(GetItemData(iSelItem));
+		if(pxRD^.IsBaseType())then
+			var CGuid xBaseRegion=pxRD^.GetBaseRegion();
+			var ^CRegionBase pxBaseRgn=pxRM^.GetRegion(xBaseRegion);
+			//pxBaseRgn^.SetRendering(true);
+			pxBaseRgn^.SetSelected(true);
+		elseif(pxRD^.IsSubType())then
+			var CGuid xBaseRegion=pxRD^.GetBaseRegion();
+			var ^CRegionBase pxBaseRgn=pxRM^.GetRegion(xBaseRegion);
+			pxBaseRgn^.SetSelected(true);
+			var int iSubID=pxRD^.GetSubRegionID();
+			var ^CSubRegion pxSub=pxBaseRgn^[iSubID];
+			pxSub^.SetEditMode(true);
+			pxMC^.ActivateRegionCtrl();
+			pxMC^.GetRegionCtrl().EditRegion(xBaseRegion,iSubID);
+			pxMC^.DeselectAllToggleButton();
+		endif;
+		m_pxOwner^.OnSelect(pxRD);
+		return true;
+	endproc; 
+	
+	proc void OnSetColor(^CRegionData p_pxRegionData)
+		if(p_pxRegionData==null)then return; endif;
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var CGuid xBaseRegion=p_pxRegionData^.GetBaseRegion();
+		var ^CRegionBase pxBaseRgn=pxRM^.GetRegion(xBaseRegion);
+		if(pxBaseRgn==null)then return; endif;
+		var ^CViewColorPicker pxColorPicker=new CViewColorPicker();
+		pxColorPicker^.m_xReturnColor = OnColorChosen;
+		pxColorPicker^.SetCurColor(pxBaseRgn^.GetColor());
+		CClientWrap.GetDesktop()^.AddChild(pxColorPicker);
+		CWindowMgr.Get().BringWindowToTop(pxColorPicker,true);
+		CWindowMgr.Get().SetModal(pxColorPicker);
+		CMainController.Get().DeselectAllToggleButton();
+	endproc;
+
+	proc bool OnColorChosen(color p_xColor)
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var int iSelItem=GetSelectedItem();
+		if(iSelItem==0)then return true; endif;
+		var ^CRegionData pxRD=cast<CRegionData>(GetItemData(iSelItem));
+		if(!pxRD^.IsBaseType())then return true; endif;
+		var CGuid xBaseRegion=pxRD^.GetBaseRegion();
+		var ^CRegionBase pxBaseRgn=pxRM^.GetRegion(xBaseRegion);
+		if(pxBaseRgn==null)then return true; endif;
+		pxBaseRgn^.SetColor(p_xColor);
+		return true;
+	endproc;
+	
+	proc void ChangeRegionType(^CRegionData p_pxRegionData,bitset p_dwNewType)
+		if(p_pxRegionData==null)then return; endif;
+		if(!p_pxRegionData^.IsBaseType())then return; endif;
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var CGuid xBaseRegion=p_pxRegionData^.GetBaseRegion();
+		var ^CRegionBase pxBaseRgn=pxRM^.GetRegion(xBaseRegion);
+		if(pxBaseRgn==null)then return; endif;
+		var int i,iC=pxBaseRgn^.NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CSubRegion pxSRgn=pxBaseRgn^[i];
+			pxSRgn^.SetType(p_dwNewType);
+		endfor;
+	endproc;
+	
+	proc void ChangeSubRegionType(^CRegionData p_pxRegionData,bitset p_dwNewType)
+		if(p_pxRegionData==null)then return; endif;
+		if(!p_pxRegionData^.IsSubType())then return; endif;
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var CGuid xBaseRegion=p_pxRegionData^.GetBaseRegion();
+		var ^CRegionBase pxBaseRgn=pxRM^.GetRegion(xBaseRegion);
+		if(pxBaseRgn==null)then return; endif;
+		var int iSubID=p_pxRegionData^.GetSubRegionID();
+		var ^CSubRegion pxSRgn=pxBaseRgn^[iSubID];
+		pxSRgn^.SetType(p_dwNewType);
+	endproc;
+
+endclass;
+
+
+class CViewRegionCreate inherit CEnhancedFrameWindow
+
+	export const string REGION_PREFIX = ">>> ";
+
+	var ^CRegionTree m_pxRegionTree;
+	var ^CEdit m_pxDesc;
+
+	var ^CRegionBase m_pxSelectedRegion;
+
+	export constructor()
+		if(!InitFromResource("Trigger/ViewRegionCreate","RegionCreate")) then
+			CLevelEditorWrap.LogError("UI.ViewRegionCreate","InitFromResource failed");
+			return;
+		endif;
+		m_pxRegionTree = cast<CRegionTree>(GetControl("Zone/Tree"));
+		m_pxRegionTree^.Init(this);
+		m_pxRegionTree^.SetShowNumChildren(false);
+		m_pxRegionTree^.AllowMultiSelection(true);
+		m_pxRegionTree^.SetAllowItemDragging(true);
+		//m_pxRegionTree^.m_xOnSelect = OnSelect;
+		m_pxRegionTree^.m_xOnLBtnDblClick = CenterOnRegion;
+		m_pxRegionTree^.m_xOnMoveNode = OnMoveNode;
+		m_pxRegionTree^.m_xOnPostMoveNode = OnPostMoveNode;
+		//Edit Description
+		m_pxDesc = cast<CEdit>(GetControl("Edit_Desc"));
+		m_pxDesc^.m_xOnChange = ChangeDesc;
+		m_pxDesc^.SetText("");
+		//Dialog menu
+		var ^CZoneMenu pxMenu=cast<CZoneMenu>(GetControl("Menu"));
+		pxMenu^.Init(this,m_pxRegionTree);
+		LoadPosition("ZoneCreate");
+		m_pxSelectedRegion = null;
+		UpdateRegionTree();
+	endconstructor;
+
+	export destructor()
+		Clear();
+	enddestructor;
+
+	export proc void UpdateRegionTree()
+		m_pxRegionTree^.Update();
+	endproc;
+	
+	export proc void FreeUserData(int p_iIdx)
+		delete m_pxRegionTree^.GetItemData(p_iIdx);
+		var int i, iC = m_pxRegionTree^.ItemNumChildren(p_iIdx);
+		for(i=0) cond(i<iC) iter(++i) do
+			var int iChild = m_pxRegionTree^.GetChildItem(p_iIdx, i);
+			FreeUserData(iChild);
+		endfor;
+	endproc;
+
+	proc int FindInChildren(int p_iItem, string p_sSearch)
+		var int i, iC = m_pxRegionTree^.ItemNumChildren(p_iItem);
+		for(i=0) cond(i<iC) iter(++i) do
+			var int iChild = m_pxRegionTree^.GetChildItem(p_iItem, i);
+			if (m_pxRegionTree^.GetItemText(iChild)==p_sSearch) then return iChild; endif;
+		endfor;
+		return -1;
+	endproc;
+
+	proc bool HasChild(CRegionMgrClient.CNode p_xNode, string p_sChildName)
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var int i,iC=p_xNode.NumChildren();
+		for(i=0) cond(i<iC) iter(++i) do
+			var ^CRegionBase.TNodeData pxData = p_xNode.GetChild(i).GetData();
+			if(pxData!=null && pxData^.GetName()==p_sChildName) then
+				return true;
+			endif;
+		endfor;
+		return false;
+	endproc;
+
+	export proc void ClearRegionTree()
+		m_pxRegionTree^.Clear();
+	endproc;
+
+	proc bool OnMoveNode(int p_iNodeID, int p_iNewParent)
+		if (m_pxRegionTree^.GetItemText(p_iNodeID)=="Root") then return false; endif;
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var ^CRegionData pxRDMoving, pxRDNewParent;
+		pxRDMoving = cast<CRegionData>(m_pxRegionTree^.GetItemData(p_iNodeID));
+		pxRDNewParent = cast<CRegionData>(m_pxRegionTree^.GetItemData(p_iNewParent));
+		if(pxRDMoving^.IsSubType() || !pxRDNewParent^.IsNode()) then return false; endif;
+		if (pxRDMoving!=null && pxRDNewParent!=null) then
+			if (pxRDMoving^.IsNode()) then
+				pxRM^.MoveNode(pxRDMoving^.GetNode(), pxRDNewParent^.GetNode());
+			elseif (pxRDMoving^.IsBaseType()) then
+				var ^CRegionBase pxRgn = pxRM^.GetRegion(pxRDMoving^.GetBaseRegion());
+				var CRegionMgrClient.CNode xNode = pxRDMoving^.GetNode();
+				if (xNode.IsValid()) then
+					var ^CRegionBase.TNodeData pxData = xNode.GetData();
+					var int iRegIdx = pxData^.FindRegion(pxRgn);
+					if (iRegIdx >= 0) then pxData^.RemRegion(iRegIdx); endif;
+				endif;
+				xNode = pxRDNewParent^.GetNode();
+				if (xNode.IsValid()) then
+					var ^CRegionBase.TNodeData pxData = xNode.GetData();
+					pxData^.AddRegion(pxRgn);
+				endif;
+				pxRM^.InvalidateNode(pxRM^.GetHierarchyRoot(), true);
+			endif;
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	proc bool OnPostMoveNode()
+		UpdateRegionTree();
+		return true;
+	endproc;
+	
+	proc CRegionMgrClient.CNode FindRegionRec(CRegionMgrClient.CNode p_xNode, CGuid p_xGuid)
+		var ^CRegionBase.TNodeData pxData = p_xNode.GetData();
+		var int i, iC = pxData^.NumRegions();
+		for(i=0) cond(i<iC) iter(++i) do
+			if (pxData^.GetRegionGuid(i)==p_xGuid) then return p_xNode; endif;
+		endfor;
+		iC = p_xNode.NumChildren();
+		for(i=0) cond(i<iC) iter(++i) do
+			var CRegionMgrClient.CNode xNode = FindRegionRec(p_xNode.GetChild(i), p_xGuid);
+			if (xNode.IsValid()) then return xNode; endif;
+		endfor;
+		var CRegionMgrClient.CNode xN;
+		return xN;
+	endproc;
+
+	//Adds a region
+	export proc void AddRegion(CGuid p_xGuid)
+		var ^CRegionMgrClient pxRMgr=CClientWrap.GetRegionMgr();
+		var ^CRegionBase pxRgn=pxRMgr^.GetRegion(p_xGuid);
+		if(pxRgn==null)then return; endif;
+		if (FindRegionRec(pxRMgr^.GetHierarchyRoot(), pxRgn^.GetGUID()).IsValid()) then
+			ClearRegionTree();
+			UpdateRegionTree();
+			return;
+		endif;
+		var int iItem = m_pxRegionTree^.GetSelectedItem();
+		if(iItem <= 0) then
+			iItem = m_pxRegionTree^.FindItem(0, "Root");
+		endif;
+		var ^CRegionData pxRD = cast<CRegionData>(m_pxRegionTree^.GetItemData(iItem));
+		if(!pxRD^.IsNode()) then
+			var int iParID = m_pxRegionTree^.GetParentItem(iItem);
+			if(iParID>0) then
+				pxRD = cast<CRegionData>(m_pxRegionTree^.GetItemData(iParID));
+			endif;
+		endif;
+		if (pxRD!=null) then
+			pxRD^.GetNode().GetData()^.AddRegion(pxRgn);
+			pxRMgr^.InvalidateNode(pxRD^.GetNode(), false);
+			var int iIdx=m_pxRegionTree^.AddItem(pxRD^.GetNodeIdx(), REGION_PREFIX + pxRgn^.GetName(), new CRegionData(pxRD^.GetNode(), p_xGuid));
+			var ^CRegionData pxNewRD = cast<CRegionData>(m_pxRegionTree^.GetItemData(iIdx));
+			pxNewRD^.m_iNodeIdx = iIdx;
+			pxNewRD^.m_bVisible = pxRD^.m_bVisible;
+			var int i,iC=pxRgn^.NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				var int iSubRgnIdx = m_pxRegionTree^.AddItem(iIdx,i.ToString(),new CRegionData(pxRD^.GetNode(), p_xGuid, i));
+				pxNewRD = cast<CRegionData>(m_pxRegionTree^.GetItemData(iSubRgnIdx));
+				pxNewRD^.m_iNodeIdx = iSubRgnIdx;
+				pxNewRD^.m_bVisible = pxRD^.m_bVisible;
+			endfor;
+		endif;
+	endproc;
+
+	//Updates the region properties
+	export proc void UpdateRegion(CGuid p_xGuid)
+		var bool bNewRegion=true;
+		m_pxRegionTree^.StartIterate();
+		var int iCur = 0;
+		repeat
+			m_pxRegionTree^.Iterate(iCur);
+			if (iCur <= 1) then break; endif;
+			var ^CRegionData pxRD = cast<CRegionData>(m_pxRegionTree^.GetItemData(iCur));
+			if (pxRD!=null) then
+				if (pxRD^.IsBaseType() && pxRD^.GetBaseRegion()==p_xGuid) then
+					bNewRegion=false;
+					while(m_pxRegionTree^.ItemNumChildren(iCur)!=0)do
+						var int iChildIdx = m_pxRegionTree^.GetChildItem(iCur,0);
+						delete m_pxRegionTree^.GetItemData(iChildIdx);
+						m_pxRegionTree^.DeleteItem(iChildIdx,false);
+					endwhile;
+					var ^CRegionBase pxRgn = CLevelEditorWrap.GetRegionMgr()^.GetRegion(p_xGuid);
+					if (pxRgn!=null) then
+						var int i, iC = pxRgn^.NumSubs();
+						for(i=0) cond(i<iC) iter(++i) do
+							var int iNewSub = m_pxRegionTree^.AddItem(iCur, i.ToString(), new CRegionData(pxRD^.GetNode(), p_xGuid, i));
+							cast<CRegionData>(m_pxRegionTree^.GetItemData(iNewSub))^.m_iNodeIdx = iNewSub;
+						endfor;
+					else
+						delete m_pxRegionTree^.GetItemData(iCur);
+						m_pxRegionTree^.DeleteItem(iCur, true);
+					endif;
+					break;
+				endif;
+			endif;
+		until ( iCur <= 0 ) endrepeat;
+		if(bNewRegion)then
+			AddRegion(p_xGuid);
+		endif;
+	endproc;
+
+	//RemoveRegion
+	export proc void RemRegion(CGuid p_xGuid)
+		m_pxRegionTree^.StartIterate();
+		var int iCur = 0;
+		repeat
+			m_pxRegionTree^.Iterate(iCur);
+			if (iCur <= 1) then break; endif;
+			var ^CRegionData pxRD = cast<CRegionData>(m_pxRegionTree^.GetItemData(iCur));
+			if (pxRD^.IsBaseType() && pxRD^.GetBaseRegion()==p_xGuid) then
+				var ^CRegionData pxParent;
+				var int iParentID = m_pxRegionTree^.GetParentItem(iCur);
+				if(iParentID>0 && m_pxRegionTree^.GetItemData(iParentID)!=null)then
+					pxParent = cast<CRegionData>(m_pxRegionTree^.GetItemData(iParentID));
+				endif;
+				/*while(m_pxRegionTree^.ItemNumChildren(iCur)>0) do
+					var int iSubIdx = m_pxRegionTree^.GetChildItem(iCur, 0);
+					delete m_pxRegionTree^.GetItemData(iSubIdx);
+					m_pxRegionTree^.DeleteItem(iSubIdx,true);
+				endwhile;*/
+				FreeUserData(iCur);
+				m_pxRegionTree^.DeleteItem(iCur, true);
+				if(pxParent!=null) then
+					CClientWrap.GetRegionMgr()^.InvalidateNode(pxParent^.GetNode(), true);
+				endif;
+				break;
+			endif;
+		until ( iCur <= 0 ) endrepeat;
+	endproc;
+
+	export proc void Clear()
+		ClearRegionTree();
+	endproc;
+	
+	export proc void OnSelect(^CRegionData p_pxRegionData)
+		if(p_pxRegionData==null)then return; endif;
+		if(!p_pxRegionData^.IsBaseType())then return; endif;
+		var ^CRegionMgrClient pxRM = CLevelEditorWrap.GetRegionMgr();
+		var CGuid xBaseRegion=p_pxRegionData^.GetBaseRegion();
+		var ^CRegionBase pxBaseRgn=pxRM^.GetRegion(xBaseRegion);
+		if(pxBaseRgn==null)then return; endif;
+	endproc;
+	
+	// World object selectedy
+	export proc void OnSelectionChanged()
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		//m_pxRegionTree^.m_xOnSelect.Clear();
+		m_pxRegionTree^.RemoveSelection();
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		var int i,iC=pxSel^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CObj pxObj=(pxSel^)[i].GetObj();
+			if((pxObj!=null)&&(pxObj^.GetType() == "NEST"))then
+				var int iIter = 0;
+				m_pxRegionTree^.StartIterate();
+				while(m_pxRegionTree^.Iterate(iIter)) do
+					if (m_pxRegionTree^.GetItemText(iIter).Find(pxObj^.GetName()+"_")>=0) then
+					//if (m_pxRegionTree^.GetItemText(iIter).Find(pxObj^.GetName())>=0) then
+						m_pxRegionTree^.Select(iIter, false);
+					endif;
+				endwhile;
+			endif;
+		endfor;
+	endproc;
+
+	proc bool ChangeDesc()
+		var ^CRegionBase pxRgn = GetSelectedRegion();
+		var int iSel = m_pxRegionTree^.GetSelectedItem();
+		if(iSel<=0) then return false; endif;
+		var ^CRegionData pxRD = cast<CRegionData>(m_pxRegionTree^.GetItemData(iSel));
+		if(pxRD!=null && pxRD^.IsSubType()) then return false; endif;
+		var string sNew = m_pxDesc^.GetText();
+		if (pxRgn!=null)then
+			pxRgn^.SetDescription(sNew);
+		endif;
+		return true;
+	endproc;
+	
+	proc ^CRegionBase GetSelectedRegion()
+		if(m_pxSelectedRegion!=null)then
+			return m_pxSelectedRegion;
+		endif;
+		var int iSel=m_pxRegionTree^.GetSelectedItem();
+		if(iSel<=0)then
+			return null;
+		endif;
+		var ^CRegionData pxRegData=cast<CRegionData>(m_pxRegionTree^.GetItemData(iSel));
+		if(pxRegData==null)then
+			return null;
+		endif;
+		if (pxRegData^.IsNode()) then return null; endif;
+		var ^CRegionMgrClient pxRgnMgr = CClientWrap.GetRegionMgr();
+		if(pxRgnMgr==null)then
+			KLog.LogError("ViewZoneCreate","Panic! No region manager available!");
+			return null;
+		endif;
+		var ^CRegionBase pxRgn = pxRgnMgr^.GetRegion(pxRegData^.GetBaseRegion());
+		if(pxRgn==null)then
+			KLog.LogWarn("ViewZoneCreate","Selected region is unknown to region manager!");
+			return null;
+		endif;
+		return pxRgn;
+	endproc;
+	
+	proc bool CenterOnRegion()
+		var ^CRegionBase pxRgn = GetSelectedRegion();
+		if(pxRgn!=null)then
+			var int iSubIdx=0;
+			begin GetSubIndex;
+				var int iSelItem=m_pxRegionTree^.GetSelectedItem();
+				var int iSelRgn=m_pxRegionTree^.GetParentItem(iSelItem);
+				if(iSelRgn!=0)then
+					iSubIdx=m_pxRegionTree^.GetItemText(iSelItem).ToInt();
+				endif;
+			end GetSubIndex;
+			if(iSubIdx>=0&&iSubIdx<pxRgn^.NumSubs())then
+				CMainController.Get().SetCameraTarget(pxRgn^[iSubIdx]^.GetPos());
+			endif;
+		else
+			return(false);
+		endif;
+		return(true);
+	endproc;
+
+	proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+		if(p_rxEvt.GetClass().ToString()=="sMLDown")then
+		elseif(p_rxEvt.GetClass().ToString()=="sMRDown")then
+		endif
+		return false;
+	endproc
+
+endclass;
+
+class CZoneMenu inherit CMenu
+
+	var ^CViewRegionCreate	m_pxOwner;
+	var ^CRegionTree				m_pxRegionTree;
+	var ^CDropButton				m_pxSort;
+	var ^CDropButton				m_pxUpdate;
+	var ^CDropButton				m_pxReset;
+
+	proc string Translate(string p_sPath)
+		return CLocalizer.Get().Translate(p_sPath);
+	endproc;
+
+	export constructor()
+		CLevelEditorWrap.LogSpam("Region","CZoneMenu::constructor()");
+		m_pxSort = new CDropButton({0,0}, "Sort");
+		AddDropButton(m_pxSort);
+		var ^CDropButton pxTmp = new CDropButton({0,0}, "Sort Ascending");
+		pxTmp^.m_xOnClick = SortAscend;
+		m_pxSort^.AddItem(pxTmp);
+		pxTmp = new CDropButton({0,0}, "Sort Descending");
+		pxTmp^.m_xOnClick = SortDescend;
+		m_pxSort^.AddItem(pxTmp);
+		pxTmp = new CDropButton({0,0}, "Sort Ascending ( Recursive )");
+		pxTmp^.m_xOnClick = SortAscendRec;
+		m_pxSort^.AddItem(pxTmp);
+		pxTmp = new CDropButton({0,0}, "Sort Descending ( Recursive )");
+		pxTmp^.m_xOnClick = SortDescendRec;
+		m_pxSort^.AddItem(pxTmp);
+		m_pxUpdate = new CDropButton({0,0}, "Refresh");
+		m_pxUpdate^.m_xOnClick = UpdateRegionTree;
+		AddDropButton(m_pxUpdate);
+		m_pxReset = new CDropButton({0,0}, "Clear");
+		m_pxReset^.m_xOnClick = ClearRegionTree;
+		AddDropButton(m_pxReset);
+	endconstructor;
+
+	export proc void Init(^CViewRegionCreate p_pxOwner,^CRegionTree p_pxRegionTree)
+		m_pxOwner=p_pxOwner;
+		m_pxRegionTree=p_pxRegionTree;
+	endproc;
+
+	proc bool UpdateRegionTree()
+		m_pxOwner^.UpdateRegionTree();
+		return true;
+	endproc;
+
+	proc bool ClearRegionTree()
+		m_pxOwner^.ClearRegionTree();
+		return true;
+	endproc;
+
+	proc bool SortAscend() Sort(true, false); return true; endproc;
+	proc bool SortDescend() Sort(false, false); return true; endproc;
+	proc bool SortAscendRec() Sort(true, true); return true; endproc;
+	proc bool SortDescendRec() Sort(false, true); return true; endproc;
+
+	proc void Sort(bool p_bAscend, bool p_bRec)
+		var int iItemID = m_pxRegionTree^.GetSelectedItem();
+		var ^CRegionData pxRD = cast<CRegionData>(m_pxRegionTree^.GetItemData(iItemID));
+		if (pxRD!=null) then
+			var CRegionMgrClient.CNode xNode = pxRD^.GetNode();
+			if (xNode.IsValid()) then
+				xNode.SortChildren(p_bAscend, p_bRec);
+			endif;
+			m_pxOwner^.ClearRegionTree();
+			m_pxOwner^.UpdateRegionTree();
+		endif;
+	endproc;
+
+	proc void DeleteNode(CRegionMgrClient.CNode p_xNode)
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var int i, iC=p_xNode.GetData()^.NumRegions();
+		var CGuid xG;
+		for(i=0) cond(i<iC) iter(++i) do
+			KLog.LogSpam("MaZi", "NumRegion: " + iC.ToString() + " / Cur: " + i.ToString());
+			xG = p_xNode.GetData()^.GetRegionGuid(i);
+			pxRM^.DeleteRegion(xG);
+			--iC; --i;
+		endfor;
+		iC = p_xNode.NumChildren();
+		for(i=0) cond(i<iC) iter(++i) do
+			DeleteNode(p_xNode.GetChild(i));
+			--iC; --i;
+		endfor;
+	endproc;
+
+endclass;
+
+class CRegionData inherit CItemData
+
+	export const int										TYPE_BASE = 0;
+	export const int										TYPE_SUB = 1;
+	export const int										TYPE_NODE = 2;
+
+	export var int											m_iType;
+
+	export var CGuid										m_xBaseRegion;
+	export var int											m_iSubRegionID;
+	export var CRegionMgrClient.CNode		m_xNode;
+	export var int											m_iNodeIdx;
+
+	export var bool											m_bVisible;
+
+	export constructor(CRegionMgrClient.CNode p_xNode, CGuid p_xBaseRegion)
+		m_iType=TYPE_BASE;
+		m_xBaseRegion=p_xBaseRegion;
+		m_xNode = p_xNode;
+	endconstructor;
+
+	export constructor(CRegionMgrClient.CNode p_xNode, CGuid p_xBaseRegion,int p_iSubRegionID)
+		m_iType=TYPE_SUB;
+		m_xBaseRegion=p_xBaseRegion;
+		m_iSubRegionID=p_iSubRegionID;
+		m_xNode = p_xNode;
+	endconstructor;
+
+	export constructor(CRegionMgrClient.CNode p_xNode)
+		m_iType = TYPE_NODE;
+		m_xNode = p_xNode;
+	endconstructor;
+
+	export proc int GetType() return m_iType; endproc;
+	export proc bool IsBaseType() return m_iType==TYPE_BASE; endproc;
+	export proc bool IsSubType() return m_iType==TYPE_SUB; endproc;
+	export proc bool IsNode() return m_iType==TYPE_NODE; endproc;
+	export proc CGuid GetBaseRegion() return m_xBaseRegion; endproc;
+	export proc int GetSubRegionID() return m_iSubRegionID; endproc;
+	export proc CRegionMgrClient.CNode GetNode() return m_xNode; endproc;
+	export proc int GetNodeIdx() return m_iNodeIdx; endproc;
+
+endclass;
+
+class CSubtreeIterator
+
+	var ^CRegionTree	m_pxTree;
+	var int						m_iStartNode;
+
+	export var procref<bool, ^CRegionTree, int>	m_xForEach;
+
+	export constructor()
+	endconstructor;
+
+	export constructor(^CRegionTree p_pxTree, int p_iStartNode )
+		m_pxTree = p_pxTree;
+		m_iStartNode = p_iStartNode;
+	endconstructor;
+
+	export proc void SetTree(^CRegionTree p_pxTree)
+		m_pxTree = p_pxTree;
+	endproc;
+
+	export proc void SetStartNode(int p_iStartNode)
+		m_iStartNode = p_iStartNode;
+	endproc;
+
+	export proc void Execute(procref<bool, ^CRegionTree, int> p_xForEach)
+		m_xForEach = p_xForEach;
+		DoRec(m_iStartNode);
+	endproc;
+
+	proc void DoRec(int p_iNode)
+		if(!m_xForEach.IsNull()) then
+			m_xForEach.Call(m_pxTree, p_iNode);
+			var int i, iC = m_pxTree^.ItemNumChildren(p_iNode);
+			for(i=0) cond(i<iC) iter(++i) do
+				DoRec(m_pxTree^.GetChildItem(p_iNode, i));
+			endfor;
+		endif;
+	endproc;
+endclass;
+
+// Helper class for counting visible Regions in Subtree
+class CHelperRegionVis
+	
+	export var bool m_bVisible;
+
+	export proc bool OnChangeVis(^CRegionTree p_pxTree, int p_iIdx)
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var ^CRegionData pxRD = cast<CRegionData>(p_pxTree^.GetItemData(p_iIdx));
+		if(pxRD!=null) then
+			pxRD^.m_bVisible = m_bVisible || pxRD^.IsSubType();
+		endif;
+		return true;
+	endproc;
+	
+endclass;

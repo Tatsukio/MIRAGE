@@ -1,0 +1,2723 @@
+class CTransportObj inherit CFightingObj
+	
+	class CHPManager
+	
+		export constructor()
+		endconstructor;
+	
+		export destructor()
+		enddestructor;
+	
+		export var real m_fHitpoints;
+		export var real m_fMaxHitpoints;
+	
+		export proc void DoKArc(ref CArc p_rxArc)
+			p_rxArc << m_fHitpoints;
+			p_rxArc << m_fMaxHitpoints;
+		endproc;
+	
+	endclass;
+	
+	// KArc version
+	export const int KARCVERSION=14;
+	
+	//Captain stuff
+	var CObjHndl							m_xCaptain; ///! Handle of the captain
+	
+	//Passengers stuff
+	var CObjList							m_xPassengers;					///! List of all passengers
+	var CObjList							m_xPotentialPassengers;			///! List of all passengers, that are about to enter the transporter
+	var int										m_iBlockedSlots;				///! Slots blocked by Passengers of boarded Transporters
+	var int										m_iPotentiallyBlockedSlots;		///! Slots blocked by Passengers of boarded Transporters
+	var bool									m_bReleaseWhileDying;			///! when dying, and there's no possibility to unboard the passengers, just release them
+	export const real					m_fMaxPassengerDropRadius=30.0f; ///! passengers can unboard within this radius if the area is valid for unboarding
+	export const real					m_fPassengerSpreadRadius=10.0f; ///! if final destination of disembark all command lies within a circle of radius m_fPassengerSpreadRadius around the transporter, disembarked units will spread (cosmetic feature)
+	
+	//Buildup stuff
+	var	int										m_iBuildUpType;					///! Type of BuildUp, see BuildUpBase.usl for details
+	var array int							m_aiAdditionalBuildUps;
+	var	^CBuildUpBase					m_pxBuildUp;					///! pointer to a BuildUp
+	var array ^CBuildUpBase		m_apxAdditionalBuildUps;
+	const int									TIMER_BUILDUP_BUSY = 452;
+	export var procref<void>	m_xOnBusyTimer;
+	
+	//TechTree stats
+	var int						m_iMaxPassengers;
+	var string				m_sCaptainClass;
+	var string				m_sCaptainAnim;
+	var string				m_sCaptainAttackAnim;
+	
+	//Miscellaneous
+	var ^CTaskHook		m_pxTaskHook;
+	var string				m_sCurFlagDesc;
+	
+	//Resource stuff
+	var real					m_fResInv;
+	var real					m_fResInvCap;
+	var real					m_fResInvStone;
+	var real					m_fResInvFood;
+	var bool					m_bLinkOccupied;
+	var bool					m_bAboutToDie; // Henry: it is about to die, passengers shouldn't be mounted
+	var bool					m_bCSA; // Henry: can shoot air 'general'
+	var bool					m_bBUCSA; // Henry: (weapon) buildup can shoot air
+	var bool					m_bPCSA; // Henry: passenger (at least one) can shoot air
+	
+	//Idle stuff
+	var CGameTime			m_xIdleStartTime;
+	var int						m_iIdleTimer;
+	var string				m_sLastTask;
+	
+	// Various new stuff
+	var bool						m_bOldDisembark;
+	export var bool			m_bDieInitiated;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xBase="TOba"; //TransportObj base
+		var int iVersion=KARCVERSION;
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,iVersion);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xPassengers.DoKArc(pxArc^);
+		m_xCaptain.DoKArc(pxArc^);
+		(pxArc^) << m_iMaxPassengers;
+		(pxArc^) << m_fResInv;
+		(pxArc^) << m_iBuildUpType;
+		if(HasBuildUp())then
+			GetBuildUp()^.DoKArc(pxArc^, iVersion);
+		endif;
+		var int i, iC=m_aiAdditionalBuildUps.NumEntries();
+		(pxArc^) << iC;
+		for(i=0)cond(i<iC)iter(i++)do
+			(pxArc^) << m_aiAdditionalBuildUps[i];
+			if(HasAdditionalBuildUp(i))then
+				m_apxAdditionalBuildUps[i]^.DoKArc(pxArc^, iVersion);
+			endif;
+		endfor;
+		m_xPotentialPassengers.DoKArc(pxArc^);
+		(pxArc^) << m_iBlockedSlots;
+		(pxArc^) << m_iPotentiallyBlockedSlots;
+		pxWalk^.Close();
+		xBase="miTO"; // Henry: for mirage specific things
+		iVersion=1;
+		pxWalk=p_pxWriterNode^.AddSubChunk(xBase,iVersion);
+		pxArc=^(pxWalk^.GetArc());
+		if(iVersion>=1)then
+			if(HasBuildUp())then
+				GetBuildUp()^.DoKArcMirage(pxArc^, iVersion);
+			endif;
+			(pxArc^) << iC;
+			for(i=0)cond(i<iC)iter(i++)do
+				(pxArc^) << m_aiAdditionalBuildUps[i];
+				if(HasAdditionalBuildUp(i))then
+					m_apxAdditionalBuildUps[i]^.DoKArcMirage(pxArc^, iVersion);
+				endif;
+			endfor;
+			(pxArc^) << m_bReleaseWhileDying;
+			(pxArc^) << m_bCSA;
+			(pxArc^) << m_bBUCSA;
+			(pxArc^) << m_bPCSA;
+			(pxArc^) << m_bDieInitiated;
+		endif;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="TOba")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVer=p_pxReaderNode^.GetVersion();
+			if(iVer>=7)then
+				m_xPassengers.DoKArc(pxArc^);
+				m_xCaptain.DoKArc(pxArc^);
+				(pxArc^) << m_iMaxPassengers;
+				(pxArc^) << m_fResInv;
+				(pxArc^) << m_iBuildUpType;
+				if(HasBuildUp())then
+					SetBuildUp(m_iBuildUpType);
+					GetBuildUp()^.DoKArc(pxArc^, iVer);
+				endif;
+				var int i, iC;
+				(pxArc^) << iC;
+				m_aiAdditionalBuildUps=iC;
+				for(i=0)cond(i<iC)iter(i++)do
+					(pxArc^) << m_aiAdditionalBuildUps[i];
+					SetAdditionalBuildUp(m_aiAdditionalBuildUps[i]);
+					if(HasAdditionalBuildUp(i))then
+						GetAdditionalBuildUp(i)^.DoKArc(pxArc^, iVer);
+					else
+						m_apxAdditionalBuildUps.AddEntry(null);
+					endif;
+				endfor;
+				if(iVer>=13)then
+					m_xPotentialPassengers.DoKArc(pxArc^);
+					(pxArc^) << m_iBlockedSlots;
+					(pxArc^) << m_iPotentiallyBlockedSlots;
+				endif;
+			else
+				var CObjHndl xInvalid;
+				var CObjList xInvalidOL;
+				var CHPManager xInvalidMgr;
+				var int iInvalid;
+				var real fInvalid;
+				var array CTmpLinkSlot axInvalid;
+				if(iVer<5)then
+					xInvalidOL.DoKArc(pxArc^);
+					xInvalid.DoKArc(pxArc^);
+					(pxArc^) << iInvalid;
+					(pxArc^) << iInvalid;
+					(pxArc^) << fInvalid;
+					if(iVer>=4)then (pxArc^) << fInvalid; endif;
+					xInvalidMgr.DoKArc(pxArc^);
+					xInvalidMgr.DoKArc(pxArc^);
+					if(p_pxReaderNode^.GetVersion() > 1)then
+						var int i, iC;
+						(pxArc^) << iC;
+						axInvalid=iC;
+						for (i=0) cond(i<iC) iter(++i)do
+							axInvalid[i].DoKArc(pxArc^);
+						endfor;
+					endif;
+				else
+					if(iVer>4)then
+						xInvalidOL.DoKArc(pxArc^);
+						xInvalid.DoKArc(pxArc^);
+						(pxArc^) << iInvalid;
+						(pxArc^) << iInvalid;
+						(pxArc^) << fInvalid;
+						if(iVer>=4)then (pxArc^) << m_fResInv; endif;
+						xInvalid.DoKArc(pxArc^);
+						xInvalidMgr.DoKArc(pxArc^);
+						xInvalidMgr.DoKArc(pxArc^);
+						if(p_pxReaderNode^.GetVersion() > 1)then
+							var int i, iC;
+							(pxArc^) << iC;
+							axInvalid=iC;
+							for (i=0) cond(i<iC) iter(++i)do
+								axInvalid[i].DoKArc(pxArc^);
+							endfor;
+						endif;
+					endif;
+					if(iVer>5)then
+						xInvalid.DoKArc(pxArc^);
+					endif;
+				endif;
+			endif;
+		elseif(p_pxReaderNode^.GetType()=="TObu")then
+			var CObjHndl xInvalid;
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			xInvalid.DoKArc(pxArc^);
+		elseif(p_pxReaderNode^.GetType()=="miTO")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVer=p_pxReaderNode^.GetVersion();
+			if(iVer>=1)then
+				if(HasBuildUp())then
+					GetBuildUp()^.DoKArcMirage(pxArc^, iVer);
+				endif;
+				var int i, iC;
+				(pxArc^) << iC;
+				m_aiAdditionalBuildUps=iC;
+				for(i=0)cond(i<iC)iter(i++)do
+					(pxArc^) << m_aiAdditionalBuildUps[i];
+					if(HasAdditionalBuildUp(i))then
+						GetAdditionalBuildUp(i)^.DoKArcMirage(pxArc^, iVer);
+					endif;
+				endfor;
+				(pxArc^) << m_bReleaseWhileDying;
+				(pxArc^) << m_bCSA;
+				(pxArc^) << m_bBUCSA;
+				(pxArc^) << m_bPCSA;
+				(pxArc^) << m_bDieInitiated;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	constructor()
+		m_pxBuildUp=null;
+		m_iMaxPassengers=0;
+		m_pxTaskHook=null;
+		m_bLinkOccupied=false;
+		m_fResInvCap=150.0;
+		m_iBlockedSlots=0;
+		m_iPotentiallyBlockedSlots=0;
+		m_bReleaseWhileDying=false;
+		m_bBUCSA=false;
+		m_bPCSA=false;
+		m_bDieInitiated=false;
+		m_bOldDisembark=CMirageSrvMgr.Get().OldDisembark();
+	endconstructor;
+	
+	destructor()
+		DestroyBuildUp();
+		delete m_pxTaskHook;
+	enddestructor;
+	
+	export proc void OnActionStart()
+		super.OnActionStart();
+		if(HasBuildUp())then
+			GetBuildUp()^.OnActionStart();
+		endif;
+	endproc;
+	
+	export proc void OnActionEnd(bool p_bBroken)
+		super.OnActionEnd(p_bBroken);
+		if(HasBuildUp())then
+			GetBuildUp()^.OnActionEnd();
+		endif;
+	endproc;
+	
+	proc bool SetResInvCap(real p_fResInvCap)
+		m_fResInvCap=p_fResInvCap;
+		return(true);
+	endproc;
+	
+	proc void HarvestTask(^CGameObj p_pxObject, vec3 p_vPos, bool p_bQueue)
+		GoTo(p_vPos, true, GetDefaultSpeed(), true, true, false, p_bQueue);
+	endproc;
+	
+	proc void MineTask(^CGameObj p_pxObject, vec3 p_vPos, bool p_bQueue)
+		GoTo(p_vPos, true, GetDefaultSpeed(), true, true, false, p_bQueue);
+	endproc;
+	
+	proc void GetFoodTask(^CGameObj p_pxObject, vec3 p_vPos, bool p_bQueue)
+		GoTo(p_vPos, true, GetDefaultSpeed(), true, true, false, p_bQueue);
+	endproc;
+	
+	export proc bool EradicateForest(bool p_bQueue);
+		return(true);
+	endproc;
+	
+	export proc void DoCutAnim()
+		//AnimAction("");
+	endproc;
+	
+	export proc void DoMineAnim()
+		//AnimAction("");
+	endproc;
+	
+	export proc void DoTakeAnim()
+		//AnimAction("");
+	endproc;
+	
+	export proc void LinkToStock(string p_sGFX)
+		m_bLinkOccupied=true;
+		//??LinkGfx("");
+	endproc;
+	
+	export proc void ClearLink()
+		m_bLinkOccupied=false;
+		//??LinkGfx("");
+	endproc;
+	
+	export proc bool LinkOccupied()
+		return m_bLinkOccupied;
+	endproc;
+	
+	export proc real GetResInv()
+		if(m_bLinkOccupied)then
+			return m_fResInv;
+		endif;
+		return 0.0;
+	endproc;
+	
+	export proc real GetResInvWLO() // Henry: with leftover...
+		return m_fResInv;
+	endproc;
+	
+	export proc real GetResInvStone()
+		if(m_bLinkOccupied)then
+			return m_fResInvStone;
+		endif;
+		return 0.0;
+	endproc;
+	
+	export proc real GetResInvStoneWLO() // Henry: with leftover...
+		return m_fResInvStone;
+	endproc;
+	
+	export proc real GetResInvFood()
+		if(m_bLinkOccupied)then
+			return m_fResInvFood;
+		endif;
+		return 0.0;
+	endproc;
+	
+	export proc real GetResInvCap()
+		//return m_fResInvCap;
+		return(m_xTechTree.GetValueR(GetObjPath()+"/ResInvCaps/stone",0.0f));
+	endproc;
+	
+	export proc real GetResInvCapWood()
+		return(m_xTechTree.GetValueR(GetObjPath()+"/ResInvCaps/wood",0.0f));
+	endproc;
+	
+	export proc real GetResInvCapFood()
+		return(m_xTechTree.GetValueR(GetObjPath()+"/ResInvCaps/food",0.0f));
+	endproc;
+	
+	export proc void SetResInv(real p_fValue)
+		m_fResInv=p_fValue;
+	endproc;
+	
+	export proc void SetResInvStone(real p_fValue)
+		m_fResInvStone=p_fValue;
+	endproc;
+	
+	export proc void SetResInvFood(real p_fValue)
+		m_fResInvFood=p_fValue;
+	endproc;
+	
+	export proc bool CheckInResInv()
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CBasePlayer pxPlayer=cast<CBasePlayer>(pxLevel^.GetPlayer(GetOwner()));
+		if(pxPlayer==null)then return false; endif;
+		var real fOriginalValue=m_fResInv;
+		var real fReturnValue=pxPlayer^.AddResource("wood",m_fResInv);
+		var real fStatisticValue=fOriginalValue;
+		if(fReturnValue!=0.0)then fStatisticValue-=fReturnValue; endif;
+		m_fResInv=fReturnValue;
+		// collect checked in ressource for statistics
+//		var ^CStatisticMgr pxStatisticMgr=^(pxLevel^.GetStatisticMgr());
+//		var CGameTime xTime=CTimeMgr.Get().GetTime();
+//		pxStatisticMgr^.AddSample( CStatisticSample.Collected_Wood.ToInt(), GetOwner(), fStatisticValue.ToInt() );
+		return (fReturnValue!=fOriginalValue)||(fReturnValue==0.0);
+	endproc;
+	
+	export proc bool CheckInResInvStone()
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CBasePlayer pxPlayer=cast<CBasePlayer>(pxLevel^.GetPlayer(GetOwner()));
+		if(pxPlayer==null)then return false; endif;
+		var real fOriginalValue=m_fResInvStone;
+		var real fReturnValue=pxPlayer^.AddResource("stone",m_fResInvStone);
+//		KLog.LogSpam("JaNe","fOriginalValue="+fOriginalValue.ToString());
+//		KLog.LogSpam("JaNe","fReturnValue="+fReturnValue.ToString());
+//		var real fStatisticValue=fOriginalValue;
+//		if(fReturnValue!=0.0)then fStatisticValue-=fReturnValue; endif;
+		m_fResInvStone=fReturnValue;
+		// collect checked in ressource for statistics
+//		var ^CStatisticMgr pxStatisticMgr=^(pxLevel^.GetStatisticMgr());
+//		var CGameTime xTime=CTimeMgr.Get().GetTime();
+//		pxStatisticMgr^.AddSample( CStatisticSample.Collected_Stone.ToInt(), GetOwner(), fStatisticValue.ToInt() );
+		return fReturnValue!=fOriginalValue||fReturnValue==0.0;
+	endproc;
+	
+	export proc bool CheckInResInvFood()
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CBasePlayer pxPlayer=cast<CBasePlayer>(pxLevel^.GetPlayer(GetOwner()));
+		if(pxPlayer==null)then return false; endif;
+		var real fOriginalValue=m_fResInvFood;
+		var real fReturnValue=pxPlayer^.AddResource("food",m_fResInvFood);
+		var real fStatisticValue=fOriginalValue;
+		if(fReturnValue!=0.0)then fStatisticValue-=fReturnValue; endif;
+		m_fResInvFood=fReturnValue;
+		return fReturnValue!=fOriginalValue||fReturnValue==0.0;
+	endproc;
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		RegisterFlockingBoid();
+		if(!p_bLoad)then
+			SetTransportClass(0);
+			SetSelectable(true);
+			SetHitable(true);
+		endif;
+		m_pxTaskHook=new CTaskHook(this);
+		if(m_pxTaskMgr!=null)then
+			m_pxTaskMgr^.Subscribe(m_pxTaskHook);
+		endif;
+	endproc;
+	
+	export proc void OnPostLoad()
+		super.OnPostLoad();
+		LinkCaptainObj();
+		if(HasBuildUp())then
+			GetBuildUp()^.OnPostLoad();
+			GetBuildUp()^.UpdateLinkedObjs();
+			GetBuildUp()^.EnableLinkedObjs();
+		endif;
+		var int i, iC=NumAdditionalBuildUps();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(HasAdditionalBuildUp(i))then
+				GetAdditionalBuildUp(i)^.OnPostLoad();
+				GetAdditionalBuildUp(i)^.UpdateLinkedObjs();
+				GetAdditionalBuildUp(i)^.EnableLinkedObjs();
+			endif;
+		endfor;
+		GeneralPassengerUpdate();
+	endproc;
+	
+	export proc void UpdateAllLinkedPassengers()
+		if(HasOpenBuildUp())then
+			GetBuildUp()^.UpdatePassengersLinking();
+		endif;
+	endproc;
+	
+	export proc void StopEverything()
+		super.StopEverything();
+		StopBuildUpFighting();
+	endproc;
+	
+	export proc void StopBuildUpFighting()
+		if(HasBuildUp(CBuildUpBase.TYPE_WEAPON)||HasBuildUp(CBuildUpBase.TYPE_WEAPON_TRANSPORTER)||HasBuildUp(CBuildUpBase.TYPE_SEISMO))then
+			var ^CBuildUpWeapon pxWeapon=cast<CBuildUpWeapon>(GetBuildUp());
+			if(pxWeapon^.GetAutoAttack())then
+				pxWeapon^.StopFighting();
+			endif;
+		endif;
+		var int i, iC=NumAdditionalBuildUps();
+		for(i=0)cond(i<iC)iter(i++)do
+			cast<CBuildUpWeapon>(GetAdditionalBuildUp(i))^.StopFighting();
+		endfor;
+	endproc;
+	
+	export proc void CheckAdditionalWeapons(bool p_bUserCommand, CObjHndl p_xHndl)
+		var int i, iC=NumAdditionalBuildUps();
+		if(iC<1)then return; endif;
+		var ^CBuildUpWeapon pxWeaponBuildUp;
+		for(i=0)cond(i<iC)iter(i++)do
+			pxWeaponBuildUp=cast<CBuildUpWeapon>(GetAdditionalBuildUp(i));
+			if(pxWeaponBuildUp!=null)then
+				pxWeaponBuildUp^.SetCurEnemy(p_xHndl);
+				var bool bReturn, bOk=false;
+				bReturn=pxWeaponBuildUp^.StartFightingTask(true,true,bOk,p_bUserCommand);
+				if(!bReturn||!bOk)then
+					pxWeaponBuildUp^.ResetRotation();
+				endif;
+			endif;
+		endfor;
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			var int iTimerID=p_rxEvtPtr.GetInt(0);
+			if(iTimerID==TIMER_BUILDUP_BUSY)then
+				DeleteTimer(TIMER_BUILDUP_BUSY);
+				if(!m_xOnBusyTimer.IsNull())then
+					m_xOnBusyTimer.Call();
+				endif;
+			elseif(iTimerID==TIMER_AGGRO )then
+				if(HasBuildUp(CBuildUpBase.TYPE_WEAPON)||HasBuildUp(CBuildUpBase.TYPE_WEAPON_TRANSPORTER)||HasBuildUp(CBuildUpBase.TYPE_SEISMO))then
+					cast<CBuildUpWeapon>(GetBuildUp())^.StartFightingTask(false);
+				endif;
+				var int i, iC=NumAdditionalBuildUps();
+				for(i=0)cond(i<iC)iter(i++)do
+					cast<CBuildUpWeapon>(GetAdditionalBuildUp(i))^.StartFightingTask(false);
+				endfor;
+				super.HandleEvent(p_rxEvtPtr);
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		else
+			super.HandleEvent(p_rxEvtPtr);
+		endif;
+	endproc;
+	
+	export proc void OnIdleEnter(^CState p_pxFrom, ^CState p_pxTo)
+		m_xIdleStartTime=CTimeMgr.Get().GetTime();
+		m_iIdleTimer=-1; //init state
+		super.OnIdleEnter(p_pxFrom,p_pxTo);
+	endproc;
+	
+	export proc void OnIdleTick(int p_iTime)
+		if(m_iIdleTimer==-1)then
+			//init state
+			if(m_sLastTask=="Fight")then
+				m_iIdleTimer=0;
+			elseif(m_sLastTask=="Walk2Pos")then
+				m_iIdleTimer=1;
+			else
+				m_iIdleTimer=100;
+			endif;
+		endif;
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		var real fDuration=(xNow-m_xIdleStartTime).GetSecondsF();
+		if(fDuration > 2.0)then
+			var ^CAttribs pxAttr=GetAttribs();
+			if(pxAttr!=null)then
+				if(pxAttr^.GetValue("CurTask")!="Idle")then
+					pxAttr^.SetValue("CurTask","Idle");
+				endif;
+				SetTaskDescription("idle");
+			endif;
+		elseif(fDuration>0.3)then
+			SetTaskDescription("");
+		endif;
+		if(m_iIdleTimer==0)then
+			var int iRandom=Random.GetInt()%4;
+			if(iRandom==3)then
+				if(fDuration>5.0)then
+					m_iIdleTimer=100;
+				endif;
+			elseif(ExamineEnemies(false,GetAggressionState()!=1 && GetAggressionState()!=-1))then
+				return;
+			else
+				//victory state...
+				if(fDuration<5.0)then
+					if(!GetTransportObj().IsValid())then
+						PlayVictoryAnim();
+					endif;
+					return;
+				else
+					m_iIdleTimer=100;
+				endif;
+			endif;
+			m_iIdleTimer=100;
+		elseif(m_iIdleTimer==100)then
+			m_sLastTask="";
+		endif;
+		super.OnIdleTick(p_iTime);
+	endproc;
+	
+	proc void PlayVictoryAnim()
+		var bool bWait=false;
+//		if(Random.GetInt()%4>1)then
+//			bWait=true;
+//		endif;
+		var string sAnim=GetVictoryAnim();
+		if(sAnim==""||!HasAnim(sAnim))then
+			bWait=true;
+		endif;
+		if(!bWait)then
+			AnimAction(sAnim,(Random.GetInt()%2)+1, true, true);
+			m_iIdleTimer=100;
+		else
+			WaitAction(1.0);
+		endif;
+	endproc;
+	
+	export proc string GetVictoryAnim()
+		return "";
+	endproc;
+	
+	proc void OnChangeToIdleState(string p_sTaskName)
+		m_sLastTask=p_sTaskName;
+	endproc;
+	
+	export proc void ProjectileOn()
+		if(GetProjectile().IsEmpty())then return; endif;
+		if(HasBuildUp())then
+			var ^CGameObj pxObj=GetBuildUp()^.GetPrimaryLinkedObjFight().GetObj();
+			if(pxObj==null)then return; endif;
+			var CFourCC xLink="psh1"; var vec3 vP;
+			if(pxObj^.GetLinkPosObj(xLink, vP))then
+//				pxObj^.SetLinkGFX(xLink, GetProjectile()+GetWeaponMgr()^.GetRightHVariationPostfix());
+				pxObj^.SetLinkGFX(xLink, GetProjectileGfx()+GetWeaponMgr()^.GetRightHVariationPostfix());
+				return;
+			endif;
+		else
+			super.ProjectileOn();
+		endif;
+	endproc;
+	
+	export proc bool SetLevelClean(int p_iLevel)
+		var bool bReturn=super.SetLevelClean(p_iLevel);
+		if(HasBuildUp(CBuildUpBase.TYPE_WEAPON)||HasBuildUp(CBuildUpBase.TYPE_WEAPON_TRANSPORTER)||HasBuildUp(CBuildUpBase.TYPE_SEISMO))then
+			cast<CBuildUpWeapon>(GetBuildUp())^.UpdateWeapon();
+		endif;
+		var ^CCaptain pxCaptain=cast<CCaptain>(m_xCaptain.GetObj());
+		if(pxCaptain!=null)then
+			pxCaptain^.UpdateGfx();
+		endif;
+		var int i, iC=NumAdditionalBuildUps();
+		for(i=0)cond(i<iC)iter(i++)do
+			cast<CBuildUpWeapon>(GetAdditionalBuildUp(i))^.UpdateWeapon();
+			cast<CBuildUpWeapon>(GetAdditionalBuildUp(i))^.UpdateCaptainObj();
+		endfor;
+		ResetFlag();
+		return bReturn;
+	endproc;
+	
+	export proc void ProjectileOff()
+		if(GetProjectile().IsEmpty())then return; endif;
+		if(HasBuildUp())then
+			var ^CGameObj pxObj=GetBuildUp()^.GetPrimaryLinkedObjFight().GetObj();
+			if(pxObj==null)then return; endif;
+			var CFourCC xLink="psh1"; var vec3 vP;
+			if(pxObj^.GetLinkPosObj(xLink, vP))then
+				pxObj^.RemLinkGFX(xLink);
+				return;
+			endif;
+		else
+			super.ProjectileOff();
+		endif;
+	endproc;
+	
+	export proc vec3 GetProjectileStartPos(int p_iIdx)
+		return super.GetProjectileStartPos(p_iIdx);
+	endproc;
+	
+	export proc vec3 GetProjectileStartPos()
+		var bool bBuildUpLink=false;
+		if(!HasBuildUp())then return super.GetProjectileStartPos(); endif;
+		var vec3 vBuildUpBasePos;
+		var vec3 vProjectilePos;
+		var CFourCC xProjectileLink="Proj";
+		var CFourCC xBuildUpLink=GetBuildUp()^.GetPrimaryLink();
+		if(!GetLinkPosWorld(xBuildUpLink, vBuildUpBasePos))then return super.GetProjectileStartPos(); endif;
+		var ^CGameObj pxObj=GetBuildUp()^.GetPrimaryLinkedObjFight().GetObj();
+		if(pxObj==null)then return super.GetProjectileStartPos(); endif;
+		if(!pxObj^.GetLinkPosWorld(xProjectileLink, vProjectilePos))then return super.GetProjectileStartPos(); endif;
+		vProjectilePos=vProjectilePos-vBuildUpBasePos;
+		var Quat qAdditionalRot=pxObj^.GetAdditionalRot();
+		qAdditionalRot.VecRotateU(vProjectilePos);
+		return (vBuildUpBasePos+vProjectilePos);
+	endproc;
+	
+	proc void SetReleaseWhileDying()
+		m_bReleaseWhileDying=true;
+	endproc;
+	
+	proc bool IsReleaseWhileDying()
+		return m_bReleaseWhileDying;
+	endproc;
+	
+	export proc bool HasBuildUp()
+		return m_iBuildUpType!=CBuildUpBase.TYPE_NONE;
+	endproc;
+	
+	export proc bool HasBuildUp(int p_iType)
+		return m_iBuildUpType==p_iType;
+	endproc;
+	
+	export proc bool HasOpenBuildUp()
+		switch(m_iBuildUpType)
+			// Henry: be cautious, this values are representing the constant numbers of CBuildUpBase
+			case(3)do return true; endcase;
+			case(14)do return true; endcase;
+			case(15)do return true; endcase;
+			case(16)do return true; endcase;
+			case(17)do return true; endcase;
+			case(18)do return true; endcase;
+			case(19)do return true; endcase;
+			case default do return false; endcase;
+		endswitch;
+	endproc;
+	
+	export proc bool HasTransportBuildUp()
+		switch(m_iBuildUpType)
+			// Henry: be cautious, this values are representing the constant numbers of CBuildUpBase
+			case(2)do return true; endcase;
+			case(3)do return true; endcase;
+			case(13)do return true; endcase;
+			case(14)do return true; endcase;
+			case(15)do return true; endcase;
+			case(16)do return true; endcase;
+			case(17)do return true; endcase;
+			case(18)do return true; endcase;
+			case(19)do return true; endcase;
+			case default do return false; endcase;
+		endswitch;
+	endproc;
+	
+	export proc int NumAdditionalBuildUps()
+		return m_aiAdditionalBuildUps.NumEntries();
+	endproc;
+	
+	export proc bool HasAdditionalBuildUp(int p_iIndex)
+		return m_aiAdditionalBuildUps.NumEntries()>p_iIndex && m_aiAdditionalBuildUps[p_iIndex]!=0;
+	endproc;
+	
+	export proc void SetBuildUp(int p_iType)
+		m_iBuildUpType=p_iType;
+		m_pxBuildUp=CBuildUpFactory.Get().CreateBuildUp(m_iBuildUpType);
+		m_pxBuildUp^.SetParent(GetHandle());
+		ResetFlag();
+	endproc;
+	
+	export proc void AddAdditionalBuildUp(int p_iType)
+		m_aiAdditionalBuildUps.AddEntry(p_iType);
+		SetAdditionalBuildUp(p_iType);
+	endproc;
+	
+	export proc void SetAdditionalBuildUp(int p_iType)
+		var ^CBuildUpBase pxBase=CBuildUpFactory.Get().CreateBuildUp(p_iType);
+		m_apxAdditionalBuildUps.AddEntry(pxBase);
+		pxBase^.SetParent(GetHandle());
+		ResetFlag();
+	endproc;
+	
+	export proc bool IsBuildUpBusy()
+		return HasTimer(TIMER_BUILDUP_BUSY);
+	endproc;
+	
+	export proc void SetBuildUpBusy(real p_fDuration)
+		if(!IsBuildUpBusy())then
+			CreateTimer(TIMER_BUILDUP_BUSY, CGameTimeSpan.OneSecond()*p_fDuration, false);
+		endif;
+	endproc;
+	
+	export proc void ResetFlag()
+		m_sCurFlagDesc.Empty();
+		CheckLevelFlag();
+	endproc;
+	
+	export proc ^CBuildUpBase GetBuildUp()
+		return m_pxBuildUp;
+	endproc;
+	
+	export proc ^CBuildUpBase GetAdditionalBuildUp(int p_iIndex)
+		if(HasAdditionalBuildUp(p_iIndex))then
+			return m_apxAdditionalBuildUps[p_iIndex];
+		endif;
+		return null;
+	endproc;
+	
+	export proc void CreateCaptain()
+		if(m_sCaptainClass.IsEmpty())then
+			if(m_xCaptain.IsValid())then
+				m_xCaptain.GetObj()^.Delete();
+			endif;
+			m_xCaptain.FromInt(-1);
+			return;
+		endif;
+		if(!m_xCaptain.IsValid())then
+			var ^CCaptain pxC=cast<CCaptain>(CSrvWrap.GetObjMgr()^.CreateObj("universal_captain", GetOwner()));
+			if(pxC!=null)then
+				pxC^.Init(GetHandle());
+				AddGroupedChildren(pxC^.GetGuid());
+				m_xCaptain=pxC^.GetHandle();
+			endif;
+		endif;
+		var ^CCaptain pxCaptain=cast<CCaptain>(m_xCaptain.GetObj());
+		if(pxCaptain!=null)then
+			pxCaptain^.UpdateGfx();
+		endif;
+		LinkCaptainObj();
+	endproc;
+	
+	export proc void LinkCaptainObj()
+		if(!m_xCaptain.IsValid())then return; endif;
+		var ^CGameObj pxCaptain=m_xCaptain.GetObj();
+		if(pxCaptain==null)then return; endif;
+		AddGroupedChildren(pxCaptain^.GetGuid());
+		var bool bBuildUpLink; var CFourCC xLink;
+		if(GetCaptainLink(xLink, bBuildUpLink))then
+			pxCaptain^.SetVisible(true);
+			if(bBuildUpLink && HasBuildUp())then
+				pxCaptain^.RideAction(GetBuildUp()^.GetPrimaryLinkedObj(),xLink,GetCaptainOffset());
+			else
+				pxCaptain^.RideAction(GetHandle(),xLink,GetCaptainOffset());
+			endif;
+			DoCaptainAnim();
+			return;
+		endif;
+		xLink="NONE";
+		pxCaptain^.LinkAction(GetHandle(),xLink);
+		pxCaptain^.SetVisible(false);
+	endproc;
+	
+	export proc vec3 GetCaptainOffset()
+		return {0.0,0.0,0.0};
+	endproc;
+	
+	//Overload when needed
+	export proc bool GetCaptainLink(ref CFourCC po_rxLink, ref bool po_rbIsBuildUpLink)
+		return false;
+	endproc;
+	
+	export proc int NumPassengers()
+		return (m_xPassengers.NumEntries()+m_xPotentialPassengers.NumEntries()+m_iBlockedSlots+m_iPotentiallyBlockedSlots);
+	endproc;
+	
+	export proc int NumFreeSeats()
+		return m_iMaxPassengers - NumPassengers();
+	endproc;
+	
+	//called at the beginning of board-task, to stop passengers from trying to enter, when theres no space left
+	export proc bool RegisterPassenger(CObjHndl p_xPassenger)
+		if(!p_xPassenger.IsValid())then return false; endif;
+		var int iNumPassengers=NumPassengers();
+		if(iNumPassengers >= m_iMaxPassengers)then return false; endif;
+		var int iNewPassengers=1;
+		var int iNewPasPassengers=0;
+		var ^CFightingObj pxFO=cast<CFightingObj>(p_xPassenger.GetObj());
+		if(pxFO!=null)then
+			pxFO^.SetPTO(GetHandle());
+			iNewPasPassengers=pxFO^.NumPassengers();
+		endif;
+//		var ^CTransportObj pxTransportObj=cast<CTransportObj>(p_xPassenger.GetObj());
+//		if(pxTransportObj!=null)then
+//			iNewPasPassengers=pxTransportObj^.NumPassengers();
+//		endif;
+		if((iNumPassengers+iNewPassengers+iNewPasPassengers) > m_iMaxPassengers)then return false; endif;
+		m_xPotentialPassengers.Include(p_xPassenger);
+		m_iPotentiallyBlockedSlots += iNewPasPassengers;
+		UpdatePassengerAttribs();
+		return true;
+	endproc;
+	
+	export proc void UnregisterPassenger(CObjHndl p_xPassenger)
+		var bool bFound=m_xPotentialPassengers.FindEntry(p_xPassenger)!=-1;
+		m_xPotentialPassengers.RemEntry(p_xPassenger);
+		if(bFound)then
+			var ^CFightingObj pxFO=cast<CFightingObj>(p_xPassenger.GetObj());
+			if(pxFO!=null)then
+				pxFO^.SetPTO(CObjHndl.Invalid());
+				m_iPotentiallyBlockedSlots -= pxFO^.NumPassengers();
+			endif;
+//			var ^CTransportObj pxTransportObj=cast<CTransportObj>(p_xPassenger.GetObj());
+//			if(pxTransportObj!=null)then
+//				m_iPotentiallyBlockedSlots -= pxTransportObj^.NumPassengers();
+//			endif;
+		endif;
+		UpdatePassengerAttribs();
+	endproc;
+	
+	export proc bool IsBuildUpAutoAttack()
+		return GetTechTree().GetValueI(GetObjPath()+"/buildup_autoattack", 0)==1;
+	endproc;
+	
+	export proc void Fight(^CGameObj p_pxTarget, vec3 p_vPos, bool p_bUserCommand, bool p_bQ)
+		if(!IsAbleToFight())then return; endif;
+		var bool bOldUserCmd=false;
+		var bool bNewUserCmd=p_bUserCommand;
+		if(m_pxTaskMgr!=null)then
+			if(m_pxTaskMgr^.GetCurTask()!=null)then
+				bOldUserCmd=m_pxTaskMgr^.GetCurTask()^.IsUserCommand();
+			endif;
+		endif;
+		if(!bNewUserCmd && bOldUserCmd)then
+			return;
+		endif;
+		if(GetTransportObj().IsValid())then
+			return;
+		endif;
+		if(HasBuildUp())then
+			GetBuildUp()^.Fight(p_pxTarget, p_vPos, bNewUserCmd, p_bQ);
+		endif;
+		if(p_bUserCommand)then
+			var int i, iC=NumAdditionalBuildUps();
+			for(i=0)cond(i<iC)iter(i++)do
+				GetAdditionalBuildUp(i)^.Fight(p_pxTarget, p_vPos, bNewUserCmd, p_bQ);
+			endfor;
+		endif;
+		super.Fight(p_pxTarget, p_vPos, p_bUserCommand, p_bQ);
+	endproc;
+	
+	export proc void SetAggressionState(int p_iState)
+		super.SetAggressionState(p_iState);
+		var int i, iC=m_xPassengers.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(GetTransportClass()==2)then break; endif;
+			var ^CFightingObj pxFight=cast<CFightingObj>(m_xPassengers[i].GetObj());
+			if(pxFight==null)then continue; endif;
+			pxFight^.SetAggressionState(p_iState);
+		endfor;
+		if(HasBuildUp())then
+			GetBuildUp()^.SetAggressionState(p_iState);
+		endif;
+		iC=NumAdditionalBuildUps();
+		for(i=0)cond(i<iC)iter(i++)do
+			GetAdditionalBuildUp(i)^.SetAggressionState(p_iState);
+		endfor;
+	endproc;
+	
+	export proc void DoCaptainAttackAnim()
+		if(m_xCaptain.IsValid() && (HasOpenBuildUp() && NumAdditionalBuildUps()<=0))then
+			var ^CGameObj pxCaptain=m_xCaptain.GetObj();
+			if(pxCaptain^.HasAnim(m_sCaptainAttackAnim))then
+				pxCaptain^.SetAnim(m_sCaptainAttackAnim, 1);
+			endif;
+		endif;
+	endproc;
+	
+	export proc void DoBuildUpCaptainAttackAnim()
+		if(m_xCaptain.IsValid())then
+			var ^CGameObj pxCaptain=m_xCaptain.GetObj();
+			if(pxCaptain^.HasAnim(m_sCaptainAttackAnim))then
+				pxCaptain^.SetAnim(m_sCaptainAttackAnim, 1);
+			endif;
+		endif;
+	endproc;
+	
+	export proc void DoCaptainAnim()
+		if(m_xCaptain.IsValid())then
+			var ^CGameObj pxCaptain=m_xCaptain.GetObj();
+			if(pxCaptain^.HasAnim(m_sCaptainAnim))then
+				pxCaptain^.SetAnim(m_sCaptainAnim, 3);
+			endif;
+		endif;
+	endproc;
+	
+	export proc void SwitchToAttackMode()
+		if(GetCurrentAnimName()!="standanim" && HasAnim("standanim"))then
+			SetAnim("standanim",3);
+		endif;
+	endproc;
+	
+	export proc void SwitchToWalkMode()
+	endproc;
+	
+	export proc bool IsTransformable()
+		return false;
+	endproc;
+	
+	export proc void SetOwner(int p_iOwner)
+		super.SetOwner(p_iOwner);
+		var CObjList xList=m_xPassengers;
+		var int i, iC=xList.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			var ^CGameObj pxO=xList[i].GetObj();
+			if(pxO==null)then continue; endif;
+			if(cast<CHero>(pxO)!=null||GetClassName()=="special_eusmilus"||GetClassName()=="Miyagi_s0")then
+				OnDismount(xList[i]);
+				continue;
+			endif;
+			pxO^.SetOwner(p_iOwner);
+		endfor;
+		if(HasBuildUp())then
+			GetBuildUp()^.SetOwner(p_iOwner);
+		endif;
+		iC=NumAdditionalBuildUps();
+		for(i=0)cond(i<iC)iter(i++)do
+			GetAdditionalBuildUp(i)^.SetOwner(p_iOwner);
+		endfor;
+		if(m_xCaptain.IsValid())then
+			var ^CCaptain pxCaptain=cast<CCaptain>(m_xCaptain.GetObj());
+			if(pxCaptain!=null)then
+				pxCaptain^.SetOwner(p_iOwner);
+			endif;
+		endif;
+	endproc;
+	
+	export proc bool AttackEnemy(^CFightingObj p_pxEnemy, vec3 p_vTarget, ref bool p_rbRotated)
+		if(HasBuildUp())then
+			var ^CBuildUpWeapon pxWeapon=cast<CBuildUpWeapon>(GetBuildUp());
+			if(pxWeapon!=null)then
+				if(GetRightHandWeapon()==GetCurrentWeapon())then
+					if(pxWeapon^.AttackEnemy(p_pxEnemy, p_vTarget))then
+						if(HasAnim("attack_front_secondary"))then
+							SetAnim("attack_front_secondary",1);
+						endif;
+						return false;
+					endif;
+				endif;
+			endif;
+			if(GetCurTask()^.IsUserCommand())then
+				if(HasOpenBuildUp())then
+					var int i,iC=m_xPassengers.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						var ^CCharacter pxPassenger=cast<CCharacter>(m_xPassengers[i].GetObj());
+						if(pxPassenger==null)then continue; endif;
+						pxPassenger^.AttackTransportersTarget();
+					endfor;
+				endif;
+				var int i, iC=NumAdditionalBuildUps();
+				for(i=0)cond(i<iC)iter(i++)do
+					GetAdditionalBuildUp(i)^.Fight(p_pxEnemy, p_vTarget, true, false);
+				endfor;
+			endif;
+		endif;
+//		if(p_pxEnemy!=null)then
+//			if(p_pxEnemy^.IsFlyingUnit() && !CanShootAir())then return false; endif;
+//		endif;
+		DoCaptainAttackAnim();
+		return super.AttackEnemy(p_pxEnemy, p_vTarget, p_rbRotated);
+	endproc;
+	
+	export proc bool IsFull()
+		return (NumPassengers() >= m_iMaxPassengers);
+	endproc;
+	
+	export proc bool IsFull(CObjHndl p_xPassenger)
+		return (NumPassengers() >= m_iMaxPassengers) && m_xPotentialPassengers.FindEntry(p_xPassenger)==-1;
+	endproc;
+	
+	// true if a valid point for dropping the passenger is near, po_rvDropPos contains one valid point afterwards or {0.0,0.0,0.0} if no one exists
+	proc bool CanDropPassenger(CObjHndl p_xPassenger, ref vec3 po_rvDropPos)
+		if(CanFly())then
+			return CanDropPassengerFromFlying(p_xPassenger,po_rvDropPos);
+		elseif(CanSwim()&&IsInWater())then
+			return CanDropPassengerSwimmingUnit(p_xPassenger,po_rvDropPos);
+		else
+			return CanDropPassengerWalkingUnit(p_xPassenger,po_rvDropPos);
+		endif;
+	endproc;
+	
+	proc bool CanDropPassengerWalkingUnit(CObjHndl p_xPassenger, ref vec3 po_rvDropPos)
+		var ^CFightingObj pxPassenger=cast<CFightingObj>(p_xPassenger.GetObj());
+		if(pxPassenger!=null)then
+			po_rvDropPos=GetPos();
+			if(pxPassenger^.CanFly())then return true; endif;
+//			return CSrvWrap.GetPathfinder().IsFreePoint(GetPos(), true, false, GetOwner());
+			var bool bReturn=CSrvWrap.GetPathfinder().IsFreePoint(GetPos(), true, false, GetOwner());
+			if(!bReturn)then
+				bReturn=CSrvWrap.GetObjMgr()^.GetFreePos(po_rvDropPos,pxPassenger,GetPos(),null,true,false,false,1.0f,010b,GetRadius());
+			endif;
+			return bReturn;
+		endif;
+		return false;
+	endproc;
+	
+	proc bool CanDropPassengerFromFlying(CObjHndl p_xPassenger, ref vec3 po_rvDropPos)
+		var ^CFightingObj pxPassenger=cast<CFightingObj>(p_xPassenger.GetObj());
+		if(pxPassenger!=null)then
+			if(pxPassenger^.CanSwim()&&IsInWater())then
+				po_rvDropPos=GetPos();
+				po_rvDropPos.SetZ(GetWaterHeight());
+				return true;
+			elseif(pxPassenger^.CanFly())then
+				po_rvDropPos=GetPos();
+				return true;
+			endif;
+			return CanDropPassengerWalkingUnit(p_xPassenger, po_rvDropPos);
+		endif;
+		return false;
+	endproc;
+	
+	proc bool CanDropPassengerSwimmingUnit(CObjHndl p_xPassenger, ref vec3 po_rvDropPos)
+		var ^CFightingObj pxPassenger=cast<CFightingObj>(p_xPassenger.GetObj());
+		if(pxPassenger!=null)then
+			if(pxPassenger^.CanSwim()||pxPassenger^.CanFly())then po_rvDropPos=GetPos(); return true; endif;
+			//var vec3 vLandingPos=GetNearestPosOnLand(po_rvDropPos,pxPassenger, m_fMaxPassengerDropRadius);
+			var vec3 vLandingPos=po_rvDropPos;
+			if(vLandingPos=={0.0f,0.0f,0.0f})then vLandingPos=GetPos(); endif;
+			//obsolete, handled within Die()-Methods of Ship and Vehicle
+			// release units if ship is dying
+			//if(vLandingPos != {0.0,0.0,0.0} && IsReleaseWhileDying())then
+			//	po_rvDropPos=vLandingPos;
+			//	return true;
+			//endif;
+			//KLog.LogSpam("Unboard","CTransportObj::CanDropPassenger nearest pos "+vLandingPos.ToString()+" MaxDist "+m_fMaxPassengerDropRadius.ToString());
+			if(vLandingPos=={0.0f,0.0f,0.0f})then
+				CFeedback.Print(GetOwner(), CFeedback.INFO, "_NT_TransportTooFarFromShore");
+				po_rvDropPos={0.0,0.0,0.0};
+				return false;
+			endif;
+			// calc position where a virtual passenger at the nearest pos on land and the ship would meet if the passenger would like to board the ship
+			var vec3 vVirtualMeetingPoint=GetPos(), vTmp=GetPos();
+			var ^CPathfinder pxPF=^(CSrvWrap.GetPathfinder());
+			if(!pxPF^.GetShipBoardingPos(GetOwner(),vLandingPos, GetPos(), vVirtualMeetingPoint))then
+				//KLog.LogSpam("Unboard", "CTransportObj::CanDropPassenger Can't find path");
+				po_rvDropPos={0.0,0.0,0.0};
+				return false;
+			endif;
+			vVirtualMeetingPoint.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vVirtualMeetingPoint.GetX(), vVirtualMeetingPoint.GetY()));
+			// calc the distance beetween the virtual meeting point and the current position
+			// and evaluate the distance between them. if the distance is greater than the
+			// given radius the free pos is too far away to unboard here
+			//KLog.LogSpam("Unboard", "CTransportObj::CanDropPassenger Dist : "+(vVirtualMeetingPoint-this^.GetPos()).Abs2().ToString()+" MaxDist: "+m_fMaxPassengerDropRadius.ToString());
+			if(!m_bOldDisembark&&!pxPF^.IsPassable(vVirtualMeetingPoint))then
+//				var bitset dwType=CObjMgrHost.GFPLT_Land;
+				var bitset dwType=CObjMgrHost.GFPLT_ByActor;
+				vVirtualMeetingPoint={0.0,0.0,0.0};
+				if(!CSrvWrap.GetObjMgr()^.GetFreePos(vVirtualMeetingPoint,pxPassenger,GetPos(),null,true,false,false,pxPassenger^.GetCollisionRadiusInner(),dwType,10.0f))then
+					CFeedback.Print(GetOwner(), CFeedback.INFO, "_TransportObj_UnboardAtShore");
+					po_rvDropPos={0.0,0.0,0.0};
+					return false;
+				endif;
+				vVirtualMeetingPoint.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vVirtualMeetingPoint.GetX(), vVirtualMeetingPoint.GetY()));
+			endif;
+			if((vVirtualMeetingPoint-GetPos()).Abs2()>m_fMaxPassengerDropRadius/*||!pxPF^.IsFreeLine(GetPos(),vVirtualMeetingPoint)*/)then
+				CFeedback.Print(GetOwner(), CFeedback.INFO, "_TransportObj_UnboardAtShore"); //Henry: fix for the warning message
+				po_rvDropPos={0.0,0.0,0.0};
+				return false;
+			endif;
+			if(!m_bOldDisembark)then
+				var real fH=GetPosZ(), fM=vVirtualMeetingPoint.GetZ();
+				if(Math.Abs(fH-fM)>3.0f)then
+					CFeedback.Print(GetOwner(), CFeedback.INFO, "_TransportObj_UnboardAtShore");
+					po_rvDropPos={0.0,0.0,0.0};
+					return false;
+				endif;
+				if(!pxPF^.IsFreeLine(GetPos(),vVirtualMeetingPoint))then
+					CFeedback.Print(GetOwner(), CFeedback.INFO, "_TransportObj_UnboardAtShore");
+					po_rvDropPos={0.0,0.0,0.0};
+					return false;
+				endif;
+			endif;
+			po_rvDropPos=vVirtualMeetingPoint;
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	export proc void PlacePassengerIntoWorld(CObjHndl p_xPassenger, vec3 p_vDropPosition)
+		var ^CFightingObj pxPassenger=cast<CFightingObj>(p_xPassenger.GetObj());
+		if(pxPassenger!=null)then
+			pxPassenger^.GetWeaponMgr()^.SetAutoWeaponChange(true);
+			pxPassenger^.TerminateAction();
+			pxPassenger^.SetVisible(!pxPassenger^.IsDyingInTPO());
+			pxPassenger^.SetTransportObj(CObjHndl.Invalid());
+			pxPassenger^.ResetIdleAnim();
+			var vec3 vTmpDropPos;
+			if(p_vDropPosition != {0.0,0.0,0.0})then
+			// external drop pos
+				vTmpDropPos.SetX(p_vDropPosition.GetX());
+				vTmpDropPos.SetY(p_vDropPosition.GetY());
+				vTmpDropPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(p_vDropPosition.GetX(),p_vDropPosition.GetY()));
+			else
+			// auto drop pos
+				CSrvWrap.GetObjMgr()^.GetFreePos(vTmpDropPos, pxPassenger, GetPos(), null, true, false, false, 10.0f, 010b);
+				if(vTmpDropPos=={0.0,0.0,0.0})then vTmpDropPos=GetPos(); endif;
+			endif;
+			// set passenger
+			pxPassenger^.SetPos(vTmpDropPos);
+			// auto spread
+			var vec3 vSpreadPosition=GetRandomOffset(vTmpDropPos);
+			pxPassenger^.UpdateAllLinkedPassengers();
+//			pxPassenger^.GoTo(vSpreadPosition, true, pxPassenger^.GetMaxSpeed(), true, true);
+			var CFourCC xWalkSet = pxPassenger^.GetWalkSet();
+			pxPassenger^.WalkAction(vSpreadPosition, pxPassenger^.GetMaxSpeed(), true, true, null, xWalkSet, true);
+			//KLog.LogSpam("Unboard","CTransportObj::PlacePassengerIntoWorld TransporterPos="+GetPos().ToString()+" DropPos="+vTmpDropPos.ToString()+" SpreadPos="+vSpreadPosition.ToString());
+		endif;
+	endproc;
+	
+	export proc bool OnDismount(CObjHndl p_xPassenger)
+		return OnDismount(p_xPassenger,false,{0.0,0.0,0.0});
+	endproc;
+	
+	///////
+	//	OnDismount()
+	//
+	//	tells the passenger to get off the transport obj or anything that has to be done with the passenger,
+	//	SetVisible() etc..
+	//
+	//	The unlinking and/or unhiding of the passenger is already done here
+	//	In overloaded methods only the side effect, ex. disable RangeEffect, etc. must be enabled/disabled
+	//  To check whether a passenger can dismount use an overwritten CanDropPassenger in your Subclass
+	///////
+	export proc bool OnDismount(CObjHndl p_xPassenger,bool p_bForceDismount, vec3 p_vDropPosition)
+		if(!p_xPassenger.IsValid())then return false; endif;
+		if(m_xPassengers.FindEntry(p_xPassenger)==-1)then return false; endif;
+		// NOTE if not p_bForceDismount -> calc new drop pos indirectly via CanDropPassenger
+		var vec3 vTmpDropPos=p_vDropPosition;
+		if(p_bForceDismount||CanDropPassenger(p_xPassenger,vTmpDropPos))then
+			if(HasBuildUp(CBuildUpBase.TYPE_SEISMO))then
+				cast<CBuildUpSeismoTransporter>(GetBuildUp())^.RemovePassenger(p_xPassenger);
+			elseif(HasBuildUp(CBuildUpBase.TYPE_WEAPON_TRANSPORTER))then
+				cast<CBuildUpWeaponTransporter>(GetBuildUp())^.RemovePassenger(p_xPassenger);
+			elseif(HasTransportBuildUp())then
+				cast<CBuildUpTransporter>(GetBuildUp())^.RemovePassenger(p_xPassenger);
+//			elseif(HasBuildUp(CBuildUpBase.TYPE_TRANSPORTER)||HasBuildUp(CBuildUpBase.TYPE_TRANSPORTER_OPEN))then
+//			elseif(HasBuildUp(CBuildUpBase.TYPE_TRANSPORTER))then
+//				cast<CBuildUpTransporter>(GetBuildUp())^.RemovePassenger(p_xPassenger);
+			endif;
+			m_xPassengers.RemEntry(p_xPassenger);
+			if(p_xPassenger.IsValid())then
+				if(GetTransportObj().IsValid())then
+					var ^CTransportObj pxCTParent=cast<CTransportObj>(GetTransportObj().GetObj());
+					if(pxCTParent!=null)then
+						pxCTParent^.ReduceBS(1);
+					endif;
+				endif;
+				if(GetPTO().IsValid())then
+					var ^CTransportObj pxPotentialParent=cast<CTransportObj>(GetPTO().GetObj());
+					if(pxPotentialParent!=null)then
+						pxPotentialParent^.ReducePBS(1);
+					endif;
+				endif;
+			endif;
+			if(HasAnim("unload")&&GetCurrentAnimName()!="unload")then
+				SetAnim("unload",1);
+			endif;
+			PlacePassengerIntoWorld(p_xPassenger, vTmpDropPos);
+			if(p_xPassenger.IsValid())then
+//				var ^CIguanodon pxDrHQ=cast<CIguanodon>(p_xPassenger.GetObj());
+//				var ^CZeppelin pxZeppelin=cast<CZeppelin>(this);
+//				if(pxDrHQ!=null && pxZeppelin!=null)then
+//					pxDrHQ^.UnSetTransportObj();
+//				endif;
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(p_xPassenger.GetObj());
+				if(pxPassenger!=null)then
+					pxPassenger^.UnSetTransportObj();
+					if(HasOpenBuildUp()&&pxPassenger^.CanShootAir())then
+						CheckPCSA();
+					endif;
+				endif;
+			endif;
+			var ^CTransportObj pxTransporter=cast<CTransportObj>(p_xPassenger.GetObj());
+			if(pxTransporter!=null)then
+				pxTransporter^.Release();
+				m_iBlockedSlots -= pxTransporter^.NumPassengers();
+			endif;
+			if(HasBuildUp())then
+				GetBuildUp()^.UpdateLinkedObjs();
+			endif;
+			UpdatePassengerAttribs();
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	export proc bool OnDismountDeath(CObjHndl p_xPassenger, ref bool p_rbDropped, CObjHndl p_xNew)
+		if(!p_xPassenger.IsValid())then return false; endif;
+		if(m_xPassengers.FindEntry(p_xPassenger)==-1)then return false; endif;
+		p_rbDropped=true;
+		if(HasBuildUp(CBuildUpBase.TYPE_SEISMO))then
+			cast<CBuildUpSeismoTransporter>(GetBuildUp())^.RemovePassenger(p_xPassenger);
+		elseif(HasBuildUp(CBuildUpBase.TYPE_WEAPON_TRANSPORTER))then
+			cast<CBuildUpWeaponTransporter>(GetBuildUp())^.RemovePassenger(p_xPassenger);
+		elseif(HasTransportBuildUp())then
+			cast<CBuildUpTransporter>(GetBuildUp())^.RemovePassenger(p_xPassenger);
+//		elseif(HasBuildUp(CBuildUpBase.TYPE_TRANSPORTER)||HasBuildUp(CBuildUpBase.TYPE_TRANSPORTER_OPEN))then
+//		elseif(HasBuildUp(CBuildUpBase.TYPE_TRANSPORTER))then
+//			cast<CBuildUpTransporter>(GetBuildUp())^.RemovePassenger(p_xPassenger);
+		endif;
+		m_xPassengers.RemEntry(p_xPassenger);
+		if(p_xPassenger.IsValid())then
+			if(GetPTO().IsValid())then
+				var ^CTransportObj pxPotentialParent=cast<CTransportObj>(GetPTO().GetObj());
+				if(pxPotentialParent!=null)then
+					pxPotentialParent^.ReducePBS(1);
+				endif;
+			endif;
+		endif;
+		var ^CFightingObj pxPassenger=cast<CFightingObj>(p_xPassenger.GetObj());
+		if(pxPassenger!=null)then
+			pxPassenger^.TerminateAction();
+			pxPassenger^.SetTransportObj(p_xNew);
+			pxPassenger^.UpdateAllLinkedPassengers();
+			var ^CTransportObj pxTransporter=cast<CTransportObj>(p_xPassenger.GetObj());
+			if(pxTransporter!=null)then
+				pxTransporter^.Release();
+				m_iBlockedSlots -= pxTransporter^.NumPassengers();
+			endif;
+		endif;
+		if(HasBuildUp())then
+			GetBuildUp()^.UpdateLinkedObjs();
+		endif;
+		UpdatePassengerAttribs();
+		return true;
+	endproc;
+	
+	export proc bool PlaceIntoWorldOnDeath(CObjHndl p_xPassenger, vec3 p_vDropPosition)
+		if(!p_xPassenger.IsValid())then return false; endif;
+		var vec3 vTmpDropPos=p_vDropPosition;
+		if(CanDropPassenger(p_xPassenger,vTmpDropPos))then
+			PlacePassengerIntoWorld(p_xPassenger, vTmpDropPos);
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	///////
+	//	OnMount()
+	//
+	//	tells the passenger to get on the transport obj or anything that has to be done with the passenger,
+	//	SetVisible() etc..
+	//	The linking and/or hiding is done already here. In overloaded methods only the side effects must be
+	// 	enabled/disabled
+	///////
+	export proc bool OnMount(CObjHndl p_xPassenger)
+		if(m_bReleaseWhileDying)then return false; endif;
+		if(!p_xPassenger.IsValid())then return false; endif;
+		if(m_xPassengers.FindEntry(p_xPassenger)!=-1)then return false; endif;
+		var ^CFightingObj pxPassenger=cast<CFightingObj>(p_xPassenger.GetObj());
+		if(pxPassenger==null)then return false; endif;
+		if(pxPassenger^.IsJetPackOn()||pxPassenger^.JetPackChange()||pxPassenger^.IsFlyingUnit())then return false; endif;
+//		if(pxPassenger^.IsFlyingUnit())then return false; endif;
+		if(HasUnboardEffect())then return false; endif;
+		if(GetTransportClass()!=2 && pxPassenger^.GetType()!="CHTR")then return false; endif;
+		var ^CTransportObj pxTransporter=cast<CTransportObj>(pxPassenger);
+		if(pxTransporter!=null && pxTransporter^.GetTransportClass()==2)then return false; endif;
+		var ^CShip pxShip=cast<CShip>(pxPassenger);
+		if(pxShip!=null)then return false; endif;
+		if(HasBuildUp(CBuildUpBase.TYPE_SEISMO))then
+			cast<CBuildUpSeismoTransporter>(GetBuildUp())^.AddPassenger(p_xPassenger);
+		elseif(HasBuildUp(CBuildUpBase.TYPE_WEAPON_TRANSPORTER))then
+			cast<CBuildUpWeaponTransporter>(GetBuildUp())^.AddPassenger(p_xPassenger);
+		elseif(HasTransportBuildUp())then
+			cast<CBuildUpTransporter>(GetBuildUp())^.AddPassenger(p_xPassenger);
+//		elseif(HasBuildUp(CBuildUpBase.TYPE_TRANSPORTER)||HasBuildUp(CBuildUpBase.TYPE_TRANSPORTER_OPEN))then
+//		elseif(HasBuildUp(CBuildUpBase.TYPE_TRANSPORTER))then
+//			cast<CBuildUpTransporter>(GetBuildUp())^.AddPassenger(p_xPassenger);
+		endif;
+		UnregisterPassenger(p_xPassenger);
+		m_xPassengers.Include(p_xPassenger);
+		pxPassenger^.GetWeaponMgr()^.SetAutoWeaponChange(true);
+		if(pxTransporter!=null)then
+			m_iBlockedSlots += pxTransporter^.NumPassengers();
+		endif;
+		CUniversalTriggerMgr.Get().OnTransportMount(GetHandle(),p_xPassenger);
+		if(HasBuildUp())then
+			GetBuildUp()^.UpdateLinkedObjs();
+		endif;
+		pxPassenger^.SetTransportObj(GetHandle());
+		if(HasAnim("unload")&&GetCurrentAnimName()!="unload")then
+			SetAnim("unload",2);
+		endif;
+		if(pxPassenger!=null)then
+//			var ^CIguanodon pxDrHQ=cast<CIguanodon>(pxPassenger);
+//			var ^CZeppelin pxZeppelin=cast<CZeppelin>(this);
+//			if(pxDrHQ!=null && pxZeppelin!=null)then
+//				pxDrHQ^.OverSetTransportObj();
+//			endif;
+			pxPassenger^.OverSetTransportObj();
+			if(!m_bPCSA&&HasOpenBuildUp()&&pxPassenger^.CanShootAir())then
+				m_bPCSA=true;
+				SetBuildUpAirWeapons(true);
+			endif;
+		endif;
+		if(pxTransporter!=null)then
+			pxTransporter^.UpdateAllLinkedPassengers();
+		endif;
+		UpdatePassengerAttribs();
+		return true;
+	endproc;
+	
+	export proc void HandleAction(string p_sAction)
+	endproc;
+	
+	export proc void SetTransportObj(CObjHndl p_xHndl)
+		super.SetTransportObj(p_xHndl);
+		if(!m_xTransportObj.IsValid())then
+			if(HasBuildUp())then
+				GetBuildUp()^.UpdateLinkedObjs();
+			endif;
+		endif;
+	endproc;
+	
+	export proc int NeededSpaceInTransport()
+		return m_xPassengers.NumEntries()+1;
+	endproc;
+	
+	export proc void DestroyBuildUp()
+		if(HasBuildUp())then
+			GetBuildUp()^.Kill();
+		endif;
+		m_iBuildUpType=CBuildUpBase.TYPE_NONE;
+		m_pxBuildUp=null;
+		var int i, iC=NumAdditionalBuildUps();
+		for(i=0)cond(i<iC)iter(i++)do
+			GetAdditionalBuildUp(i)^.Kill();
+		endfor;
+		m_aiAdditionalBuildUps=0;
+		m_apxAdditionalBuildUps=0;
+		LinkCaptainObj();
+		SetTransportClass(0);
+		m_bBUCSA=false;
+		m_bPCSA=false;
+		SetBuildUpAirWeapons(false);
+	endproc;
+	
+	export proc void ClearAllBuildUp()
+		if(HasBuildUp())then
+			GetBuildUp()^.Kill();
+		endif;
+		m_iBuildUpType=CBuildUpBase.TYPE_NONE;
+		m_pxBuildUp=null;
+		var int i, iC=NumAdditionalBuildUps()-1;
+		for(i=iC)cond(i>=0)iter(i--)do
+			GetAdditionalBuildUp(i)^.Kill();
+		endfor;
+		m_aiAdditionalBuildUps=0;
+		m_apxAdditionalBuildUps=0;
+		if(m_xCaptain.IsValid())then
+			m_xCaptain.GetObj()^.Delete();
+			m_xCaptain=CObjHndl.Invalid();
+		endif;
+		SetTransportClass(0);
+		var CFourCC xFlag="flag";
+		if(HasLink(xFlag))then
+			RemLinkGFX(xFlag);
+		endif;
+	endproc;
+	
+	export proc void DestroyAdditionalBuildUps()
+		var int i, iC=NumAdditionalBuildUps();
+		for(i=0)cond(i<iC)iter(i++)do
+			GetAdditionalBuildUp(i)^.Kill();
+		endfor;
+		m_aiAdditionalBuildUps=0;
+		m_apxAdditionalBuildUps=0;
+		LinkCaptainObj();
+	endproc;
+	
+	export proc int GetMaxPassengers()
+		return m_iMaxPassengers;
+	endproc;
+	
+	export proc void SetMaxPassengers(int p_iNum)
+		var int iOldPassengers=m_iMaxPassengers;
+		if(iOldPassengers==p_iNum)then return; endif;
+		m_iMaxPassengers=p_iNum;
+		var ^CAttribs pxAttr=GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("max_passengers",m_iMaxPassengers);
+		endif;
+		if(iOldPassengers<p_iNum)then return; endif;
+		var int iNewMax=p_iNum;
+		while(m_xPassengers.NumEntries()>iNewMax)do
+			if(!OnDismount(m_xPassengers[iNewMax],true,GetPos()))then
+				m_xPassengers.DeleteEntry(iNewMax);
+			endif;
+		endwhile;
+	endproc;
+	
+	export proc string GetPassengerLoopAnim()
+		return "standanim";
+	endproc;
+	
+	export proc void PrepareUnboard(vec3 p_vPos, bool p_bQ)
+		var ^CPrepareUnboard pxT=cast<CPrepareUnboard>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(), "PreUnbr"));
+		if(pxT!=null)then
+			var bool bInit=pxT^.Init(GetHandle(), p_vPos);
+			if(bInit)then
+				pxT^.SetUserCommand(true);
+				NewTaskFO(pxT,p_bQ);
+			else
+				pxT^.GetFactory()^.FreeState(pxT);
+			endif;
+		endif;
+	endproc;
+	
+	export proc void Unboard(CObjHndl p_xPassenger)
+		OnDismount(p_xPassenger);
+	endproc;
+	
+	proc void AllGotDrowned() //Henry: because there is that annoying bug, when the whole crew is in the water, then cross the 200m high mountain, and get into my base...
+		m_bReleaseWhileDying=true;
+		var bool bCasualties=false;
+		while(m_xPassengers.NumEntries()>0)do
+			var ^CFightingObj pxPassenger=cast<CFightingObj>(m_xPassengers[0].GetObj());
+			//if(OnDismount(p_xPassenger,false,{0.0,0.0,0.0})then
+			if(OnDismount(m_xPassengers[0],false,{0.0,0.0,0.0}))then
+			else
+				bCasualties=true;
+				m_xPassengers.DeleteEntry(0);
+				if(pxPassenger==null)then continue; endif;
+				var int iSubstract;
+				if(pxPassenger^.LiquidationFinished(iSubstract,GetLastDamage(),GetLastEnemy()))then
+					m_iBlockedSlots-=Math.Min(iSubstract,m_iBlockedSlots);
+					pxPassenger^.TerminateAction();
+					pxPassenger^.SetVisible(false);
+					pxPassenger^.DieInTransport(GetLastDamage(),GetLastEnemy());
+				endif;
+			endif;
+		endwhile;
+		if(bCasualties)then
+			CFeedback.Print(GetOwner(), CFeedback.ATTACK, "_NT_TransportUnitsDiedInShip");
+		endif;
+	endproc;
+	
+	export proc bool DismountAll()
+		return DismountAll({0.0,0.0,0.0});
+	endproc;
+	
+	// units will placed into world and walk to p_vFinalDestination
+	export proc bool DismountAll( vec3 p_vFinalDestination)
+		var CObjList xPassengers=m_xPassengers;
+		var int i,iC=xPassengers.NumEntries();
+		var CObjList xWalkGroup;
+		var vec3 vTmpDropPos=p_vFinalDestination;
+		var CObjHndl xBiggest;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(xPassengers[i].IsValid() && (!xBiggest.IsValid()||xPassengers[i].GetObj()^.GetCollisionRadius()>xBiggest.GetObj()^.GetCollisionRadius()))then
+				xBiggest=xPassengers[i];
+			endif;
+		endfor;
+		if(!CanDropPassenger(xBiggest,vTmpDropPos))then
+			return false;
+		endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			xWalkGroup.AddEntry(xPassengers[i]);
+			OnDismount(xPassengers[i],true,vTmpDropPos);
+		endfor;
+		if(p_vFinalDestination != {0.0,0.0,0.0})then
+			if( (p_vFinalDestination - vTmpDropPos).Abs2() > m_fPassengerSpreadRadius )then
+				// start group walk
+				CSrvWrap.GetObjMgr()^.HandleGPCmd("Action","/Walk",xWalkGroup,p_vFinalDestination);
+			else
+				// spread units
+				for(i=0)cond(i<xWalkGroup.NumEntries())iter(i++)do
+					if(xWalkGroup[i].IsValid())then
+						var ^CFightingObj pxFO=cast<CFightingObj>(xWalkGroup[i].GetObj());
+						if(pxFO != null)then
+							var vec3 vSpreadPosition=GetRandomOffset(vTmpDropPos);
+							pxFO^.GoTo(vSpreadPosition, true, pxFO^.GetMaxSpeed(), true, true);
+							//KLog.LogSpam("Unboard","CTransportObj::DismountAll TransporterPos="+GetPos().ToString()+" DropPos="+vTmpDropPos.ToString()+" SpreadPos="+vSpreadPosition.ToString());
+						endif;
+					endif;
+				endfor;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	///////
+	//	GetPassengers()
+	//
+	//	returns all passengers as a CObjList
+	///////
+	export proc ref CObjList GetPassengers()
+		return m_xPassengers;
+	endproc;
+	
+	export proc CObjList GetPassengersSimple()
+		return m_xPassengers;
+	endproc;
+	
+	export proc void HandleEditorCommand(string p_sCommand,^CGameObj p_pxObject,vec3 p_vPos,string p_sMiscParams)
+		if(p_sCommand=="LE_AddPassengers")then
+			var array string asGuids;
+			p_sMiscParams.Split(asGuids,"\n",true);
+			var int i,iC=asGuids.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var CGuid xGuid;
+				xGuid.FromString(asGuids[i]);
+				var ^CGameObj pxObj=CSrvWrap.GetObjMgr()^.GetObjByGuid(xGuid);
+				if(pxObj!=null)then
+					OnMount(pxObj^.GetHandle());
+				endif;
+			endfor;
+		elseif(p_sCommand=="LE_RemPassengers")then
+			var array string asGuids;
+			p_sMiscParams.Split(asGuids,"\n",true);
+			var int i,iC=asGuids.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var CGuid xGuid;
+				xGuid.FromString(asGuids[i]);
+				var ^CGameObj pxObj=CSrvWrap.GetObjMgr()^.GetObjByGuid(xGuid);
+				if(pxObj!=null)then
+					OnDismount(pxObj^.GetHandle());
+				endif;
+			endfor;
+		else
+			super.HandleEditorCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams);
+		endif;
+	endproc;
+	
+	///////
+	//	ReactToGamePlayCommand()
+	///////
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		if(	IsTrapped() &&
+			!(p_sMiscParams.Find("/Kill")!=-1||p_sCommand=="Kill") &&
+			!(p_sCommand=="setlevel"||p_sMiscParams.Find("/LevelUp")!=-1||p_sMiscParams.Find("/Dismount")!=-1)
+			)then return; endif;
+		if(m_xTransportObj.IsValid()&&p_sMiscParams.Find("/LeaveTransport")<0)then return; endif;
+		if(p_sCommand=="Harvest")then
+			HarvestTask(p_pxObject, p_vPos, p_bQ);
+		elseif(p_sCommand=="Mine")then
+			MineTask(p_pxObject, p_vPos, p_bQ);
+		elseif(p_sCommand=="GetFood")then
+			GetFoodTask(p_pxObject, p_vPos, p_bQ);
+		elseif(p_sCommand=="Action")then
+			if(p_sMiscParams.Find("/DismountAll") != -1)then
+				DismountAll();
+			elseif(p_sMiscParams.Find("/Dismount")!=-1)then
+				if(p_pxObject!=null)then
+					//RT#15443
+					//OnDismount(p_pxObject^.GetHandle());
+					Unboard(p_pxObject^.GetHandle());
+				endif;
+			elseif(p_sMiscParams.Find("/PrepareUnboard")!=-1)then
+				PrepareUnboard(p_vPos, p_bQ);
+			elseif(p_sMiscParams.Find("/AddPassenger")!=-1)then
+				if(p_pxObject!=null)then
+					OnMount(p_pxObject^.GetHandle());
+				endif;
+			elseif(p_sMiscParams.Find("/Deforest")>=0)then
+				EradicateForest(p_bQ);
+			elseif(p_sCommand=="Action")then
+				if(p_sMiscParams.Find("/stimpack")!=-1)then
+					Stimpack();
+				else
+					super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+				endif;
+			else
+				super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+			endif;
+		else
+			super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+		endif;
+	endproc;
+	
+	export proc void CheckLevelFlag()
+		var int iLevel=GetLevel();
+		var string sTribe=GetPlayerTribeName();
+		var string sFlagGFX=sTribe+"_animal_flag_0"+(iLevel+1).ToString();
+		var string sFlagDesc=sFlagGFX+"_"+m_iBuildUpType.ToString();
+		//redundancy check
+		if(m_sCurFlagDesc==sFlagDesc)then return; endif;
+		if(!CSrvWrap.GetGfxMgrBase().FindGraphicSetEntry(sFlagGFX))then return; endif;
+		m_sCurFlagDesc=sFlagDesc;
+		var CFourCC xFlag="flag";
+		if(HasBuildUp())then
+			var ^CGameObj pxLinkedObj=GetBuildUp()^.GetPrimaryLinkedObj().GetObj();
+			if(pxLinkedObj!=null && pxLinkedObj^.HasLink(xFlag))then
+				if(HasLink(xFlag))then RemLinkGFX(xFlag); endif;
+				pxLinkedObj^.SetLinkGFX(xFlag,sFlagGFX);
+				return;
+			endif;
+			if(HasAdditionalBuildUp(0))then
+				var ^CGameObj pxObj=GetAdditionalBuildUp(0)^.GetPrimaryLinkedObj().GetObj();
+				if(pxObj!=null && pxObj^.HasLink(xFlag))then
+					if(HasLink(xFlag))then RemLinkGFX(xFlag); endif;
+					pxObj^.SetLinkGFX(xFlag,sFlagGFX);
+					return;
+				endif;
+			endif;
+		endif;
+		if(HasLink(xFlag))then
+			SetLinkGFX(xFlag,sFlagGFX);
+		endif;
+	endproc;
+	
+	///////
+	//	UpdatePassengerAttribs()
+	//
+	//	reads m_xPassengers and m_xCaptain and writes it to attribs
+	///////
+	export proc void UpdatePassengerAttribs()
+		var ^CAttribs pxAttr=GetAttribs();
+		if(pxAttr!=null)then
+			var bool bHasValidCaptain=false;
+			var int i;
+			var string sPassengerAttrib;
+			var int iNumPas=0,iPotPas=0;
+			for(i=0)cond(i<m_xPassengers.NumEntries())iter(i++)do
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(m_xPassengers[i].GetObj());
+				if(pxPassenger==null)then
+					m_xPassengers.DeleteEntry(i);
+					i--;
+					continue;
+				endif;
+				iNumPas++;
+				sPassengerAttrib += pxPassenger^.GetGuid().ToString()+"\n";
+				var ^CTransportObj pxTransportPassenger=cast<CTransportObj>(pxPassenger);
+				if(pxTransportPassenger!=null)then
+					iNumPas+=pxTransportPassenger^.NumPassengers();
+				endif;
+			endfor;
+			var int iCheckSum=(m_xPassengers.NumEntries()+m_xPotentialPassengers.NumEntries()+m_iBlockedSlots+m_iPotentiallyBlockedSlots);
+			var int iOnBoard=m_xPassengers.NumEntries()+m_iBlockedSlots;
+//			var int iOnBoard=iNumPas;
+//			var int iCheckSum=iNumPas+iPotPas;
+			pxAttr^.SetValue("passenger_guids", sPassengerAttrib);
+			pxAttr^.SetValue("passengers_onboard",iOnBoard);
+			pxAttr^.SetValue("registered_passengers",iCheckSum);
+		endif;
+		var ^CAnimal pxAnimal=cast<CAnimal>(this);
+		if(pxAnimal!=null)then
+			pxAnimal^.ForceHealing();
+		endif;
+	endproc;
+	
+	proc void CheckPCSA()
+		var int i;
+		for(i=0)cond(i<m_xPassengers.NumEntries())iter(i++)do
+			var ^CFightingObj pxPassenger=cast<CFightingObj>(m_xPassengers[i].GetObj());
+			if(pxPassenger==null)then continue; endif;
+			if(pxPassenger^.CanShootAir())then
+				m_bPCSA=true;
+				break;
+			endif;
+		endfor;
+		m_bPCSA=false;
+		SetBuildUpAirWeapons(m_bBUCSA||m_bPCSA);
+	endproc;
+	
+	proc void GeneralPassengerUpdate()
+		var ^CAttribs pxAttr=GetAttribs();
+		if(pxAttr!=null)then
+			var int i;
+			var string sPassengerAttrib;
+			var int iNumPas=0,iPotPas=0;
+			m_iBlockedSlots=0;m_iPotentiallyBlockedSlots=0;
+			for(i=0)cond(i<m_xPassengers.NumEntries())iter(i++)do
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(m_xPassengers[i].GetObj());
+				if(pxPassenger==null)then
+					m_xPassengers.DeleteEntry(i);
+					i--;
+					continue;
+				endif;
+				iNumPas++;
+				sPassengerAttrib += pxPassenger^.GetGuid().ToString()+"\n";
+				var ^CTransportObj pxTransportPassenger=cast<CTransportObj>(pxPassenger);
+				if(pxTransportPassenger!=null)then
+					m_iBlockedSlots+=pxTransportPassenger^.NumPassengers();
+				endif;
+			endfor;
+			for(i=0)cond(i<m_xPotentialPassengers.NumEntries())iter(i++)do
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(m_xPotentialPassengers[i].GetObj());
+				if(pxPassenger==null)then
+					m_xPotentialPassengers.DeleteEntry(i);
+					i--;
+					continue;
+				endif;
+				iPotPas++;
+				var ^CTransportObj pxTransportPassenger=cast<CTransportObj>(pxPassenger);
+				if(pxTransportPassenger!=null)then
+					m_iPotentiallyBlockedSlots+=pxTransportPassenger^.NumPassengers();
+				endif;
+			endfor;
+			pxAttr^.SetValue("passenger_guids", sPassengerAttrib);
+			pxAttr^.SetValue("passengers_onboard",iNumPas+m_iBlockedSlots);
+			pxAttr^.SetValue("registered_passengers",iNumPas+m_iBlockedSlots+iPotPas+m_iPotentiallyBlockedSlots);
+		endif;
+	endproc;
+	
+	export proc bool UpdateGfx()
+		var bool bRes=super.UpdateGfx();
+		if(!m_bDieInitiated)then
+			var ^CCaptain pxCaptain=cast<CCaptain>(m_xCaptain.GetObj());
+			if(pxCaptain!=null)then
+				pxCaptain^.UpdateGfx();
+			endif;
+			DoCaptainAnim();
+			var int i, iC=NumAdditionalBuildUps();
+			for(i=0)cond(i<iC)iter(i++)do
+				cast<CBuildUpWeapon>(GetAdditionalBuildUp(i))^.UpdateCaptainObj();
+			endfor;
+		endif;
+		return bRes;
+	endproc;
+	
+	export proc void OnTechTreeChange()
+		super.OnTechTreeChange();
+		var CStringArray asArray;
+		asArray.AddEntry(GetObjPath()+"/captainclass");
+		OnTechTreeChange(asArray);
+	endproc;
+	
+	///////
+	//	OnTechTreeChange()
+	///////
+	export proc void OnTechTreeChange(ref CStringArray p_rasChanges)
+		super.OnTechTreeChange(p_rasChanges);
+		var bool bCptChg=false;
+		var int i,iC=p_rasChanges.NumEntries();
+		var string sObjPath="/"+GetObjPath();
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sVal=p_rasChanges[i];
+			var string sTribe=GetTribeName();
+			if(!sTribe.IsEmpty())then
+				var string sAllWeaponPath="/Objects/"+sTribe+"/Weapons/";
+				if(sVal.Find("/ForceWeaponUpdate")!=-1)then
+					var int k, iK=NumAdditionalBuildUps();
+					for(k=0)cond(k<iK)iter(k++)do
+						GetAdditionalBuildUp(k)^.UpdateWeaponAndParent();
+					endfor;
+				elseif(sVal.Find(sAllWeaponPath)!=-1)then
+//				if(sVal.Find(sAllWeaponPath)!=-1)then
+					var string sTmp=sVal;
+					sTmp.Replace(sAllWeaponPath,"");
+					sTmp=sTmp.Left(sTmp.Find("/"));
+					sTmp=sAllWeaponPath+sTmp;
+					var ^CTechTree.CNode pxWeapon=m_xTechTree.FindNode(sTmp);
+					if(pxWeapon==null)then continue; endif;
+					var ^CTechTree.CNode pxUsers=pxWeapon^.GetSub("Users");
+					if(pxUsers==null)then continue; endif;
+					var int k, iK=NumAdditionalBuildUps();
+					for(k=0)cond(k<iK)iter(k++)do
+						if(pxUsers^.FindNodeRecursiveByValue(GetAdditionalBuildUp(k)^.GetWeaponClass())!=null||sTmp.Find(GetAdditionalBuildUp(k)^.GetWeapon())!=-1)then
+							GetAdditionalBuildUp(k)^.UpdateWeaponAndParent();
+						endif;
+					endfor;
+				endif;
+			endif;
+			if(sVal.Find("captainclass")>=0)then
+				UpdateCaptainClass();
+			elseif(sVal.Find("/flags")!=-1&&((sVal.Find(sObjPath)!=-1)||(sObjPath.Find(sVal)!=-1)))then
+				var ^CTechTree.CNode pxFlags=m_xTechTree.FindNode(GetObjPath()+"/flags");
+				if(pxFlags!=null)then
+					var int i,iC=pxFlags^.NumSubs();
+					for(i=0)cond(i<iC)iter(i++)do
+						var string sFlag=pxFlags^.GetSub(i)^.GetName();
+						if(sVal.Right(sFlag.GetLength())==sFlag)then
+							HandleAction(sFlag);
+						endif;
+					endfor;
+				endif;
+			endif;
+		endfor;
+		UpdateMaxPassengers();
+	endproc;
+	
+	export proc void UpdateMaxPassengers()
+		SetMaxPassengers(m_xTechTree.GetValueI(GetObjPath()+"/max_passengers", 0));
+	endproc;
+	
+	export proc void UpdateCaptainClass()
+		if(m_bDieInitiated)then return; endif;
+		var string sNewClass=m_xTechTree.GetValueS(GetObjPath()+"/captainclass", "");
+		if(m_sCaptainClass != sNewClass)then
+			m_sCaptainClass=sNewClass;
+			CreateCaptain();
+		endif;
+	endproc;
+	
+	export proc string GetCaptainClass()
+		return m_sCaptainClass;
+	endproc;
+	
+//	proc vec3 GetNearestPosOnLand(vec3 p_vPos,^CFightingObj p_pxPassenger, real p_fMaxDist)
+//		var vec3 vPos=p_vPos;
+//		if(vPos=={0.0f,0.0f,0.0f})then vPos=GetPos(); endif;
+//		if(!CSrvWrap.GetObjMgr()^.GetFreePos(vPos,p_pxPassenger,vPos,null,false,false,true,1.0f,CObjMgrHost.GFPLT_Land))then
+//			vPos={0.0f,0.0f,0.0f};
+//			return vPos;
+//		endif;
+//		//KLog.LogSpam("Unboard", "TransportObj::GetNearestPosOnLand "+(vPos-GetPos()).Abs2().ToString());
+//		if((vPos-GetPos()).Abs2()>p_fMaxDist)then
+//			vPos={0.0f, 0.0f, 0.0f};
+//		endif;
+//		return vPos;
+//	endproc;
+	
+	proc vec3 GetRandomOffset(vec3 p_vLandPos)
+		//KLog.LogSpam("Unboard","CTransportObj::GetRandomOffset");
+		var real fSea=CSrvWrap.GetScapeMgr().GetSeaLevel();
+		var real fZ=0.0f;
+		var real fX,fY;
+		var int iSafeCounter=50;
+		while( (fZ <= fSea+1.0f) && (--iSafeCounter>0))do
+			fX=p_vLandPos.GetX()+Random.MTRandF(-7.0f, 7.0f);
+			fY=p_vLandPos.GetY()+Random.MTRandF(-7.0f, 7.0f);
+			fZ=CSrvWrap.GetScapeMgr().GetHeight(fX,fY);
+		endwhile;
+		if(iSafeCounter==0)then
+			return p_vLandPos;	 //this is the best we have...
+		else
+			var vec3 vRet;
+			vRet.SetXYZ(fX,fY,fZ);
+			return vRet;
+		endif;
+	endproc;
+	
+	export proc void SetCaptainAnim(string p_sAnim)
+		if(m_sCaptainAnim!=p_sAnim)then
+			m_sCaptainAnim=p_sAnim;
+		endif;
+	endproc;
+	
+	export proc void SetCaptainAttackAnim(string p_sAnim)
+		if(m_sCaptainAttackAnim!=p_sAnim)then
+			m_sCaptainAttackAnim=p_sAnim;
+		endif;
+	endproc;
+	
+	export proc string GetCaptainAnim()
+		return m_sCaptainAnim;
+	endproc;
+	
+	export proc string GetCaptainAttackAnim()
+		return m_sCaptainAttackAnim;
+	endproc;
+	
+	export proc void Die()
+		m_bDieInitiated=true;
+		var CObjHndl xInv;
+		var ^CTransportObj pxParent=null;
+		if(GetTransportObj().IsValid())then
+			pxParent=cast<CTransportObj>(GetTransportObj().GetObj());
+			if(pxParent!=null)then
+				pxParent^.ReduceBS(NumPassengers());
+			endif;
+		endif;
+//		m_xPassengers.Validate();
+		while(m_xPassengers.NumEntries()>0)do
+			var ^CFightingObj pxPass=null;
+			var bool bDropped=false;
+			var CObjHndl xTemp=m_xPassengers[0];
+			if(pxParent!=null)then
+				var bool bResult=OnDismountDeath(xTemp,bDropped,xInv);
+				if(!bDropped)then
+					m_xPassengers.DeleteEntry(0);
+				endif;
+				if(bResult&&pxParent^.TransferPassengers(xTemp))then
+					// Henry: do nothing...
+				elseif(!bDropped||!PlaceIntoWorldOnDeath(xTemp,{0.0,0.0,0.0}))then
+					pxPass=cast<CFightingObj>(xTemp.GetObj());
+					if(pxPass!=null)then
+						pxPass^.DieInTransport(GetLastDamage(),GetLastEnemy());
+					endif;
+				endif;
+			elseif(!OnDismount(m_xPassengers[0]))then
+				pxPass=cast<CFightingObj>(m_xPassengers[0].GetObj());
+				if(pxPass!=null)then
+					pxPass^.DieInTransport(GetLastDamage(),GetLastEnemy());
+				endif;
+				m_xPassengers.DeleteEntry(0);
+			endif;
+		endwhile;
+		if(m_xCaptain.IsValid())then
+			m_xCaptain.GetObj()^.Delete();
+			m_xCaptain.FromInt(-1);
+		endif;
+		super.Die();
+	endproc;
+	
+	export proc void DieFastAndSilent()
+		m_bDieInitiated=true;
+		if(GetTransportObj().IsValid())then
+			while(m_xPassengers.NumEntries()>0)do
+				var ^CFightingObj pxPassenger=cast<CFightingObj>(m_xPassengers[0].GetObj());
+				m_xPassengers.DeleteEntry(0);
+				if(pxPassenger!=null)then
+					pxPassenger^.TerminateAction();
+					pxPassenger^.SetVisible(false);
+					pxPassenger^.DieInTransport(GetLastDamage(),GetLastEnemy());
+				endif;
+			endwhile;
+		endif;
+		super.DieFastAndSilent();
+	endproc;
+	
+	export proc void HarakiriFastAndSilent()
+		m_bDieInitiated=true;
+		super.HarakiriFastAndSilent();
+	endproc;
+	
+//	export proc real GetBuildupRotSpeed()
+//		return 1.0f;
+//	endproc;
+	
+	export proc void Evacuate()
+		DismountAll();
+	endproc;
+	/*
+	export proc void BuildUpKeeperAttack()
+		var string sAttack=m_xTechTree.GetValueS(GetObjPath()+"/KeeperAttack","");
+		if(sAttack!="" && HasAnim(sAttack))then
+			SetAnim(sAttack, 1);
+		endif;
+	endproc;
+	*/
+	export proc void ReduceBS(int p_iNumber)
+		m_iBlockedSlots-=p_iNumber;
+		m_iBlockedSlots=Math.Max(0,m_iBlockedSlots);
+	endproc;
+	
+	export proc void ReducePBS(int p_iNumber)
+		m_iPotentiallyBlockedSlots-=p_iNumber;
+		m_iPotentiallyBlockedSlots=Math.Max(0,m_iPotentiallyBlockedSlots);
+	endproc;
+	
+	export proc void ReducePBSorBS(int p_iNumber, CObjHndl p_xPassenger)
+		if(m_xPotentialPassengers.FindEntry(p_xPassenger)!=-1)then
+			m_iPotentiallyBlockedSlots=Math.Max(0,m_iPotentiallyBlockedSlots-p_iNumber);
+		elseif(m_xPassengers.FindEntry(p_xPassenger)!=-1)then
+			m_iBlockedSlots=Math.Max(0,m_iBlockedSlots-p_iNumber);
+		endif;
+	endproc;
+	
+	export proc bool LiquidationFinished(ref int p_riNum,int p_iLastDamage,CObjHndl p_xLastEnemy)
+		p_riNum=NumPassengers();
+		while(m_xPassengers.NumEntries()>0)do
+			var ^CFightingObj pxPassenger=cast<CFightingObj>(m_xPassengers[0].GetObj());
+			m_xPassengers.DeleteEntry(0);
+			if(pxPassenger!=null)then
+				pxPassenger^.TerminateAction();
+				pxPassenger^.SetVisible(false);
+				pxPassenger^.DieInTransport(p_iLastDamage,p_xLastEnemy);
+			endif;
+		endwhile;
+		return true;
+	endproc;
+	
+	export proc bool TransferPassengers(CObjHndl p_xPassenger)
+//		return false;
+		return OnMount(p_xPassenger);
+	endproc;
+	
+	export proc void SetTBUAW(bool p_bOn) // Henry: Set Transporter BuildUp Air Weapon
+		m_bBUCSA=p_bOn;
+		SetBuildUpAirWeapons(m_bBUCSA||m_bPCSA);
+	endproc;
+	
+	export proc void LetLeavePassenger(CObjHndl p_xPassenger, int p_iEvent)
+		if(!p_xPassenger.IsValid())then return; endif;
+		var CObjHndl xInv;
+		if(GetTransportObj().IsValid())then
+			var ^CTransportObj pxTransport=cast<CTransportObj>(GetTransportObj().GetObj());
+			var bool bDropped=false;
+			OnDismountDeath(p_xPassenger,bDropped,xInv);
+			if(!bDropped)then return; endif;
+			if(pxTransport!=null)then
+				pxTransport^.ReduceBS(1);
+				if(!pxTransport^.TransferPassengers(p_xPassenger))then
+					OnMount(p_xPassenger);
+				else
+					pxTransport^.LetLeavePassenger(p_xPassenger, p_iEvent);
+				endif;
+			else
+				OnMount(p_xPassenger);
+			endif;
+		else
+			Unboard(p_xPassenger);
+			UnMountEvent(p_xPassenger, p_iEvent);
+		endif;
+//		return;
+	endproc;
+	
+//	export proc void SetBuildUpAirWeapons(bool p_bOn)
+//		m_bBUCSA=p_bOn;
+//		m_bCSA=m_bBUCSA||m_bPCSA;
+//	endproc;
+	
+	export proc bool DismountAllSimple()
+		var CObjList xPassengers=m_xPassengers;
+		var int i,iC=xPassengers.NumEntries();
+		var vec3 vDropPos=GetPos();
+		for(i=0)cond(i<iC)iter(i++)do
+			OnDismountSimple(xPassengers[i],vDropPos);
+		endfor;
+		return true;
+	endproc;
+	
+	export proc bool OnDismountSimple(CObjHndl p_xPassenger, vec3 p_vDropPosition)
+		if(!p_xPassenger.IsValid())then return false; endif;
+		if(m_xPassengers.FindEntry(p_xPassenger)==-1)then return false; endif;
+		if(HasBuildUp(CBuildUpBase.TYPE_SEISMO))then
+			cast<CBuildUpSeismoTransporter>(GetBuildUp())^.RemovePassenger(p_xPassenger);
+		elseif(HasBuildUp(CBuildUpBase.TYPE_WEAPON_TRANSPORTER))then
+			cast<CBuildUpWeaponTransporter>(GetBuildUp())^.RemovePassenger(p_xPassenger);
+		elseif(HasTransportBuildUp())then
+			cast<CBuildUpTransporter>(GetBuildUp())^.RemovePassenger(p_xPassenger);
+//		elseif(HasBuildUp(CBuildUpBase.TYPE_TRANSPORTER)||HasBuildUp(CBuildUpBase.TYPE_TRANSPORTER_OPEN))then
+//		elseif(HasBuildUp(CBuildUpBase.TYPE_TRANSPORTER))then
+//			cast<CBuildUpTransporter>(GetBuildUp())^.RemovePassenger(p_xPassenger);
+		endif;
+		m_xPassengers.RemEntry(p_xPassenger);
+		if(p_xPassenger.IsValid())then
+			if(GetTransportObj().IsValid())then
+				var ^CTransportObj pxCTParent=cast<CTransportObj>(GetTransportObj().GetObj());
+				if(pxCTParent!=null)then
+					pxCTParent^.ReduceBS(1);
+				endif;
+			endif;
+			if(GetPTO().IsValid())then
+				var ^CTransportObj pxPotentialParent=cast<CTransportObj>(GetPTO().GetObj());
+				if(pxPotentialParent!=null)then
+					pxPotentialParent^.ReducePBS(1);
+				endif;
+			endif;
+			var ^CFightingObj pxPassenger=cast<CFightingObj>(p_xPassenger.GetObj());
+			if(pxPassenger!=null)then
+				pxPassenger^.TerminateAction();
+//				pxPassenger^.SetTransportObj(CObjHndl.Invalid());
+				pxPassenger^.SetPos(p_vDropPosition);
+			endif;
+//			var ^CTransportObj pxTransporter=cast<CTransportObj>(p_xPassenger.GetObj());
+//			if(pxTransporter!=null)then
+//				pxTransporter^.Release();
+//				m_iBlockedSlots -= pxTransporter^.NumPassengers();
+//			endif;
+			if(HasBuildUp())then
+				GetBuildUp()^.UpdateLinkedObjs();
+			endif;
+			UpdatePassengerAttribs();
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	export proc vec3 GetDismountLocation(vec3 p_vPos)
+		if(m_bOldDisembark)then
+			return p_vPos;
+		endif;
+		var vec3 vTmp=p_vPos;
+		var CObjList xPassengers=m_xPassengers;
+		var int i,iC=xPassengers.NumEntries();
+		var ^CPathfinder pxPF=^(CSrvWrap.GetPathfinder());
+		var vec3 vTmpDropPos=p_vPos;
+		var CObjHndl xBiggest;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(xPassengers[i].IsValid() && (!xBiggest.IsValid()||xPassengers[i].GetObj()^.GetCollisionRadius()>xBiggest.GetObj()^.GetCollisionRadius()))then
+				xBiggest=xPassengers[i];
+			endif;
+		endfor;
+		var ^CFightingObj pxPassenger=cast<CFightingObj>(xBiggest.GetObj());
+		if(pxPassenger==null)then return vTmp; endif;
+		if(CanSwim()&&IsInWater())then
+			vTmp.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vTmp.GetX(), vTmp.GetY()));
+			if(!pxPF^.IsPassable(vTmp))then
+				var bitset dwType=CObjMgrHost.GFPLT_ByActor;
+				if(CSrvWrap.GetObjMgr()^.GetFreePos(vTmp,pxPassenger,p_vPos,null,true,false,false,pxPassenger^.GetCollisionRadiusInner(),dwType,20.0f))then
+					vTmp.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vTmp.GetX(), vTmp.GetY()));
+				endif;
+			endif;
+		else
+			if(!pxPF^.IsFreePoint(vTmp, true, false, GetOwner()))then
+				CSrvWrap.GetObjMgr()^.GetFreePos(vTmp,pxPassenger,p_vPos,null,true,false,false,1.0f,010b,GetRadius());
+			endif;
+		endif;
+		return vTmp;
+	endproc;
+	
+	proc void Stimpack()
+		if(GetTransportClass()==2||(IsTrapped()&&!ExcludeBuildUp())||IsFeignDeath()||GetTransportObj().IsValid())then return; endif;
+		var int i, iC=m_xPassengers.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CSEAS pxPass=cast<CSEAS>(m_xPassengers[i].GetObj());
+			if(pxPass==null||(pxPass^.GetProjectile().IsEmpty()&&pxPass^.GetClassName()!="seas_flamethrower"))then continue; endif;
+			pxPass^.Stimpack();
+		endfor;
+	endproc;
+	
+	export proc void Deforest(^CGameObj p_pxObj, vec3 p_vPos, bool p_bQ, bool p_bNext)
+	endproc;
+	
+endclass;
+	
+class CTradeTransporter inherit CTransportObj
+	
+	class CLastResources
+		
+		export var int m_iStone;
+		export var int m_iWood;
+		export var int m_iFood;
+		
+		export constructor()
+			m_iStone=0;
+			m_iWood=0;
+			m_iFood=0;
+		endconstructor;
+		
+		export destructor()
+		enddestructor;
+		
+		export proc ref CTradeTransporter.CLastResources op_Assign(ref CTradeTransporter.CLastResources p_rxOther)
+			m_iStone=p_rxOther.m_iStone;
+			m_iWood=p_rxOther.m_iWood;
+			m_iFood=p_rxOther.m_iFood;
+			return(this^);
+		endproc;
+		
+		export proc void Update(ref CTradeTransporter.CLastResources p_rxOther)
+			m_iStone+=p_rxOther.m_iStone;
+			m_iWood+=p_rxOther.m_iWood;
+			m_iFood+=p_rxOther.m_iFood;
+		endproc;
+		
+	endclass;
+	
+	var CObjHndl m_xHome;
+	var CLastResources m_xResis;
+	
+	export constructor()
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xTrTr="TrTr"; //TradeTransporter
+		var int iVersion=2;
+		if(CMirageSrvMgr.SDK())then
+			iVersion=1;
+		endif;
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xTrTr,iVersion);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xHome.DoKArc(pxArc^);
+		if(iVersion>=2)then
+			pxArc^ << m_xResis.m_iWood;
+			pxArc^ << m_xResis.m_iStone;
+			pxArc^ << m_xResis.m_iFood;
+		endif;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="TrTr")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVer=p_pxReaderNode^.GetVersion();
+			m_xHome.DoKArc(pxArc^);
+			if(iVer>=2)then
+				pxArc^ << m_xResis.m_iWood;
+				pxArc^ << m_xResis.m_iStone;
+				pxArc^ << m_xResis.m_iFood;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc void UpdateLastResis(int p_iFood, int p_iWood, int p_iStone)
+		m_xResis.m_iFood=p_iFood;
+		m_xResis.m_iWood=p_iWood;
+		m_xResis.m_iStone=p_iStone;
+	endproc;
+	
+	export proc void GetLastResis(ref int p_riFood, ref int p_riWood, ref int p_riStone)
+		p_riFood=m_xResis.m_iFood;
+		p_riWood=m_xResis.m_iWood;
+		p_riStone=m_xResis.m_iStone;
+	endproc;
+	
+	export proc void OnTechTreeChange()
+		super.OnTechTreeChange();
+	endproc;
+	
+	export proc void OnTechTreeChange(ref CStringArray p_rasChanges)
+		super.OnTechTreeChange(p_rasChanges);
+		SetTrade();
+	endproc;
+	
+	export proc bool CanTrade()
+		return true;
+	endproc;
+	
+	export proc void SetTrade()
+		if(GetType()=="SHIP")then return; endif;
+		var ^CAttribs pxAttr=GetAttribs();
+		if(pxAttr!=null && pxAttr^.GetValueInt("trade")!=1)then
+			pxAttr^.SetValue("trade",1);
+		endif;
+	endproc;
+	
+	export proc bool IsAbleToFight()
+		return false;
+	endproc;
+	
+	export proc void SetHome(CObjHndl p_xHome)
+		m_xHome=p_xHome;
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs!=null && m_xHome.GetObj()!=null)then
+			pxAttribs^.SetValue("trade_home", m_xHome.GetObj()^.GetGuid().ToString());
+		endif;
+	endproc;
+	
+	export proc CObjHndl GetHome()
+		if(!m_xHome.IsValid())then
+			var string sClass=GetClassName();
+			var ^CAttribs pxAttribs=GetAttribs();
+			m_xHome=CObjHndl.Invalid();
+			if(pxAttribs!=null)then pxAttribs^.SetValue("trade_home","0"); endif;
+			var CObjQuery xQuery;
+			xQuery.SetOwner(GetOwner());
+			if(sClass=="aje_trade_dino"||sClass=="aje_zeppelin"||sClass=="hu_cart"||sClass=="hu_zeppelin"||sClass=="ninigi_cart"||sClass=="ninigi_zeppelin"||sClass=="seas_trade_dino"||sClass=="seas_zeppelin")then
+				xQuery.SetClass("aje_bazaar");
+				xQuery.SetClass("hu_warehouse",true);
+				xQuery.SetClass("ninigi_warehouse",true);
+				xQuery.SetClass("seas_steelwork",true);
+			elseif(sClass=="aje_muraenosaurus"||sClass=="hu_fishing_boat"||sClass=="ninigi_fishing_boat"||sClass=="seas_muraenosaurus")then
+				xQuery.SetClass("aje_floating_harbour");
+				xQuery.SetClass("hu_harbour",true);
+				xQuery.SetClass("ninigi_harbour",true);
+				xQuery.SetClass("seas_carrier",true);
+			endif;
+			xQuery.SetAttribsPos("TradeBuilding",1);
+			xQuery.SetAttribsNeg("CurTask","BuildUpB");
+			xQuery.SetAttribsNeg("ReadyForWork",0);
+			var CObjList xList;
+			if(xQuery.Execute(xList))then
+				var int iIndex=xList.FindNearest(GetPos());
+				if(iIndex!=-1)then
+					SetHome(xList[iIndex]);
+				endif;
+			endif;
+		endif;
+		return m_xHome;
+	endproc;
+	
+	export proc void Trade(^CGameObj p_pxTarget, bool p_bUserCommand, bool p_bQ)
+		if(IsAbleToWalk())then
+			if(p_pxTarget==null)then return; endif;
+			var ^CTask pxOldTask=GetCurTask();
+			var bool bOldUserCommand=false;
+			if(pxOldTask!=null)then
+				bOldUserCommand=pxOldTask^.IsUserCommand();
+			endif;
+			if(bOldUserCommand && !p_bUserCommand)then return; endif;
+			var ^CAttribs pxAttr=p_pxTarget^.GetAttribs();
+			if(pxAttr==null)then return; endif;
+			if(!pxAttr^.ContainsKey("TradeBuilding")||pxAttr^.GetValueInt("TradeBuilding")!=1)then
+				GoTo(p_pxTarget^.GetPos(), true, GetDefaultSpeed(), true, true, false, p_bQ);
+			endif;
+			if(!CSrvWrap.GetDiplomacyMgr().GetIsFriend(GetOwner(), p_pxTarget^.GetOwner()))then
+				GoTo(p_pxTarget^.GetPos(), true, GetDefaultSpeed(), true, true, false, p_bQ);
+			endif;
+			var ^CTrade pxTask=cast<CTrade>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(),"Trade"));
+			if(pxTask==null)then return; endif;
+			var bool bInit=pxTask^.Init(GetHandle(),p_pxTarget^.GetHandle());
+			if(bInit)then
+				pxTask^.SetUserCommand(p_bUserCommand);
+				NewTaskFO(pxTask,p_bQ);
+			else
+				pxTask^.GetFactory()^.FreeState(pxTask);
+			endif;
+		endif;
+	endproc;
+	
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+//		if(p_sMiscParams.Find("/AggressiveTarget")!=-1&&p_vPos.ToBool())then
+//			SetPos(p_vPos);
+//		endif;
+		if(	IsTrapped() &&
+			!(p_sMiscParams.Find("/Kill")!=-1||p_sCommand=="Kill") &&
+			!(p_sCommand=="setlevel"||p_sMiscParams.Find("/LevelUp")!=-1||p_sMiscParams.Find("/Dismount")!=-1)
+			)then return; endif;
+		if(GetTransportObj().IsValid()&&!(p_sCommand=="setlevel"||p_sMiscParams.Find("/LevelUp")!=-1||p_sMiscParams.Find("/LeaveTransport")>=0))then return; endif;
+		if(p_sCommand=="LookForTarget")then
+			if(GetHome().IsValid())then
+				var CObjHndl xNew=FindTargetPlace();
+				if(xNew.IsValid())then
+					var ^CGameObj pxBuilding=xNew.GetObj();
+					if(pxBuilding!=null && CSrvWrap.GetDiplomacyMgr().GetIsFriend(GetOwner(), pxBuilding^.GetOwner()))then
+						Trade(pxBuilding, true, false);
+						return;
+					endif;
+				endif;
+			endif;
+		elseif(p_sCommand=="Dock")then
+			if(p_pxObject!=null)then
+				var string sClassName=p_pxObject^.GetClassName();
+				var bool bAIHelp=false;
+				if(p_sMiscParams.Find("/AI_Help")!=-1)then
+					var ^CBasePlayer pxPlayer=CBasePlayer.GetPlayer(GetOwner());
+					if(pxPlayer!=null)then
+						bAIHelp=(cast<CAiPlayer>(pxPlayer))!=null;
+					endif;
+				endif;
+				if(/*CSrvWrap.GetDiplomacyMgr().GetIsFriend(GetOwner(), p_pxObject^.GetOwner()) && */AppropriateTarget(sClassName))then
+					if(p_pxObject^.GetHandle()==GetHome())then
+						if(!bAIHelp)then
+							GoTo(p_pxObject^.GetPos(), true, GetMaxSpeed(), true, true);
+						else
+							var CObjHndl xNew=FindTargetPlace();
+							if(xNew.IsValid())then
+								var ^CGameObj pxBuilding=xNew.GetObj();
+								if(pxBuilding!=null && CSrvWrap.GetDiplomacyMgr().GetIsFriend(GetOwner(), pxBuilding^.GetOwner()))then
+									Trade(pxBuilding, true, p_bQ);
+									return;
+								endif;
+							endif;
+							GoTo(p_pxObject^.GetPos(), true, GetMaxSpeed(), true, true);
+						endif;
+					else
+						Trade(p_pxObject,true,p_bQ);
+					endif;
+				else
+					GoTo(p_pxObject^.GetPos(), true, GetMaxSpeed(), true, true);
+				endif;
+			else
+			endif;
+		else
+			super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+		endif;
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()=="CTheLite")then
+//			m_xHome= p_rxEvtPtr.GetObjHandle(0);
+			SetHome(p_rxEvtPtr.GetObjHandle(0));
+			var ^CAttribs pxAttribs=GetAttribs();
+			if(pxAttribs!=null && m_xHome.GetObj()!=null)then
+				pxAttribs^.SetValue("trade_home", m_xHome.GetObj()^.GetGuid().ToString());
+			endif;
+			super.HandleEvent(p_rxEvtPtr);
+		else
+			super.HandleEvent(p_rxEvtPtr);
+		endif;
+	endproc;
+	
+	export proc bool NextJob(CObjHndl p_xTarget, CObjList p_xIgnoreBuildUps)
+		if(!p_xTarget.IsValid())then return false; endif;
+		var string sClassName=p_xTarget.GetObj()^.GetClassName();
+		var ^CBuilding pxBuilding=cast<CBuilding>(p_xTarget.GetObj());
+		if(pxBuilding!=null && CSrvWrap.GetDiplomacyMgr().GetIsFriend(GetOwner(), pxBuilding^.GetOwner()) && AppropriateTarget(sClassName))then
+			if(pxBuilding^.IsReady())then
+				if(pxBuilding^.GetClassName().Find("_portal_terminus")!=-1)then
+					EnterPortal(pxBuilding,false,pxBuilding^.GetPos());
+				elseif(CanTrade()&&!(p_xTarget==GetHome()))then
+					Trade(pxBuilding, true, false);
+				else
+					return super.NextJob(p_xTarget,p_xIgnoreBuildUps);
+				endif;
+				return true;
+			else
+				return super.NextJob(p_xTarget,p_xIgnoreBuildUps);
+			endif;
+		endif;
+		return super.NextJob(p_xTarget,p_xIgnoreBuildUps);
+	endproc;
+	
+	export proc bool AppropriateTarget(string p_sClass)
+		var string sClass=GetClassName();
+		if((sClass=="aje_trade_dino"||sClass=="aje_zeppelin"||sClass=="hu_cart"||sClass=="hu_zeppelin"||sClass=="ninigi_cart"||sClass=="ninigi_zeppelin"||sClass=="seas_trade_dino"||sClass=="seas_zeppelin")&&(p_sClass=="aje_bazaar"||p_sClass=="hu_warehouse"||p_sClass=="ninigi_warehouse"||p_sClass=="seas_steelwork"))then
+			return true;
+		endif;
+		if((sClass=="aje_muraenosaurus"||sClass=="hu_fishing_boat"||sClass=="ninigi_fishing_boat"||sClass=="seas_muraenosaurus"||sClass=="aje_zeppelin"||sClass=="hu_zeppelin"||sClass=="ninigi_zeppelin"||sClass=="seas_zeppelin")&&(p_sClass=="aje_floating_harbour"||p_sClass=="hu_harbour"||p_sClass=="ninigi_harbour"||p_sClass=="seas_carrier"))then
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	export proc CObjHndl FindTargetPlace()
+		var CObjHndl xTarget;
+		var string sClass=GetClassName();
+		var vec3 vPos=GetPos();
+		var CObjQuery xQuery;
+		xQuery.SetOwner(GetOwner());
+		if(sClass=="aje_trade_dino"||sClass=="aje_zeppelin"||sClass=="hu_cart"||sClass=="hu_zeppelin"||sClass=="ninigi_cart"||sClass=="ninigi_zeppelin"||sClass=="seas_trade_dino"||sClass=="seas_zeppelin")then
+			xQuery.SetClass("aje_bazaar");
+			xQuery.SetClass("hu_warehouse",true);
+			xQuery.SetClass("ninigi_warehouse",true);
+			xQuery.SetClass("seas_steelwork",true);
+		elseif(sClass=="aje_muraenosaurus"||sClass=="hu_fishing_boat"||sClass=="ninigi_fishing_boat"||sClass=="seas_muraenosaurus")then
+			xQuery.SetClass("aje_floating_harbour");
+			xQuery.SetClass("hu_harbour",true);
+			xQuery.SetClass("ninigi_harbour",true);
+			xQuery.SetClass("seas_carrier",true);
+		endif;
+		xQuery.SetAttribsPos("TradeBuilding",1);
+		xQuery.SetAttribsNeg("CurTask","BuildUpB");
+		xQuery.SetAttribsNeg("ReadyForWork",0);
+		if(m_xHome.IsValid())then
+			vPos=m_xHome.GetObj()^.GetPos();
+			xQuery.Exclude(m_xHome);
+		endif;
+		var CObjList xList;
+		if(xQuery.Execute(xList))then
+			xList.SortDistance(vPos,true);
+			while(xList.NumEntries()>0)do
+				if(!xList[0].IsValid())then
+					xList.DeleteEntry(0);
+					continue;
+				endif;
+				xTarget=xList[0];
+				break;
+			endwhile;
+		endif;
+		return xTarget;
+	endproc;
+	
+	export proc void OnPostLoad()
+		super.OnPostLoad();
+		var ^CFSM pxFSM=GetFSM();
+		if(pxFSM!=null)then
+			pxFSM^.Enable(true);
+		endif;
+	endproc;
+	
+endclass;
+	
+class CCaptain inherit CTaskBuildUp
+	
+	var string			m_sCaptainClass;
+	var CObjHndl		m_xParent;
+	var string			m_sUniqueClass;
+	var bool				m_bUnique;
+	
+	export constructor();
+		m_bUnique=false;
+		m_sUniqueClass="";
+	endconstructor;
+	
+	export proc void Init(CObjHndl p_xParent)
+		m_xParent=p_xParent;
+		m_bUnique=false;
+		UpdateGfx();
+	endproc;
+	
+	export proc void Init(CObjHndl p_xParent, string p_sUC, bool p_bUnique)
+		m_xParent=p_xParent;
+		m_bUnique=p_bUnique;
+		m_sUniqueClass=p_sUC;
+		UpdateGfx();
+	endproc;
+	
+	export proc bool IsUnique()
+		return m_bUnique;
+	endproc;
+	
+	export proc void OnPostLoad()
+		super.OnPostLoad();
+		if(m_xParent.GetObj()==null)then
+			Delete();
+		endif;
+		var ^CTransportObj pxParent=cast<CTransportObj>(m_xParent.GetObj());
+		if(pxParent!=null)then
+			pxParent^.StopBuildUpFighting();
+		endif;
+/*		var ^CBuildUpFight pxFight=cast<CBuildUpFight>(GetCurTask());
+		if(pxFight!=null)then
+			var ^CFSM pxFSM=GetFSM();
+			if(pxFSM!=null)then
+				pxFSM^.Enable(true);
+			endif;
+		endif;
+*/	endproc;
+	
+	export proc bool UpdateGfx()
+		var ^CTransportObj pxParent=cast<CTransportObj>(m_xParent.GetObj());
+		if(pxParent==null)then
+			Delete();
+			return false;
+		endif;
+		var string sCaptainPath, sCaptainClass=pxParent^.GetCaptainClass();
+		if(!m_sUniqueClass.IsEmpty())then
+			sCaptainClass=m_sUniqueClass;
+		endif;
+		if(sCaptainClass.IsEmpty())then
+			//ERROR
+			KLog.LogWarn("TransportObj","Missing Captainclass: "+pxParent^.GetName());
+			return false;
+		endif;
+		var string sCaptainTribe=pxParent^.GetTechTree().GetValueS(pxParent^.GetObjPath()+"/CaptainTribe","");
+		if(sCaptainTribe.IsEmpty())then
+			sCaptainTribe=pxParent^.GetTribeName();
+		endif
+		var int iLevel=pxParent^.GetLevel();
+		sCaptainPath="Objects/"+sCaptainTribe+"/CHTR/"+sCaptainClass;
+		//if(pxParent^.GetClassName()=="Miyagi_s0")then
+			//sCaptainPath="Objects/Special/CHTR/"+sCaptainClass;
+		//endif;
+		var CTechTree xTechTree=pxParent^.GetTechTree();
+		var ^CTechTree.CNode pxCaptainNode=xTechTree.FindNode(sCaptainPath);
+		if(pxCaptainNode==null)then
+			KLog.LogWarn("TransportObj","Captainclass: '"+sCaptainClass+"' not found in TechTree!");
+			Delete();
+			return false;
+		endif;
+		var string sLevel=(iLevel+1).ToString();
+		var string sOriginalGfx=pxCaptainNode^.GetSubValue("gfx");
+		var string sLevelGfx=sOriginalGfx;
+		var string sSuffix=sOriginalGfx.Right(3);
+		var bool bSkip=false;
+		begin LevelGfx;
+			if(sSuffix=="_s2"||sSuffix=="_s3")then
+				if(iLevel>=sSuffix.Right(1).ToInt())then
+					sLevelGfx.Delete(sOriginalGfx.GetLength()-1);
+				else
+					bSkip=true;
+				endif;
+			else
+				sLevelGfx.Delete(sOriginalGfx.GetLength()-1);
+			endif;
+			if(sLevelGfx=="Stina_s")then
+				sLevelGfx += iLevel.ToString();
+			elseif(pxParent^.GetClassName()=="Miyagi_s0")then
+				iLevel=5;
+				sLevelGfx += iLevel.ToString();
+			elseif(bSkip)then
+				// do nothing
+			else
+				sLevelGfx += sLevel;
+			endif;
+		end LevelGfx;
+		if(!CSrvWrap.GetGfxMgrBase().FindGraphicSetEntry(sLevelGfx))then
+			sLevelGfx=sOriginalGfx;
+		endif;
+		if(sLevelGfx != GetGfxName())then
+			SetGFX(sLevelGfx);
+		endif;
+//		if(m_bUnique)then return true; endif;
+		var array CCharacter.CWeaponGfx axWeapons;
+		var string sWeaponPath="Objects/"+sCaptainTribe+"/Weapons/";
+		//if(pxParent^.GetClassName()=="Miyagi_s0")then
+			//sWeaponPath="Objects/Special/Weapons/";
+		//endif;
+		var ^CTechTree.CNode pxWeapons=xTechTree.FindNode(sWeaponPath);
+		var int iMinLevel=-1;
+		var int iMaxLevel=iLevel+1;
+		if(pxWeapons!=null)then
+			var int i, iC=pxWeapons^.NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CTechTree.CNode pxWeapon=pxWeapons^.GetSub(i);
+				if(pxWeapon==null)then continue; endif;
+				var ^CTechTree.CNode pxUsers=pxWeapon^.GetSub("Users");
+				if(pxUsers==null)then continue; endif;
+				var bool bFound=false;
+				var int iA, iAC=pxUsers^.NumSubs();
+				for(iA=0)cond(iA<iAC)iter(iA++)do
+					var string sUser=pxUsers^.GetSubValue(iA.ToString());
+					if(sUser==sCaptainClass)then
+						bFound=true;
+						break;
+					endif;
+				endfor;
+				if(!bFound)then continue; endif;
+				var int iLvl=pxWeapon^.GetSubValueI("level");
+				if(iLvl<=iMinLevel||iLvl>iMaxLevel)then continue; endif;
+				if(pxWeapon^.GetSubValueI("secondary")!=0)then continue; endif;
+				iMinLevel=iLvl;
+				axWeapons=0;
+				var ^CTechTree.CNode pxParts=pxWeapon^.GetSub("Parts");
+				if(pxParts==null)then continue; endif;
+				iAC=pxParts^.NumSubs();
+				for(iA=0)cond(iA<iAC)iter(iA++)do
+					var ^CTechTree.CNode pxPart=pxParts^.GetSub(iA);
+					if(pxPart==null)then continue; endif;
+					var CFourCC xLink=pxPart^.GetSubValue("Links");
+					var ^CTechTree.CNode pxN=pxPart^.GetSub("Gfx");
+					if(pxN==null)then continue; endif;
+					var string sGFX=pxN^.GetSubValue(0);
+					if(sGFX.IsEmpty())then continue; endif;
+					var ^CCharacter.CWeaponGfx pxGfx=^(axWeapons.NewEntryRef());
+					var string sGFXName=CSrvWrap.GetObjMgr()^.GetClassGFXName(sGFX);
+					pxGfx^.m_xLink=xLink;
+					pxGfx^.m_sGfx=sGFXName;
+				endfor;
+			endfor;
+			RemAllLinkGFX();
+			iC=axWeapons.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CCharacter.CWeaponGfx pxGfx=^(axWeapons[i]);
+				if(pxGfx^.IsValid())then
+					SetLinkGFX(pxGfx^.m_xLink,pxGfx^.m_sGfx);
+				endif;
+			endfor;
+		endif;
+		return true;
+	endproc;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xBase="Capt"; //Captain
+		var int iVersion=1;
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,iVersion);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xParent.DoKArc(pxArc^);
+		pxWalk^.Close();
+		xBase="miCa"; // Henry: for mirage specific things
+		iVersion=1;
+		pxWalk=p_pxWriterNode^.AddSubChunk(xBase,iVersion);
+		pxArc=^(pxWalk^.GetArc());
+		if(iVersion>=1)then
+			(pxArc^) << m_sUniqueClass;
+			(pxArc^) << m_bUnique;
+		endif;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Capt")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVer=p_pxReaderNode^.GetVersion();
+			if(iVer>=1)then
+				m_xParent.DoKArc(pxArc^);
+			endif;
+		elseif(p_pxReaderNode^.GetType()=="miCa")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVer=p_pxReaderNode^.GetVersion();
+			if(iVer>=1)then
+				(pxArc^) << m_sUniqueClass;
+				(pxArc^) << m_bUnique;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+endclass;
+	
+class CTaskHook inherit CTaskChangeSubscriber
+	var ^CTransportObj m_pxTO;
+	
+	export constructor(^CTransportObj p_pxTO);
+		m_pxTO=p_pxTO;
+	endconstructor;
+	
+	export destructor();
+	enddestructor;
+	
+	export proc bool OnPush(string p_sFrom, string p_sTo)
+		return false;
+	endproc;
+endclass;
+	
+class CTmpLinkSlot
+	export proc void DoKArc(ref CArc p_rxArc)
+		var CFourCC xLink; var CObjHndl xInvalid; var string sInvalid;
+		p_rxArc << sInvalid;
+		xInvalid.DoKArc(p_rxArc);
+		xInvalid.DoKArc(p_rxArc);
+		p_rxArc << sInvalid;
+	endproc;
+endclass;

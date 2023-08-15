@@ -1,0 +1,355 @@
+class CAiTaskPickAnimalFood inherit CAiTaskGetResource
+
+	var bool			m_bWaitForFood;
+	var CAiObjWrapList	m_xList;
+	var bool			m_bHostileArea;
+	var string			m_sLevelName;
+	
+	
+	///constructor
+	export constructor()
+		m_bHostileArea = false;
+	endconstructor;
+
+	
+	///CalculateStartCost
+	export proc real CalculateStartCost()
+		m_pxBrain = GetGoal()^.GetAiBrain(); 
+		if(m_pxBrain==null)then return 1.0; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return 1.0; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();	
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		
+		var ^CAiBrain.ICostFunction pxCostFunc = m_pxBrain^.GetCostFunction();
+		var real fCost = 1.0;
+		var ^CAiMaps pxMaps = ^(m_pxSensor^.GetAiMaps());
+		var ^CAiMaps pxGlobalMaps = ^(m_pxSensor^.GetGlobalAiMaps());
+
+		var ^CAiMap		pxCostMap;
+		var ^CAiMap		pxInflBuildMap = ^(pxMaps^.GetAiMap("InflBuild", m_iPlayerID));
+		var CAiMap		xGenInflMap;
+		var CAiArea		xMaxInflBuildArea = pxInflBuildMap^.FindMaxArea();
+
+        if(pxInflBuildMap^.GetValue(xMaxInflBuildArea) > 0.0) then
+			xGenInflMap.CopyFrom(pxInflBuildMap^);
+		else
+			xGenInflMap.CopyFrom(pxMaps^.GetAiMap("Infl", m_iPlayerID));
+		endif;
+		
+		xGenInflMap.OpAdd(0.1);
+		pxCostMap=^(pxMaps^.GetAiMap("FOOD",m_iPlayerID));
+
+		pxCostMap^.CopyFromFast(pxGlobalMaps^.GetAiMap("FOOD", m_iPlayerID));
+		pxCostMap^.MultiplyFast(xGenInflMap);
+		pxCostMap^.MultiplyFast(m_xInvalidMap);
+		pxCostMap^.MultMosaicFast(m_pxSensor^.GetStartLocation());
+		
+		if((pxCostMap^.IsDirty())||(m_xInvalidMap.IsDirty()))then
+			pxCostMap^.UpdateBitmap();
+			pxCostMap^.SetDirty(false);
+			m_xInvalidMap.SetDirty(false);
+		endif;
+
+		m_xMaxArea = pxCostMap^.FindMaxArea();
+
+		if (pxCostMap^.GetValue(m_xMaxArea) == 0.0) then
+
+			if(m_pxBrain^.GetFightModule()!=null)then
+				if(ComputeBestAreaInBestAiMap(m_xMaxArea) == false)then
+					SetImpossible();
+					fCost = 99999999.0f;
+					m_bWaitForFood = false;
+				else
+					var CFourCC xResource = "ANML";
+					var CAiObjQuery xQuery;
+					xQuery.SetType(xResource);
+					xQuery.RegionArea(m_xMaxArea);
+					if(xQuery.Execute(m_xList))then
+						var ^CAiAttackInfo	pxAttackInfo=new CAiAttackInfo();
+						pxAttackInfo^.SetCanUse(CAiAttackInfo.AT_NotPresent,false);
+						pxAttackInfo^.SetCanUse(CAiAttackInfo.AT_Vehicles,false);
+						pxAttackInfo^.SetCanUse(CAiAttackInfo.AT_Ships,false);
+						if(m_bHostileArea)then
+							var CAiObjWrapList xList;
+							var int i, iC = Math.Min(m_xList.NumEntries(),5);
+							for(i=0)cond(i<iC)iter(i++)do
+								pxAttackInfo^.GetTargets().AddEntry(m_xList[i]);
+							endfor;
+						else
+							pxAttackInfo^.GetTargets().AddEntry(m_xList[0]);
+						endif;
+						pxAttackInfo^.SetStrategy("quick");
+						SetRequesterFor(pxAttackInfo);
+						m_pxBrain^.GetFightModule()^.RequestAttack(pxAttackInfo);
+						m_pxSensor^.AddCheckpoint(this, 300, "ntyp:FOOD", 0.0);
+						m_bWaitForFood = true;
+					else
+						m_bWaitForFood = false;
+					endif;
+				endif;
+			else
+				m_bWaitForFood = false;
+				fCost = 99999999.0f;
+				SetImpossible();
+			endif;
+		else
+			m_bWaitForFood = false;
+		endif;
+		return fCost;
+	endproc;
+
+
+	///The function searches radial in various distance steps from startlocation through all relevant AiMaps in a priority order 
+	proc bool ComputeBestAreaInBestAiMap(ref CAiArea po_rxMaxArea)
+		if(m_pxBrain==null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;
+		
+		var ^CAiMaps	pxMaps = ^(m_pxSensor^.GetAiMaps());
+		var ^CAiMaps	pxGlobalMaps = ^(m_pxSensor^.GetGlobalAiMaps());
+		var CAiMap		xFriendlyAnimal;
+		var CAiMap		xNeutralAnimal;
+		var CAiMap		xHostileAnimal;
+		var CAiArea		xSLArea;
+		var int			iSearchDistStep = 4;
+		var int			iMaxSearchSteps = 2;
+		var int			iMaxWidth = Math.Max(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight());
+		var int			iSearchDist;
+		var int			iC = Math.Min(iMaxWidth / iSearchDistStep, iMaxSearchSteps);
+		var int			iSLAreaX;
+		var int			iSLAreaY;
+		
+		CAiArea.Vec3ToArea(m_pxSensor^.GetStartLocation(), iSLAreaX, iSLAreaY);
+		xSLArea.SetX(iSLAreaX);
+		xSLArea.SetY(iSLAreaY);
+		
+		xFriendlyAnimal.CopyFrom(pxGlobalMaps^.GetAiMap("FriendlyAnimal", m_iPlayerID));
+		xFriendlyAnimal.OpMultiplication(pxMaps^.GetAiMap("FriendlyAnimalModifier", m_iPlayerID), true);
+		xFriendlyAnimal.MultMosaicFast(m_pxSensor^.GetStartLocation());
+		xNeutralAnimal.CopyFrom(pxGlobalMaps^.GetAiMap("NeutralAnimal", m_iPlayerID));
+		xNeutralAnimal.OpMultiplication(pxMaps^.GetAiMap("NeutralAnimalModifier", m_iPlayerID), true);
+		xNeutralAnimal.MultMosaicFast(m_pxSensor^.GetStartLocation());
+		xHostileAnimal.CopyFrom(pxGlobalMaps^.GetAiMap("HostileAnimal", m_iPlayerID));
+		xHostileAnimal.OpMultiplication(pxMaps^.GetAiMap("HostileAnimalModifier", m_iPlayerID), true);
+		xHostileAnimal.MultMosaicFast(m_pxSensor^.GetStartLocation());
+		
+		for(iSearchDist = 0)cond(iSearchDist < iC)iter(iSearchDist += iSearchDistStep)do
+			po_rxMaxArea = xFriendlyAnimal.FindMaxAreaRadial(xSLArea, iSearchDist, iSearchDist + iSearchDistStep - 1);
+			if(xFriendlyAnimal.GetValue(po_rxMaxArea) > 0.0)then
+				return true;
+			endif;
+			po_rxMaxArea = xNeutralAnimal.FindMaxAreaRadial(xSLArea, iSearchDist, iSearchDist + iSearchDistStep - 1);
+			if(xNeutralAnimal.GetValue(po_rxMaxArea) > 0.0)then
+				m_bHostileArea = true;
+				return true;
+			endif;
+			po_rxMaxArea = xHostileAnimal.FindMinAreaRadial(xSLArea, iSearchDist, iSearchDist + iSearchDistStep - 1);
+			if(xHostileAnimal.GetValue(po_rxMaxArea) < 0.0)then
+				m_bHostileArea = true;
+				return true;
+			endif;
+		endfor;
+		
+		po_rxMaxArea = xFriendlyAnimal.FindMaxArea();
+		if(xFriendlyAnimal.GetValue(po_rxMaxArea) > 0.0)then
+			return true;
+		endif;
+		po_rxMaxArea = xNeutralAnimal.FindMaxArea();
+		if(xNeutralAnimal.GetValue(po_rxMaxArea) > 0.0)then
+			m_bHostileArea = true;
+			return true;
+		endif;
+		po_rxMaxArea = xHostileAnimal.FindMinArea();
+		if(xHostileAnimal.GetValue(po_rxMaxArea) < 0.0)then
+			m_bHostileArea = true;
+			return true;
+		endif;
+		return false;
+	endproc;
+
+
+	///Start
+	export proc bool Start()
+		m_pxBrain = GetGoal()^.GetAiBrain(); 
+		if(m_pxBrain==null)then return false; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		
+		var ^CAiModuleControlDefault pxCM = cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());	
+		if(pxCM == null)then return false; endif;
+		
+		if(!m_pxSensor^.GetMultimap())then
+			if(pxCM != null)then
+				pxCM^.GetCheatMgr().SpawnResources("food", 10); 
+			endif;
+			return false; 
+		elseif(m_pxSensor^.GetMultimap()&&(m_sLevelName=="Single 01"||
+		m_sLevelName=="Single 02"||m_sLevelName=="Single 03"||m_sLevelName=="Single 04"||
+		m_sLevelName=="Single 05"||m_sLevelName=="Single 06"||m_sLevelName=="Single 07"||
+		m_sLevelName=="Single 08"||m_sLevelName=="Single 09"||m_sLevelName=="Single 10"||
+		m_sLevelName=="Single 11"||m_sLevelName=="Single 12"||m_sLevelName=="Single 13"||
+		m_sLevelName=="Single 14"||m_sLevelName=="Single 15"||m_sLevelName=="Single 16"||
+		m_sLevelName=="Single B41"||m_sLevelName=="Single B42"||m_sLevelName=="Single B43"))then
+			if(pxCM != null)then
+				pxCM^.GetCheatMgr().SpawnResources("food", 10); 
+			endif;
+			return false; 
+		endif;
+		
+		SetStarted();
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		
+		var CFourCC xResource = "FOOD";
+		var CAiObjQuery xQuery;
+		xQuery.SetType(xResource);
+		xQuery.RegionArea(m_xMaxArea);
+		if(!xQuery.Execute(m_xList))then
+			pxCM^.GetCheatMgr().SpawnResources("food", 10);
+			SetCompleted();
+			return true;
+		endif;
+		
+		var bool bSuccess = TryAllocate(GetSolution(), 0, 10);
+		if(bSuccess==false)then return false; endif;
+		
+		GetAllocation()^.SetTarget(m_xList[0].GetPos());
+		
+		if(!CheckForEnemy(m_xList[0].GetPos()))then return false; endif;
+		
+		SetThinkWait(6);
+		
+		return true;
+	endproc;
+
+
+	///ExecuteSolution
+	export proc void ExecuteSolution(int p_iObject, vec3 p_vPos)
+		if(m_pxSensor==null) then return; endif;
+		var int iSubjectHandle=m_xSubjects[0].GetHandle();
+		var int iObjectHandle=-1;
+		
+		if(p_iObject>=0)then iObjectHandle=m_xObjects[p_iObject].GetHandle(); endif;
+
+		var vec3 vDummy = {0.0, 0.0, 0.0};		
+		m_pxSensor^.AddCheckpoint(this,0,"atto:"+iSubjectHandle.ToString()+",CurTask,==,Idle",0.0);
+		m_pxSensor^.AddCheckpoint(this,100,"atto:"+iSubjectHandle.ToString()+",CurTask,==,GetFood",0.0, vDummy, 0.0, true);
+
+		if(!m_xList[0].IsValid())then Abort(); return; endif;
+		
+		m_pxSensor^.ExecuteGamePlayCommand(m_xLockedObjs, GetSolution()^.GetGPCmd(), m_xList[0].GetHandle(), p_vPos, GetSolution()^.GetAdditionalAttribs());
+	endproc;
+
+
+	//called when checkpoints are reacged
+	export proc void EvtCheckpointReached(int p_iCheckpointId, int p_iObjHandle)
+		if(p_iCheckpointId == 300)then
+			CalculateStartCost();
+			if(!Start())then Abort(); endif;
+			return;
+		endif;
+		super.EvtCheckpointReached(p_iCheckpointId, p_iObjHandle);
+	endproc;
+
+
+	//EvtRequestAccepted
+	export proc void EvtRequestAccepted(^CAiRequestInfo p_pxInfo)
+		var CFourCC xType="ATCK";
+		if(p_pxInfo^.GetType()==xType)then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+		endif;
+	endproc;
+
+
+	//EvtRequestRejected
+	export proc void EvtRequestRejected(^CAiRequestInfo p_pxInfo)
+		var CFourCC xType="ATCK";
+		if(p_pxInfo^.GetType()==xType)then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+			Abort();
+		endif;
+	endproc;
+
+
+	//EvtRequestFailed
+	export proc void EvtRequestFailed(^CAiRequestInfo p_pxInfo)
+		var CFourCC xType="ATCK";
+		if(p_pxInfo^.GetType()==xType)then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+			Abort();
+		endif;
+	endproc;
+	
+	
+	///CheckForEnemy
+	proc bool CheckForEnemy(vec3 p_vPos)
+		var CAiObjWrapList 	xList;
+		var CAiObjQuery 	xQuery;		
+		var int 			iBuildingCount=0;
+		var int 			iUnitCount=0;
+		var string 			sAttackType="";
+		
+		if(m_pxBrain==null)then return false; endif;
+		if(m_pxSensor==null)then false; endif;
+		if(!m_pxSensor^.GetMultimap())then
+			return false;
+		elseif(m_pxSensor^.GetMultimap()&&(m_sLevelName=="Single 01"||
+		m_sLevelName=="Single 02"||m_sLevelName=="Single 03"||m_sLevelName=="Single 04"||
+		m_sLevelName=="Single 05"||m_sLevelName=="Single 06"||m_sLevelName=="Single 07"||
+		m_sLevelName=="Single 08"||m_sLevelName=="Single 09"||m_sLevelName=="Single 10"||
+		m_sLevelName=="Single 11"||m_sLevelName=="Single 12"||m_sLevelName=="Single 13"||
+		m_sLevelName=="Single 14"||m_sLevelName=="Single 15"||m_sLevelName=="Single 16"||
+		m_sLevelName=="Single B41"||m_sLevelName=="Single B42"||m_sLevelName=="Single B43"))then
+			return false;
+		endif;
+		
+		xQuery.AddMyEnemiesToSearch(m_iPlayerID, true);
+		xQuery.SetOwner(-1, true);
+		xQuery.SetType("ANML");
+		xQuery.SetType("VHCL",true);
+		xQuery.SetType("CHTR",true);
+		xQuery.SetType("NEST",true);
+		xQuery.SetType("BLDG",true);
+		xQuery.RegionCircle(p_vPos, 60.0);
+		xQuery.Execute(xList);			
+		
+		if(xList.NumEntries()<=0)then 
+			return true; 
+		endif;
+				
+		var int i, iC=xList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!xList[i].IsValid())then continue; endif;
+			if(xList[i].GetOwner()==(-1)&& xList[i].GetAttribValueInt("anml_aggressive_type")!=1)then continue; endif;
+			if(xList[i].GetType()=="BLDG")then
+				iBuildingCount++;
+			else
+				iUnitCount++;
+			endif;
+		endfor;
+		
+		if(iBuildingCount>iUnitCount)then
+			sAttackType="siege";
+		else
+			sAttackType="quick";
+		endif;
+				
+		var ^CAiAttackInfo	pxAttackInfo = new CAiAttackInfo();
+		pxAttackInfo^.SetCanUse(CAiAttackInfo.AT_NotPresent,true);
+		pxAttackInfo^.GetTargets().CopyFrom(xList); 
+		pxAttackInfo^.SetRisk(100.0);
+		pxAttackInfo^.SetStrategy(sAttackType);
+		SetRequesterFor(pxAttackInfo);
+		if(xList[0].IsValid())then
+			pxAttackInfo^.SetIslandID(m_pxSensor^.ComputeIslandId(xList[0].GetPos()));
+		endif;
+		m_pxBrain^.GetFightModule()^.RequestAttack(pxAttackInfo);
+		return false;
+	endproc;
+	
+endclass;

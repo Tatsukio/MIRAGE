@@ -1,0 +1,134 @@
+class CArtifactMgr
+	
+	static var ^CArtifactMgr	ms_pxInst;
+	var CObjList							m_xArtifacts;
+	var array CObjList				m_axUserItems;
+	var array string					m_asValidArtifacts;
+	var array string					m_asUsedArtifacts;
+	
+	constructor()
+		m_axUserItems=9;
+//		var CPropDB xDB;
+//		if(xDB.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/ArtifactList.txt"))then
+//			var ^CPropDB.CNode pxRoot = ^(xDB.GetRoot());
+//			var int i, iC = pxRoot^.NumSubs();
+//			for(i=0)cond(i<iC)iter(i++)do
+//				m_asValidArtifacts.AddEntry((pxRoot^)[i].Name());
+//			endfor;
+//		endif;
+	endconstructor;
+	
+	destructor()
+	enddestructor;
+	
+	export static proc ref CArtifactMgr Get()
+		if(ms_pxInst==null)then
+			ms_pxInst=new CArtifactMgr;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+	
+	export static proc void Kill()
+		if(ms_pxInst!=null)then
+			delete ms_pxInst;
+			ms_pxInst=null;
+		endif;
+	endproc;
+	
+	export proc bool IsAllowedToPickUpItem(int p_iPlayer, string p_sItemClass)
+		if(p_iPlayer<-1 || p_iPlayer+1>=m_axUserItems.NumEntries())then return false; endif;
+//		if(m_asValidArtifacts.FindEntry(p_sItemClass)==-1)then return false; endif;
+		var int i, iC = m_axUserItems[p_iPlayer+1].NumEntries();
+		if(CCrashRPGMgr.GetCrashRPGMgrNC()==null)then
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CGameObj pxObj = m_axUserItems[p_iPlayer+1][i].GetObj();
+				if(pxObj==null)then continue; endif;
+				if(pxObj^.GetClassName()==p_sItemClass)then return false; endif;
+			endfor;
+		endif;
+		var bool bShare=CMirageSrvMgr.Get().DiploLocked()&&CMirageSrvMgr.Get().TreasureSharing();
+		if(bShare)then
+			iC=CGameBase.GetMaxPlayers();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(i==p_iPlayer)then continue; endif;
+				if(!CSrvWrap.GetDiplomacyMgr().GetIsFriend(p_iPlayer, i))then continue; endif;
+				var int j, jC = m_axUserItems[i+1].NumEntries();
+				for(j=0)cond(j<jC)iter(j++)do
+					var ^CGameObj pxItem = m_axUserItems[i+1][j].GetObj();
+					if(pxItem==null)then continue; endif;
+					if(pxItem^.GetClassName()==p_sItemClass)then return false; endif;
+				endfor;
+			endfor;
+		endif;
+		return true;
+	endproc;
+	
+	export proc CObjHndl GetArtifact(int p_iPlayer, string p_sItemClass)
+		var CObjHndl xInvalid = CObjHndl.Invalid();
+//		if(m_asValidArtifacts.FindEntry(p_sItemClass)==-1)then return xInvalid; endif;
+		var int i, iC = m_axUserItems[p_iPlayer+1].NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxObj = m_axUserItems[p_iPlayer+1][i].GetObj();
+			if(pxObj==null)then continue; endif;
+			if(pxObj^.GetClassName()==p_sItemClass)then return m_axUserItems[p_iPlayer+1][i]; endif;
+		endfor;
+		return xInvalid;
+	endproc;
+	
+	export proc void Clear()
+		m_xArtifacts.Clear();
+		var int i, iC = m_axUserItems.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_axUserItems[i].Clear();
+		endfor;
+	endproc;
+	
+	export proc bool AddArtifact(int p_iPlayer, CObjHndl p_xItem)
+		if(p_iPlayer<-1||p_iPlayer>=m_axUserItems.NumEntries())then return false; endif;
+		var ^CGameObj pxNewItem = p_xItem.GetObj();
+		if(pxNewItem==null)then return false; endif;
+		var int i, iC = m_axUserItems[p_iPlayer+1].NumEntries();
+		if(CCrashRPGMgr.GetCrashRPGMgrNC()==null)then
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CGameObj pxObj = m_axUserItems[p_iPlayer+1][i].GetObj();
+				if(pxObj==null)then continue; endif;
+				if(pxObj^.GetClassName()==pxNewItem^.GetClassName())then
+					return false;
+				endif;
+			endfor;
+		endif;
+		var bool bShare=CMirageSrvMgr.Get().DiploLocked()&&CMirageSrvMgr.Get().TreasureSharing();
+		if(bShare)then
+			var string sItemClass=pxNewItem^.GetClassName();
+			iC=CGameBase.GetMaxPlayers();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(i==p_iPlayer)then continue; endif;
+				if(!CSrvWrap.GetDiplomacyMgr().GetIsFriend(p_iPlayer, i))then continue; endif;
+				var int j, jC = m_axUserItems[i+1].NumEntries();
+				for(j=0)cond(j<jC)iter(j++)do
+					var ^CGameObj pxItem = m_axUserItems[i+1][j].GetObj();
+					if(pxItem==null)then continue; endif;
+					if(pxItem^.GetClassName()==sItemClass)then return false; endif;
+				endfor;
+			endfor;
+		endif;
+		m_axUserItems[p_iPlayer+1].Include(p_xItem);
+		m_asUsedArtifacts.AddEntry(pxNewItem^.GetClassName());
+		return true;
+	endproc;
+	
+	export proc bool RemoveArtifact(int p_iPlayer, CObjHndl p_xItem)
+		if(p_iPlayer<-1||p_iPlayer>=m_axUserItems.NumEntries())then return false; endif;
+		var ^CGameObj pxNewItem = p_xItem.GetObj();
+		if(pxNewItem==null)then return false; endif;
+		if(m_axUserItems[p_iPlayer+1].FindEntry(p_xItem)==-1)then
+			return false;
+		endif;
+		m_axUserItems[p_iPlayer+1].RemEntry(p_xItem);
+		if(m_asUsedArtifacts.FindEntry(pxNewItem^.GetClassName())!=-1)then
+			m_asUsedArtifacts.RemEntry(pxNewItem^.GetClassName());
+		endif;
+		return true;
+	endproc;
+	
+endclass;

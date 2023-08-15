@@ -1,0 +1,267 @@
+class CObjCreator inherit CInputController
+
+	var int				m_iOwner;
+	var point			m_xMousePlacement;
+	var bool			m_bIgnoreMessages;
+	var ^CActorPreset	m_pxActorPreset;
+	var array CGuid		m_axGuidsToCheck;
+
+	export var procref<bool, CGuid> m_xOnObjectCreated;
+	var CClntHndl		m_xCopyObj;
+
+	export constructor()
+		m_iOwner=-1;
+		m_pxActorPreset=null;
+		DeleteEntryCreationCallback();
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc void CreateGhost(string p_sObjClass)
+		CClientWrap.GetObjMgr().CreateGhost(p_sObjClass);
+		if(p_sObjClass=="hu_fireplace"||p_sObjClass=="ninigi_fireplace"||p_sObjClass=="seas_headquarters")then
+			var ^CGhost pxGhost=CClientWrap.GetObjMgr().GetGhost();
+			if(pxGhost!=null)then
+				pxGhost^.SetAge(1);
+			endif;
+		endif;
+		m_bIgnoreMessages = false;
+		delete m_pxActorPreset;
+	endproc;
+	
+	export proc void CreateGhost(string p_sObjClass, CClntHndl p_xCopyObj)
+		CreateGhost(p_sObjClass);
+		m_xCopyObj=p_xCopyObj;
+		delete m_pxActorPreset;
+	endproc;
+	
+	export proc void CreateActorGhost(^CActorPreset p_pxActorPreset)
+		CClientWrap.GetObjMgr().CreateGhost(p_pxActorPreset^.GetObjClass());
+		m_pxActorPreset=p_pxActorPreset;
+	endproc;
+	
+	export proc void DeleteGhost()
+		DeleteEntryCreationCallback();
+		m_xCopyObj.Invalidate();
+		CClientWrap.GetObjMgr().DeleteGhost();
+		delete m_pxActorPreset;
+	endproc;
+
+	export proc bool SetOwner(int p_iOwner)
+		m_iOwner=p_iOwner;
+		CLevelEditorWrap.LogSpam("Controller.ObjCreator","Owner ID  "+m_iOwner.ToString());
+		return(true);
+	endproc;
+	
+	export proc void SetIgnoreMessages(bool p_bIgnore)
+		m_bIgnoreMessages = p_bIgnore;
+	endproc;
+
+	class CObjCreateUndoEntry inherit CUndoEntry
+		var CGuid	m_xObj;
+
+		export constructor(CGuid p_xObj)
+			m_xObj=p_xObj;
+		endconstructor;
+
+		proc void Undo()
+			CEvt_DeleteEntry.Send(m_xObj);
+		endproc;
+	endclass;
+
+	export proc bool HandleMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+		CLevelEditorWrap.LogSpam("Controller.ObjCreator","HandleMsg"+p_dwType.ToString()+" | "+p_iKey.ToString());
+		if (m_bIgnoreMessages) then return false; endif;
+		var bool bShift	= ((p_dwFlags&Msg.KM_SHIFT)!=0d);
+		var bool bCtrl	= ((p_dwFlags&Msg.KM_CONTROL)!=0d);
+
+		var ^CGhost pxGhost=CClientWrap.GetObjMgr().GetGhost();
+		if(p_dwType==CInputController.MT_MouseMove)then
+			if(!bShift)then
+				m_xMousePlacement.SetX(p_iX);
+				m_xMousePlacement.SetY(p_iY);
+				var vec3 vPPoint=CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+				if(vPPoint!={0.0,0.0,0.0})then
+					if(pxGhost!=null)then
+						pxGhost^.SetPos(vPPoint);
+					endif;
+				endif;
+			else
+				if(pxGhost!=null)then
+					RotateGhost(p_iX,p_iY);
+					CWindowMgr.Get().SetMousePosNoMMove(m_xMousePlacement);
+				endif;
+			endif;
+		elseif(p_dwType==CInputController.MT_MouseLBtnUp||p_dwType==CInputController.MT_MouseLBtnDoubleClick)then
+			if(pxGhost!=null)then
+				return true; //drop this msg -> selection controller shouldn't get it
+			endif;
+		elseif(p_dwType==CInputController.MT_MouseLBtnDown)then
+			if((p_dwFlags&(01b<<31))!=(01b<<31))then
+				if(pxGhost!=null)then
+					var vec3 vPPoint=CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+					if(vPPoint!={0.0,0.0,0.0})then
+						var CGuid xGuid;
+						xGuid.Generate();
+						var vec3 vRot = pxGhost^.GetRotation();
+						var Quat qRot;
+						qRot.FromVec3(vRot);
+						if(m_pxActorPreset==null)then
+							var ^CObj pxObjReplace;
+							if(bCtrl)then
+								var CObjList xHoveredObjects=CClientWrap.GetObjMgr().GetHoveredObjs();
+								if(xHoveredObjects.NumEntries()>0)then
+									pxObjReplace=xHoveredObjects[0].GetObj();
+									qRot=pxObjReplace^.GetRot();
+								else
+									return true;
+								endif;
+							endif;
+							var ^CAttribs pxCopyAttribs;
+							if(m_xCopyObj.IsValid()) then
+								pxCopyAttribs=m_xCopyObj.GetObj()^.GetAttribs();
+							endif;
+							CLevelEditorWrap.GetUndoBuffer().BeginStep();
+							CLevelEditorWrap.GetUndoBuffer().Add2Step(new CObjCreateUndoEntry(xGuid));
+							if(pxObjReplace!=null)then
+								CEvt_CreateObj.Send(pxGhost^.GetGhostClass(),m_iOwner,xGuid,pxObjReplace^.GetPos(),pxCopyAttribs);
+								CEvt_DeleteEntry.Send(pxObjReplace^.GetGuid());
+								CLevelEditorWrap.GetUndoBuffer().Add2Step(new CObjUndoEntry(pxObjReplace^));
+							else
+								CEvt_CreateObj.Send(pxGhost^.GetGhostClass(),m_iOwner,xGuid,vPPoint,pxCopyAttribs);
+							endif;
+							CLevelEditorWrap.GetUndoBuffer().AcceptStep("Obj creation");
+							if(pxCopyAttribs==null)then
+								m_axGuidsToCheck.AddEntry(xGuid);
+							endif;
+							CEvt_SetRot.Send(xGuid,qRot);
+							if(CEnhancedMenu.Get().GetObjInsert()^.GetAdaptTerrain())then
+								//CMessageBox.MsgBox("Hey!","AdaptTerrain&"+xGuid.ToString());
+								CEvt_GenericEvent.Send("AdaptTerrain&"+xGuid.ToString());
+							endif;
+//							if(CEnhancedMenu.Get().GetObjInsert()^.GetBuildUp())then
+//								CEvt_GenericEvent.Send("BuildUp&"+xGuid.ToString());
+//							endif;
+							m_xOnObjectCreated.Call(xGuid);
+							if(CEnhancedMenu.Get().GetObjInsert()^.GetRandomRotateGhost())then
+								RandomRotateGhost();
+							endif;
+						else
+							var ^CSequenceEditor pxSeqEditor=CEnhancedMenu.Get().GetSequenceEditor();
+							var ^CUSLTrackCtrl pxTrackCtrl=pxSeqEditor^.GetTrackCtrl();
+							if(pxTrackCtrl^.CreateActor(m_pxActorPreset,vPPoint,qRot))then
+								pxSeqEditor^.UpdateActors();
+							endif;
+						endif;
+						return true;
+					endif;
+				endif;
+			endif;
+		elseif(p_dwType==CInputController.MT_MouseRBtnDown)then
+			if(pxGhost!=null)then
+				CIconBar.Get().OnObjectSelect();
+				return true;
+			endif;
+		elseif(p_dwType==CInputController.MT_KeyDown)then
+			if(p_iKey==46)then // 'del'
+				var bool bDelete=!CMirageSDKMgr.ms_bRegName;
+				if(bDelete)then
+					CLevelEditorWrap.GetUndoBuffer().BeginStep();
+				endif;
+				var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+				if(bDelete)then
+					CLevelEditorWrap.GetUndoBuffer().Add2Step(new CObjUndoEntry(pxSel^));
+				endif;
+				var int i,iC=pxSel^.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CObj pxObj=pxSel^[i].GetObj();
+					if(pxObj!=null)then
+						if(bDelete)then
+							CEvt_DeleteEntry.Send(pxObj^.GetGuid());
+						else
+							CMirageSDKMgr.Debug(pxObj^.GetName(),false);
+						endif;
+					endif;
+				endfor;
+				if(bDelete)then
+					pxSel^.Clear();
+					CLevelEditorWrap.GetUndoBuffer().AcceptStep("Obj deletion");
+				endif;
+				return true;
+			endif;
+		endif;
+
+		return false;
+	endproc;
+
+	export proc void RotateGhost(int p_iX, int p_iY)
+		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
+		var vec3 vRotation = pxGhost^.GetRotation();
+		var int iDiffX = (p_iX - m_xMousePlacement.GetX())%360;
+		vRotation.SetZ(vRotation.GetZ()+(iDiffX.ToReal()/360.0)*Math.Pi()*2.0);
+		pxGhost^.SetRotation(vRotation);
+	endproc;
+
+	export proc void RandomRotateGhost()
+		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
+		var vec3 vRotation;
+		Random.Seed();
+		var int iRand=Random.GetInt()%(Math.Pi()*2.0).ToInt()*100;
+		vRotation.SetZ(iRand.ToReal()/100.0f);
+		pxGhost^.SetRotation(vRotation);
+	endproc;
+
+	proc bool DoNothing(CGuid p_xGuid)
+		return true;
+	endproc;
+
+	export proc void Tick()
+		if(m_axGuidsToCheck.NumEntries()>0)then
+			var int i;
+			for(i=0)cond(i<m_axGuidsToCheck.NumEntries())iter(i++)do
+				var ^CObj pxObj = CClientWrap.GetObjMgr().GetObj(m_axGuidsToCheck[i]);
+				if(pxObj==null)then continue; endif;
+				m_axGuidsToCheck.DeleteEntry(i);i--;
+				var CTechTreeDef xDef;
+				var CTechTree xTT=CTechTreeMgr.Get().GetTechTree(xDef);
+				var ^CAttribs pxAttr = pxObj^.GetAttribs();
+				if(pxAttr==null)then continue; endif;
+				var string sObjPath = pxAttr^.GetValue("ObjPath");
+				var int iMinLevel = xTT.GetValueI(sObjPath+"/captainlevel",0) - 1;
+				if(iMinLevel<=0)then continue; endif;
+				var CClntHndl xHndl;
+				CEvt_ObjLECommand.Send(pxObj^.GetHandle(),"LE_SetLevel",xHndl,{0.0,0.0,0.0},iMinLevel.ToString());
+			endfor;
+		endif;
+	endproc;
+
+	export proc void DeleteEntryCreationCallback()
+		m_xOnObjectCreated = DoNothing;
+	endproc;
+	
+	export proc void UpdateGhost()
+		var ^CGhost pxGhost=CClientWrap.GetObjMgr().GetGhost();
+		var vec3 vPPoint=CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		if(vPPoint!={0.0,0.0,0.0})then
+			if(pxGhost!=null)then
+				pxGhost^.SetPos(vPPoint);
+			endif;
+		endif;
+	endproc;
+	
+endclass;
+
+class CObjectTransformController inherit CObjTransformController
+	proc void OnBeginDrag()
+		CLevelEditorWrap.GetUndoBuffer().BeginStep();
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		CLevelEditorWrap.GetUndoBuffer().Add2Step(new CObjUndoEntry(pxSel^));
+		super.OnBeginDrag();
+	endproc;
+
+	proc void OnEndDrag()
+		super.OnEndDrag();
+		CLevelEditorWrap.GetUndoBuffer().AcceptStep("Obj transform");
+	endproc;
+endclass;

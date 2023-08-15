@@ -1,0 +1,333 @@
+//DiplomacyWindow.usl
+
+class CPlayerDiplomacySlot inherit CTransparentWindow
+
+	var ^CLevelInfoClient					m_pxLevelInfo;
+	var ^CLevelInfo.CPlayerSlot		m_pxLISlot;
+	var CPlayerSlotID							m_xPlayerSlotID;
+	var int												m_iOwnerId;
+	var ^CStaticCtrl							m_pxName;
+	var ^CStaticCtrl							m_pxTeam;
+	var ^CStaticCtrl							m_pxColor;
+	var ^CStaticCtrl							m_pxStatus;
+
+	var ^CRadioButton							m_pxEnemy;
+	var ^CRadioButton							m_pxNeutral;
+	var ^CRadioButton							m_pxFriend;
+	var ^CEdit										m_pxTribute;
+	var ^CButton									m_pxSendTribute;
+	var ^CButton									m_pxRequestTribute;
+	var ^CDropList								m_pxTributeType;
+
+	export constructor()
+		if(!InitFromResource("UI/PlayerDiplomacySlot","PlayerDiplomacySlot")) then
+			CGameWrap.LogError("UI.PlayerDiplomacySlot","InitFromResource failed");
+			return;
+		endif;
+		m_pxName=cast<CStaticCtrl>(GetControl("Name"));
+		m_pxTeam=cast<CStaticCtrl>(GetControl("Team"));
+		m_pxColor=cast<CStaticCtrl>(GetControl("Color"));
+		m_pxStatus=cast<CStaticCtrl>(GetControl("Status"));
+
+		m_pxEnemy=cast<CRadioButton>(GetControl("Enemy"));
+		m_pxNeutral=cast<CRadioButton>(GetControl("Neutral"));
+		m_pxFriend=cast<CRadioButton>(GetControl("Friend"));
+		m_pxEnemy^.m_xOnChange = OnMyStatusChange;
+		m_pxNeutral^.m_xOnChange = OnMyStatusChange;
+		m_pxFriend^.m_xOnChange = OnMyStatusChange;
+		m_pxTribute=cast<CEdit>(GetControl("Tribute"));
+		m_pxTribute^.SetText("0");
+		m_pxTribute^.SetTextLimit(5);
+		m_pxTribute^.m_xOnChange=OnEnterTribute;
+		
+		m_pxSendTribute=cast<CButton>(GetControl("SendTribute"));
+		m_pxSendTribute^.m_xOnClick = OnSendTribute;
+		m_pxRequestTribute=cast<CButton>(GetControl("RequestTribute"));
+		m_pxRequestTribute^.m_xOnClick = OnRequestTribute;
+		m_pxTributeType=cast<CDropList>(GetControl("TributeType"));
+		m_pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+//		var int iDiplomacyLocked = CGameWrap.GetGame().GetAttribInt("DiplomacyLocked");
+//		if(iDiplomacyLocked==1)then
+		var bool bEnable=CMirageClnMgr.Get().IsDead(m_iOwnerId,CGameWrap.GetClient().GetPlayerID());
+		if(CMirageClnMgr.Get().DiploLocked())then
+			m_pxEnemy^.SetDisabled(!bEnable);
+			m_pxNeutral^.SetDisabled(!bEnable);
+			m_pxFriend^.SetDisabled(!bEnable);
+		endif;
+		m_xPlayerSlotID.SetInvalid();
+		m_iOwnerId=-1;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc bool OnSendTribute()
+		var int iPlayerId = CGameWrap.GetClient().GetPlayerID();
+		var int iTribute = m_pxTribute^.GetText().ToInt();
+		var int iTributeType = m_pxTributeType^.GetSelectedItem();
+		var ^CTypeData pxTypeData = cast<CTypeData>(m_pxTributeType^.GetItemData(iTributeType));
+		if(pxTypeData==null)then
+			CGameWrap.LogError("UI.PlayerDiplomacySlot","CPlayerDiplomacySlot::OnSendTribute can't get tribute type");
+			return false;
+		endif;
+		var string sTributeType = pxTypeData^.GetType();
+		var string sText="AI"+m_iOwnerId.ToString()+": Gift "+sTributeType+" "+m_pxTribute^.GetText();
+		var string sSend=iPlayerId.ToString()+"&"+m_iOwnerId.ToString()+"&"+iTribute.ToString()+"&"+sTributeType;
+		CEvt_AiGenericStringEvent.Send(iPlayerId.ToString()+" "+sText);
+//		CEvt_GenericEvent.Send( "Tribute&"+iPlayerId.ToString()+"&"+m_iOwnerId.ToString()+"&"+iTribute.ToString()+"&"+sTributeType );
+		var CClntHndl xInv, xGPCE=CMirageClnMgr.Get().GetGPCE();
+		var vec3 vTmp;
+		if(xGPCE.IsValid())then
+			CEvt_GamePlayCommand.Send(xGPCE, "TributeResis", xInv, vTmp, sSend);
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnEnterTribute()
+		var string sTribute = m_pxTribute^.GetText();
+		var int iLength = sTribute.GetLength();
+		if(iLength>0) then
+			if(sTribute.GetAt(iLength-1)!='0' && sTribute.GetAt(iLength-1)!='1' && sTribute.GetAt(iLength-1)!='2' && sTribute.GetAt(iLength-1)!='3' && sTribute.GetAt(iLength-1)!='4' && sTribute.GetAt(iLength-1)!='5' && sTribute.GetAt(iLength-1)!='6' && sTribute.GetAt(iLength-1)!='7' && sTribute.GetAt(iLength-1)!='8' && sTribute.GetAt(iLength-1)!='9') then
+				sTribute.Delete(iLength-1);
+				m_pxTribute^.SetText(sTribute);
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnRequestTribute()
+		var int iPlayerId=CGameWrap.GetClient().GetPlayerID();
+		var int iTribute=m_pxTribute^.GetText().ToInt();
+		var int iTributeType=m_pxTributeType^.GetSelectedItem();
+		var string sTributeType=cast<CTypeData>(m_pxTributeType^.GetItemData(iTributeType))^.GetType();
+		var string sText="AI"+m_iOwnerId.ToString()+": "+sTributeType+" "+m_pxTribute^.GetText();
+		CEvt_AiGenericStringEvent.Send(iPlayerId.ToString()+" "+sText);
+		var string sTribLoc=sTributeType;
+		sTribLoc.MakeUpper();
+		// Fix by AyCe
+		if(sTribLoc=="STONE") then
+			sTribLoc = "STON";
+		endif;
+		// Endfix
+		sTribLoc="_NT_AI_RESSOURCE_"+sTribLoc;
+		var string sMsg=CUIMgr.GetLocalizedNewstickerMsg("_NT_DiplTributeRequest\t"+iTribute.ToString()+"\t"+sTributeType);
+		var string sMsg2=CUIMgr.GetLocalizedNewstickerMsg("_NT_DiplTributeRequest\t"+iTribute.ToString()+"\t"+sTribLoc);
+		CEvt_ChatMsg.Send(sMsg,01h<< m_pxLISlot^.GetOwner());
+		CFeedback.Print(CNewsTickerData.NTT_Chat, sMsg2);
+		return(true);
+	endproc;
+
+	export proc void Init(CPlayerSlotID p_xPlayerSlotID, ^CPropDB.CNode p_pxPlayerResources)
+		m_xPlayerSlotID=p_xPlayerSlotID;
+		m_pxLISlot=^(m_pxLevelInfo^.GetPlayerSlot(m_xPlayerSlotID));
+		m_iOwnerId=m_pxLISlot^.GetOwner();
+		if(p_pxPlayerResources!=null) then
+			CreateTributeTypeList(p_pxPlayerResources);
+		endif;
+	endproc;
+
+	proc void CreateTributeTypeList(^CPropDB.CNode p_pxPlayerResources)
+		var int i;
+		var string sTribe = m_pxLISlot^.GetTribe();
+		var CPropDB xResourceTable;
+		if(xResourceTable.Load(CClientWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/"+sTribe+"/Resources.txt"))then
+			var ^CPropDB.CNode pxResources = xResourceTable.GetRoot().Get("Available");
+			if(pxResources!=null)then
+				for(i=0)cond(i<pxResources^.NumSubs())iter(i++)do
+					var string sRes = (pxResources^)[i].Name();
+					if(p_pxPlayerResources^.Get(sRes)!=null && sRes!="")then
+						m_pxTributeType^.AddItem(CLocalizer.Get().Translate("_UI_DiplWind_"+sRes), new CTypeData(sRes));
+					endif;
+				endfor;
+			else
+				CClientWrap.LogWarning("Character","pxResources==null");
+			endif;
+		endif;
+	endproc;
+
+	export proc bool OnMyStatusChange()
+		var int iStatus=0;
+		if (m_pxEnemy^.GetSelected()) then
+			iStatus=0;
+		elseif (m_pxNeutral^.GetSelected()) then
+			iStatus=1;
+		elseif (m_pxFriend^.GetSelected()) then
+			iStatus=2;
+		else
+			//error...
+		endif;
+//		var int iDiplomacyLocked=CGameWrap.GetGame().GetAttribInt("DiplomacyLocked");
+//		if(iDiplomacyLocked!=1)then
+		if(!CMirageClnMgr.Get().DiploLocked()||CMirageClnMgr.Get().IsDead(m_iOwnerId,CGameWrap.GetClient().GetPlayerID()))then
+			CGameWrap.GetDiplomacyMgr().SetMyOpinion( m_iOwnerId, iStatus );
+			//Notify other player of your status change
+			var int iPlayerId = CGameWrap.GetClient().GetPlayerID();
+			CEvt_GenericEvent.Send("DiplomacyChange&"+iPlayerId.ToString()+"&"+m_iOwnerId.ToString()+"&"+iStatus.ToString());
+		endif;
+		return true;
+	endproc;
+	
+	export proc void Update()
+//		var string sName=CLocalizer.Get().Translate(m_pxLISlot^.GetName());
+		var string sSource=m_pxLISlot^.GetName();
+		if(sSource=="")then sSource=CMirageClnMgr.Get().GetPlayerName(m_iOwnerId); endif;
+		var string sName=CLocalizer.Get().Translate(sSource);
+		m_pxName^.SetText(sName);
+		if(m_pxLISlot^.GetType()=="closed")then 
+			m_pxTeam^.SetVisible(false);
+			m_pxStatus^.SetVisible(false);
+			m_pxColor^.SetVisible(false);
+			m_pxEnemy^.SetVisible(false);
+			m_pxNeutral^.SetVisible(false);
+			m_pxFriend^.SetVisible(false);
+			m_pxSendTribute^.SetVisible(false);
+			m_pxRequestTribute^.SetVisible(false);
+			m_pxTributeType^.SetVisible(false);
+			m_pxTribute^.SetVisible(false);
+		else
+			m_pxTeam^.SetText(m_pxLISlot^.GetTeam().ToString());
+			var int iColor=m_pxLISlot^.GetColor();
+			var ^CCardBitmap pxBmp=CGameInst.GetBitmapMgr().GetBlendBitmap("0 ,fill TeamCol "+iColor.ToString()+" 0 "+(15 * CGameInst.ms_iUIScaleFactor).ToString()+" "+(15 * CGameInst.ms_iUIScaleFactor).ToString());
+			m_pxColor^.SetBitmap(pxBmp^.GetBitmap());
+			//m_pxColor^.SetText(  m_pxLISlot^.GetColor().ToString() );
+			var int iStatus = CGameWrap.GetDiplomacyMgr().GetTheirOpinion( m_iOwnerId );
+			var color xCol;
+			if (iStatus==0) then
+				xCol = {{255,0,0,255}};
+				m_pxStatus^.SetTextColor(xCol);
+				m_pxStatus^.SetText( CLocalizer.Get().Translate("_UI_DiplWind_Option_Enemy") );
+			elseif (iStatus==1) then
+				xCol = {{255,255,255,255}};
+				m_pxStatus^.SetTextColor(xCol);
+				m_pxStatus^.SetText( CLocalizer.Get().Translate("_UI_DiplWind_Option_Neutral") );
+			elseif (iStatus==2) then
+				xCol = {{0,255,0,255}};
+				m_pxStatus^.SetTextColor(xCol);
+				m_pxStatus^.SetText( CLocalizer.Get().Translate("_UI_DiplWind_Option_Ally") );
+			else
+				m_pxStatus^.SetText( CLocalizer.Get().Translate("_UI_DiplWind_Option_Unknown") );
+			endif;
+
+			iStatus = CGameWrap.GetDiplomacyMgr().GetMyOpinion( m_iOwnerId );
+			if (iStatus==0) then
+				m_pxEnemy^.SetSelected(true);
+			elseif (iStatus==1) then
+				m_pxNeutral^.SetSelected(true);
+			elseif (iStatus==2) then
+				m_pxFriend^.SetSelected(true);
+			else
+				//error...
+			endif;
+			var int iGameType=m_pxLevelInfo^.GetAttribs().GetValueInt("GameType");
+			var bool bEnable=CMirageClnMgr.Get().IsDead(m_iOwnerId,CGameWrap.GetClient().GetPlayerID());
+			if (iGameType==1) then  //TeamGame
+				m_pxEnemy^.SetDisabled(!bEnable);
+				m_pxNeutral^.SetDisabled(!bEnable);
+				m_pxFriend^.SetDisabled(!bEnable);
+			endif;
+			//var int iLockTeams=m_pxLevelInfo^.GetAttribs().GetValueInt("LockTeams");
+//			var int iDiplomacyLocked = CGameWrap.GetGame().GetAttribInt("DiplomacyLocked");
+//			if(iDiplomacyLocked==1)then
+			if(CMirageClnMgr.Get().DiploLocked())then
+				m_pxEnemy^.SetDisabled(!bEnable);
+				m_pxNeutral^.SetDisabled(!bEnable);
+				m_pxFriend^.SetDisabled(!bEnable);
+			endif;
+		endif;
+	endproc;
+	
+endclass;
+
+class CDiplomacyWindow inherit CFrameWindow
+
+	var array ^CPlayerDiplomacySlot		m_apxPDSlots;
+	var ^CButton											m_pxExitButton;
+	var ^CLevelInfoClient							m_pxLevelInfo;
+
+	export constructor()
+		m_pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+		if(!InitFromResource("UI/DiplomacyWindow","DiplomacyWindow")) then
+			CGameWrap.LogError("UI.DiplomacyWindow","InitFromResource failed");
+			return;
+		endif;
+		//SetStyle(000010b);
+		SetCaption(CLocalizer.Get().Translate("_PlayersWindow_Title_Diplomacy"));
+
+		m_pxExitButton=cast<CButton>(GetControl("ExitButton"));
+		m_pxExitButton^.SetText(CLocalizer.Get().Translate("_PlayersWindow_Button_Close"));
+		m_pxExitButton^.SetTransparent(true);
+		m_pxExitButton^.m_xOnClick = OnBack;
+		m_pxExitButton^.SetDisabled(false);
+		SetCmd("Exit", OnBack );
+		AddAccelerator("F11,NONE,Exit");
+		SetCmd("OnBack", OnBack );
+		AddAccelerator("ESCAPE,NONE,OnBack");
+		// start timer that will finish init when server is there
+		SetDisabled(false);
+		SetVisible(true);
+		InitPlayers();
+		UpdateSlots();
+		CGameWrap.GetDiplomacyMgr().m_xOnUpdate = UpdateSlots;
+		var ^CDesktop pxDesktop=CClientWrap.GetDesktop();
+		SetPos(pxDesktop^.GetWidth()/2-GetWidth()/2,pxDesktop^.GetHeight()/2-GetHeight()/2);
+		Init();
+	endconstructor;
+
+	destructor()
+	enddestructor;
+
+	export proc bool Init()
+		return(true);
+	endproc;
+	
+	proc void InitPlayers()
+		var int j=0;
+		var CPlayerSlotID xOwnPlayerSlotId = CGameWrap.GetClient().GetPlayerSlotID();
+		var ^CLevelInfo.CPlayerSlot pxLISlot=^(m_pxLevelInfo^.GetPlayerSlot(xOwnPlayerSlotId));
+		var string sTribe = pxLISlot^.GetTribe();
+		var CPropDB xResourceTable;
+		var ^CPropDB.CNode pxResources;
+		if (xResourceTable.Load(CClientWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/"+sTribe+"/Resources.txt")) then
+			pxResources = xResourceTable.GetRoot().Get("Available");
+			if (pxResources==null) then
+				CClientWrap.LogWarning("Character","pxResources==null");
+			endif;
+		endif;
+		var CPlayerSlotID xSlotID;
+		for(xSlotID=CPlayerSlotID.First())cond(xSlotID<=CPlayerSlotID.Last())iter(xSlotID.Incr())do
+			if (xSlotID!=xOwnPlayerSlotId) then
+				var int idx=m_apxPDSlots.NewEntry();
+				var string sIndex=(j+1).ToString();
+				var string sPath="Row_Player_"+sIndex;
+				m_apxPDSlots[idx]=cast<CPlayerDiplomacySlot>(GetControl(sPath));
+				var ^CPlayerDiplomacySlot pxWalk=m_apxPDSlots[idx];
+				pxWalk^.Init(xSlotID,pxResources);
+				pxWalk^.SetVisible(false);
+				j++;
+			endif;
+		endfor;
+	endproc;
+
+	export proc void UpdateSlots()
+		var CPlayerSlotID xOwnPlayerSlotId = CGameWrap.GetClient().GetPlayerSlotID();
+		var CPlayerSlotID xSlotID;
+		var int i=0;
+		for(xSlotID=CPlayerSlotID.First())cond(xSlotID<=CPlayerSlotID.Last())iter(xSlotID.Incr())do
+			if (xSlotID!=xOwnPlayerSlotId) then
+				var ^CPlayerDiplomacySlot pxWalkSlot=m_apxPDSlots[i];
+				var ^CLevelInfo.CPlayerSlot pxGISlot=^(m_pxLevelInfo^.GetPlayerSlot(xSlotID));
+				pxWalkSlot^.SetVisible(!pxGISlot^.IsFree());
+				pxWalkSlot^.SetDisabled(false);
+				pxWalkSlot^.Update();
+				i++;
+			endif;
+		endfor;
+	endproc;
+
+	export proc bool OnBack()
+		CGameWrap.GetDiplomacyMgr().m_xOnUpdate.Clear();
+		Destroy();
+		return(true);
+	endproc;
+
+endclass;

@@ -1,0 +1,530 @@
+class CPresetWindow inherit CFrameWindow
+	
+	var ^CDesktop					m_pxDesktop;
+	var ^CGameInfoWindow	m_pxGameInfoWindow;
+	var ^CDropList				m_pxTribeList;
+	var ^CEdit						m_pxPresetEdit;
+	var ^CButton					m_pxSaveButton;
+	var ^CButton					m_pxDeleteButton;
+	var ^CButton					m_pxRestoreDef;
+	var ^CPointGauge			m_pxPointGauge;
+	export var ^CList			m_pxPresetList;
+	var string						m_sTribe;
+	var int								m_iCredits;
+	var string						m_sArmy;
+	var CPropDB						m_xPresetsDB;
+	
+	export constructor(^CGameInfoWindow p_pxGameInfoWindow)
+		if(!InitFromResource("UI/PointBuy/PresetWindow","PresetWindow"))then
+			return;
+		endif;
+		m_pxGameInfoWindow=p_pxGameInfoWindow;
+		m_pxDesktop=CClientWrap.GetDesktop();
+		
+		begin fill_tribes;
+			m_pxTribeList=cast<CDropList>(GetControl("TribeDropList"));
+			/*
+			var array string asTribes;
+			asTribes.AddEntry("Hu");
+			asTribes.AddEntry("Aje");
+			asTribes.AddEntry("Ninigi");
+			asTribes.AddEntry("SEAS");
+
+			var int i,iC=asTribes.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var string sTribe=asTribes[i];
+				var ^CCardBitmap pxBmp=CGameInst.GetBitmapMgr().GetBlendBitmap("-1 ,layer tribeicon_"+sTribe);
+				if(pxBmp!=null)then
+					m_pxTribeList^.AddItem("",new CItemDataString(sTribe),pxBmp^.GetBitmap());
+				else
+					m_pxTribeList^.AddItem(CLocalizer.Get().Translate("_"+sTribe),new CItemDataString(sTribe));
+				endif;
+			endfor;
+			m_pxTribeList^.m_xOnChange=OnChangeTribe;
+			*/
+		end fill_tribes;
+		m_pxPresetEdit=cast<CEdit>(GetControl("PresetEdit"));
+		m_pxPresetEdit^.m_xOnChange=OnChangeEdit;
+		m_pxPresetList=cast<CList>(GetControl("PresetList"));
+		m_pxPresetList^.m_xOnSelect=OnSelectPreset;
+		m_pxSaveButton=cast<CButton>(GetControl("SaveButton"));
+		m_pxSaveButton^.m_xOnClick=OnSavePreset;
+		m_pxDeleteButton=cast<CButton>(GetControl("DeleteButton"));
+		m_pxDeleteButton^.m_xOnClick=OnDeletePreset;
+		m_pxRestoreDef=cast<CButton>(GetControl("Btn_RestoreDef"));
+		m_pxRestoreDef^.m_xOnClick=OnRestoreDefaults;
+		m_pxRestoreDef^.SetTextAlign(0);
+		m_pxRestoreDef^.SetTextIndent(8);
+		m_pxPointGauge=cast<CPointGauge>(GetControl("PointGauge"));
+		var string sPath = CClientWrap.GetUrsRelPath() + "/Data/"+CMirageClnMgr.MODNAME+"/Presets.txt";
+		var bool bLoad = m_xPresetsDB.Load(sPath);
+		if(!bLoad || m_xPresetsDB.GetRoot().NumSubs()==0)then
+			var string sRoaming = CSettings.GetUserSettingsDir()+CMirageClnMgr.MODNAME+"_"+(CMirageClnMgr.VERSION).ToString()+"_PBPresets/Presets.txt";
+			bLoad = m_xPresetsDB.Load(sRoaming);
+		endif;
+		if(!bLoad || m_xPresetsDB.GetRoot().NumSubs()==0)then
+			LoadDefPresets();
+		endif;
+	//	ConvertAll();
+	endconstructor;
+	
+	destructor();
+	enddestructor;
+	/*
+	proc void ConvertAll()
+
+		var array CPropDB axDB;
+		LoadAllPresetsFromDir(CClientWrap.GetUrsRelPath() + "/Data/Base/Scripts/Server/init/PBPresets/Hu",axDB);
+		LoadAllPresetsFromDir(CClientWrap.GetUrsRelPath() + "/Data/Base/Scripts/Server/init/PBPresets/Aje",axDB);
+		LoadAllPresetsFromDir(CClientWrap.GetUrsRelPath() + "/Data/Base/Scripts/Server/init/PBPresets/Ninigi",axDB);
+		LoadAllPresetsFromDir(CClientWrap.GetUrsRelPath() + "/Data/Base/Scripts/Server/init/PBPresets/SEAS",axDB);
+
+		var CPropDB xPresetsDB;
+		var ^CPropDB.CNode pxRoot=^(xPresetsDB.GetRoot());
+		pxRoot^.SetValue("version",1);
+
+		var int i,iC=axDB.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPropDB pxWalk=^(axDB[i]);
+			var ^CPropDB.CNode pxWalkRoot=^(pxWalk^.GetRoot());
+			var string sTribe=pxWalkRoot^.GetValueS("Tribe","");
+			var string sName=pxWalkRoot^.GetValueS("Name","");
+			var int iCosts=pxWalkRoot^.GetValueI("Cost",0);
+			var ^CPropDB.CNode pxUnits=pxWalkRoot^.FindNode("Units",false);
+			var ^CPropDB.CNode pxResources=pxWalkRoot^.FindNode("Resources",false);
+			if(sTribe.IsEmpty() || sName.IsEmpty())then continue; endif;
+
+			var ^CPropDB.CNode pxTribeNode=^(xPresetsDB[sTribe]);
+			var ^CPropDB.CNode pxNameNode=^(pxTribeNode^.AddValue(sName,""));
+			pxNameNode^.AddValue("Cost",iCosts);
+			var ^CPropDB.CNode pxUnitsNode=^(pxNameNode^.AddValue("Units",""));
+			var ^CPropDB.CNode pxResourcesNode=^(pxNameNode^.AddValue("Resources",""));
+			if(pxUnits!=null)then
+				var int i,iC=pxUnits^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CPropDB.CNode pxTmp=^(pxUnits^.Get(i));
+					pxUnitsNode^.AddValue(pxTmp^.Name(),pxTmp^.Value());
+				endfor;
+			endif;
+			if(pxResources!=null)then
+				var int i,iC=pxResources^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CPropDB.CNode pxTmp=^(pxResources^.Get(i));
+					pxResourcesNode^.AddValue(pxTmp^.Name(),pxTmp^.Value());
+				endfor;
+			endif;
+		endfor;
+
+		xPresetsDB.Save("C:/PresetsAll.txt");
+	endproc;
+	*/
+	
+	export proc ^CPointGauge GetPointGauge()
+		return m_pxPointGauge;
+	endproc;
+	
+	export proc void GetCurPresets(ref array string po_rasPresets)
+		var int i,iC=m_pxPresetList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sPresetName=m_pxPresetList^.GetItem(i);
+			po_rasPresets.AddEntry(sPresetName);
+		endfor;
+	endproc;
+	
+	export proc void UpdateImmidiatly(string p_sTribe, bool p_bRestore)
+		var ^CLevelInfo.CPlayerSlot pxPlayerSlot=null;
+		var CPlayerSlotID xPlayerSlotID=CGameWrap.GetClient().GetPlayerSlotID();
+		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelPreview());
+		if(xPlayerSlotID.IsValid())then
+			pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(xPlayerSlotID));
+		endif;
+		if(pxPlayerSlot==null)then 
+			return;
+		endif;
+		var bool bIncludeBuildings=true;
+		var ^CPropDB.CNode pxPlayerNode=^((pxLevelInfo^.GetGenericData())["PlayerSettings/Player_"+pxPlayerSlot^.GetHeadQuater().ToString()]);
+		if(pxPlayerNode^.GetValueI("IncludeBuildings",1)!=1)then
+			bIncludeBuildings=false;
+		endif;
+		m_pxTribeList^.m_xOnChange.Clear();
+		begin fill_tribes;
+			m_pxTribeList^.Clear();
+			if(pxPlayerSlot!=null)then
+				var string sAllTribes=(pxLevelInfo^.GetGenericData())["PlayerSettings/Player_"+pxPlayerSlot^.GetHeadQuater().ToString()+"/Restrictions/Base/Tribes"].Value();
+				var array string asTribes;
+				sAllTribes.Split(asTribes,":",true);
+				var int iIdx=-1;
+				var int i,iC=asTribes.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var string sTribe=asTribes[i];
+					//var string sIndex = sTribe.Left(1);
+					var string sIndex = GetHotkey(sTribe);
+					var ^CCardBitmap pxBmp=CGameInst.GetBitmapMgr().GetBlendBitmap("-1 ,layer tribeicon_"+sTribe);
+					if(pxBmp!=null)then
+						m_pxTribeList^.AddItem(sIndex,new CItemDataString(sTribe),pxBmp^.GetBitmap());
+					else
+						m_pxTribeList^.AddItem(CLocalizer.Get().Translate("_"+sTribe),new CItemDataString(sTribe));
+					endif;
+					if(sTribe==p_sTribe)then
+						iIdx=i;
+					endif;
+				endfor;
+				m_pxTribeList^.Select(iIdx);
+			endif;
+		end fill_tribes;
+		m_pxPresetList^.m_xOnSelect.Clear();
+		var int iCredits=CGameWrap.GetClient().GetGame().GetCredits();
+		var string sTribe=p_sTribe;
+		var string sArmy=pxPlayerSlot^.GetValue("Army");
+//		CMirageClnMgr.Debug("sTribe: '"+sTribe+"'");
+//		CMirageClnMgr.Debug("sArmy: '"+sArmy+"'");
+		m_pxPresetEdit^.SetText(sArmy);
+		var bool bUpdatePointBuy=false;
+		if(m_sTribe!=sTribe || iCredits!=m_iCredits)then
+			Init(sTribe,iCredits);
+			bUpdatePointBuy=true;
+		endif;
+//		if(sArmy!=m_sArmy && sArmy!="")then
+		if(sArmy=="")then
+			m_sArmy="";
+		elseif(sArmy!=m_sArmy && sArmy!="")then
+			m_pxPresetList^.Select(-1);
+			bUpdatePointBuy=true;
+			var int i,iC=m_pxPresetList^.NumItems();
+			for(i=0)cond(i<iC)iter(i++)do
+				var string sPresetName=m_pxPresetList^.GetItem(i);
+				if(sPresetName==sArmy)then
+					m_pxPresetList^.Select(i);
+					m_sArmy=sArmy;
+					break;
+				endif;
+			endfor;
+//			m_sTribe=sTribe;
+		endif;
+		//if(p_sTribe != "Random" && m_pxPresetList^.GetSelectedItem() == -1)then
+		if(p_bRestore && m_pxPresetList^.GetSelectedItem() == -1)then
+			if(OnRestoreDefaults())then
+				m_pxPresetList^.Select(-1);
+				bUpdatePointBuy=true;
+				var int i,iC=m_pxPresetList^.NumItems();
+				for(i=0)cond(i<iC)iter(i++)do
+					var string sPresetName=m_pxPresetList^.GetItem(i);
+					if(sPresetName==sArmy)then
+						m_pxPresetList^.Select(i);
+						m_sArmy=sArmy;
+						break;
+					endif;
+				endfor;
+			endif;
+		endif;
+		var ^CPropDB.CNode pxPresetNode=null;
+		begin GetPresetNode;
+			var ^CPropDB.CNode pxTribeNode=^(m_xPresetsDB[m_sTribe]);
+			var int i,iC=pxTribeNode^.NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxWalk=^(pxTribeNode^.Get(i));
+				if(pxWalk^.Name()==m_sArmy)then
+					if(pxWalk^.GetValueI("Cost")==m_iCredits)then
+						pxPresetNode=pxWalk;
+						break;
+					endif;
+				endif;
+			endfor;
+		end GetPresetNode;
+		if(bUpdatePointBuy && !sArmy.IsEmpty())then
+			var ^CPropDB.CNode pxRestrictionsNode=null;
+			var ^CPropDB.CNode pxUnitsNode=null;
+			var ^CPropDB.CNode pxResourceNode=null;
+			if(pxPresetNode!=null)then
+				pxUnitsNode=pxPresetNode^.Get("Units");
+				pxResourceNode=pxPresetNode^.Get("Resources");
+			endif;
+//			CMirageClnMgr.Debug("m_sTribe: '"+m_sTribe+"'");
+			m_pxGameInfoWindow^.UpdatePointBuy(sTribe,iCredits,pxRestrictionsNode,pxUnitsNode,pxResourceNode,bIncludeBuildings);
+		endif;
+		m_pxTribeList^.m_xOnChange=OnChangeTribe;
+		m_pxPresetList^.m_xOnSelect=OnSelectPreset;
+		var bool bDeletable=false;
+		if(pxPresetNode!=null)then
+			if(pxPresetNode^.GetValueI("base")==0)then
+				bDeletable=true;
+			endif;
+		endif;
+		m_pxDeleteButton^.SetDisabled(!bDeletable);
+	endproc;
+	
+	proc void OnUpdateContent()
+		super.OnUpdateContent();
+		var ^CLevelInfo.CPlayerSlot pxPlayerSlot=null;
+		var CPlayerSlotID xPlayerSlotID=CGameWrap.GetClient().GetPlayerSlotID();
+		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelPreview());
+		if(xPlayerSlotID.IsValid())then
+			pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(xPlayerSlotID));
+		endif;
+		if(pxPlayerSlot==null)then 
+			return;
+		endif;
+		UpdateImmidiatly(pxPlayerSlot^.GetTribe(), false);
+	endproc;
+	
+	proc void Init(string p_sTribe, int p_iCredits)
+		m_pxSaveButton^.SetDisabled(p_iCredits==-1);
+		m_iCredits=p_iCredits;
+		m_sTribe=p_sTribe;
+		var int i,iC=m_pxTribeList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CItemDataString pxData=cast<CItemDataString>(m_pxTribeList^.GetItemData(i));
+			System.Assert(pxData!=null,"pxData!=null");
+			if(pxData^.m_sData==p_sTribe)then
+				m_pxTribeList^.Select(i);
+				break;
+			endif;
+		endfor;
+		m_pxPresetList^.Clear();
+		var int iCurArmyIdx=-1;
+		var int iStandardPresetIdx=-1;
+		var ^CPropDB.CNode pxTribePresets=m_xPresetsDB.FindNode(m_sTribe,false);
+		if(pxTribePresets!=null)then
+			var int i,iC=pxTribePresets^.NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxWalk=^(pxTribePresets^.Get(i));
+				var string sName = pxWalk^.Name();
+				if(sName.IsEmpty())then continue; endif;
+				var int iPoints = pxWalk^.GetValueI("Cost",0);
+				if(iPoints!=p_iCredits)then continue; endif;
+				var int iItemIdx=m_pxPresetList^.AddItem(sName);
+				if(pxWalk^.GetValueI("standard",0)!=0)then
+					iStandardPresetIdx=iItemIdx;
+				endif;
+				if(sName==m_sArmy)then
+					iCurArmyIdx=iItemIdx;
+				endif;
+			endfor;
+		endif;
+		if(iCurArmyIdx!=-1)then
+			m_pxPresetList^.Select(iCurArmyIdx);
+		elseif(iStandardPresetIdx!=-1)then
+			m_pxPresetList^.Select(iStandardPresetIdx);
+			OnSelectPreset();
+		elseif(m_pxPresetList^.NumItems()>0)then
+			m_pxPresetList^.Select(0);
+			OnSelectPreset();
+		endif;
+	endproc;
+	/*
+	proc void LoadAllPresetsFromDir(string p_sDir, ref array CPropDB p_raxPresets)
+		var Filesystem.CFileList xFileList;
+		var int i,iNumFiles=xFileList.ReadListEx(p_sDir,"*.spf",true,true);
+		for(i=0)cond(i<iNumFiles)iter(i++)do
+			//if(i>xFileList.NumEntries()-1)then break;endif;
+			var string sFileName = xFileList[i].m_sName;
+
+			if(sFileName.Right(4)!=".spf")then continue; endif;
+
+			var ^CPropDB pxDB = ^(p_raxPresets.NewEntryRef());
+			if(!pxDB^.Load(sFileName))then
+				p_raxPresets.DeleteEntryUS(p_raxPresets.NumEntries()-1);
+				continue;
+			endif;
+		endfor;
+	endproc;
+	*/
+	proc bool OnChangeTribe()
+		var CPlayerSlotID xPlayerSlotID=CGameWrap.GetClient().GetPlayerSlotID();
+		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelPreview());
+		if(xPlayerSlotID.IsValid())then
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(xPlayerSlotID));
+			if(pxPlayerSlot!=null)then
+				var int iSel=m_pxTribeList^.GetSelectedItem();
+				if(iSel!=-1)then
+					var ^CItemDataString pxData=cast<CItemDataString>(m_pxTribeList^.GetItemData(iSel));
+					CClientWrap.SetUserProfileValue("Multiplayer/LastTribe",pxData^.m_sData);
+					pxPlayerSlot^.SetTribe(pxData^.m_sData);
+					InvalidateContent();
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnSelectPreset()
+		var CPlayerSlotID xPlayerSlotID=CGameWrap.GetClient().GetPlayerSlotID();
+		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelPreview());
+		if(xPlayerSlotID.IsValid())then
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(xPlayerSlotID));
+			if(pxPlayerSlot!=null)then
+				var int iSel=m_pxPresetList^.GetSelectedItem();
+				if(iSel!=-1)then
+					var string sPresetName=m_pxPresetList^.GetItem(iSel);
+					pxPlayerSlot^.SetValue("Army",sPresetName);
+					InvalidateContent();
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnRestoreDefaults()
+		if(!LoadDefPresets())then
+			return true;
+		endif;
+		SavePresets();
+		Init(m_sTribe,m_iCredits);
+		InvalidateContent();
+		return true;
+	endproc;
+	
+	proc bool LoadDefPresets()
+		var string sPath = CClientWrap.GetUrsRelPath() + "/Data/"+CMirageClnMgr.MODNAME+"/DefPresets.txt";
+		var bool bLoad = m_xPresetsDB.Load(sPath);
+		if(bLoad)then return true; endif;
+		if(m_xPresetsDB.Load(CClientWrap.GetUrsRelPath() + "/Data/"+CMirageClnMgr.MODNAME+"/Scripts/Game/misc/DefPresets.txt"))then
+			var array string asTribes;
+			asTribes.AddEntry("Hu");
+			asTribes.AddEntry("Aje");
+			asTribes.AddEntry("Ninigi");
+			asTribes.AddEntry("SEAS");
+			var int i,iC=asTribes.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var string sTribe=asTribes[i];
+				var ^CPropDB.CNode pxTribeNode=^(m_xPresetsDB[sTribe]);
+				var int j,jC=pxTribeNode^.NumSubs();
+				for(j=0)cond(j<jC)iter(j++)do
+					var ^CPropDB.CNode pxWalk=^(pxTribeNode^.Get(j));
+					var string sName = CLocalizer.Get().Translate(pxWalk^.Name());
+					sName.Replace(" ","_");
+					pxWalk^.Name()=sName;
+				endfor;
+			endfor;
+			return true;
+		endif;
+		KLog.LogError("CPresetWindow","LoadDefPresets() failed");
+		return false;
+	endproc;
+	
+	export proc bool OnSavePreset()
+		if(!Filesystem.DirExists(CSettings.GetUserSettingsDir()+"PointBuyPresets"))then
+			Filesystem.MkDir(CSettings.GetUserSettingsDir()+"PointBuyPresets");
+		endif;
+		var string sPresetName=m_pxPresetEdit^.GetText();
+		var ^CPropDB.CNode pxPresetNode=null;
+		var ^CPropDB.CNode pxTribeNode=^(m_xPresetsDB[m_sTribe]);
+		var int i,iC=pxTribeNode^.NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPropDB.CNode pxWalk=^(pxTribeNode^.Get(i));
+			if(pxWalk^.Name()==sPresetName)then
+				if(pxWalk^.GetValueI("Cost")==m_iCredits)then
+					pxPresetNode=pxWalk;
+					pxPresetNode^.Clear();
+					break;
+				endif;
+			endif;
+		endfor;
+		if(pxPresetNode==null)then
+			pxPresetNode=^(pxTribeNode^.AddValue(sPresetName,""));
+		endif;
+		var CPointBuyResult xPBR;
+		m_pxGameInfoWindow^.GetPointBuyMenu().GeneratePointBuyResult(xPBR);
+		pxPresetNode^.SetValue("Cost",m_iCredits);
+		var ^CPropDB.CNode  pxUnits=^(pxPresetNode^.AddValue("Units",""));
+		var ^CPropDB.CNode  pxResources=^(pxPresetNode^.AddValue("Resources",""));
+		iC=xPBR.NumChars();
+		var string sName;
+		var int iSlotID;
+		var int iFixedLevel;
+		for(i=0)cond(i<iC)iter(i++)do
+			xPBR.GetChar(i,sName,iSlotID,iFixedLevel);
+			pxUnits^.AddValue(iSlotID.ToString(),sName);
+		endfor;
+		var string sResource;
+		var int iResourceValue;
+		iC=xPBR.NumResources();
+		for(i=0)cond(i<iC)iter(i++)do
+			xPBR.GetResource(i,sResource,iResourceValue);
+			pxResources^.AddValue(sResource,iResourceValue);
+		endfor;
+		SavePresets();
+		m_sArmy=sPresetName;
+		Init(m_sTribe,m_iCredits);
+		InvalidateContent();
+		return(true);
+	endproc;
+	
+	export proc bool OnDeletePreset()
+		var int iSelIdx=m_pxPresetList^.GetSelectedItem();
+		if(iSelIdx!=-1)then
+			var string sPresetName = m_pxPresetList^.GetItem(iSelIdx);
+			if(!sPresetName.IsEmpty())then
+				m_xPresetsDB[m_sTribe].Remove(sPresetName);	
+				m_sArmy.Empty();
+				Init(m_sTribe,m_iCredits);
+				InvalidateContent();
+				SavePresets();
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnChangeEdit()
+		var string sText=m_pxPresetEdit^.GetText();
+		sText.Replace(" ","_");
+		m_pxPresetEdit^.SetText(sText);
+		m_pxSaveButton^.SetDisabled(sText.IsEmpty() || m_iCredits==-1);
+		return true;
+	endproc;
+	
+	proc bool SavePresets()
+		var bool bSave=false;
+		var string sRoaming=CSettings.GetUserSettingsDir()+CMirageClnMgr.MODNAME+"_"+(CMirageClnMgr.VERSION).ToString()+"_PBPresets";
+		if(!Filesystem.DirExists(sRoaming))then
+			Filesystem.MkDir(sRoaming);
+		endif;
+		sRoaming+="/Presets.txt";
+		bSave=m_xPresetsDB.Save(sRoaming);
+		var string sPath = CClientWrap.GetUrsRelPath()+"/Data/"+CMirageClnMgr.MODNAME+"/Presets.txt";
+		bSave=bSave||m_xPresetsDB.Save(sPath);
+		if(!bSave)then
+			CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Error"),CLocalizer.Get().Translate("_WriteFileFailed")+": "+sRoaming);
+			CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Error"),CLocalizer.Get().Translate("_WriteFileFailed")+": "+sPath);
+			return false;
+		endif;
+		//m_xPresetsDB.Save("c:/Presets.txt");
+		return true;
+	endproc;
+	
+	proc string GetHotkey(string p_sTribe)
+		var string sHK="1";
+		if(p_sTribe=="Aje")then
+			sHK="2";
+		elseif(p_sTribe=="Ninigi")then
+			sHK="3";
+		elseif(p_sTribe=="SEAS")then
+			sHK="4";
+		endif;
+		return sHK;
+	endproc;
+	
+endclass;
+	
+class CPointGauge inherit CProgressBar
+	
+	var ^CStaticCtrlEx m_pxText;
+	
+	export constructor()
+		if(!InitFromResource("UI/PointBuy/PresetWindow","PointGauge")) then
+			return;
+		endif;
+		SetBitmaps(CGameInst.GetBitmapMgr().GetBlendBitmap("-1, layer pointgauge_empty")^.GetBitmap(),CGameInst.GetBitmapMgr().GetBlendBitmap("-1, layer pointgauge_full")^.GetBitmap());
+		m_pxText=cast<CStaticCtrlEx>(GetControl("Text"));
+	endconstructor;
+	
+	proc bool OnChange()
+		var int iMax=GetRange().ToInt();
+		var int iCur=GetProgress().ToInt();
+		var string sText=CUIMgr.GetLocalizedNewstickerMsg("_PointBuyMenu_PointGauge\t"+iCur.ToString()+"\t"+iMax.ToString());
+		//m_pxText^.SetText(iCur.ToString()+"/"+iMax.ToString());
+		m_pxText^.SetText(sText);
+		return true;
+	endproc;
+	
+endclass;

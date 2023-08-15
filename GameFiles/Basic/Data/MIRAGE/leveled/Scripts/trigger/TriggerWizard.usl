@@ -1,0 +1,369 @@
+class CWizardStepWnd inherit CWindow
+	
+	var ^CTriggerWizard m_pxParentWnd;
+	
+	export constructor()
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	export proc void Initialize(^CTriggerWizard p_pxParent)
+		m_pxParentWnd = p_pxParent;
+	endproc;
+	
+	export proc void OnNext()
+	endproc;
+	
+	export proc void OnBack()
+	endproc;
+	
+	export proc bool IsLast()
+		return false;
+	endproc;
+	
+	export proc ^CWizardTriggerCreater GetTriggerCreater()
+		return null;
+	endproc;
+endclass;
+
+class CWizardTriggerCreater
+	export constructor()
+	endconstructor;
+	
+	export proc bool CreateTrigger(^CTriggerWizard p_pxWizard)
+		return false;
+	endproc;
+endclass;
+
+
+class CTriggerWizard inherit CEnhancedFrameWindow
+
+	class CStepWndStack
+		var string					m_sLayout;
+		var ^CTriggerWizard			m_pxParent;
+		var array ^CWizardStepWnd	m_apxStepWnd;
+		var int 					m_iCurStepIdx;
+		
+		export constructor(^CTriggerWizard p_pxParent, string p_sLayoutName)
+			m_pxParent = p_pxParent;
+			m_sLayout  = p_sLayoutName;
+			m_iCurStepIdx=-1;
+		endconstructor;
+		
+		export destructor()
+			var int i,iC = m_apxStepWnd.NumEntries();
+			for(i=0) cond(i<iC) iter(++i) do
+				m_apxStepWnd[i]^.Destroy();
+			endfor;
+		enddestructor;
+		
+		export proc int Push(^CWizardStepWnd p_pxWnd)
+			m_apxStepWnd.AddEntry(p_pxWnd);
+			return m_apxStepWnd.NumEntries();
+		endproc;
+		
+		export proc int Back()
+			if(m_iCurStepIdx<0) then return 0; endif;
+			
+			var ^CWizardStepWnd pxCur = m_apxStepWnd[m_iCurStepIdx];
+			if(pxCur!=null) then
+				m_pxParent^.RemoveChild(pxCur);
+				pxCur^.OnBack();
+			endif;
+			SetStepWnd(m_apxStepWnd[--m_iCurStepIdx]);
+			m_apxStepWnd[m_iCurStepIdx]^.Initialize(m_pxParent);
+			return m_iCurStepIdx+1;
+		endproc;
+		
+		export proc int Next()
+			if(m_iCurStepIdx < m_apxStepWnd.NumEntries() && m_iCurStepIdx>=-1) then
+				if(m_iCurStepIdx+1>=m_apxStepWnd.NumEntries()) then
+					return m_iCurStepIdx+1;
+				endif;
+				if(m_iCurStepIdx>=0) then
+					var ^CWindow pxCur = m_apxStepWnd[m_iCurStepIdx];
+					if(pxCur!=null) then
+						m_pxParent^.RemoveChild(pxCur);
+					endif;
+					m_apxStepWnd[m_iCurStepIdx]^.OnNext();
+				endif;
+				SetStepWnd(m_apxStepWnd[++m_iCurStepIdx]);
+				m_apxStepWnd[m_iCurStepIdx]^.Initialize(m_pxParent);
+				return m_iCurStepIdx+1;
+			endif;
+			return 0;
+		endproc;
+		
+		proc void SetStepWnd(^CWizardStepWnd p_pxWnd)
+			m_pxParent^.AddChildWithLayout(p_pxWnd, m_sLayout);
+			
+			if(m_iCurStepIdx==0) then
+				m_pxParent^.GetBackBtn()^.SetDisabled(true);
+			else
+				m_pxParent^.GetBackBtn()^.SetDisabled(false);
+			endif;
+			if(p_pxWnd^.IsLast()) then
+				m_pxParent^.GetFinishBtn()^.SetDisabled(false);
+				m_pxParent^.GetNextBtn()^.SetDisabled(true);
+			else
+				m_pxParent^.GetFinishBtn()^.SetDisabled(true);
+				m_pxParent^.GetNextBtn()^.SetDisabled(false);
+			endif;
+			m_pxParent^.SetCurStep(m_iCurStepIdx+1);
+			p_pxWnd^.Initialize(m_pxParent);
+		endproc;
+		
+		export proc void SetCurStep(int p_iStepIdx)
+			m_iCurStepIdx = p_iStepIdx;
+		endproc;
+		
+		export proc ^CWizardStepWnd GetCurWindow()
+			if(m_iCurStepIdx<0) then return null; endif;
+			return m_apxStepWnd[m_iCurStepIdx];			
+		endproc;
+		
+		export proc int GetCurStep()
+			return m_iCurStepIdx+1;
+		endproc;
+		
+		export proc bool IsLastStep(int p_iStep)
+			return m_apxStepWnd.NumEntries()==p_iStep;
+		endproc;
+		
+		export proc void ClearAfter(int p_iIdx)
+			var int i, iC = m_apxStepWnd.NumEntries();
+			for(i=p_iIdx+1) cond(i<iC) iter(++i) do
+				m_apxStepWnd[i]^.Destroy();
+			endfor;
+			m_apxStepWnd = p_iIdx+1;
+			m_iCurStepIdx = p_iIdx;
+		endproc;
+	endclass;
+	
+	var ^CStaticCtrl	m_pxStepNo;
+	var ^CButton		m_pxBack;
+	var ^CButton		m_pxNext;
+	var ^CButton		m_pxFinish;
+	
+	var ^CStepWndStack	m_pxStack;
+	var ^CViewTriggerCreate	m_pxTriggerMain;
+	var CPropDB			m_xData;
+	
+	export constructor()
+		if (!InitFromResource("Trigger/TriggerWizard", "TriggerWizard")) then
+			KLog.LogError("UI.TriggerWizard", "InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxStepNo 	= cast<CStaticCtrl>(GetControl("Txt_Step"));
+		m_pxBack	= cast<CButton>(GetControl("Btn_Back"));
+		m_pxNext	= cast<CButton>(GetControl("Btn_Next"));
+		m_pxFinish	= cast<CButton>(GetControl("Btn_Finish"));
+		
+		m_pxBack^.m_xOnClick = OnBack;
+		m_pxNext^.m_xOnClick = OnNext;
+		m_pxFinish^.m_xOnClick = OnFinish;
+		m_pxStack = new CStepWndStack(this, "StepWindow");
+		CWizardFactory.Get().SetTriggerWizardWnd(this);
+	endconstructor;
+
+	destructor()
+		delete m_pxStack;
+	enddestructor;
+	
+	export proc void Initialize(^CViewTriggerCreate p_pxTriggerMainWnd)
+		m_pxTriggerMain = p_pxTriggerMainWnd;
+		var ^CWizardStepWnd pxWnd = new CWizardStepMain();
+		pxWnd^.Initialize(this);
+		m_pxStack^.Push(pxWnd);
+		m_pxStack^.Next();
+	endproc;
+	
+	export proc ^CViewTriggerCreate GetTriggerMainWnd()
+		return m_pxTriggerMain;
+	endproc;
+
+	proc bool OnBack()
+		m_pxStack^.Back();
+		return true;
+	endproc;
+	
+	proc bool OnNext()
+		var int iCurStep = m_pxStack^.GetCurStep();
+		if(iCurStep==1) then
+			var ^CWizardStepMain pxStep = cast<CWizardStepMain>(m_pxStack^.GetCurWindow());
+			if(pxStep!=null) then
+				m_xData.GetRoot().Clear();
+				pxStep^.CreateChain();
+			endif;
+		else
+			m_pxStack^.Next();
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnFinish()
+		var ^CWizardTriggerCreater pxTC = m_pxStack^.GetCurWindow()^.GetTriggerCreater();
+		if(pxTC!=null) then
+			pxTC^.CreateTrigger(this);
+		endif;
+		m_pxTriggerMain^.Reset();
+		return OnClose();
+	endproc;
+	
+	proc bool OnClose()
+		CWindowMgr.Get().ReleaseModal(this);
+		Destroy();
+		return true;
+	endproc;
+	
+	export proc void SetCurStep(int p_iStep)
+		m_pxStepNo^.SetText("Step " + p_iStep.ToString());
+	endproc;
+	
+	export proc ^CTriggerWizard.CStepWndStack GetStack()
+		return m_pxStack;
+	endproc;
+	
+	export proc ref CPropDB		GetData()			return m_xData;			endproc;
+	export proc ^CButton 		GetBackBtn() 		return m_pxBack;		endproc;
+	export proc ^CButton 		GetNextBtn() 		return m_pxNext;		endproc;
+	export proc ^CButton 		GetFinishBtn()		return m_pxFinish;		endproc;
+
+endclass;
+
+class CWizardFactory 
+	
+	static var ^CWizardFactory ms_pxInst;
+		
+	export static proc ref CWizardFactory Get()
+		if(ms_pxInst==null) then
+			ms_pxInst = new CWizardFactory();
+		endif;
+		return ms_pxInst^;
+	endproc;
+	
+	var ^CTriggerWizard	m_pxWizardWnd;
+	
+	constructor()
+	endconstructor;
+	
+	destructor()
+	enddestructor;
+	
+	export proc void SetTriggerWizardWnd(^CTriggerWizard p_pxWnd)
+		m_pxWizardWnd = p_pxWnd;
+	endproc;
+	
+	export proc int NumStepsForMakro(string p_sTrigger)
+		if(p_sTrigger=="Sea Invasion") then
+			return 4;
+		elseif(p_sTrigger=="Flag Control") then
+			return 1;
+		elseif(p_sTrigger=="Make Tick") then
+			return 1;
+		elseif(p_sTrigger=="Spawn Units") then
+			return 1;
+		elseif(p_sTrigger=="Win By Gold") then
+			return 1;
+		elseif(p_sTrigger=="AI Def Areas") then
+			return 1;
+//		elseif(p_sTrigger=="Object properties") then
+//			return 1;
+		endif;
+		return 0;
+	endproc;
+	
+	export proc ^CWizardStepWnd Create(string p_sTrigger, int p_iStep)
+		var ^CWizardStepWnd pxWnd = null;
+		if(p_sTrigger=="Sea Invasion") then
+			switch(p_iStep)
+				case(0) do pxWnd = new CSeaInvasion1(); endcase;
+				case(1) do pxWnd = new CSeaInvasion2(); endcase;
+				case(2) do pxWnd = new CSeaInvasion3(); endcase;
+				case(3) do pxWnd = new CSeaInvasion4(); endcase;
+				case default do endcase;
+			endswitch;
+		elseif(p_sTrigger=="Flag Control") then
+			switch(p_iStep)
+				case(0) do pxWnd = new CFlagControl1(); endcase;
+				case default do endcase;
+			endswitch;
+		elseif(p_sTrigger=="Make Tick") then
+			switch(p_iStep)
+				case(0) do pxWnd = new CMakeTick1(); endcase;
+				case default do endcase;
+			endswitch;
+		elseif(p_sTrigger=="Spawn Units") then
+			switch(p_iStep)
+				case(0) do pxWnd = new CSpawnUnits1(); endcase;
+				case default do endcase;
+			endswitch;
+		elseif(p_sTrigger=="Win By Gold") then
+			switch(p_iStep)
+				case(0) do pxWnd = new CWinByGold1(); endcase;
+				case default do endcase;
+			endswitch;
+		elseif(p_sTrigger=="AI Def Areas") then
+			switch(p_iStep)
+				case(0) do pxWnd = new CAIDefAreas1(); endcase;
+				case default do endcase;
+			endswitch;
+//		elseif(p_sTrigger=="Object properties") then
+//			switch(p_iStep)
+//				case(0) do pxWnd = new CObjProperties1(); endcase;
+//				case default do endcase;
+//			endswitch;
+		endif;
+		if(pxWnd!=null) then
+			pxWnd^.Initialize(m_pxWizardWnd);
+		endif;
+		return pxWnd;
+	endproc;
+endclass;
+
+class CWizardStepMain inherit CWizardStepWnd
+	
+	var ^CList	m_pxList;
+	var string	m_sCurMakro;
+	
+	export constructor()
+		if (!InitFromResource("Trigger/TriggerWizard", "TriggerWizardStep_Main")) then
+			KLog.LogError("UI.TriggerWizard", "InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxList = cast<CList>(GetControl("List_MakroTrigger"));
+		m_pxList^.AddItem("Sea Invasion");
+		m_pxList^.AddItem("Flag Control");
+		m_pxList^.AddItem("Make Tick");
+		m_pxList^.AddItem("Spawn Units");
+		m_pxList^.AddItem("Win By Gold");
+		m_pxList^.AddItem("AI Def Areas");
+//		m_pxList^.AddItem("Object properties");
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	export proc void Initialize(^CTriggerWizard p_pxParent)
+		super.Initialize(p_pxParent);
+	endproc;
+	
+	export proc void CreateChain()
+		var string sMakro = m_pxList^.GetSelectedItemAsString();
+		if(sMakro==m_sCurMakro) then
+			return;
+		endif;
+		m_pxParentWnd^.GetStack()^.ClearAfter(0);
+		m_sCurMakro = sMakro;
+		var int i, iC = CWizardFactory.Get().NumStepsForMakro(sMakro);
+		for(i=0) cond(i<iC) iter(++i) do
+			var ^CWizardStepWnd pxWnd = CWizardFactory.Get().Create(sMakro, i);
+			m_pxParentWnd^.GetStack()^.Push(pxWnd);
+		endfor;
+		m_pxParentWnd^.GetStack()^.Next();
+	endproc;
+	
+endclass;

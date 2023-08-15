@@ -1,0 +1,1072 @@
+class CDialogSceneEditor inherit CEnhancedFrameWindow
+	var ^CMenu			m_pxMenu;
+	var ^CToggleButton	m_pxActors;
+	var ^CToggleButton	m_pxFrames;
+	var ^CWindow		m_pxContainer;
+	var ^CDSFrameBox	m_pxFrameBox;
+	var ^CDSActorsBox	m_pxActorsBox;
+	var CPropDB			m_xData;
+	var string			m_sFilePath;	
+	var string			m_sSceneName;	
+	export var array string 	m_asSounds;
+
+	export constructor()
+		if(!InitFromResource("DialogScene/DialogSceneEditor","DialogSceneEditor")) then
+			KLog.LogError("UI.DialogSceneEditor","InitFromResource failed");
+			return;
+		endif;
+		m_pxMenu=cast<CMenu>(GetControl("Menu"));
+
+		var ^CDropButton pxFile=new CDropButton({0,0},"File");
+		var ^CDropButton pxNewFile=new CDropButton({0,0},"New");
+		var ^CDropButton pxLoadFile=new CDropButton({0,0},"Load");
+		var ^CDropButton pxSaveFile=new CDropButton({0,0},"Save");
+		var ^CDropButton pxSaveAsFile=new CDropButton({0,0},"Save As");
+		pxFile^.AddItem(pxNewFile);
+		pxFile^.AddItem(pxLoadFile);
+		pxFile^.AddItem(pxSaveFile);
+		pxFile^.AddItem(pxSaveAsFile);
+		m_pxMenu^.AddDropButton(pxFile);
+		pxNewFile^.m_xOnClick=OnNew;
+		pxLoadFile^.m_xOnClick=OnLoad;
+		pxSaveFile^.m_xOnClick=OnSave;
+		pxSaveAsFile^.m_xOnClick=OnSaveAs;
+
+		m_pxActors=cast<CToggleButton>(GetControl("Top/Actors"));
+		m_pxFrames=cast<CToggleButton>(GetControl("Top/Frames"));
+		m_pxActors^.SetGrouped(true);
+		m_pxFrames^.SetGrouped(true);
+		m_pxContainer=GetControl("Container");
+
+		m_pxActors^.m_xOnClick=OnActors;
+		m_pxFrames^.m_xOnClick=OnFrames;
+
+		m_pxFrameBox=new CDSFrameBox;
+		m_pxFrameBox^.SetVisible(false);
+		m_pxContainer^.AddChild(m_pxFrameBox);
+
+		m_pxActorsBox=new CDSActorsBox;
+		m_pxActorsBox^.SetVisible(false);
+		m_pxContainer^.AddChild(m_pxActorsBox);
+
+		m_pxActors^.SetToggleButtonState(true);
+		OnActors();
+		SetVisible(false);
+		LoadPosition("DialogSceneEditor");
+		InvalidateContent();
+	endconstructor;
+
+	export proc ^CDSFrameBox GetFrameBox()
+		return m_pxFrameBox;
+	endproc;
+	export proc ^CDSActorsBox GetActorsBox()
+		return m_pxActorsBox;
+	endproc;
+
+	proc bool OnNew()
+		m_xData.Reset();
+		InvalidateContent();
+		m_sFilePath="";
+		return true;
+	endproc;
+
+	proc bool OnLoad()
+		var ^CEnhancedLoadSaveDialog pxTmp = new CEnhancedLoadSaveDialog(0,"custom");
+		pxTmp^.SetUniqueSettingName("DlgSceneEditorLoadSaveDlg");
+		pxTmp^.ClearFilters();
+		pxTmp^.AddFilter("Dialog Scene Files","*.dlg");
+		pxTmp^.m_xReturnFileString=OnReturnLoadString;
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp, true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return true;
+	endproc;
+
+	proc bool OnReturnLoadString(string p_sFileString)
+		var Filesystem.CFileAttributes xFileAttributes;
+		if(xFileAttributes.GetFromFile(p_sFileString))then
+			if(xFileAttributes.m_bReadOnly==true)then
+				CMessageBox.MsgBox("Warning","DialogScene is write protected, and will not be saved!");
+			endif;
+		else
+			KLog.LogInfo("DialogScene","File not found!");
+			return true;
+		endif;
+
+		m_xData.Reset();
+		if(!m_xData.Load(p_sFileString))then
+			KLog.LogSpam("DialogScene","load file: '"+p_sFileString+"' failed");
+		endif;
+		InvalidateContent();
+		m_sFilePath=p_sFileString;
+		var CIOPath xPath;
+		xPath.Init(p_sFileString);
+		m_sSceneName=xPath.FilePart();
+		m_sSceneName.Delete(m_sSceneName.GetLength()-4,4);
+		SetCaption("DialogScene: "+m_sSceneName);
+		return(true);
+	endproc;
+
+	export proc string GetSceneName()
+		return m_sSceneName;
+	endproc;
+
+	proc bool OnSave()
+		if(m_sFilePath=="")then
+			OnSaveAs();
+		else
+			OnReturnSaveString(m_sFilePath);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnSaveAs()
+		var ^CEnhancedLoadSaveDialog pxTmp = new CEnhancedLoadSaveDialog(1,"custom");
+		pxTmp^.SetUniqueSettingName("DlgSceneEditorLoadSaveDlg");
+		pxTmp^.ClearFilters();
+		pxTmp^.AddFilter("Dialog Scene Files","*.dlg");
+		pxTmp^.m_xReturnFileString=OnReturnSaveString;
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp, true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return true;
+	endproc;
+
+	proc bool OnReturnSaveString(string p_sFileString)
+		m_xData.Save(p_sFileString);
+		m_sFilePath=p_sFileString;
+		var CIOPath xPath;
+		xPath.Init(p_sFileString);
+		m_sSceneName=xPath.FilePart();
+		m_sSceneName.Delete(m_sSceneName.GetLength()-4,4);
+		SetCaption("DialogScene: "+m_sSceneName);
+		return true;
+	endproc;
+
+	proc bool OnActors()
+		m_pxFrameBox^.SetVisible(false);
+		m_pxActorsBox^.SetSize(m_pxContainer^.GetWidth(),m_pxContainer^.GetHeight());
+		m_pxActorsBox^.SetPos(0,0);
+		m_pxActorsBox^.SetVisible(true);
+		m_pxActorsBox^.InvalidateContent();
+		return true;
+	endproc;
+
+	proc bool OnFrames()
+		m_pxActorsBox^.SetVisible(false);
+		m_pxFrameBox^.SetSize(m_pxContainer^.GetWidth(),m_pxContainer^.GetHeight());
+		m_pxFrameBox^.SetPos(0,0);
+		m_pxFrameBox^.SetVisible(true);
+		m_pxFrameBox^.InvalidateContent();
+		return true;
+	endproc;
+
+
+	proc void OnUpdateContent()
+		var ^CPropDB.CNode pxActorsNode=m_xData.GetRoot().Get("Actors");
+		if(pxActorsNode==null)then
+			pxActorsNode=^(m_xData.GetRoot().SetValue("Actors",""));
+		endif;
+		var ^CPropDB.CNode pxFramesNode=m_xData.GetRoot().Get("Frames");
+		if(pxFramesNode==null)then
+			pxFramesNode=^(m_xData.GetRoot().SetValue("Frames",""));
+		endif;		
+		UpdateSoundList();
+		m_pxActorsBox^.Init(pxActorsNode,this);
+		m_pxFrameBox^.Init(pxFramesNode,this);
+	endproc;
+
+	proc void UpdateSoundList()
+		m_asSounds=0;
+		var string sPrefix=GetSceneName();
+		var CStringArray asData;
+		var int i,iC=CClientWrap.GetSoundEventMgrClient().GetSoundEvents(sPrefix,asData);
+		for(i=0)cond(i<iC)iter(i++)do
+			m_asSounds.AddEntry(asData[i]);			
+		endfor;
+	endproc;
+
+	export proc void RenameActor(string p_sOldName, string p_sNewName)
+		var ^CPropDB.CNode pxActorsNode=m_xData.GetRoot().Get("Actors");
+		if(pxActorsNode==null)then return; endif;
+
+		var int i,iC=pxActorsNode^.NumSubs();
+		begin check;
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxWalk=^(pxActorsNode^.Get(i));
+				if(pxWalk^.Name()==p_sNewName)then
+					CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_ERROR"),"name: '"+p_sNewName+"' ready exist");
+					return;
+				endif;
+			endfor;
+		end check;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPropDB.CNode pxWalk=^(pxActorsNode^.Get(i));
+			if(pxWalk^.Name()==p_sOldName)then
+				pxWalk^.Name()=p_sNewName;
+				break;
+			endif;
+		endfor;
+
+		var ^CPropDB.CNode pxFramesNode=m_xData.GetRoot().Get("Frames");
+		if(pxFramesNode!=null)then
+			var int i,iC=pxFramesNode^.NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxFrame=^(pxFramesNode^.Get(i));
+				var ^CPropDB.CNode pxActor=pxFrame^.Get("actor");
+				if(pxActor==null)then continue; endif;
+				if(pxActor^.Value()==p_sOldName)then
+					pxActor^.Value()=p_sNewName;
+				endif;
+			endfor;
+		endif;
+		InvalidateContent();
+	endproc;
+
+endclass;
+
+
+class CDSFrameBox inherit CWindow
+	var ^CPropDB.CNode	m_pxData;
+	var ^CDSFrame		m_pxFrame;
+	var ^CButton		m_pxAddFrame;
+	var ^CButton		m_pxDelFrame;
+	var ^CList			m_pxFrameList;
+	var ^CDialogSceneEditor m_pxDSEditor;
+
+	export constructor()
+		if(!InitFromResource("DialogScene/DialogSceneEditor","DSFrameBox")) then
+			KLog.LogError("UI.DialogScene","InitFromResource failed");
+			return;
+		endif;
+		m_pxFrame=cast<CDSFrame>(GetControl("DSFrame"));
+		m_pxFrameList=cast<CList>(GetControl("Frames/FrameList"));
+		m_pxAddFrame=cast<CButton>(GetControl("Frames/Buttons/AddFrame"));
+		m_pxDelFrame=cast<CButton>(GetControl("Frames/Buttons/DelFrame"));
+		m_pxAddFrame^.m_xOnClick=OnAddFrame;
+		m_pxDelFrame^.m_xOnClick=OnDelFrame;
+		m_pxFrameList^.m_xOnSelect=OnSelectItem;
+
+		m_pxAddFrame^.SetDisabled(true);
+		m_pxDelFrame^.SetDisabled(true);
+		m_pxFrameList^.SetDisabled(true);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc void Init(^CPropDB.CNode p_pxFrames,^CDialogSceneEditor p_pxDSEditor)
+		m_pxData=p_pxFrames;
+		m_pxDSEditor=p_pxDSEditor;
+		var bool bDisabled=(m_pxData==null);
+		m_pxAddFrame^.SetDisabled(bDisabled);
+		m_pxDelFrame^.SetDisabled(bDisabled);
+		m_pxFrameList^.SetDisabled(bDisabled);
+		OnUpdateContent();
+	endproc;
+
+	proc void OnUpdateContent()
+		m_pxFrameList^.Clear();
+		if(m_pxData!=null)then
+			var int i,iC=m_pxData^.NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxWalk=^((m_pxData^)[i]);
+				m_pxFrameList^.AddItem(pxWalk^.Name());
+			endfor;
+			m_pxFrameList^.Select(m_pxFrameList^.NumItems()-1);
+			UpdateFrame();
+		endif;
+	endproc;
+
+	proc void UpdateFrame()
+		var ^CPropDB.CNode pxFrameNode=null;
+		var int iSelItem=m_pxFrameList^.GetSelectedItem();
+		if(iSelItem!=-1)then
+			var string sItem=m_pxFrameList^.GetItem(iSelItem);
+			pxFrameNode=m_pxData^.Get(sItem);
+		endif;
+		m_pxFrame^.Init(pxFrameNode,m_pxDSEditor);
+	endproc;
+
+	proc bool OnAddFrame()
+		var string sName="Frame_"+m_pxData^.NumSubs().ToString();
+		m_pxData^.AddValue(sName,"");
+		InvalidateContent();
+		return true;
+	endproc;
+
+	proc bool OnSelectItem()
+		UpdateFrame();
+		return true;
+	endproc;
+
+	proc bool OnDelFrame()
+		var string sFrame=m_pxFrameList^.GetSelectedItemAsString();
+		m_pxData^.Remove(sFrame);
+		InvalidateContent();
+		return true;
+	endproc;
+endclass;
+
+class CDSFrame inherit CWindow
+	var ^CDropList		m_pxActorList;
+	var ^CEdit			m_pxText;
+	var ^CDropList		m_pxSoundList;
+	var ^CPropDB.CNode	m_pxFrameNode;
+	export constructor()
+		if(!InitFromResource("DialogScene/DialogSceneEditor","DSFrame")) then
+			KLog.LogError("UI.DSFrame","InitFromResource failed");
+			return;
+		endif;
+		m_pxActorList=cast<CDropList>(GetControl("ActorBox/ActorList"));
+		m_pxText=cast<CEdit>(GetControl("Text"));
+		m_pxText^.SetDisabled(true);
+		m_pxSoundList=cast<CDropList>(GetControl("SoundBox/SoundList"));
+
+		SetDisabled(true);
+	endconstructor;
+
+	export proc void Init(^CPropDB.CNode p_pxFrameNode,^CDialogSceneEditor p_pxDSEditor)
+
+		m_pxActorList^.m_xOnChange.Clear();
+		m_pxSoundList^.m_xOnChange.Clear();
+
+		m_pxFrameNode=p_pxFrameNode;
+		SetDisabled(m_pxFrameNode==null);
+		if(m_pxFrameNode==null)then
+			m_pxText^.SetText("");
+		else
+
+			m_pxText^.SetText(CLocalizer.Get().Translate("_"+p_pxDSEditor^.GetSceneName()+"_"+p_pxFrameNode^.Name()));
+			var string sCurActor=m_pxFrameNode^.GetValueS("actor");
+			m_pxActorList^.Clear();
+			var ^CDSActorsBox pxActorsBox=p_pxDSEditor^.GetActorsBox();
+			var int i,iC=pxActorsBox^.NumActors();
+			var int iSelectItem=-1;
+			for(i=0)cond(i<iC)iter(i++)do
+				var string sActor=pxActorsBox^.GetActor(i);
+				var int iIndex=m_pxActorList^.AddItem(sActor);
+				if(sActor!="" && sActor==sCurActor)then
+					//KLog.LogError("SelItem",sActor+" : "+iIndex.ToString()+sCurActor);
+					iSelectItem=iIndex;
+				endif;
+			endfor;
+			if(iSelectItem==-1)then
+				iSelectItem=m_pxActorList^.AddItem("select actor");
+			endif;
+			m_pxActorList^.Select(iSelectItem);
+			m_pxActorList^.m_xOnChange=OnSelectActor;
+
+			//init sound list
+			var string sCurSound=m_pxFrameNode^.GetValueS("audio");
+			m_pxSoundList^.Clear();
+			iC=p_pxDSEditor^.m_asSounds.NumEntries();
+			iSelectItem=-1;
+			for(i=0)cond(i<iC)iter(i++)do
+				var string sSound=p_pxDSEditor^.m_asSounds[i];
+				var int iIndex=m_pxSoundList^.AddItem(sSound);
+				if(sSound!="" && sSound==sCurSound)then
+					iSelectItem=iIndex;
+				endif;
+			endfor;
+			if(iSelectItem==-1)then
+				iSelectItem=m_pxSoundList^.AddItem("select sound");
+			endif;
+			m_pxSoundList^.Select(iSelectItem);
+			m_pxSoundList^.m_xOnChange=OnChangeSound;
+		endif;
+
+	endproc;
+
+	export destructor()
+	enddestructor;
+
+	proc bool OnSelectActor()
+		var string sActor=m_pxActorList^.GetSelectedItemAsString();
+		if(sActor!="select actor")then
+			m_pxFrameNode^.SetValue("actor",sActor);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnChangeSound()
+		var string sSound=m_pxSoundList^.GetSelectedItemAsString();
+		if(sSound!="select sound")then
+			m_pxFrameNode^.SetValue("audio",sSound);
+		endif;
+		return true;
+	endproc;
+
+
+endclass;
+
+class CDSActorsBox inherit CWindow
+	var ^CDialogSceneEditor m_pxDSEditor;
+	var ^CPropDB.CNode		m_pxData;
+	var ^CDSActorInfo		m_pxActorInfo;
+	var ^CButton			m_pxAddActor;
+	var ^CButton			m_pxDelActor;
+	var ^CList				m_pxActorList;
+
+	export constructor()
+		if(!InitFromResource("DialogScene/DialogSceneEditor","DSActorsBox")) then
+			KLog.LogError("UI.DSActorsBox","InitFromResource failed");
+			return;
+		endif;
+		m_pxActorInfo=cast<CDSActorInfo>(GetControl("DSActorInfo"));
+		m_pxActorList=cast<CList>(GetControl("Actors/ActorList"));
+		m_pxAddActor=cast<CButton>(GetControl("Actors/Buttons/AddActor"));
+		m_pxDelActor=cast<CButton>(GetControl("Actors/Buttons/DelActor"));
+		m_pxAddActor^.m_xOnClick=OnAddActor;
+		m_pxDelActor^.m_xOnClick=OnDelActor;
+		m_pxActorList^.m_xOnSelect=OnSelectActor;
+		m_pxActorList^.m_xOnLBtnDblClick=OnActorDblClick;
+
+		m_pxAddActor^.SetDisabled(true);
+		m_pxDelActor^.SetDisabled(true);
+		m_pxActorList^.SetDisabled(true);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc void Init(^CPropDB.CNode p_pxActors,^CDialogSceneEditor p_pxDSEditor)
+		m_pxData=p_pxActors;
+		m_pxDSEditor=p_pxDSEditor;
+		var bool bDisabled=(m_pxData==null);
+		m_pxAddActor^.SetDisabled(bDisabled);
+		m_pxDelActor^.SetDisabled(bDisabled);
+		m_pxActorList^.SetDisabled(bDisabled);
+		KLog.LogSpam("DialogScene","CDSActorsBox::Init()");
+		OnUpdateContent();
+	endproc;
+
+	proc void UpdateActorInfo()
+		var ^CPropDB.CNode pxActorNode=null;
+		var int iSelItem=m_pxActorList^.GetSelectedItem();
+		if(iSelItem!=-1)then
+			var string sItem=m_pxActorList^.GetItem(iSelItem);
+			pxActorNode=m_pxData^.Get(sItem);
+		endif;
+		m_pxActorInfo^.Init(pxActorNode);
+	endproc;
+
+	proc bool OnAddActor()
+		var string sName="Actor_"+m_pxData^.NumSubs().ToString();
+		m_pxData^.AddValue(sName,"");
+		InvalidateContent();
+		return true;
+	endproc;
+
+	proc bool OnDelActor()
+		var string sActor=m_pxActorList^.GetSelectedItemAsString();
+		m_pxData^.Remove(sActor);
+		InvalidateContent();
+		return true;
+	endproc;
+
+	proc bool OnSelectActor()
+		UpdateActorInfo();
+		return true;
+	endproc;
+
+	proc bool OnActorDblClick()
+		var string sName=m_pxActorList^.GetSelectedItemAsString();
+		var ^CActorNameField pxTmp= new CActorNameField(m_pxDSEditor,sName);
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp, true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return true;
+	endproc;
+
+	export proc void OnUpdateContent()
+		KLog.LogSpam("DialogScene","CDSActorsBox::OnUpdateContent()");
+		m_pxActorList^.Clear();
+		if(m_pxData!=null)then
+			var int i,iC=m_pxData^.NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxWalk=^((m_pxData^)[i]);
+				m_pxActorList^.AddItem(pxWalk^.Name());
+			endfor;
+			m_pxActorList^.Select(m_pxActorList^.NumItems()-1);
+			UpdateActorInfo();
+		endif;
+	endproc;
+
+	export proc int NumActors()
+		return m_pxActorList^.NumItems();
+	endproc;
+
+	export proc string GetActor(int p_iIndex)
+		return m_pxActorList^.GetItem(p_iIndex);
+	endproc;
+endclass;
+
+class CDSActorInfo inherit CWindow
+	var ^CDropList 		m_pxName;
+	var ^CEdit 			m_pxClass;
+	var ^CButton		m_pxSetClassBtn;
+	var ^CDropList 		m_pxTribe;
+	var ^CDropList 		m_pxCaste;
+	var ^CDropList 		m_pxOwner;
+	var ^CDropList 		m_pxRegion;
+	var ^CDropList 		m_pxLevel;
+	var ^CCheckBox 		m_pxGenerateName;
+	var ^CButton		m_pxSetDefIcon;
+	var ^CStaticCtrlEx	m_pxDefIcon;
+	
+	var ^CPropDB.CNode	m_pxActorInfoNode;
+
+	export constructor()
+		if(!InitFromResource("DialogScene/DialogSceneEditor","DSActorInfo")) then
+			KLog.LogError("UI.CDSActorInfo","InitFromResource failed");
+			return;
+		endif;
+		m_pxName=cast<CDropList>(GetControl("Name/NameData"));
+		m_pxClass=cast<CEdit>(GetControl("Class/ClassEdit"));
+		m_pxSetClassBtn=cast<CButton>(GetControl("Class/SetClassBtn"));
+		m_pxTribe=cast<CDropList>(GetControl("Tribe/TribeData"));
+		m_pxCaste=cast<CDropList>(GetControl("Caste/CasteData"));
+		m_pxOwner=cast<CDropList>(GetControl("Owner/OwnerData"));
+		m_pxRegion=cast<CDropList>(GetControl("Region/RegionData"));
+		m_pxLevel=cast<CDropList>(GetControl("Level/LevelData"));
+		m_pxGenerateName=cast<CCheckBox>(GetControl("GenerateName"));
+		m_pxSetDefIcon=cast<CButton>(GetControl("SetIconBtn"));
+		m_pxSetDefIcon^.m_xOnClick=OnSetDefIcon;
+		m_pxDefIcon=cast<CStaticCtrlEx>(GetControl("DefIcon"));	
+		
+		m_pxSetClassBtn^.m_xOnClick=OnSetClass;
+
+		m_pxOwner^.AddItem("Any");
+		m_pxOwner^.AddItem("-1");
+		m_pxOwner^.AddItem("0");
+		m_pxOwner^.AddItem("1");
+		m_pxOwner^.AddItem("2");
+		m_pxOwner^.AddItem("3");
+		m_pxOwner^.AddItem("4");
+		m_pxOwner^.AddItem("5");
+		m_pxOwner^.AddItem("6");
+		m_pxOwner^.AddItem("7");
+
+		//tribe
+		m_pxTribe^.AddItem("Any");
+		m_pxTribe^.AddItem("Hu");
+		m_pxTribe^.AddItem("Aje");
+		m_pxTribe^.AddItem("Ninigi");
+
+		//caste
+		m_pxCaste^.AddItem("Any");
+		m_pxCaste^.AddItem("tec");
+		m_pxCaste^.AddItem("nat");
+		m_pxCaste^.AddItem("res");
+
+		//level
+		m_pxLevel^.AddItem("Any");
+		m_pxLevel^.AddItem("1");
+		m_pxLevel^.AddItem("2");
+		m_pxLevel^.AddItem("3");
+		m_pxLevel^.AddItem("4");
+		m_pxLevel^.AddItem("5");
+
+		SetDisabled(true);
+	endconstructor;
+
+	export proc void Init(^CPropDB.CNode p_pxActorInfoNode)
+		m_pxActorInfoNode=p_pxActorInfoNode;
+		m_pxOwner^.m_xOnChange.Clear();
+		m_pxTribe^.m_xOnChange.Clear();
+		m_pxCaste^.m_xOnChange.Clear();
+		m_pxName^.m_xOnChange.Clear();
+		m_pxRegion^.m_xOnChange.Clear();
+		m_pxLevel^.m_xOnChange.Clear();
+		m_pxClass^.m_xOnChange.Clear();
+		m_pxGenerateName^.m_xOnStateChange.Clear();
+
+		SetDisabled(m_pxActorInfoNode==null);
+		if(m_pxActorInfoNode==null)then
+		else
+			m_pxOwner^.m_xOnChange=OnChangeOwner;
+			var ^CPropDB.CNode pxOwnerNode=m_pxActorInfoNode^.Get("owner");
+			if(pxOwnerNode==null)then
+				m_pxOwner^.SetText("Any");
+			else
+				m_pxOwner^.SetText(pxOwnerNode^.Value());
+			endif;
+
+			m_pxTribe^.m_xOnChange=OnChangeTribe;
+			var ^CPropDB.CNode pxTribeNode=m_pxActorInfoNode^.Get("tribe");
+			if(pxTribeNode==null)then
+				m_pxTribe^.SetText("Any");
+			else
+				m_pxTribe^.SetText(pxTribeNode^.Value());
+			endif;
+
+			begin caste;
+				m_pxCaste^.m_xOnChange=OnChangeCaste;
+				var ^CPropDB.CNode pxCasteNode=m_pxActorInfoNode^.Get("caste");
+				if(pxCasteNode==null)then
+					m_pxCaste^.SetText("Any");
+				else
+					m_pxCaste^.SetText(pxCasteNode^.Value());
+				endif;
+			end caste;
+
+
+
+			begin name;
+				m_pxName^.Clear();
+				var CObjQueryCln xOQ;
+				xOQ.SetType("CHTR");
+				var CObjList xObjects;
+				xOQ.Execute(xObjects);
+				var int i,iC=xObjects.NumEntries();
+				KLog.LogSpam("DialogScene","num characters: "+iC.ToString());
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CObj pxWalk=xObjects[i].GetObj();
+					if(pxWalk!=null)then
+						m_pxName^.AddItem(pxWalk^.GetName());
+					endif;
+				endfor;
+				m_pxName^.AddItem("Any");
+				m_pxName^.QSort();
+
+				m_pxName^.m_xOnChange=OnChangeName;
+				var ^CPropDB.CNode pxNameNode=m_pxActorInfoNode^.Get("name");
+				if(pxNameNode==null)then
+					m_pxName^.SetText("Any");
+				else
+					m_pxName^.SetText(pxNameNode^.Value());
+				endif;
+			end name;
+
+			begin region;
+				m_pxRegion^.Clear();
+				var ^CRegionMgrClient pxRM=CLevelEditorWrap.GetRegionMgr();
+				if(pxRM!=null)then
+					var int i,iC=pxRM^.NumRegions();
+					for(i=0)cond(i<iC)iter(i++)do
+						var ^CRegionBase pxWalk=pxRM^.GetRegion(i);
+						if(pxWalk!=null)then
+							m_pxRegion^.AddItem(pxWalk^.GetName());
+						endif;
+					endfor;
+					m_pxRegion^.AddItem("gloabal region");
+					m_pxRegion^.QSort();
+
+					m_pxRegion^.m_xOnChange=OnChangeRegion;
+					var ^CPropDB.CNode pxRegionNode=m_pxActorInfoNode^.Get("region");
+					if(pxRegionNode==null)then
+						m_pxRegion^.SetText("gloabal region");
+					else
+						m_pxRegion^.SetText(pxRegionNode^.Value());
+					endif;
+				endif;
+			end region;
+
+			begin level;
+				m_pxLevel^.m_xOnChange=OnChangeLevel;
+				var ^CPropDB.CNode pxLevelNode=m_pxActorInfoNode^.Get("level");
+				if(pxLevelNode==null)then
+					m_pxLevel^.SetText("Any");
+				else
+					m_pxLevel^.SetText(pxLevelNode^.Value());
+				endif;
+			end level;
+
+
+			begin _class;
+				m_pxClass^.m_xOnChange=OnChangeClass;
+				var ^CPropDB.CNode pxClassNode=m_pxActorInfoNode^.Get("class");
+				if(pxClassNode==null)then
+					m_pxClass^.SetText("Any");
+				else
+					m_pxClass^.SetText(pxClassNode^.Value());
+				endif;
+			end _class;
+
+			begin gen_name;
+				m_pxGenerateName^.m_xOnStateChange=OnChangeGenName;
+				var ^CPropDB.CNode pxGenNameNode=m_pxActorInfoNode^.Get("generate_name");
+				if(pxGenNameNode==null)then
+					m_pxGenerateName^.SetChecked(1);
+				else
+					if(pxGenNameNode^.Value()=="true")then
+						m_pxGenerateName^.SetChecked(1);
+					else
+						m_pxGenerateName^.SetChecked(0);
+					endif;
+				endif;
+			end gen_name;
+			
+			begin def_icon;
+				var ^CPropDB.CNode pxDefIconNode=m_pxActorInfoNode^.Get("def_icon");
+				var ^CCardBitmap pxDefBmp = null;
+				if(pxDefIconNode!=null)then
+					pxDefBmp = CLevelEditorInst.GetBitmapMgr().GetBlendBitmap("4 ,layer "+pxDefIconNode^.Value());
+				endif;
+				if(pxDefBmp==null)then
+					m_pxDefIcon^.SetText("default icon");
+				else
+					m_pxDefIcon^.SetBitmap(pxDefBmp^.GetBitmap());
+				endif;
+			end def_icon;
+		endif;
+	endproc;
+
+	proc bool OnChangeOwner()
+		var string sOwner=m_pxOwner^.GetText();
+		if(sOwner=="Any")then
+			m_pxActorInfoNode^.Remove("owner");
+		else
+			m_pxActorInfoNode^.SetValue("owner",sOwner);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnChangeTribe()
+		var string sTribe=m_pxTribe^.GetText();
+		if(sTribe=="Any")then
+			m_pxActorInfoNode^.Remove("tribe");
+		else
+			m_pxActorInfoNode^.SetValue("tribe",sTribe);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnChangeCaste()
+		var string sCaste=m_pxCaste^.GetText();
+		if(sCaste=="Any")then
+			m_pxActorInfoNode^.Remove("caste");
+		else
+			m_pxActorInfoNode^.SetValue("caste",sCaste);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnChangeLevel()
+		var string sLevel=m_pxLevel^.GetText();
+		if(sLevel=="Any")then
+			m_pxActorInfoNode^.Remove("level");
+		else
+			m_pxActorInfoNode^.SetValue("level",sLevel);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnChangeName()
+		var string sName=m_pxName^.GetText();
+		if(sName=="Any")then
+			m_pxActorInfoNode^.Remove("name");
+		else
+			m_pxActorInfoNode^.SetValue("name",sName);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnChangeRegion()
+		var string sRegion=m_pxRegion^.GetText();
+		if(sRegion=="gloabal region")then
+			m_pxActorInfoNode^.Remove("region");
+		else
+			m_pxActorInfoNode^.SetValue("region",sRegion);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnChangeClass()
+		var string sClass=m_pxClass^.GetText();
+		if(sClass=="Any")then
+			m_pxActorInfoNode^.Remove("class");
+		else
+			m_pxActorInfoNode^.SetValue("class",sClass);
+		endif;
+		return true;
+	endproc;
+
+
+	proc bool OnChangeGenName()
+		if(m_pxGenerateName^.GetCheckMark())then
+			m_pxActorInfoNode^.SetValue("generate_name","true");
+		else
+			m_pxActorInfoNode^.SetValue("generate_name","false");
+		endif;
+		return true;
+	endproc;
+
+
+	proc bool OnSetClass()
+		var ^CClassTree pxCT=new CClassTree;
+		pxCT^.m_xOnClickOK=OnSetClassEnd;
+		CClientWrap.GetDesktop()^.AddChild(pxCT);
+		CWindowMgr.Get().BringWindowToTop(pxCT, true);
+		CWindowMgr.Get().SetModal(pxCT);
+		return true;
+	endproc;
+
+	proc void OnSetClassEnd(string p_sClass)
+		m_pxClass^.SetText(p_sClass);
+	endproc;
+	
+	proc bool OnSetDefIcon()
+		var ^CIconTree pxCT=new CIconTree;
+		pxCT^.m_xOnClickOK=OnSetDefIconEnd;
+		CClientWrap.GetDesktop()^.AddChild(pxCT);
+		CWindowMgr.Get().BringWindowToTop(pxCT, true);
+		CWindowMgr.Get().SetModal(pxCT);
+		return true;
+	endproc;
+	
+	proc void OnSetDefIconEnd(string p_sIcon)		
+		var ^CCardBitmap pxDefBmp = null;		
+		pxDefBmp = CLevelEditorInst.GetBitmapMgr().GetBlendBitmap("4 ,layer "+p_sIcon);
+		if(pxDefBmp==null)then
+			var string sClass=m_pxClass^.GetText();			
+			m_pxActorInfoNode^.Remove("def_icon");
+			m_pxDefIcon^.SetText("default icon");
+		else
+			m_pxActorInfoNode^.SetValue("def_icon",p_sIcon);
+			m_pxDefIcon^.SetBitmap(pxDefBmp^.GetBitmap());
+		endif;		
+	endproc;
+endclass;
+
+class CClassTree inherit CFrameWindow
+
+	var ^CTreeCtrl	m_pxClassTree;
+	var ^CButton 	m_pxCancel;
+	var ^CButton 	m_pxOK;
+	export var procref<void,string> m_xOnClickOK;
+
+	export constructor()
+		if(!InitFromResource("DialogScene/DialogSceneEditor","TreeDialog")) then
+			KLog.LogError("UI.TreeDialog","InitFromResource failed");
+			return;
+		endif;
+		m_pxClassTree=cast<CTreeCtrl>(GetControl("Tree"));
+		m_pxCancel=cast<CButton>(GetControl("Buttons/Cancel"));
+		m_pxOK=cast<CButton>(GetControl("Buttons/OK"));
+
+		m_pxClassTree^.m_xOnSelect=OnSelectItem;
+		m_pxClassTree^.m_xOnLBtnDblClick=OnClassTreeDoubleClick;
+
+		m_pxCancel^.m_xOnClick=OnCancel;
+		m_pxOK^.m_xOnClick=OnOK;
+		m_pxOK^.SetDisabled(true);
+
+		Init();
+	endconstructor;
+
+	proc void Init()
+		var ^CObjClassMgrBase pxObjClassMgr=^(CLevelEditorWrap.GetObjClassMgr());
+		//treectrl cleared
+		m_pxClassTree^.Clear();
+
+		var ^CClassNode pxRoot=pxObjClassMgr^.GetRoot();
+		if(pxRoot!=null)then
+			var int i,iC=pxRoot^.m_axSubs.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CClassNode pxWalk=pxRoot^.m_axSubs[i];
+				FillTreeRec(pxWalk,0);
+			endfor;
+		endif;
+	endproc;
+
+	proc void FillTreeRec(^CClassNode p_pxWalk, int p_iItem)
+		if(p_pxWalk!=null) then
+			var int iItem=m_pxClassTree^.AddItem(p_iItem,p_pxWalk^.m_sName);
+			var int i,iC=p_pxWalk^.m_axSubs.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CClassNode pxWalk=p_pxWalk^.m_axSubs[i];
+				FillTreeRec(p_pxWalk^.m_axSubs[i],iItem);
+			endfor;
+		endif;
+	endproc;
+
+	proc bool OnCancel()
+		Destroy();
+		return true;
+	endproc;
+
+	proc bool OnOK()
+		var string sItem=m_pxClassTree^.GetSelectedItemAsString();
+		m_xOnClickOK.Call(sItem);
+		Destroy();
+		return true;
+	endproc;
+
+	proc bool OnSelectItem()
+		m_pxOK^.SetDisabled(true);
+		var int iSelItem=m_pxClassTree^.GetSelectedItem();
+		if(iSelItem!=0)then
+			if(m_pxClassTree^.ItemNumChildren(iSelItem)==0)then
+				m_pxOK^.SetDisabled(false);
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnClassTreeDoubleClick()
+		var int iSelItem=m_pxClassTree^.GetSelectedItem();
+		if(iSelItem!=0)then
+			if(m_pxClassTree^.ItemNumChildren(iSelItem)==0)then
+				OnOK();
+			endif;
+		endif;
+		return true;
+	endproc;
+endclass;
+
+class CIconTree inherit CFrameWindow
+
+	var ^CTreeCtrl	m_pxTree;
+	var ^CButton 	m_pxCancel;
+	var ^CButton 	m_pxOK;
+	export var procref<void,string> m_xOnClickOK;
+
+	export constructor()
+		if(!InitFromResource("DialogScene/DialogSceneEditor","TreeDialog")) then
+			KLog.LogError("UI.TreeDialog","InitFromResource failed");
+			return;
+		endif;
+		m_pxTree=cast<CTreeCtrl>(GetControl("Tree"));
+		m_pxCancel=cast<CButton>(GetControl("Buttons/Cancel"));
+		m_pxOK=cast<CButton>(GetControl("Buttons/OK"));
+
+		m_pxTree^.m_xOnSelect=OnSelectItem;
+		m_pxTree^.m_xOnLBtnDblClick=OnTreeDoubleClick;
+
+		m_pxCancel^.m_xOnClick=OnCancel;
+		m_pxOK^.m_xOnClick=OnOK;
+		m_pxOK^.SetDisabled(true);
+
+		Init();
+	endconstructor;
+
+	proc void Init()
+		var string sAllDefPath=CClientWrap.GetUrsRelPath()+"/Data/Base/UI/All_def.txt";
+		var CSourceFileLineSplitter xLS;
+		var int iLine=0;
+		if(xLS.Open(sAllDefPath))then
+			var string sLine;
+			var string sCurSourcePic;
+			var bool bError;
+			while(xLS.GetLine(iLine,sLine))do
+				iLine++;
+				//var array string asTokens;
+				sLine.TrimLeft();sLine.TrimRight();
+				if((sLine.GetLength()>0)&&(sLine.GetAt(0)!='#'))then					
+					var array string asTok;
+					sLine.Split(asTok,"\t ",true);
+					var bool bOk=false;
+					if(asTok.NumEntries()>1)then					
+						if(asTok[0]=="file")then
+							sCurSourcePic=asTok[1];
+							bOk=true;
+						elseif(asTok[0]=="source")then						
+							if(asTok.NumEntries()==9)then
+								var string sName=asTok[1];
+								var int iLevel=asTok[2].ToInt();
+								//AllocBlendSource(sName);
+								//bOk=DefineBlendSource(sName,iLevel,sCurSourcePic,xR,xOfs);								
+								if(iLevel==4)then
+									var CIOPath xPath;
+									xPath.Init(sCurSourcePic);
+									var string sFileName=xPath.FilePart();
+									if(sFileName.Find("units")!=-1 || sFileName.Find("heroes")!=-1 || sFileName.Find("world")!=-1)then
+										AddToTree(sName,sFileName);
+									endif;
+								endif;
+							else
+								//sErrorMsg.Format("insufficient arguments (expected %d, got %d)",8,asTok.NumEntries()-1);
+							endif;
+						else
+							//sErrorMsg="unknown command "+asTok[0];
+						endif;
+					endif;
+					if(!bOk)then
+						//KLOGERROR("Error in file %s, line %d: %s",p_ksrFilename.c_str(),iLine,sErrorMsg.c_str());
+						bError=true;
+					endif;
+				endif;
+			endwhile;
+		endif;		
+	endproc;
+	
+	proc void AddToTree(string p_sName,string p_sCurSourcePic)
+		var int iNode=m_pxTree^.FindItem(0,p_sCurSourcePic);
+		if(iNode==0)then
+			iNode=m_pxTree^.AddItem(0,p_sCurSourcePic);
+		endif;
+		m_pxTree^.AddItem(iNode,p_sName);
+	endproc;
+	
+	proc bool OnCancel()
+		Destroy();
+		return true;
+	endproc;
+
+	proc bool OnOK()
+		var string sItem=m_pxTree^.GetSelectedItemAsString();
+		m_xOnClickOK.Call(sItem);
+		Destroy();
+		return true;
+	endproc;
+
+	proc bool OnSelectItem()
+		m_pxOK^.SetDisabled(true);
+		var int iSelItem=m_pxTree^.GetSelectedItem();
+		if(iSelItem!=0)then
+			if(m_pxTree^.ItemNumChildren(iSelItem)==0)then
+				m_pxOK^.SetDisabled(false);
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnTreeDoubleClick()
+		var int iSelItem=m_pxTree^.GetSelectedItem();
+		if(iSelItem!=0)then
+			if(m_pxTree^.ItemNumChildren(iSelItem)==0)then
+				OnOK();
+			endif;
+		endif;
+		return true;
+	endproc;
+endclass;
+
+
+class CActorNameField inherit CFrameWindow
+
+	var ^CDialogSceneEditor	m_pxDSEditor;
+	var string 				m_sCurName;
+	var ^CEdit				m_pxNameEdit;
+
+	export constructor(^CDialogSceneEditor p_pxDSEditor, string p_sCurName)
+		m_pxDSEditor=p_pxDSEditor;
+		m_sCurName=p_sCurName;
+		if(!InitFromResource("DialogScene/DialogSceneEditor","ActorRename")) then
+			KLog.LogError("UI.CActorNameField","InitFromResource failed");
+			Destroy();
+			return;
+		endif;
+		m_pxNameEdit=cast<CEdit>(GetControl("NameEdit"));
+		var ^CButton pxCancel=cast<CButton>(GetControl("Buttons/Cancel"));
+		var ^CButton pxOK=cast<CButton>(GetControl("Buttons/OK"));
+		pxCancel^.m_xOnClick=OnCancel;
+		pxOK^.m_xOnClick=OnOK;
+		m_pxNameEdit^.SetText(p_sCurName);
+	endconstructor;
+
+	proc bool OnCancel()
+		Destroy();
+		return true;
+	endproc;
+
+	proc bool OnOK()
+		var string sName=m_pxNameEdit^.GetText();
+		m_pxDSEditor^.RenameActor(m_sCurName,sName);
+		Destroy();
+		return true;
+	endproc;
+
+endclass;

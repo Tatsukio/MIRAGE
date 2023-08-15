@@ -1,0 +1,784 @@
+///CAiModuleDefenseDefault
+class CAiModuleDefenseDefault inherit IAiModuleDefense
+
+	export class CAiDefensePool
+		
+		export var CAiGoalDefendOutpost	m_xGoalVillageDefense;
+		export var CAiGoalGuardVillage	m_xGoalGuardVillage;
+		var CAiObjWrapList							m_xWaitingUnits;
+		export var int									m_iMaxUnits;
+		export var int									m_iUnitTransferCount;
+		export var string								m_sId;
+		export var real									m_fRadius;
+		export var vec3									m_vPos;
+		
+		///NumUnits
+		export proc int NumUnits()
+			return m_xGoalGuardVillage.GetUnitSupervisor().GetUnits().NumEntries() + m_xWaitingUnits.NumEntries();
+		endproc;
+		
+		///AddUnit
+		export proc bool AddUnit(CAiObjWrap p_xOW)
+			if(!p_xOW.IsValid())then return true; endif;
+			m_xWaitingUnits.AddEntry(p_xOW);
+			var int iNumWaitingUnits = m_xWaitingUnits.NumEntries();
+			var int iNumPoolUnits = m_xGoalGuardVillage.GetUnitSupervisor().GetUnits().NumEntries();
+			var int iFreeSlots = m_iMaxUnits - (iNumWaitingUnits + iNumPoolUnits);
+			var int iUnitsStillToCollect = Math.Min(iFreeSlots, m_iUnitTransferCount - iNumWaitingUnits);
+			if(m_xGoalGuardVillage.IsMainPool())then
+				iUnitsStillToCollect = m_iUnitTransferCount - 1;
+			endif;
+			if(iUnitsStillToCollect>0)then return true; endif;
+			var bool bFoundInvalid = false;
+			var int i;
+			for(i=0)cond(i<iNumWaitingUnits)iter(++i)do
+				if(m_xWaitingUnits[i].IsValid() == false)then
+					m_xWaitingUnits.RemEntry(m_xWaitingUnits[i]);
+					bFoundInvalid = true;
+					break;
+				endif;
+			endfor;
+			if(bFoundInvalid)then return true; endif;
+			Flush();
+			return false;
+		endproc;
+
+		///Flush
+		export proc void Flush()
+			m_xGoalGuardVillage.AddUnits(m_xWaitingUnits);
+			m_xWaitingUnits.Clear();
+		endproc;
+	
+	endclass;
+
+	export var ^CAiGoalGuardVillage	m_pxGoalGuardVillage;
+	var ^CAiBrain					m_pxBrain;
+	var ^CAiSensor					m_pxSensor;
+	var ^CAiGoalBuildTowers 		m_pxGoalTowers;
+	var ^CAiGoalBuildVillageWalls	m_pxGoalVillageWalls;
+	var ^CAiGoalBuildMineBelts		m_pxGoalBuildMineBelts;
+	var ^CAiGoalBuildTurretBelts		m_pxGoalBuildTurretBelts;
+	var ^CAiGoalDefendOutpost		m_pxGoalVillageDefense;
+	var CAiGoalDefendMode			m_xGoalDefendMode;
+	var CAiGoalMinistryOfDefense	m_xGoalMOD;
+	var array CAiDefensePool		m_axDefensePools;
+	var CAiObjQuery					m_xDefensiveQuery;
+	
+	export var bool					m_bUpdatePlacer;
+	var bool						m_bDefending;
+	var bool						m_bCancelAttacks;
+	var bool						m_bDefenderplayer;
+	var bool						m_bWalls;
+	var bool						m_bMinePlacerActivated;
+	var bool						m_bTurretPlacerActivated;
+	
+	var string						m_sTribe;
+	var string						m_sPlayerID;
+	var string						m_sGameType;
+	var string						m_sLevelName;
+	
+	var int							m_iGateWasClosed;
+	var int							m_iPlayerID;
+	var int							m_iUpdateCounter;
+
+	var real						m_fCancelRadius;
+
+	var CAiObjWrapList 				m_xAggressiveAnimalList;
+	var CAiObjClusterGroup			m_xAggressiveAnimalClusters;
+	var int							m_iAggressiveAnimalTick;
+
+	///constructor
+	export constructor()
+		m_bUpdatePlacer=false;
+		m_iGateWasClosed=0;
+		m_pxGoalTowers=new CAiGoalBuildTowers();
+		m_pxGoalVillageWalls=new CAiGoalBuildVillageWalls();
+		m_pxGoalBuildMineBelts=new CAiGoalBuildMineBelts();
+		m_pxGoalBuildTurretBelts=new CAiGoalBuildTurretBelts();
+		m_bMinePlacerActivated=false;
+		m_bTurretPlacerActivated=false;
+	endconstructor;
+
+	///destructor
+	export destructor()
+		if(m_pxGoalTowers!=null)then
+			delete m_pxGoalTowers;
+		endif;
+		if(m_pxGoalBuildMineBelts!=null)then
+			delete m_pxGoalBuildMineBelts;
+		endif;
+		if(m_pxGoalBuildTurretBelts!=null)then
+			delete m_pxGoalBuildTurretBelts;
+		endif;
+		delete m_pxGoalVillageWalls;
+	enddestructor;
+
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain,bool p_bReInit)
+		if(super.Init(p_pxBrain,p_bReInit)==false)then return false; endif;
+		m_pxBrain=p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null)then return false; endif;
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(pxCM^.GetDifficultyInt()+iType);
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		m_bDefenderplayer=CAiUtilityMgr.Get()^.IsDefenderPlayer(m_iPlayerID);
+		m_sGameType = CAiUtilityMgr.Get()^.GetGameType(m_pxBrain);
+		m_bWalls=m_pxSensor^.GetWalls();
+		// initialize goals
+		if(m_pxGoalTowers^.Init(m_pxBrain))then
+			m_pxGoalTowers^.SetPriority(10.0);
+			AddGoal(m_pxGoalTowers);
+			m_pxGoalTowers^.Activate();
+			if((m_sGameType=="Defender")&&(!m_bDefenderplayer))then
+				m_pxGoalTowers^.Deactivate();
+			endif;
+		endif;
+		if(m_pxGoalBuildMineBelts^.Init(m_pxBrain))then
+			m_pxGoalBuildMineBelts^.SetPriority(10.0);
+			AddGoal(m_pxGoalBuildMineBelts);
+		endif;
+		if(m_pxGoalBuildTurretBelts^.Init(m_pxBrain))then
+			m_pxGoalBuildTurretBelts^.SetPriority(10.0);
+			AddGoal(m_pxGoalBuildTurretBelts);
+		endif;
+		if(m_pxGoalVillageWalls^.Init(m_pxBrain))then
+		endif;
+		m_axDefensePools = 0;
+		var ^CAiDefensePool pxMainDefPool = ^(m_axDefensePools.NewEntryRef());
+		pxMainDefPool^.m_iMaxUnits = -1;
+		pxMainDefPool^.m_iUnitTransferCount = 1;
+		pxMainDefPool^.m_sId = "MainPool";
+		pxMainDefPool^.m_fRadius = -1.0;
+		pxMainDefPool^.m_vPos = m_pxSensor^.GetStartLocation();
+		m_pxGoalVillageDefense = ^(pxMainDefPool^.m_xGoalVillageDefense);
+		m_pxGoalGuardVillage = ^(pxMainDefPool^.m_xGoalGuardVillage);
+		if(m_pxGoalVillageDefense^.Init(m_pxBrain, pxMainDefPool))then
+			m_pxGoalVillageDefense^.SetPriority(10.0);
+			m_pxGoalVillageDefense^.Activate();
+			AddGoal(m_pxGoalVillageDefense);
+		else
+			KLog.LogWarn("AiModuleDefenseDefault","Couldn't initialize main VillageDefense goal! PlayerID: "+m_sPlayerID);
+		endif;
+		if(m_pxGoalGuardVillage^.Init(m_pxBrain))then
+			m_pxGoalGuardVillage^.SetPriority(10.0);
+			m_pxGoalGuardVillage^.Activate();
+			m_pxGoalGuardVillage^.SetDefensePoolID(pxMainDefPool^.m_sId);
+			AddGoal(m_pxGoalGuardVillage);
+		else
+			KLog.LogWarn("AiModuleDefenseDefault","Couldn't initialize main GuardVillage goal! PlayerID: "+m_sPlayerID);
+		endif;
+		if(m_xGoalDefendMode.Init(m_pxBrain))then
+			m_xGoalDefendMode.SetPriority(10.0);
+			m_xGoalDefendMode.Activate();
+			AddGoal(^m_xGoalDefendMode);
+		else
+			KLog.LogWarn("AiModuleDefenseDefault","Couldn't initialize DefendMode goal! PlayerID: "+m_sPlayerID);
+		endif;
+		if(m_xGoalMOD.Init(m_pxBrain))then
+			m_xGoalMOD.SetPriority(10.0);
+			m_xGoalMOD.Activate();
+			AddGoal(^m_xGoalMOD);
+		else
+			KLog.LogWarn("AiModuleDefenseDefault","Couldn't initialize MOD goal! PlayerID: "+m_sPlayerID);
+		endif;
+		m_xGoalMOD.ScheduleRefreshUnits();
+		// create defensive objquery
+		m_xDefensiveQuery.SetOwner(m_iPlayerID);
+		m_xDefensiveQuery.SetType("BLDG");
+		m_sTribe=m_pxSensor^.GetTechTree().GetTribe();
+		if(m_sTribe=="Hu")then
+			m_xDefensiveQuery.SetClass("hu_palisade");
+			m_xDefensiveQuery.SetClass("hu_small_wall",true);
+			m_xDefensiveQuery.SetClass("hu_re_enforced_wall",true);
+			m_xDefensiveQuery.SetClass("hu_palisade_gate",true);
+			m_xDefensiveQuery.SetClass("hu_small_wall_gate",true);
+			m_xDefensiveQuery.SetClass("hu_re_enforced_wall_gate",true);
+			m_xDefensiveQuery.SetClass("hu_small_tower",true);
+			m_xDefensiveQuery.SetClass("hu_large_tower",true);
+		elseif(m_sTribe=="Aje")then
+			m_xDefensiveQuery.SetClass("aje_bone_palisade");
+			m_xDefensiveQuery.SetClass("aje_bone_palisade_gate",true);
+			m_xDefensiveQuery.SetClass("aje_small_tower",true);
+			m_xDefensiveQuery.SetClass("aje_medium_tower",true);
+			m_xDefensiveQuery.SetClass("aje_tesla_tower",true);
+			m_xDefensiveQuery.SetClass("aje_clay_wall",true);
+			m_xDefensiveQuery.SetClass("aje_clay_wall_gate",true);
+		elseif(m_sTribe=="Ninigi")then
+			m_xDefensiveQuery.SetClass("ninigi_pitfall");
+			m_xDefensiveQuery.SetClass("ninigi_snare_trap",true);
+			m_xDefensiveQuery.SetClass("ninigi_defense_skewer",true);
+			m_xDefensiveQuery.SetClass("ninigi_defense_skewer_gate",true);
+			m_xDefensiveQuery.SetClass("ninigi_small_tower",true);
+			m_xDefensiveQuery.SetClass("ninigi_smoke_tower",true);
+			m_xDefensiveQuery.SetClass("ninigi_telescope_tower",true);
+			m_xDefensiveQuery.SetClass("ninigi_palisade",true);
+			m_xDefensiveQuery.SetClass("ninigi_palisade_gate",true);
+		elseif(m_sTribe=="SEAS")then
+			m_xDefensiveQuery.SetClass("seas_fence");
+			m_xDefensiveQuery.SetClass("seas_gate", true);
+			m_xDefensiveQuery.SetClass("seas_turret_tower", true);
+			//Herny: adding new seas attack buildings
+			m_xDefensiveQuery.SetClass("seas_mg_nest", true);
+			m_xDefensiveQuery.SetClass("seas_small_cannon", true);
+			//Herny: adding new seas defense buildings
+			m_xDefensiveQuery.SetClass("seas_wall", true);
+			m_xDefensiveQuery.SetClass("seas_wall_gate", true);
+		endif;
+		m_bDefending = false;
+		m_bCancelAttacks = false;
+		m_fCancelRadius = 0.0;
+		m_iUpdateCounter=0;
+		return true;
+	endproc;
+	
+	///GetMOD
+	export proc ref CAiGoalMinistryOfDefense GetMOD()
+		return m_xGoalMOD;
+	endproc;
+
+	///GetTowerGoal
+	export proc ^CAiGoalBuildTowers GetTowerGoal()
+		return m_pxGoalTowers;
+	endproc;
+	
+	///FlushAllDefensePools
+	export proc void FlushAllDefensePools()
+		var int i, iC = m_axDefensePools.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			m_axDefensePools[i].Flush();
+		endfor;
+	endproc;
+	
+	//Defending
+	export proc void SetDefending(bool p_bDefending)
+		m_bDefending=p_bDefending;
+	endproc;
+	
+	///Defending
+	export proc bool IsDefending()
+		return m_bDefending;
+	endproc;
+
+	///BuildTower
+	export proc void BuildTower(vec3 p_vPos)
+		var string sClass = "BLDG/"+m_pxGoalTowers^.GetBestTowerClass();
+		var CAiObjQuery xQuery;
+		xQuery.SetClass(m_pxGoalTowers^.GetBestTowerClass());
+		xQuery.SetOwner(m_iPlayerID);
+		xQuery.RegionCircle(p_vPos, 30.0);
+		var CAiObjWrapList xList;
+		xQuery.Execute(xList);
+		if(xList.NumEntries()>5)then return; endif;
+		var CAiConstructionInfoPtr pxCI = CreateRequest(sClass, "", 1, p_vPos);
+		if(m_pxBrain==null)then return; endif;
+		var ^IAiModuleEconomy pxEMod = m_pxBrain^.GetEconomyModule();
+		if(!pxEMod^.ExternalRequestConstruction(pxCI))then return; endif;
+		var ^CAiMaps pxMaps=^(m_pxSensor^.GetAiMaps());
+		var ^CAiMap pxDefMap=^(pxMaps^.GetAiMap("DefensiveCoverage",m_iPlayerID));
+		var int iPosX,iPosY;
+		CAiArea.Vec3ToArea(p_vPos,iPosX,iPosY);
+		pxDefMap^.AddValueFast(iPosX,iPosY,0.1);
+	endproc;
+
+	///CreateRequest
+	export proc CAiConstructionInfoPtr CreateRequest(string p_sName, string p_sObjFlag, int p_iNumber, vec3 p_vBuildPos)
+		var CAiConstructionInfoPtr pxCI;
+		var CAiNeedPtr pxNd;
+		var ^CAiNodeInstance pxNI;
+		if(m_pxSensor==null)then return pxCI; endif;
+		pxNI = m_pxSensor^.GetTechTree().GetNodeInstanceFromPartialName(p_sName, p_sObjFlag);
+		if(pxNI != null)then
+			pxNd = CAiNeed.Create(true,p_iNumber);
+			pxNd.GetNeed()^.AddEntry(pxNI);
+			pxCI = CAiConstructionInfo.Create();
+			pxCI.GetConstructionInfo()^.SetNeed(pxNd);
+			pxCI.GetConstructionInfo()^.SetPos(p_vBuildPos);
+		endif;
+		return pxCI;
+	endproc;
+
+	///GetDefensePool
+	export proc ^CAiModuleDefenseDefault.CAiDefensePool GetDefensePool(int p_iIdx)
+		if((p_iIdx >= 0) && (p_iIdx < m_axDefensePools.NumEntries()))then
+			return ^m_axDefensePools[p_iIdx];
+		endif;
+		return null;
+	endproc;
+
+	///GetNumDefensePools
+	export proc int GetNumDefensePools()
+		return m_axDefensePools.NumEntries();
+	endproc;
+
+	///shut
+	export proc void Shut()
+		super.Shut();
+		if(m_pxGoalTowers!=null)then
+			m_pxGoalTowers^.Shut();
+			RemoveGoal(^m_pxGoalTowers);
+		endif;
+		if(m_pxGoalBuildMineBelts!=null)then
+			m_pxGoalBuildMineBelts^.Shut();
+			RemoveGoal(^m_pxGoalBuildMineBelts);
+		endif;
+		if(m_pxGoalBuildTurretBelts!=null)then
+			m_pxGoalBuildTurretBelts^.Shut();
+			RemoveGoal(^m_pxGoalBuildTurretBelts);
+		endif;
+		if(m_pxGoalVillageWalls!=null)then
+			m_pxGoalVillageWalls^.Shut();
+			RemoveGoal(^m_pxGoalVillageWalls, false);
+		endif;
+		m_xGoalMOD.Shut();
+		RemoveGoal(^m_xGoalMOD);
+		var int i, iC = GetNumDefensePools();
+		for(i=0)cond(i<iC)iter(++i)do
+			m_axDefensePools[i].m_xGoalVillageDefense.Shut();
+			RemoveGoal(^(m_axDefensePools[i].m_xGoalVillageDefense));
+			m_axDefensePools[i].m_xGoalGuardVillage.Shut();
+			RemoveGoal(^(m_axDefensePools[i].m_xGoalGuardVillage));
+		endfor;
+		m_xGoalDefendMode.Shut();
+		RemoveGoal(^m_xGoalDefendMode);
+	endproc;
+
+	///AddDefensePool
+	export proc void AddDefensePool(string p_sId, int p_iMaxUnits, int p_iUnitTransferCount, vec3 p_vPos, real p_fRadius)
+		var ^CAiDefensePool pxPool = ^(m_axDefensePools.NewEntryRef());
+		pxPool^.m_iMaxUnits = p_iMaxUnits;
+		pxPool^.m_sId = p_sId;
+		pxPool^.m_fRadius = p_fRadius;
+		pxPool^.m_vPos = p_vPos;
+		pxPool^.m_iUnitTransferCount = p_iUnitTransferCount;
+		var ^CAiGoalDefendOutpost	pxEnemyDetector	= ^(pxPool^.m_xGoalVillageDefense);
+		var ^CAiGoalGuardVillage	pxGoalGuardArea	= ^(pxPool^.m_xGoalGuardVillage);
+		if(pxEnemyDetector^.Init(GetBrain(), pxPool))then
+			pxEnemyDetector^.SetPriority(10.0);
+			pxEnemyDetector^.Activate();
+			AddGoal(pxEnemyDetector);
+		else
+			KLog.LogWarn("AiModuleDefenseDefault","Couldn't initialize DefendOutpost goal! PlayerID: "+m_sPlayerID);
+		endif;
+		if(pxGoalGuardArea^.Init(GetBrain()))then
+			pxGoalGuardArea^.SetPriority(10.0);
+			pxGoalGuardArea^.Activate();
+			pxGoalGuardArea^.SetBase(p_vPos, p_fRadius);
+			pxGoalGuardArea^.SetDefensePoolID(p_sId);
+			pxGoalGuardArea^.SetMainPool(false);
+			AddGoal(pxGoalGuardArea);
+		else
+			KLog.LogWarn("AiModuleDefenseDefault","Couldn't initialize GuardVillage goal! PlayerID: "+m_sPlayerID);
+		endif;
+	endproc;
+
+	///RemoveDefensePool
+	export proc void RemoveDefensePool(string p_sId)
+		var bool bFound = false;
+		var int i, iC = m_axDefensePools.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			if(m_axDefensePools[i].m_sId != p_sId)then continue; endif;
+			bFound = true;
+			break;
+		endfor;
+		if(!bFound)then return; endif;
+		m_axDefensePools[i].Flush();
+		var CAiObjWrapList xTempList = m_axDefensePools[i].m_xGoalGuardVillage.GetUnitSupervisor().GetUnits();
+		m_axDefensePools[i].m_xGoalVillageDefense.Shut();
+		RemoveGoal(^(m_axDefensePools[i].m_xGoalVillageDefense));
+		m_axDefensePools[i].m_xGoalGuardVillage.Shut();
+		RemoveGoal(^(m_axDefensePools[i].m_xGoalGuardVillage));
+		m_axDefensePools.DeleteEntry(i);
+		m_pxGoalGuardVillage^.AddUnits(xTempList);
+	endproc;
+
+	///SetBehavior
+	export proc bool SetBehavior(string p_sBehavior)
+		var array string asTokens;
+		p_sBehavior.Split(asTokens," ",false);
+		var int iNumTokens=asTokens.NumEntries();
+		if(iNumTokens>0)then
+			if(asTokens[0]=="upgrade_walls")then
+				if(iNumTokens!=2)then
+					return false;
+				endif;
+				var int iCanUpgrade=asTokens[1].ToInt();
+				if(iCanUpgrade==1)then
+					m_pxGoalVillageWalls^.m_bCanUpgradeWalls=true;
+				else
+					m_pxGoalVillageWalls^.m_bCanUpgradeWalls=false;
+				endif;
+				return true;
+			elseif(asTokens[0]=="upgrade_towers")then
+				if(iNumTokens!=2)then
+					return false;
+				endif;
+				var int iCanUpgrade=asTokens[1].ToInt();
+				if(iCanUpgrade==1)then
+					m_pxGoalTowers^.m_bCanUpgradeTowers=true;
+				else
+					m_pxGoalTowers^.m_bCanUpgradeTowers=false;
+				endif;
+				return true;
+			elseif(asTokens[0]=="close_start_location")then
+				if(iNumTokens!=2)then
+					return false;
+				endif;
+				var int iClose=asTokens[1].ToInt();
+				if(iClose==1)then
+					m_pxGoalVillageWalls^.m_bCloseStartLocation=true;
+				else
+					m_pxGoalVillageWalls^.m_bCloseStartLocation=false;
+				endif;
+				return true;
+			elseif(asTokens[0]=="attacks_risk_level")then
+				if(iNumTokens!=2)then
+					return false;
+				endif;
+				var real fRisk=asTokens[1].ToReal();
+				m_pxGoalVillageDefense^.SetRiskModifier(fRisk);
+				return true;
+			elseif(asTokens[0]=="guard_village")then
+				if(iNumTokens!=2)then
+					return false;
+				endif;
+				var int iActive=asTokens[1].ToInt();
+				if(iActive==1)then
+					m_pxGoalGuardVillage^.Activate();
+				else
+					m_pxGoalGuardVillage^.Deactivate();
+				endif;
+				return true;
+			elseif(asTokens[0]=="army")then
+				m_pxGoalGuardVillage^.SetArmy("");
+				if(iNumTokens!=2)then
+					return false;
+				endif;
+				m_pxGoalGuardVillage^.SetArmy(asTokens[1]);
+				return true;
+			elseif(asTokens[0]=="defend_place")then
+				if(iNumTokens!=2)then
+					return false;
+				endif;
+				var vec3 vPos;
+				asTokens[1].Replace("_", " ");
+				vPos.FromString(asTokens[1]);
+				m_xGoalDefendMode.SetBase(vPos);
+				m_xGoalDefendMode.SetDefendMode(false);
+				m_pxGoalGuardVillage^.SetBase(vPos, 60.0);
+				return true;
+			elseif(asTokens[0]=="AddDefenseArea")then
+				if(iNumTokens!=5)then
+					return false;
+				endif;
+				var string	sId			= asTokens[1];
+				var vec3	vPos;
+				vPos.FromString(asTokens[2]);
+				var real	fRadius		= asTokens[3].ToReal();
+				var int		iMaxUnits	= asTokens[4].ToInt();
+				if(iMaxUnits > 0)then
+					AddDefensePool(sId, iMaxUnits, 4, vPos, fRadius);
+				else
+					RemoveDefensePool(sId);
+				endif;
+				return true;
+			elseif(asTokens[0]=="deactivate_towers")then
+				m_pxGoalTowers^.Deactivate();
+				return true;
+			elseif(asTokens[0]=="deactivate_walls")then
+				m_pxGoalVillageWalls^.Deactivate();
+				return true;
+			elseif(asTokens[0]=="deactivate_unit_defence")then
+				m_pxGoalVillageDefense^.Deactivate();
+				m_xGoalDefendMode.Deactivate();
+				m_xGoalMOD.Deactivate();
+				return true;
+			elseif(asTokens[0]=="HighDefenseMode")then
+				if(iNumTokens < 2)then
+					return false;
+				endif;
+				m_xGoalMOD.SetHighDefenseMode(asTokens[1] == "true");
+				return true;
+			elseif(asTokens[0]=="CancelAttacksInDefense")then
+				if(iNumTokens < 2)then
+					return false;
+				endif;
+				var real fRadius = asTokens[1].ToReal();
+				m_bCancelAttacks = (fRadius >= 0.0);
+				m_fCancelRadius = fRadius * fRadius;
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+
+	///ActivateDefendMode
+	export proc void ActivateDefendMode()
+		if(m_bCancelAttacks)then
+			if(m_pxBrain==null)then return; endif;
+			if(m_pxSensor==null)then return; endif;
+			var ^CAiModuleFightDefault pxFM = cast<CAiModuleFightDefault>(m_pxBrain^.GetFightModule());
+			if(pxFM==null)then return; endif;
+			var vec3 vSL = m_pxSensor^.GetStartLocation();
+			pxFM^.CancelAttacksCloseToSpot(vSL, m_fCancelRadius);
+			pxFM^.SetActive(false);
+		endif;
+		SetDefending(true);
+		m_xGoalDefendMode.SetDefendMode(true);
+	endproc;
+
+	///DeactivateDefendMode
+	export proc void DeactivateDefendMode()
+		if(m_bCancelAttacks)then
+			if(m_pxBrain==null)then return; endif;
+			if(m_pxSensor==null)then return; endif;
+			var ^CAiModuleFightDefault pxFM = cast<CAiModuleFightDefault>(m_pxBrain^.GetFightModule());
+			if(pxFM==null)then return; endif;
+			pxFM^.SetActive(true);
+		endif;
+		SetDefending(false);
+		m_xGoalDefendMode.SetDefendMode(false);
+	endproc;
+	
+	///Call
+	export proc bool Call(string p_sCommand)
+		var array string asTokens;
+		p_sCommand.Split(asTokens," ",false);
+		var int iNumTokens=asTokens.NumEntries();
+		if(iNumTokens>0)then
+			if(asTokens[0]=="village_wall")then
+				var bool bResult=false;
+				var int iWallType=-1;
+				if(iNumTokens>=2)then iWallType=asTokens[1].ToInt(); endif;
+				if(iWallType==0)then
+					//
+				elseif(iWallType==1)then
+					if(iNumTokens!=3)then
+						return false;
+					endif;
+					var string sRegionName=asTokens[2];
+					bResult=m_pxGoalVillageWalls^.BuildVillageWalls(sRegionName);
+				
+				elseif(iWallType==2)then
+					if(iNumTokens!=5)then
+						return false;
+					endif;
+					var real fMinDist=asTokens[2].ToReal();
+					var real fMaxDist=asTokens[3].ToReal();
+					// find village place
+					var vec3 vPos;
+					var string sRegionName=asTokens[4];
+					
+					if(GetBrain()^.GetSensor().GetRegionCenter(sRegionName,vPos)==false)then
+						return false;
+					endif;
+					
+					m_pxGoalVillageWalls^.SetMinMaxDistance(fMinDist,fMaxDist);
+					bResult=m_pxGoalVillageWalls^.BuildWallsAroundPlace(vPos,true);
+				endif;
+				
+				if(bResult==false)then
+					KLog.LogWarn("AiModuleDefenseDefault","Building the village wall failed (Command was '"+p_sCommand+"')! PlayerID: "+m_sPlayerID);
+				endif;
+				
+				return bResult;
+			endif;
+		else
+			KLog.LogWarn("AiModuleDefenseDefault","Unknown command '"+p_sCommand+"'! PlayerID: "+m_sPlayerID);
+		endif;
+		return false;
+	endproc;
+
+
+	///think
+	export proc void Think()
+		if(m_pxBrain==null)then return; endif;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		if(m_pxSensor^.GetMultimap()&&m_pxSensor^.GetWatermap()&&m_pxSensor^.GetTechTree().GetTribe()=="Ninigi"&&
+		(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&
+		m_sLevelName!="Single 05"&&m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+		m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&m_sLevelName!="Single 12"&&
+		m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&
+		m_sLevelName!="Single B41"&&m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then
+			if(!m_bMinePlacerActivated&&CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)>=2)then // Henry: Epoch 3
+				m_pxGoalBuildMineBelts^.Activate();
+				m_bMinePlacerActivated=true;
+			endif;
+			if(!m_bTurretPlacerActivated&&CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)>=2)then // Henry: Epoch 3
+				m_pxGoalBuildTurretBelts^.Activate();
+				m_bTurretPlacerActivated=true;
+			endif;
+		endif;
+		if(!m_bUpdatePlacer)then
+			if(m_pxBrain==null)then return; endif;
+			if(CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)>=3)then
+				if(m_sLevelName!="Single 02")then
+					if(m_sGameType!="Defender")then	
+						if(m_bWalls)then
+							m_pxGoalVillageWalls^.SetPriority(100.0);
+							m_pxGoalVillageWalls^.Activate();
+							AddGoal(m_pxGoalVillageWalls);
+							m_bUpdatePlacer=true;
+						endif;
+					endif;	
+				endif;
+			endif;
+		endif;
+		
+		begin ProcessDefenseRequests;
+			var ^CAiDefenseInfo pxDefInfo;
+			pxDefInfo=GetTopRequestedDefense();
+			while(pxDefInfo!=null)do
+				RemoveTopRequestedDefense();
+				pxDefInfo=GetTopRequestedDefense();
+			endwhile;
+		end ProcessDefenseRequests;
+			
+		if(m_iUpdateCounter>=10)then	
+			UpdateDefensiveCoverage();
+			m_iUpdateCounter=0;
+		endif;
+		
+		m_iUpdateCounter++;
+
+		var int iAGGRESSIVEANIMALTICK=(5*60*1);
+		if(m_iAggressiveAnimalTick==0||m_iAggressiveAnimalTick>=iAGGRESSIVEANIMALTICK) then
+			while(m_iAggressiveAnimalTick>=iAGGRESSIVEANIMALTICK)do m_iAggressiveAnimalTick-=iAGGRESSIVEANIMALTICK; endwhile;
+			//find agressive animals
+			var CAiObjQuery 	xAggressiveQuery;
+			xAggressiveQuery.SetOwner(-1);
+			xAggressiveQuery.SetType("ANML");
+			xAggressiveQuery.SetType("NEST",true);
+			xAggressiveQuery.SetAttribPos("anml_aggressive_type", 1);
+			xAggressiveQuery.Execute(m_xAggressiveAnimalList);
+			
+			//filter animals from other islands
+			var int iIslandId=m_pxSensor^.GetOutpost(0).GetIslandId();
+			var int i,iC=m_xAggressiveAnimalList.NumEntries();
+			for(i=0) cond(i<iC) iter(i++)do
+				var int iIslandIdANML=m_pxSensor^.ComputeIslandId(m_xAggressiveAnimalList[i].GetPos());
+				if(iIslandIdANML!=iIslandId) then m_xAggressiveAnimalList.DeleteEntry(i); i--; iC--; endif;
+			endfor;
+			
+			//add biggest cluster to Multi-PF
+			var int iNumClusters=m_xAggressiveAnimalClusters.Build(m_xAggressiveAnimalList,45.0f,60.0f);
+			if(iNumClusters>0) then
+				var array bitset adwClusterStr;
+				adwClusterStr=iNumClusters;
+				for(i=0) cond(i<iNumClusters) iter(i++)do
+					var int iHP;
+					var int j,iNCE=m_xAggressiveAnimalClusters.NumClusterEntries(i);
+					for(j=0) cond(j<iNCE) iter(j++)do
+						var int iIdx=m_xAggressiveAnimalClusters.GetClusterPointIdx(i,j);
+						iHP+=m_xAggressiveAnimalList[iIdx].GetAttribValueInt("hitpoints");
+					endfor;
+					adwClusterStr[i]=(i.ToBitset()&0FFh)|(iHP.ToBitset()<<8);
+				endfor;
+				adwClusterStr.QSort();
+				var int iNumAddDangerAreas=2;
+				if(iNumClusters<iNumAddDangerAreas) then iNumAddDangerAreas=iNumClusters;endif;
+				for(i=iNumClusters-iNumAddDangerAreas) cond(i<iNumClusters) iter(i++)do
+					var int iCIdx=(adwClusterStr[i]&0FFh).ToInt();
+					var vec3 vC=m_xAggressiveAnimalClusters.GetClusterCenter(iCIdx);
+					m_pxSensor^.AddPFFixedBlocker(vC,45);
+				endfor;
+			endif;
+		endif;
+		m_iAggressiveAnimalTick+=GetThinkWait();		
+	endproc;
+
+
+	///UpdateDefensiveCoverage
+	proc void UpdateDefensiveCoverage()
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+
+		var ^CAiMaps pxMaps=^(m_pxSensor^.GetAiMaps());
+		var ^CAiMap pxDefMap=^(pxMaps^.GetAiMap("DefensiveCoverage",m_iPlayerID));
+		var ^CAiMap pxBldgMap=^(pxMaps^.GetAiMap("InflObjBuild",m_iPlayerID));
+
+		if(pxDefMap^.IsDirty())then
+			pxDefMap^.FilterFast(10000.0, 10000.0, 0.0, 10000.0);
+
+			var CAiObjWrapList xDefOWL;
+			m_xDefensiveQuery.Execute(xDefOWL);
+
+			var ^CAiTechTree pxTT=^(m_pxSensor^.GetTechTree());
+			var int iOW,iOWC=xDefOWL.NumEntries();
+			for(iOW=0)cond(iOW<iOWC)iter(iOW++)do
+				var CAiObjWrap xOW=xDefOWL.GetAt(iOW);
+				var ^CAiNodeInstance pxNI=pxTT^.FindNodeInstance(xOW);
+				if(pxNI==null)then
+					continue;
+				endif;
+				
+				if(pxNI^.GetNumWeapons()>0)then
+					var int iW,iWC=pxNI^.GetNumWeapons();
+					for(iW=0)cond(iW<iWC)iter(iW++)do
+						var ^CPropDB.CNode pxNd=pxNI^.GetWeapon(iW);
+						if(pxNd!=null)then
+							var real fRange=0.0;
+							var real fDamage=10.0;
+							if(pxNd^.GetValue("range",fRange)==true)then
+								pxNd^.GetValue("damage",fDamage);
+								if(fDamage<1.0)then fDamage=1.0;endif;
+								var int iPosX,iPosY;
+								CAiArea.Vec3ToArea(xOW.GetPos(),iPosX,iPosY);
+								fRange=CAiArea.FloatToAreaFloat(fRange);
+
+								var string sPersonality = CAiUtilityMgr.Get()^.GetPersonality(m_pxBrain);
+								if((sPersonality == "Schnecke") || (sPersonality == "Giraffe"))then
+									pxDefMap^.SetValueSafeFast(iPosX,iPosY,fDamage);
+								else
+									pxDefMap^.AddInfluenceFast(iPosX,iPosY,fRange*1.2,0.0,fDamage);
+								endif;
+							endif;
+						endif;
+					endfor;
+				else
+					var int iPosX,iPosY;
+					CAiArea.Vec3ToArea(xOW.GetPos(),iPosX,iPosY);
+					pxDefMap^.AddValueFast(iPosX,iPosY,0.1);
+				endif;
+			endfor;
+			
+			pxDefMap^.UpdateBitmap();
+			pxDefMap^.SetDirty(false);
+		endif;
+
+		var CAiMap xUncoveredMap;
+		xUncoveredMap.CopyFromFast(pxBldgMap^);
+		xUncoveredMap.QuantisationFast(1.0,100000.0,1.0);
+		xUncoveredMap.SubtractFast(pxDefMap^);
+
+		var CAiArea xMostImportantUnsafeArea=xUncoveredMap.FindMaxArea();
+		if(xMostImportantUnsafeArea.GetX()==(-1))then
+		else
+			var real fMostImportantUnsafeValue=xUncoveredMap.GetValue(xMostImportantUnsafeArea);
+			if(fMostImportantUnsafeValue<1.0)then
+			else
+				m_pxGoalTowers^.BuildTower(xMostImportantUnsafeArea.GetWorldCenterPos());
+			endif;
+		endif;
+	endproc;
+	
+	export proc ^CAiGoal GetGoalByName(string p_sGoal)
+		var int i,iC=NumGoals();
+		if(iC<1)then return null; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiGoal pxGoal=GetGoal(i);
+			if(pxGoal==null)then continue; endif;
+			if(pxGoal^.GetDbgString()==p_sGoal)then
+				return pxGoal;
+			endif;
+		endfor;
+		return null;
+	endproc;
+	
+endclass;

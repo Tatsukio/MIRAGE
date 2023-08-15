@@ -1,0 +1,117 @@
+class CFireworks inherit CActionTask
+
+	var CObjHndl		m_xCharacter;
+	var string			m_sState;
+	var vec3				m_vPos;
+
+	const real			RANGE = 150.0;
+
+	export constructor()
+		SetName("Firework");
+		SetCivil(false);
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="FiWo";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xCharacter.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_vPos;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="FiWo")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xCharacter.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_vPos;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xCharacter, string p_sPath)
+		m_sState="shoot_rocket";
+		if(!p_xCharacter.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xCharacter = p_xCharacter;
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(p_xCharacter, p_sPath, true);
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		if(pxCharacter==null)then EndTask(); return; endif;
+		if(m_sState == "shoot_rocket")then
+			if(!StartSpecialActionTimer(pxCharacter))then
+				m_sState=="EndTask";
+				EndTask();
+				return;
+			endif;
+			pxCharacter^.AnimAction("potter_ground");
+			if(pxCharacter^.GetOnWall())then
+				m_sState = "point_wall";
+			else
+				m_sState = "point";
+			endif;
+			return;
+		elseif(m_sState == "point_wall")then
+			m_vPos = pxCharacter^.GetPos();
+			var vec3 vCDir = {0.0f, 1.5f, 0.0f};
+			pxCharacter^.GetRot().VecRotateU(vCDir);
+			var ^CFireWorkObj pxO = cast<CFireWorkObj>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_fireworks",pxCharacter^.GetOwner(),m_vPos+vCDir));
+			m_sState = "EndTask";
+			return;
+		elseif(m_sState == "point")then
+			m_vPos = pxCharacter^.GetPos();
+			pxCharacter^.WalkAction(m_vPos-{3.0,0.0,0.0},3);
+			var ^CFireWorkObj pxO = cast<CFireWorkObj>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_fireworks",pxCharacter^.GetOwner(),m_vPos));
+			m_sState = "rotate";
+			return;
+		elseif(m_sState == "rotate")then
+			var Quat qTRot;
+			qTRot.FromXYDir(m_vPos.GetX(),m_vPos.GetY());
+			pxCharacter^.RotateAction(qTRot);
+			m_sState = "EndTask";
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc bool Break()
+		var ^CGameObj pxC=m_xCharacter.GetObj();
+		if(pxC!=null)then
+			pxC^.TerminateAction();
+			SetPrepareActionPath(m_xCharacter, GetSpecialActionPath(), false);
+		endif;
+		return true;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+	export proc void EndTask()
+		SetPrepareActionPath(m_xCharacter, GetSpecialActionPath(), false);
+		UpdateAggressionPos(m_xCharacter);
+		super.EndTask();
+	endproc;
+
+endclass;

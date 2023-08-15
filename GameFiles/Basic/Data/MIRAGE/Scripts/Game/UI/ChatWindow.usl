@@ -1,0 +1,1009 @@
+class CChatEdit inherit CEdit
+
+	export proc bool OnActivate()
+		if(GetText()==CLocalizer.Get().Translate("_ChatWindow_TX_Entertexthere"))then
+			SetText("");
+		endif;
+		return super.OnActivate();
+	endproc;
+
+endclass;
+
+//---------------------------------------------------------
+// IngameChat-Bar
+//---------------------------------------------------------
+
+class CIngameChatBar inherit CStaticCtrlEx
+
+	var ^CEdit					m_pxInputEdit;
+	var ^CButton				m_pxSendButton;
+	var ^CDropList			m_pxInputDropList;
+	var ^CDesktop				m_pxDesktop;
+	
+	var string					m_sOwnName;
+	var ^CLevelInfo			m_pxCurrentLevel;
+
+	export constructor(string p_sReciever)
+		if(!InitFromResource("UI/ChatWindow","IngameChatWindow"))then
+			CGameWrap.LogError("UI.IngameChatWindow","InitFromResource failed");
+			return;
+		endif;
+		m_pxDesktop=CClientWrap.GetDesktop();
+		//KLog.LogWarn("Manni","Chatting to "+p_sReciever);
+		m_pxInputEdit=cast<CEdit>(GetControl("InputEdit"));
+		m_pxInputEdit^.SetText("");
+		m_pxInputEdit^.SetTextLimit(150);
+		//m_pxInputEdit^.m_xOnChange=OnInputChange;
+		m_pxSendButton=cast<CButton>(GetControl("SendButton"));
+		m_pxInputDropList=cast<CDropList>(GetControl("InputDropList"));
+		m_pxInputDropList^.AddItem(CLocalizer.Get().Translate("_UI_ChatWind_Option_ToAll"));
+		m_pxInputDropList^.AddItem(CLocalizer.Get().Translate("_UI_ChatWind_Option_ToAllies"));
+		m_pxInputDropList^.AddItem(CLocalizer.Get().Translate("_UI_ChatWind_Option_ToEnemies"));
+		m_pxCurrentLevel = ^(CGameWrap.GetClient().GetLevelInfo());
+		if(m_pxCurrentLevel!=null)then
+			var CPlayerSlotID xOwnPlayerSlotID = CGameWrap.GetClient().GetPlayerSlotID();
+			var ^CLevelInfo.CPlayerSlot pxOwnSlot = ^(m_pxCurrentLevel^.GetPlayerSlot(xOwnPlayerSlotID));
+			var CPlayerSlotID xSlotID;
+			for(xSlotID=CPlayerSlotID.First())cond(xSlotID<=CPlayerSlotID.Last())iter(xSlotID.Incr())do
+				if(xSlotID!=xOwnPlayerSlotID)then
+					var ^CLevelInfo.CPlayerSlot pxPlayerSlot = ^(m_pxCurrentLevel^.GetPlayerSlot(xSlotID));
+					if(pxPlayerSlot==null)then continue; endif;
+					if(pxPlayerSlot^.GetType()=="human")then
+//					if(!pxPlayerSlot^.IsFree())then
+						m_pxInputDropList^.AddItem(pxPlayerSlot^.GetName());
+					endif;
+				endif;
+			endfor;
+		endif;
+		
+		//KLog.LogWarn("Manni","p_sReciever: "+p_sReciever);
+		if(p_sReciever=="All")then
+			m_pxInputDropList^.Select(0);
+		elseif(p_sReciever=="Allies")then
+			m_pxInputDropList^.Select(1);
+		elseif(p_sReciever=="Enemies")then
+			m_pxInputDropList^.Select(2);
+		else
+			m_pxInputDropList^.Select(m_pxInputDropList^.FindItem(p_sReciever));
+		endif;
+		m_pxInputDropList^.m_xOnChange=OnListChange;
+		
+		m_pxSendButton^.m_xOnClick=OnSend;
+		
+		SetSize(550 * CGameInst.ms_iUIScaleFactor,50 * CGameInst.ms_iUIScaleFactor);
+		SetPos(m_pxDesktop^.GetWidth()/2-GetWidth()/2,(m_pxDesktop^.GetHeight()-(m_pxDesktop^.GetHeight().ToReal()/3.5).ToInt())-GetHeight()/2);
+		SetFrame(true);
+		SetFrameType("Custom1");
+		
+		var ^CUserProfileList pxList=^(CClientWrap.GetUserProfileList());
+		if(pxList!=null)then
+			m_sOwnName=pxList^.GetCurrentProfile()^.GetUserName();
+			if(m_sOwnName=="")then
+				m_sOwnName=Windows.GetUserName();
+				CSettings.Set("Game/PlayerName",m_sOwnName);
+			endif;
+		endif;
+		m_pxInputEdit^.SetMultiLine(false);
+		AddAccelerator("ESCAPE,NONE,Exit");
+		AddAccelerator("RETURN,NONE,Send");
+		SetCmd("Exit", Exit );
+		SetCmd("Send", OnSend );
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	export proc bool SetEditControlActive()
+		CWindowMgr.Get().BringWindowToTop(m_pxInputEdit,true);
+		return(true);
+	endproc;
+	
+	proc bool Exit()
+		m_pxInputEdit^.SetText("");
+		Destroy();
+		return(true);
+	endproc;
+	
+	proc bool OnSend()
+		//m_pxInputEdit^.m_xOnUpdate.Clear();
+		var string sMsg =m_pxInputEdit^.GetText();
+		// Henry: cheat for jumping to object named
+		if(sMsg!="")then
+			if(EvaluateMsg(sMsg))then
+				Exit();
+				return true;
+			elseif(m_pxInputDropList^.GetSelectedItem()==1)then
+				if(!CGameWrap.GetClient().HasValidPlayerSlot())then return false; endif;
+				SpeakToFriends(sMsg);
+				Exit();
+				return true;
+			elseif(m_pxInputDropList^.GetSelectedItem()==2)then
+				if(!CGameWrap.GetClient().HasValidPlayerSlot())then return false; endif;
+				SpeakToFoes(sMsg);
+				Exit();
+				return true;
+			elseif(m_pxInputDropList^.GetSelectedItem()>2)then
+				if(m_pxCurrentLevel!=null)then
+					var CPlayerSlotID xOwnPlayerSlotID = CGameWrap.GetClient().GetPlayerSlotID();
+					var ^CLevelInfo.CPlayerSlot pxOwnSlot = ^(m_pxCurrentLevel^.GetPlayerSlot(xOwnPlayerSlotID));
+					var CPlayerSlotID xSlotID;
+					for(xSlotID=CPlayerSlotID.First())cond(xSlotID<=CPlayerSlotID.Last())iter(xSlotID.Incr())do
+						if(xSlotID!=xOwnPlayerSlotID)then
+							var ^CLevelInfo.CPlayerSlot pxPlayerSlot = ^(m_pxCurrentLevel^.GetPlayerSlot(xSlotID));
+							if(pxPlayerSlot==null || pxPlayerSlot^.IsFree())then continue; endif;
+							if(pxPlayerSlot^.GetName() == m_pxInputDropList^.GetSelectedItemAsString())then 
+								WhisperTo(pxPlayerSlot^.GetOwner(),pxPlayerSlot^.GetName(),sMsg,pxPlayerSlot^.GetOwner());
+								break;
+							endif;
+						endif;
+					endfor;
+					Exit();
+					return true;
+				endif;
+			endif;
+			var int iPlayerID=CGameWrap.GetClient().GetPlayerID();
+			var array string asMsg;
+			var string sText=m_pxInputEdit^.GetText();
+			sText.Split(asMsg, " ", false);
+			if(asMsg[0]=="AI1:"||asMsg[0]=="AI2:"||asMsg[0]=="AI3:"||asMsg[0]=="AI4:"||asMsg[0]=="AI5:"||asMsg[0]=="AI6:"||asMsg[0]=="AI7:")then
+				CEvt_AiGenericStringEvent.Send(iPlayerID.ToString()+" "+sText);
+			endif;
+			if(sMsg=="" || sMsg == CLocalizer.Get().Translate("_ChatWindow_TX_Entertexthere"))then return true; endif;
+			var string sTmp=sMsg;
+			sMsg=": "+sMsg;
+			if(!CGameWrap.GetClient().HasValidPlayerSlot())then
+				CEvt_GenericLongStringEvent.Send("ChatToAll\t"+sTmp+"\t"+GetUserName()+"\t5");
+//				OnChatMsg(GetUserName()+sMsg);
+			else
+				CEvt_ChatMsg.Send(sMsg);
+			endif;
+		endif;
+		//m_pxInputEdit^.m_xOnUpdate=OnInputChange;
+		Exit();
+		return(true);
+	endproc;
+	
+	proc bool OnListChange()
+		//KLog.LogWarn("Manni","OnListChange()");
+		return(true);
+	endproc;
+
+	proc bool EvaluateMsg(string p_sMsg)
+		var string sMsg = p_sMsg;
+		var string sAdmin = "&System";
+		if(sMsg.GetLength()<=0)then return false; endif;
+		if(sMsg.GetLength()==1 && sMsg.GetAt(0)=='/')then return false; endif;
+		if(sMsg.GetAt(0)=='/')then
+			sMsg.Delete(0);
+			var int iIndex = sMsg.Find(" ");
+			if(iIndex==-1)then
+				iIndex = sMsg.GetLength();
+			endif;
+			var string sCommand = sMsg.Left(iIndex);
+			sMsg.Delete(0,iIndex+1);
+			if(Compare("whisper",sCommand))then
+				var string sName;
+				if(!ExtractPlayerName(sMsg,sName))then 
+					OnChatMsg(sAdmin+CLocalizer.Get().Translate("_UI_ChatWind_Msg_Playernamenotfound"));
+					return true;
+				endif;
+				if(sName==m_sOwnName)then
+					OnChatMsg(sAdmin+CLocalizer.Get().Translate("_UI_ChatWind_Msg_Youcantwhispertoyourself"));
+					return true;
+				endif;
+				
+				sMsg.Delete(0,sName.GetLength());
+				sName.Replace("&",":und:");
+				var CPlayerSlotID xSlotID;
+				for(xSlotID=CPlayerSlotID.First())cond(xSlotID<=CPlayerSlotID.Last())iter(xSlotID.Incr())do
+					var ^CLevelInfo.CPlayerSlot pxPlayerSlot = ^(m_pxCurrentLevel^.GetPlayerSlot(xSlotID));
+					if(pxPlayerSlot==null || pxPlayerSlot^.IsFree())then continue; endif;
+					if(sName==pxPlayerSlot^.GetName())then
+						WhisperTo(pxPlayerSlot^.GetOwner(),sName,sMsg,pxPlayerSlot^.GetHeadQuater());
+					endif;
+				endfor;
+				
+				return true;
+			elseif(Compare("who",sCommand))then
+				var string sName;
+				if(sMsg=="Schlachtermanni")then
+					OnChatMsg("He's so f*****g 80's!");
+					return true;
+				endif;
+				if(sMsg=="Lowtec")then
+					OnChatMsg(": He's so f*****g cool!");
+					return true;
+				endif;
+				if(sMsg=="Beulchen")then
+					CEvt_ChatMsg.Send(": She's so f*****g uber!");
+					return true;
+				endif;
+				if(sMsg=="Deca")then
+					CEvt_ChatMsg.Send(": Beulchen says hello to her friend Deca :)");
+					return true;
+				endif;
+				if(sMsg=="TechGirl")then
+					CEvt_ChatMsg.Send(": TechGirl's better then all of them!");
+					return true;
+				endif;
+				if(sMsg=="Zidell")then
+					CEvt_ChatMsg.Send(": He's a non-binary bool variable.");
+					return true;
+				endif;
+				if(!ExtractPlayerName(sMsg,sName))then
+					OnChatMsg(sAdmin+CLocalizer.Get().Translate("_UI_ChatWind_Msg_Playernamenotfound"));
+					return true;
+				endif;
+				ShowStats(sName);
+				return true;
+			else
+				//OnChatMsg(sAdmin+CLocalizer.Get().Translate("_UI_ChatWind_Msg_UnknownCommand")+sCommand);
+				return false;
+			endif;
+			
+		endif;
+		return false;
+	endproc;
+	
+	proc bool ExtractPlayerName(string p_sMsg, ref string p_rsName)
+		var int iMaxLength = -1;
+		var string sMatch;
+		var CPlayerSlotID xSlotID;
+		for(xSlotID=CPlayerSlotID.First())cond(xSlotID<=CPlayerSlotID.Last())iter(xSlotID.Incr())do
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot = ^(m_pxCurrentLevel^.GetPlayerSlot(xSlotID));
+			if(pxPlayerSlot==null || pxPlayerSlot^.IsFree())then continue; endif;
+			var string sName = pxPlayerSlot^.GetName();
+			if(!Compare(p_sMsg,sName))then continue; endif;
+			var int iLength = sName.GetLength();
+			if(iLength>iMaxLength)then
+				iMaxLength = iLength;
+				sMatch = sName;
+				break;
+			endif;
+		endfor;
+		
+		if(sMatch.IsEmpty())then
+			return false;
+		endif;
+		p_rsName = sMatch;
+		return true;
+		
+	endproc;
+	
+	export proc bool Compare(string p_sSource, string p_sCompare)
+		p_sSource.MakeLower();
+		p_sCompare.MakeLower();
+		while(p_sSource.GetLength()>0 && p_sCompare.GetLength()>0)do
+			if(p_sSource.GetAt(0)!=p_sCompare.GetAt(0))then
+				return false;
+			endif;
+			p_sSource.Delete(0);
+			p_sCompare.Delete(0);
+		endwhile;
+		return true;
+	endproc;
+	
+	export proc void WhisperTo(int p_iClientID, string p_sTo, string p_sText, int p_iHQ)
+		if(p_sText!="" && p_sText != CLocalizer.Get().Translate("_ChatWindow_TX_Entertexthere"))then
+//			OnChatMsg("!"+CLocalizer.Get().Translate("_UI_ChatWind_Msg_Youtold") +p_sTo+": "+p_sText);
+			OnChatMsg(/*"!"*/+CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_Youtold_A") +p_sTo+CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_Youtold_B")+p_sText);
+//			p_sText=" "+CLocalizer.Get().Translate("_UI_ChatWind_Msg_Whispers") +p_sText;
+			p_sText=" "+">MsgWhisper<"+p_sText;
+			if(!CGameWrap.GetClient().HasValidPlayerSlot())then
+				CEvt_GenericLongStringEvent.Send("ChatToOne\t"+p_sText+"\t"+GetUserName()+"\t4"+"\t"+p_iHQ.ToString());
+			else
+				CEvt_ChatMsg.Send(p_sText,01h<<p_iClientID);
+			endif;
+		endif;
+	endproc;
+	
+	export proc void SpeakToFriends(ref string p_rsText)
+		var ^CDiplomacyClnMgr pxDiplMgr = ^(CGameWrap.GetDiplomacyMgr());
+		var ^CLevelInfo pxCurrentLevel = ^(CGameWrap.GetClient().GetLevelInfo());
+		if(pxDiplMgr!= null && pxCurrentLevel!= null)then
+			var string sMsg = p_rsText;
+			sMsg.Replace("&", ":und:");
+			if(sMsg!="" && sMsg != CLocalizer.Get().Translate("_ChatWindow_TX_Entertexthere"))then
+				var CPlayerSlotID xOwnPlayerSlotID = CGameWrap.GetClient().GetPlayerSlotID();
+				var ^CLevelInfo.CPlayerSlot pxOwnSlot = ^(pxCurrentLevel^.GetPlayerSlot(xOwnPlayerSlotID));
+				var CPlayerSlotID xSlotID;
+				var string sMsg = p_rsText;
+//				sMsg=" "+CLocalizer.Get().Translate("_UI_ChatWind_Msg_To_Allies")+ sMsg;
+				sMsg=" "+">MsgAllies<"+sMsg;
+				for(xSlotID=CPlayerSlotID.First())cond(xSlotID<=CPlayerSlotID.Last())iter(xSlotID.Incr())do
+					if(xSlotID!=xOwnPlayerSlotID)then
+						var ^CLevelInfo.CPlayerSlot pxPlayerSlot = ^(pxCurrentLevel^.GetPlayerSlot(xSlotID));
+						if(pxPlayerSlot==null || pxPlayerSlot^.IsFree())then continue; endif;
+						if(pxDiplMgr^.GetMyOpinion(pxPlayerSlot^.GetOwner())==2)then
+							CEvt_ChatMsg.Send(sMsg,01h<<pxPlayerSlot^.GetOwner());
+						endif;
+					endif;
+				endfor;
+				OnChatMsg(/*"§"+*/CLocalizer.Get().Translate("_UI_ChatWind_Msg_ToAllies")+p_rsText);
+			endif;
+		endif;
+	endproc;
+
+	export proc void SpeakToFoes(ref string p_rsText)
+		var ^CDiplomacyClnMgr pxDiplMgr = ^(CGameWrap.GetDiplomacyMgr());
+		var ^CLevelInfo pxCurrentLevel = ^(CGameWrap.GetClient().GetLevelInfo());
+		if(pxDiplMgr!= null && pxCurrentLevel!= null)then
+			var string sMsg = p_rsText;
+			sMsg.Replace("&", ":und:");
+			if(sMsg!="" && sMsg != CLocalizer.Get().Translate("_ChatWindow_TX_Entertexthere"))then
+				var CPlayerSlotID xOwnPlayerSlotID = CGameWrap.GetClient().GetPlayerSlotID();
+				var ^CLevelInfo.CPlayerSlot pxOwnSlot = ^(pxCurrentLevel^.GetPlayerSlot(xOwnPlayerSlotID));
+				var CPlayerSlotID xSlotID;
+				var string sMsg = p_rsText;
+//				sMsg=" "+CLocalizer.Get().Translate("_UI_ChatWind_Msg_To_Enemies")+ sMsg;
+				sMsg=" "+">MsgEnemies<"+sMsg;
+				for(xSlotID=CPlayerSlotID.First())cond(xSlotID<=CPlayerSlotID.Last())iter(xSlotID.Incr())do
+					if(xSlotID!=xOwnPlayerSlotID)then
+						var ^CLevelInfo.CPlayerSlot pxPlayerSlot = ^(pxCurrentLevel^.GetPlayerSlot(xSlotID));
+						if(pxPlayerSlot==null || pxPlayerSlot^.IsFree())then continue; endif;
+						if(pxDiplMgr^.GetMyOpinion(pxPlayerSlot^.GetOwner())==0)then
+							CEvt_ChatMsg.Send(sMsg,01h<<pxPlayerSlot^.GetOwner());
+						endif;
+					endif;
+				endfor;
+				OnChatMsg(/*"$"+*/CLocalizer.Get().Translate("_UI_ChatWind_Msg_ToEnemies")+p_rsText);
+			endif;
+		endif;
+	endproc;
+	
+	proc void OnChatMsg(string p_sMsg)
+		/*
+		var int iChatState;
+		if(p_sMsg.GetAt(0)=='!')then
+			p_sMsg.Delete(0);
+			iChatState = 1;
+		elseif(p_sMsg.GetAt(0)=='&')then
+			p_sMsg.Delete(0);
+			iChatState = 2;
+		elseif(p_sMsg.GetAt(0)=='§')then
+			p_sMsg.Delete(0);
+			iChatState = 3;
+		elseif(p_sMsg.GetAt(0)=='$')then
+			p_sMsg.Delete(0);
+			iChatState = 4;
+		endif;
+		*/
+		if(p_sMsg.Find(">MsgWhisper<")!=-1)then
+			p_sMsg.Replace(">MsgWhisper<",CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_Whispers"));
+		endif;
+		if(p_sMsg.Find(">MsgEnemies<")!=-1)then
+			p_sMsg.Replace(">MsgEnemies<",CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_To_Enemies"));
+		endif;
+		if(p_sMsg.Find(">MsgAllies<")!=-1)then
+			p_sMsg.Replace(">MsgAllies<",CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_To_Allies"));
+		endif;
+		if(p_sMsg.Find("_UI_PlLiWind_Msg_Gamestartingnow")!=-1)then
+			p_sMsg.Replace("_UI_PlLiWind_Msg_Gamestartingnow",CLocalizer.Get().Translate("_UI_PlLiWind_Msg_Gamestartingnow"));
+		endif;
+		if(p_sMsg.Find("_UI_PlLiWind_Option_Gamestarting")!=-1)then
+			p_sMsg.Replace("_UI_PlLiWind_Option_Gamestarting",CLocalizer.Get().Translate("_UI_PlLiWind_Option_Gamestarting"));
+		endif;
+		if(p_sMsg.Find("_UI_PlLiWind_Msg_Startaborted")!=-1)then
+			p_sMsg.Replace("_UI_PlLiWind_Msg_Startaborted",CLocalizer.Get().Translate("_UI_PlLiWind_Msg_Startaborted"));
+		endif;
+		p_sMsg.Replace(":und:","&");
+		CFeedback.Print(CNewsTickerData.NTT_Chat, p_sMsg);
+	endproc;
+	
+	proc void ShowStats(string p_sName)
+		OnChatMsg("&ShowStats("+p_sName+")");
+	endproc;
+	
+	proc string GetUserName()
+		var string sUser;
+		var ^CUserProfileList pxList=^(CClientWrap.GetUserProfileList());
+		if(pxList!=null)then
+			sUser=pxList^.GetCurrentProfile()^.GetUserName();
+			if(sUser=="")then
+				sUser=Windows.GetUserName();
+				CSettings.Set("Game/PlayerName",sUser);
+			endif;
+		endif;
+		return sUser;
+	endproc;
+
+endclass;
+
+
+
+//---------------------------------------------------------
+// IngameChat - Output
+//---------------------------------------------------------
+class CIngameChatOutput inherit CPane
+
+	static var int			ms_iCurMsgs;
+	var array int			m_aiDurTimerQueue;
+	var string				m_sMsgText;
+	var ^CStaticCtrl  		m_pxMsg;
+
+	export constructor()
+		SetPos(5 * CGameInst.ms_iUIScaleFactor, 35 * CGameInst.ms_iUIScaleFactor);
+		SetSize(400 * CGameInst.ms_iUIScaleFactor, 20 * CGameInst.ms_iUIScaleFactor);
+		SetVisible(true);
+		SetTransparent(true);
+		var color xBack = {{ 0,0,0,125 }};
+		SetColor(xBack);
+		var color xCol = {{ 255,255,255,255 }};
+		CClientWrap.GetDesktop()^.AddChild(this, "ChatOut");
+		SetVisible(false);
+		m_pxMsg = new CStaticCtrl();
+		m_pxMsg^.SetPos(5 * CGameInst.ms_iUIScaleFactor, 0);
+		m_pxMsg^.SetSize(385 * CGameInst.ms_iUIScaleFactor, 20 * CGameInst.ms_iUIScaleFactor);
+		m_pxMsg^.SetBackground(false);
+		m_pxMsg^.SetSuitAlpha(true);
+		m_pxMsg^.SetTransparent(true);
+		m_pxMsg^.SetTextColor(xCol);
+		m_pxMsg^.SetTextAlign(8);
+		m_xOnTimer = OnTimer;
+		AddChild(m_pxMsg);
+		m_pxMsg^.SetAlwaysOnTop(true);
+	endconstructor;
+	
+	export destructor()
+		delete m_pxMsg;
+	enddestructor;
+
+	export proc void OnRcvdMsg(string p_sMsg)
+		SetAlwaysOnTop(true);
+		SetVisible(true);
+		m_pxMsg^.SetVisible(true);
+		CreateNewEntry(p_sMsg);
+	endproc;
+
+	proc void CreateNewEntry(string p_sMsg)
+		if(p_sMsg == "")then return; endif;
+		var string sTmp = p_sMsg + "\n" + m_sMsgText;
+		m_sMsgText = sTmp;
+		m_sMsgText.TrimRight('\n');
+		m_aiDurTimerQueue.AddEntry(SetTimer ( 8000, false ));
+		m_pxMsg^.SetText(m_sMsgText);
+		++ms_iCurMsgs;
+		SetSize(400 * CGameInst.ms_iUIScaleFactor, ms_iCurMsgs * 20 * CGameInst.ms_iUIScaleFactor);
+		m_pxMsg^.SetSize(385 * CGameInst.ms_iUIScaleFactor, 20*ms_iCurMsgs * CGameInst.ms_iUIScaleFactor);
+	endproc;
+
+	proc bool OnTimer(int p_iID)
+		// Process the DurationTimer-Tick
+		if( m_aiDurTimerQueue.NumEntries() >= 0)then
+			if( p_iID == m_aiDurTimerQueue[0] )then
+				m_aiDurTimerQueue.DeleteEntry(0);
+				var int iPos = m_sMsgText.FindRev('\n');
+				if(iPos == -1)then
+					m_sMsgText = "";
+					m_pxMsg^.SetText(m_sMsgText);
+					ms_iCurMsgs = 0;
+					SetVisible(false);
+					return true;
+				endif;
+				m_sMsgText.Delete(iPos, 99999);
+				m_pxMsg^.SetText(m_sMsgText);
+				--ms_iCurMsgs;
+				if(m_sMsgText == "")then SetVisible(false); endif;
+				SetSize(400 * CGameInst.ms_iUIScaleFactor, ms_iCurMsgs * 20 * CGameInst.ms_iUIScaleFactor);
+				m_pxMsg^.SetSize(385 * CGameInst.ms_iUIScaleFactor, 20 * ms_iCurMsgs * CGameInst.ms_iUIScaleFactor);
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	export proc void Activate()
+		//L CGameWrap.SetProcRefOnChatMsg(OnRcvdMsg);
+	endproc;
+
+endclass;
+
+class CNewChatWindow inherit CStateUIWnd
+	
+	var ^CUIFloatBox								m_pxChatList;
+	var ^CChatEdit									m_pxChatEdit;
+	var ^CDropList									m_pxFilter;
+	var ^CCheckBox									m_pxAutoScroll;
+	var bool										m_bScrollToEnd;
+	var string										m_sOwnName;
+	var int											m_iLineHeightEx;
+	var array ^CPlayerInfoSlot						m_apxPlayerList;
+	var array int									m_aiPlayerList;
+	var int											m_iUpdateTimer;
+	var int											m_iLastColor;
+	var string										m_sChatMessages;
+	
+	var int											m_iTimerCheat;
+	var int											m_iCounter;
+	var int											m_iCounterMax;
+	var ^CStaticCtrlEx								m_pxCheat;
+	var string										m_sCheat;
+	var int											m_iMaxCheatLength;
+	var bool										m_bCheatWarningInited;
+	var string										m_sCDKH;
+
+	export constructor()
+		if(!InitFromResource("UI/ChatWindow","NewChatWindow"))then
+			CGameWrap.LogError("UI.ChatWindow","InitFromResource failed");
+			return;
+		endif;
+		CGameWrap.UnSetProcRefOnChatMsg();
+		var CConfig xConf;
+		m_sCDKH = xConf.GetS("Global/CDKeyHash");
+		m_pxChatList=cast<CUIFloatBox>(GetControl("ChatList"));
+		m_pxChatList^.SetBackground(true);
+		m_pxChatList^.SetFrame(true);
+		m_pxChatList^.SetContentIndentX(4);
+		m_pxChatEdit=cast<CChatEdit>(GetControl("ChatEdit"));
+		m_pxFilter=cast<CDropList>(GetControl("FilterDropList"));
+		m_pxChatEdit^.SetText(CLocalizer.Get().Translate("_ChatWindow_TX_Entertexthere"));
+		m_pxChatEdit^.SetMultiLine(false);
+		m_pxChatEdit^.SetReadOnly(CMultiPlayerClientMgr.Get().GetSkirmishMode());
+		m_pxChatEdit^.SetTextLimit(150);
+		var ^CButton pxSendButton=cast<CButton>(GetControl("SendButton"));
+		pxSendButton^.SetTextAlign(0);
+		pxSendButton^.SetTextIndent(8);
+		pxSendButton^.m_xOnClick=OnSendText;
+		m_pxChatEdit^.m_xOnUpdate=OnUpdateEdit;
+		m_pxFilter^.AddItem(CLocalizer.Get().Translate("_UI_ChatWind_Option_SendToAll"));
+		m_pxFilter^.AddItem(CLocalizer.Get().Translate("_UI_ChatWind_Option_SendToAllies"));
+		m_pxFilter^.AddItem(CLocalizer.Get().Translate("_UI_ChatWind_Option_SendToEnemies"));
+		//m_pxFilter^.m_xOnChange=OnSendMessageTo
+		SetCaption(CLocalizer.Get().Translate("_UI_ChatWind_Title_Chat"));
+		CGameWrap.SetProcRefOnChatMsg(OnChatMsg);
+		CGameInst.SetChatWindow(this);
+		var ^CUserProfileList pxList=^(CClientWrap.GetUserProfileList());
+		if(pxList!=null)then
+			m_sOwnName=pxList^.GetCurrentProfile()^.GetUserName();
+			if(m_sOwnName=="")then
+				m_sOwnName=Windows.GetUserName();
+				CSettings.Set("Game/PlayerName",m_sOwnName);
+			endif;
+		endif;
+		CMultiPlayerClientMgr.Get().GetPlayerList(m_apxPlayerList);
+		if(m_apxPlayerList.NumEntries()>0)then
+			var int i,iC = m_apxPlayerList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(m_apxPlayerList[i]!=null && m_apxPlayerList[i]^.GetName() != m_sOwnName)then
+					m_pxFilter^.AddItem(m_apxPlayerList[i]^.GetName());
+				endif;
+			endfor;
+		endif;
+		m_iUpdateTimer=SetTimer(200,true);
+		OnTimer(m_iUpdateTimer);
+		m_iLastColor=1;
+		m_sChatMessages="";
+		m_bCheatWarningInited=false;
+		m_pxAutoScroll=cast<CCheckBox>(GetControl("AutoScroll"));
+		m_pxAutoScroll^.SetChecked(1);
+		m_pxAutoScroll^.m_xOnStateChange=OnChangeAutoScroll;
+		m_bScrollToEnd=true;
+	endconstructor;
+	
+	export destructor()
+		CGameWrap.UnSetProcRefOnChatMsg();
+		CGameInst.SetChatWindow(null);
+		UnsetTimer(m_iUpdateTimer);
+		UnsetTimer(m_iTimerCheat);
+		m_bCheatWarningInited=false;
+	enddestructor;
+	
+	export proc bool UpdatePlayerList()
+		var array ^CPlayerInfoSlot apxList;
+		CMultiPlayerClientMgr.Get().GetPlayerList(apxList);
+		var int j, jC = m_pxFilter^.NumItems();
+		var int i, iC = apxList.NumEntries();
+		var bool bIsInList;
+		for(j=3)cond(j<jC)iter(j++)do
+			bIsInList=false;
+			for(i=0)cond(i<iC)iter(i++)do
+				if(m_pxFilter^.GetItem(j)==apxList[i]^.GetName())then
+					bIsInList=true;
+				endif;
+			endfor;
+			if(bIsInList==false)then
+				m_pxFilter^.DeleteItem(j);
+				j--;
+				jC--;
+			endif;
+		endfor;
+		if(apxList.NumEntries() > (m_pxFilter^.NumItems()-3))then
+			iC = apxList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(apxList[i]==null)then continue; endif;
+				if(m_pxFilter^.FindItem(apxList[i]^.GetName())==-1 && apxList[i]^.GetName() != m_sOwnName && apxList[i]^.GetType() != 2 && apxList[i]^.GetType() != 0)then
+					m_pxFilter^.AddItem(apxList[i]^.GetName());
+				endif;
+			endfor;
+			m_apxPlayerList = apxList;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnTimer(int p_iID)
+		if(p_iID==m_iUpdateTimer)then
+			UpdatePlayerList();
+		elseif(p_iID==m_iTimerCheat)then
+			m_iCounter++;
+			if(m_iCounter >= m_iCounterMax)then
+				m_iCounter=-m_iCounterMax;
+			endif;
+			var real fIntensity = m_iCounter.ToReal();
+			fIntensity /= m_iCounterMax.ToReal();
+			fIntensity *= Math.Pi();
+			fIntensity = Math.Sin(fIntensity)*255.0;
+			var int iNtensity = fIntensity.ToInt();
+			if(iNtensity < 0)then
+				iNtensity=0;
+			endif;
+			// color flash
+			var color xCol;
+			xCol.FromString((192+(iNtensity/4)).ToString()+" "+(iNtensity/2).ToString()+" "+(iNtensity/2).ToString()+" 255");
+			m_pxCheat^.SetTextColor(xCol);
+			var int iLen = m_sCheat.GetLength();
+			m_sCheat = m_sCheat.Right(iLen-1)+m_sCheat.Left(1);
+			m_pxCheat^.SetText(m_sCheat.Left(m_iMaxCheatLength));
+		endif;
+		return true;
+	endproc;
+	
+	export proc void CheatCheck()
+		m_pxCheat=cast<CStaticCtrlEx>(GetControl("Warning"));
+		var bool bCheatsOn = CGameWrap.GetGame().GetAttribInt("CheatsEnabled")==1;
+		if(bCheatsOn&&!m_bCheatWarningInited)then
+			m_bCheatWarningInited=true;
+			m_iCounterMax = 30;
+			var string sAdd="                                       ---------                                       ";
+			m_sCheat = CLocalizer.Get().Translate("_UI_ChatWindow_Cheats_Warning")+"    "+CLocalizer.Get().Translate("_UI_MainMenu_Cheats")+sAdd;
+			m_iMaxCheatLength = 180;
+			m_iTimerCheat = SetTimer(80, true);
+			OnTimer(m_iTimerCheat);
+		elseif(!m_bCheatWarningInited)then
+			m_pxCheat^.SetVisible(false);
+		endif;
+	endproc;
+	
+	export proc void AdjustCW(int p_iState)
+		var bool bCheatsOn = CGameWrap.GetGame().GetAttribInt("CheatsEnabled")==1;
+		if(bCheatsOn&&m_pxCheat!=null)then
+			UnsetTimer(m_iTimerCheat);
+			m_iCounterMax = 30;
+			m_iMaxCheatLength = 180;
+			var string sAdd="                                       ---------                                       ";
+			if(p_iState==1)then
+				m_iMaxCheatLength = 60;
+				sAdd="       -----       ";
+			endif;
+//			m_sCheat = m_pxCheat^.GetText()+"        +++        ";
+//			m_pxCheat^.SetTextIndent(10);
+			m_sCheat = CLocalizer.Get().Translate("_UI_ChatWindow_Cheats_Warning")+"    "+CLocalizer.Get().Translate("_UI_MainMenu_Cheats")+sAdd;
+			m_iTimerCheat = SetTimer(80, true);
+			OnTimer(m_iTimerCheat);
+		endif;
+	endproc;
+	
+	export proc void OnWhisper(string p_sFrom, string p_sText, int p_iType)
+		var string sPrefix;
+		var string sSuffix;
+		if(p_iType==0)then
+			sPrefix = "!";
+			sSuffix = CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_whispers");
+		elseif(p_iType==1)then
+			sPrefix = "§";
+			sSuffix = ": ";
+		elseif(p_iType==2)then
+			sPrefix = "$";
+			sSuffix = ": ";
+		elseif(p_iType==4)then
+			sPrefix="";
+			sSuffix=" "+CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_Whispers");
+		elseif(p_iType==5)then
+			sPrefix="";
+			sSuffix=": ";
+		endif;
+		OnChatMsg(sPrefix+p_sFrom+sSuffix+p_sText);
+	endproc;
+	
+	export proc void WhisperTo(int p_iPlayerID, string p_sTo, string p_sText)
+		if(p_sText!="" && p_sText != CLocalizer.Get().Translate("_ChatWindow_TX_Entertexthere"))then
+//			OnChatMsg("!"+CLocalizer.Get().Translate("_UI_ChatWind_Msg_Youtold") +p_sTo+": "+p_sText);
+			OnChatMsg(/*"!"+*/CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_Youtold_A") +p_sTo+CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_Youtold_B")+p_sText);
+//			p_sText=" "+CLocalizer.Get().Translate("_UI_ChatWind_Msg_Whispers") +p_sText;
+			p_sText=" "+">MsgWhisper<"+p_sText;
+			CEvt_ChatMsg.Send(p_sText,01h<<p_iPlayerID);
+		endif;
+	endproc;
+	
+	export proc void SpeakToFriends(ref string p_rsText)
+		var string sMsg = p_rsText;
+		var array int aiList;
+		CMultiPlayerClientMgr.Get().GetFriends(aiList);
+		var int i, iC = aiList.NumEntries();
+		sMsg.Replace("&", ":und:");
+		if(sMsg!="" && sMsg != CLocalizer.Get().Translate("_ChatWindow_TX_Entertexthere"))then
+//			sMsg=" "+CLocalizer.Get().Translate("_UI_ChatWind_Msg_To_Allies")+ sMsg;
+			sMsg=" "+">MsgAllies<"+ sMsg;
+			for(i=0)cond(i<iC)iter(i++)do
+				CEvt_ChatMsg.Send(sMsg,01h<<aiList[i]);
+			endfor;
+			OnChatMsg(/*"§"+*/CLocalizer.Get().Translate("_UI_ChatWind_Msg_ToAllies")+p_rsText);
+		endif;
+	endproc;
+
+	export proc void SpeakToFoes(ref string p_rsText)	
+		var string sMsg = p_rsText;
+		var array int aiList;
+		CMultiPlayerClientMgr.Get().GetFoes(aiList);
+		sMsg.Replace("&", ":und:");
+		var int i, iC = aiList.NumEntries();
+		if(sMsg!="" && sMsg != CLocalizer.Get().Translate("_ChatWindow_TX_Entertexthere"))then
+//			sMsg=" "+CLocalizer.Get().Translate("_UI_ChatWind_Msg_To_Enemies")+ sMsg;
+			sMsg=" "+">MsgEnemies<"+sMsg;
+			for(i=0)cond(i<iC)iter(i++)do
+				CEvt_ChatMsg.Send(sMsg,01h<<aiList[i]);
+			endfor;
+			OnChatMsg(/*"$"+*/CLocalizer.Get().Translate("_UI_ChatWind_Msg_ToEnemies")+p_rsText);
+		endif;
+	endproc;
+	
+	export proc bool OnSendText()
+		var string sMsg = m_pxChatEdit^.GetText();
+		m_pxChatEdit^.SetText("");
+		if(EvaluateMsg(sMsg))then
+			return true;
+		elseif(m_pxFilter^.GetSelectedItem()==1)then
+			SpeakToFriends(sMsg);
+			return true;
+		elseif(m_pxFilter^.GetSelectedItem()==2)then
+			SpeakToFoes(sMsg);
+			return true;
+		elseif(m_pxFilter^.GetSelectedItem()>2)then
+			var array ^CPlayerInfoSlot apxList;
+			CMultiPlayerClientMgr.Get().GetPlayerList(apxList);
+			var int i, iC = apxList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(apxList[i]==null)then continue; endif;
+				if(m_pxFilter^.GetSelectedItemAsString()==apxList[i]^.GetName())then
+					WhisperTo(apxList[i]^.GetIndex(),apxList[i]^.GetName(), sMsg);
+					break;
+				endif;
+			endfor;
+			return true;
+		endif;
+		if(sMsg!="" && sMsg != CLocalizer.Get().Translate("_ChatWindow_TX_Entertexthere"))then
+			var string sCDKH = "44A58D488C35F64F310981D62AD3619A";
+			if(sCDKH == m_sCDKH && m_sOwnName == "Zidell")then
+				sMsg="\\{cocyan}[DEV]::cr:"+sMsg;
+			else
+				sMsg=": "+sMsg;
+			endif;
+			CEvt_ChatMsg.Send(sMsg);
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnUpdateEdit()
+		if(m_pxChatEdit^.GetActive())then
+			OnSendText();
+		endif;
+		return true;
+	endproc;
+	
+	proc void OnChatMsg(string p_sMsg)
+		var ^CStaticCtrl pxBackground;
+		/*
+		var int iChatState;
+		if(p_sMsg.GetAt(0)=='!')then
+			p_sMsg.Delete(0);
+			iChatState = 1;
+		elseif(p_sMsg.GetAt(0)=='&')then
+			p_sMsg.Delete(0);
+			iChatState = 2;
+		elseif(p_sMsg.GetAt(0)=='§')then
+			p_sMsg.Delete(0);
+			iChatState = 3;
+		elseif(p_sMsg.GetAt(0)=='$')then
+			p_sMsg.Delete(0);
+			iChatState = 4;
+		endif;
+		*/
+		if(p_sMsg.Find(">MsgWhisper<")!=-1)then
+			p_sMsg.Replace(">MsgWhisper<",CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_Whispers"));
+		endif;
+		if(p_sMsg.Find(">MsgEnemies<")!=-1)then
+			p_sMsg.Replace(">MsgEnemies<",CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_To_Enemies"));
+		endif;
+		if(p_sMsg.Find(">MsgAllies<")!=-1)then
+			p_sMsg.Replace(">MsgAllies<",CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_To_Allies"));
+		endif;
+		if(p_sMsg.Find("_UI_PlLiWind_Msg_Gamestartingnow")!=-1)then
+			p_sMsg.Replace("_UI_PlLiWind_Msg_Gamestartingnow",CLocalizer.Get().Translate("_UI_PlLiWind_Msg_Gamestartingnow"));
+		endif;
+		if(p_sMsg.Find("_UI_PlLiWind_Option_Gamestarting")!=-1)then
+			p_sMsg.Replace("_UI_PlLiWind_Option_Gamestarting",CLocalizer.Get().Translate("_UI_PlLiWind_Option_Gamestarting"));
+		endif;
+		if(p_sMsg.Find("_UI_PlLiWind_Msg_Startaborted")!=-1)then
+			p_sMsg.Replace("_UI_PlLiWind_Msg_Startaborted",CLocalizer.Get().Translate("_UI_PlLiWind_Msg_Startaborted"));
+		endif;
+		if(m_iLastColor==1)then
+			m_iLastColor=2;
+		else 
+			m_iLastColor=1;
+		endif;
+		p_sMsg.Replace(":und:","&");
+		p_sMsg.Replace(":cr:","\\{cogiw_"+m_iLastColor.ToString()+"}");
+		p_sMsg = "\\{fixed}\\{cogiw_"+m_iLastColor.ToString()+"}"+p_sMsg+"\\{/fixed}\\{p}";
+		m_sChatMessages+=p_sMsg;
+		m_pxChatList^.SetText(m_sChatMessages);
+		OnResize();
+	endproc;
+	
+	proc bool OnResize()
+		super.OnResize();
+		m_pxChatList^.OnUpdateContent();
+		if(m_bScrollToEnd)then
+			m_pxChatList^.ScrollToV(999999999);
+		endif;
+		return true;
+	endproc;
+	
+	proc bool EvaluateMsg(string p_sMsg)
+		var string sMsg = p_sMsg;
+		var string sAdmin = "&System";
+		if(sMsg.GetLength()<=0)then return false; endif;
+		if(sMsg.GetLength()==1 && sMsg.GetAt(0)=='/')then return false; endif;
+		if(sMsg.GetAt(0)=='/')then
+			sMsg.Delete(0);
+			var int iIndex = sMsg.Find(" ");
+			if(iIndex==-1)then
+				iIndex = sMsg.GetLength();
+			endif;
+			var string sCommand = sMsg.Left(iIndex);
+			sMsg.Delete(0,iIndex+1);
+			if(Compare("whisper",sCommand))then
+				var string sName;
+				if(!ExtractPlayerName(sMsg,sName))then 
+					OnChatMsg(sAdmin+CLocalizer.Get().Translate("_UI_ChatWind_Msg_Playernamenotfound"));
+					return true;
+				endif;
+				if(sName==m_sOwnName)then
+					OnChatMsg(sAdmin+CLocalizer.Get().Translate("_UI_ChatWind_Msg_Youcantwhispertoyourself"));
+					return true;
+				endif;
+				
+				sMsg.Delete(0,sName.GetLength());
+				sName.Replace("&",":und:");
+				
+				var array ^CPlayerInfoSlot apxList;
+				CMultiPlayerClientMgr.Get().GetPlayerList(apxList);	
+				var int i, iC = apxList.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					if(apxList[i]==null)then continue; endif;
+					if(apxList[i]^.GetName()==sName)then
+						WhisperTo(apxList[i]^.GetIndex(),apxList[i]^.GetName(), sMsg);
+						break;
+					endif;
+				endfor;
+
+				return true;
+			elseif(Compare("who",sCommand))then
+				var string sName;
+				if(sMsg=="Schlachtermanni")then
+					OnChatMsg("He's so f*****g 80's!");
+					return true;
+				endif;
+				if(sMsg=="Lowtec")then
+					OnChatMsg(": He's so f*****g cool!");
+					return true;
+				endif;
+				if(sMsg=="Beulchen")then
+					CEvt_ChatMsg.Send(": She's so f*****g uber!");
+					return true;
+				endif;
+				if(sMsg=="Deca")then
+					CEvt_ChatMsg.Send(": Beulchen says hello to her friend Deca :)");
+					return true;
+				endif;
+				if(sMsg=="TechGirl")then
+					CEvt_ChatMsg.Send(": TechGirl's better then all of them!");
+					return true;
+				endif;
+				if(sMsg=="Zidell")then
+					CEvt_ChatMsg.Send(": He's a non-binary bool variable.");
+					return true;
+				endif;
+				
+				if(!ExtractPlayerName(sMsg,sName))then
+					OnChatMsg(sAdmin+CLocalizer.Get().Translate("_UI_ChatWind_Msg_Playernamenotfound"));
+					return true;
+				endif;
+				
+				if(sName==m_sOwnName)then
+					OnChatMsg(sAdmin+CLocalizer.Get().Translate("_UI_ChatWind_Msg_Youcantwhispertoyourself"));
+					return true;
+				endif;
+				ShowStats(sName);
+				return true;
+			else
+				//OnChatMsg(sAdmin+CLocalizer.Get().Translate("_UI_ChatWind_Msg_UnknownCommand")+sCommand);
+				return false;
+			endif;
+			
+		endif;
+		return false;
+	endproc;
+	
+	proc void ShowStats(string p_sName)
+		OnChatMsg("&ShowStats("+p_sName+")");
+	endproc;
+	
+	proc bool ExtractPlayerName(string p_sMsg, ref string p_rsName)
+		var array ^CPlayerInfoSlot apxList;
+		CMultiPlayerClientMgr.Get().GetPlayerList(apxList);
+		var int i, iC = apxList.NumEntries();
+		var int iMaxLength = -1;
+		var string sMatch;
+		for(i=0)cond(i<iC)iter(i++)do
+			
+			if(apxList[i]==null)then continue; endif;
+			var string sName = apxList[i]^.GetName();
+			if(!Compare(p_sMsg,sName))then continue; endif;
+
+			var int iLength = sName.GetLength();
+			
+			if(iLength>iMaxLength)then
+				iMaxLength = iLength;
+				sMatch = sName;
+				break;
+			endif;
+			
+		endfor;
+		if(sMatch.IsEmpty())then
+			return false;
+		endif;
+		p_rsName = sMatch;
+		return true;
+		
+	endproc;
+	
+	export proc bool Compare(string p_sSource, string p_sCompare)
+		p_sSource.MakeLower();
+		p_sCompare.MakeLower();
+		while(p_sSource.GetLength()>0 && p_sCompare.GetLength()>0)do
+			if(p_sSource.GetAt(0)!=p_sCompare.GetAt(0))then
+				return false;
+			endif;
+			p_sSource.Delete(0);
+			p_sCompare.Delete(0);
+		endwhile;
+		return true;
+	endproc;
+	
+	export proc bool ReInit()
+		CGameWrap.SetProcRefOnChatMsg(OnChatMsg);
+		return(true);
+	endproc;
+	
+	proc string GetUserName()
+		var string sUser;
+		var ^CUserProfileList pxList=^(CClientWrap.GetUserProfileList());
+		if(pxList!=null)then
+			sUser=pxList^.GetCurrentProfile()^.GetUserName();
+			if(sUser=="")then
+				sUser=Windows.GetUserName();
+				CSettings.Set("Game/PlayerName",sUser);
+			endif;
+		endif;
+		return sUser;
+	endproc;
+	
+	export proc bool OnChangeAutoScroll()
+		if(m_pxAutoScroll^.GetChecked()==1)then
+			m_bScrollToEnd=true;
+			m_pxChatList^.ScrollToV(999999999);
+		else
+			m_bScrollToEnd=false;
+		endif;
+		return true;
+	endproc;
+	
+endclass;

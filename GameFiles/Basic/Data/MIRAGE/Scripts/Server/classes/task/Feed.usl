@@ -1,0 +1,174 @@
+class CFeed inherit CTask
+
+	var CObjHndl	m_xAnimal;
+	var CObjHndl	m_xFood;
+	var string		m_sState;
+	var bool			m_bObjFood;
+	var vec3			m_vFeedPos;
+	var int				m_iFeedLoops;
+	var int				m_iAnimLoops;
+	var bool			m_bFirstHit;
+
+	export constructor()
+		SetName("Feed");
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Feed";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xAnimal.DoKArc(pxArc^);
+		m_xFood.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_bObjFood;
+		(pxArc^) << m_vFeedPos;
+		(pxArc^) << m_iFeedLoops;
+		(pxArc^) << m_iAnimLoops;
+		(pxArc^) << m_bFirstHit;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Feed")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xAnimal.DoKArc(pxArc^);
+			m_xFood.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_bObjFood;
+			(pxArc^) << m_vFeedPos;
+			(pxArc^) << m_iFeedLoops;
+			(pxArc^) << m_iAnimLoops;
+			(pxArc^) << m_bFirstHit;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xAnimal,CObjHndl p_xFood)
+		if(!p_xAnimal.IsValid())then
+			return false;
+		endif;
+		SetName("Feed");
+		m_xAnimal=p_xAnimal;
+		m_bObjFood=true;
+		m_xFood=p_xFood;
+		return true;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xAnimal,vec3 p_vPos)
+		if(!p_xAnimal.IsValid())then
+			return false;
+		endif;
+		SetName("Feed");
+		m_xAnimal=p_xAnimal;
+		m_bObjFood=false;
+		m_vFeedPos=p_vPos;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CAnimal pxAnimal=cast<CAnimal>(m_xAnimal.GetObj());
+		if(pxAnimal==null)then
+			EndTask();
+			return;
+		endif;
+		var ^CGameObj pxFood=m_xFood.GetObj();
+		if(m_bObjFood)then
+			// want to feed object but no there already
+			if(pxFood==null)then
+				EndTask();
+				return;
+			endif;
+			var vec3 vPos=pxFood^.GetPos();
+			if(pxFood^.GetType()=="TREE")then
+				vPos=GetAdoptedDest(pxAnimal^.GetPos(),vPos,2.0f);
+			endif;
+			m_vFeedPos=vPos;
+		endif;
+		m_sState="goto_food";
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CAnimal pxAnimal=cast<CAnimal>(m_xAnimal.GetObj());
+		if(pxAnimal==null)then
+			EndTask();
+			return;
+		endif;
+		var ^CGameObj pxFood=m_xFood.GetObj();
+		// want to feed object but no there already
+		if(m_bObjFood && (pxFood==null))then
+			EndTask();
+			return;
+		endif;
+		if(m_sState=="goto_food")then
+/*			if(pxFood!=null)then
+				CSrvWrap.LogSpam("Feed","lecker: "+pxFood^.GetName());
+			endif;*/
+			pxAnimal^.WalkAction(m_vFeedPos);
+			m_sState="check_pos";
+		elseif(m_sState=="check_pos")then
+			var vec3 vOwnPos=pxAnimal^.GetPos();
+			if((m_vFeedPos-vOwnPos).Abs2()>(5.0f*5.0f))then
+				pxAnimal^.WaitAction(5.0f);
+				m_sState="end";
+			else
+				if(m_bObjFood)then
+					m_sState="rotate2food";
+				else
+					m_sState="feed";
+					m_iFeedLoops=(Random.GetInt()%5)+2;
+					m_iAnimLoops=(Random.GetInt()%8)+3;
+				endif;
+			endif;
+		elseif(m_sState=="rotate2food")then
+			pxAnimal^.Rotate2Obj(m_xFood);
+			m_sState="feed";
+			m_iFeedLoops=(Random.GetInt()%5)+2;
+			m_iAnimLoops=(Random.GetInt()%8)+3;
+		elseif(m_sState=="feed")then
+			if(m_iAnimLoops<=0)then
+				if(m_iFeedLoops<=0)then
+					m_sState="end";
+				else
+					m_iFeedLoops--;
+					Random.Seed();
+					m_iAnimLoops=(Random.GetInt()%8)+3;
+					m_bFirstHit=true;
+					pxAnimal^.SetIdleAnim();
+				endif;
+			else
+				m_iAnimLoops--;
+				if(pxAnimal^.HasAnim("feeding"))then
+					pxAnimal^.AnimAction("feeding",1,m_bFirstHit,m_iAnimLoops==0);
+				endif;
+				if(m_bFirstHit)then m_bFirstHit=false; endif;
+
+				var real fFeededHitpoints=pxAnimal^.GetDmg();
+				// let food loose resources
+				var ^CFood pxFoodObj=cast<CFood>(pxFood);
+				if(pxFoodObj!=null)then
+					fFeededHitpoints=pxFoodObj^.Mine(pxAnimal^.GetDmg());
+				endif;
+				pxAnimal^.AddHitpoints(fFeededHitpoints/2.0f);
+			endif;
+		elseif(m_sState=="end")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+/*
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+	endproc;
+*/
+	export proc bool Break()
+		if(m_xAnimal.IsValid())then
+			m_xAnimal.GetObj()^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+
+endclass;

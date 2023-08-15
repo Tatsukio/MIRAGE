@@ -1,0 +1,412 @@
+class CWallController inherit CInputController
+
+	var bool		m_bActive;
+	var string 		m_sGfxClass;
+	var string 		m_sClass;
+	var bool		m_bWall;
+	var bool		m_bGate;
+	var bool 		m_bRallyPoint;
+	var bool		m_bCoastal;
+
+	var bool		m_bRotateBegin;
+	var bool		m_bPlaceBegin;
+
+	var bool		m_bValid;
+
+	var vec3		m_vPlacement;
+	var point		m_xMousePlacement;
+
+	var int				m_iLastTileIdx;
+	var CWallMap.CWall	m_xWall;
+
+	var int			m_iOwner;
+
+	export constructor()
+		m_bActive=false;
+		m_bValid=false;
+
+		m_bWall=false;
+		m_bGate=false;
+		m_bCoastal=false;
+		m_bRallyPoint=false;
+		m_vPlacement={0.0,0.0,0.0};
+
+		m_bRotateBegin = false;
+		m_bPlaceBegin = false;
+
+		m_iLastTileIdx=0;
+		m_iOwner=-1;
+	endconstructor;
+
+	export proc void Render()
+		if(!m_bActive || m_bValid)then return; endif;
+		if(!m_bWall)then
+			if(!m_bRotateBegin)then
+				CheckPlacebility();
+			endif;
+		else
+			AddWall();
+		endif;
+		m_bValid=true;
+	endproc;
+
+	export proc void SetOwner(int p_iOwner)
+		m_iOwner = p_iOwner;
+	endproc;
+
+	export proc void SetClass(string p_sObjClass)
+		/*
+		var ^CPlayer pxPlayer = ^(CGameWrap.GetClient().GetPlayer());
+		if(pxPlayer==null)then
+			CGameWrap.LogError("Controller.Place","Player invalid!");
+			return;
+		endif;
+
+		var CTechTree xTechTree = pxPlayer^.GetPlayerTechTree();
+		var string sObjGfx = xTechTree.GetValueS(p_sObjClass+"/gfx","Dummy");
+
+		if(sObjGfx=="Dummy")then
+			CGameWrap.LogError("Controller.Place","Invalid Gfx: "+p_sObjClass);
+			return;
+		endif;
+		*/
+
+		m_bActive = true;
+		m_bValid = false;
+
+		m_sGfxClass = p_sObjClass;
+
+
+		//m_bWall = (xTechTree.GetValueI(p_sObjClass+"/wall",0) != 0);
+		//m_bGate = (xTechTree.GetValueI(p_sObjClass+"/gate",0) != 0);
+
+		//Hack until TT and Player are available in Editor
+		if((m_sGfxClass.Find("_Gate")==-1) && (m_sGfxClass.Find("_gate")==-1))then
+			m_bWall=true;
+			m_bGate=false;
+		else
+			m_bWall=false;
+			m_bGate=true;
+		endif;
+
+/*		if(m_bGate)then
+			m_bWall=true;
+		endif;
+*/
+		//m_bCoastal = (xTechTree.GetValueI(p_sObjClass+"/coastal",0) != 0);
+
+		m_bCoastal=false;
+
+		m_sClass = p_sObjClass.Mid(p_sObjClass.FindRev('/')+1);
+
+		if(/*m_bWall || */m_bGate)then
+			m_sGfxClass = m_sClass;
+		endif;
+
+		if(p_sObjClass == "RallyPoint") then
+   			m_bRallyPoint=true;
+   		else
+   			m_bRallyPoint=false;
+ 		endif;
+
+		m_vPlacement = GetPickpoint();
+		if(m_bWall)then
+			// wall specific
+			m_bPlaceBegin=false;
+			CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap()^.EnableGridRendering(true);
+		else
+			CClientWrap.GetObjMgr().CreateGhost(m_sGfxClass);
+			CClientWrap.GetObjMgr().GetObjPlaceChecker()^.EnableGridRendering(true);
+		endif;
+		CWindowMgr.Get().BringWindowToTop(CClientWrap.GetDesktop(),true);
+		CMainController.Get().SetState(9);
+	endproc;
+
+	export proc bool HandleMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+		if(p_dwType==CInputController.MT_Tick)then return false;
+		elseif(p_dwType==CInputController.MT_MouseWheel)then return false;
+		elseif(p_dwType==CInputController.MT_MouseMBtnDown)then return false;
+		elseif(p_dwType==CInputController.MT_MouseMBtnUp)then return false;
+		elseif(p_dwType==CInputController.MT_MouseMBtnDoubleClick)then return false;
+		endif;
+
+		var bool bCtrl	= ((p_dwFlags&Msg.KM_CONTROL)!=0d);
+		var bool bShift	= ((p_dwFlags&Msg.KM_SHIFT)!=0d);
+		var bool bAlt	= ((p_dwFlags&Msg.KM_ALT)!=0d);
+		CLevelEditorWrap.LogSpam("Controller.Place","HandleMsg "+p_dwType.ToString()+" | "+p_iKey.ToString()+" | "+bCtrl.ToString()+" "+bShift.ToString()+" "+bAlt.ToString());
+
+		if(m_bRotateBegin && !bShift)then
+			m_bRotateBegin=false;
+		endif;
+
+		if(m_bActive)then
+			if(p_dwType==CInputController.MT_MouseLBtnDown && !m_bPlaceBegin)then
+				m_vPlacement = GetPickpoint();
+				m_bPlaceBegin=true;
+			elseif(p_dwType==CInputController.MT_MouseRBtnDown)then
+				SetActive(false);
+				return true;
+			endif;
+
+			if(!m_bWall)then
+				if(p_dwType==CInputController.MT_MouseMove)then
+					if(!bShift)then
+						m_xMousePlacement.SetX(p_iX);
+						m_xMousePlacement.SetY(p_iY);
+						MoveGhost();
+					else
+						RotateGhost(p_iX,p_iY);
+						m_bRotateBegin=true;
+						CWindowMgr.Get().SetMousePosNoMMove(m_xMousePlacement);
+					endif;
+				elseif(p_dwType==CInputController.MT_MouseLBtnUp) then
+					m_vPlacement = GetPickpoint();
+					var bool bPlaced=PlaceGhost(bCtrl);
+					SetActive(!bPlaced || bCtrl);
+					m_bPlaceBegin=false;
+					return true;
+				endif;
+			else
+				if(!m_bPlaceBegin)then
+					m_vPlacement = GetPickpoint();
+				endif;
+				if(p_dwType==CInputController.MT_MouseLBtnUp) then
+					if(!bShift)then
+						PlaceWall();
+						SetActive(bShift);
+					else
+						m_vPlacement = GetPickpoint();
+						m_iLastTileIdx=m_xWall.NumTiles();
+					endif;
+					return true;
+				endif;
+			endif;
+			m_bValid=false;
+		endif;
+
+		var bool bReturn = m_bActive||m_bPlaceBegin;
+
+		if(m_bPlaceBegin && p_dwType==CInputController.MT_MouseLBtnUp)then
+			m_bPlaceBegin=false;
+		endif;
+
+		return bReturn;
+	endproc;
+
+	export proc void SetActive(bool p_bStatus)
+		if(!p_bStatus)then
+			var CClntHndl xInvalid;
+			m_bActive = false;
+			m_bWall = false;
+			m_bCoastal=false;
+			CClientWrap.GetObjMgr().DeleteGhost();
+			m_iLastTileIdx=0;
+			m_xWall.Clear();
+			CClientWrap.GetObjMgr().GetObjPlaceChecker()^.EnableGridRendering(false);
+			CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap()^.EnableGridRendering(false);
+			CMainController.Get().SetState(-1);
+		else
+			var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
+			if(pxGhost==null)then return; endif;
+//			m_bActive = true;
+			m_vPlacement = {0.0,0.0,0.0};
+//			m_bPlaceBegin = false;
+			CMainController.Get().SetState(9);
+		endif;
+		m_bValid=false;
+		m_bRotateBegin = false;
+//		m_bPlaceBegin=false;
+	endproc;
+
+	export proc void RotateGhost(int p_iX, int p_iY)
+		if (m_bCoastal || m_bGate) then return; endif;
+		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
+		if(pxGhost==null)then return; endif;
+		var vec3 vRotation = pxGhost^.GetRotation();
+		var int iDiffX = (p_iX - m_xMousePlacement.GetX())%360;
+		vRotation.SetZ(vRotation.GetZ()+(iDiffX.ToReal()/360.0)*Math.Pi()*2.0);
+		CLevelEditorWrap.LogSpam("Controller.Place","RotateGhost rot:"+vRotation.ToString());
+		pxGhost^.SetRotation(vRotation);
+	endproc;
+
+	export proc void MoveGhost()
+		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
+		if(pxGhost==null)then return; endif;
+		if(m_bGate)then
+			CClientWrap.GetObjMgr().CreateGhost(m_sGfxClass);
+			pxGhost=CClientWrap.GetObjMgr().GetGhost();
+			if(pxGhost==null)then return; endif;
+		endif;
+		var vec3 vPickpoint = GetPickpoint();
+		if(vPickpoint!={0.0,0.0,0.0})then
+			if (m_bCoastal) then
+
+				var vec3 vNewPos;
+				var Quat qNewRot;
+				if (CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(pxGhost^.GetGhostClass(), vPickpoint, vNewPos, qNewRot) ) then
+					pxGhost^.SetPos(vNewPos);
+					pxGhost^.SetRot(qNewRot);
+					pxGhost^.SetColor({{0,255,0,255}});
+				else
+					pxGhost^.SetPos(vNewPos);
+					if (vNewPos!=vPickpoint) then
+						pxGhost^.SetRot(qNewRot);
+					endif;
+					pxGhost^.SetColor({{255,0,0,255}});
+				endif;
+
+			else
+				pxGhost^.SetPos(vPickpoint);
+			endif;
+		endif;
+		m_vPlacement=vPickpoint;
+	endproc;
+
+	proc void CheckPlacebility()
+		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
+		if(pxGhost==null)then return; endif;
+		pxGhost^.SetColored(true);
+		if(m_bGate)then
+			m_xWall.Clear();
+			var ^CWallMapCln pxWM=CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap();
+			var bool bFound=pxWM^.CalcWall(m_iOwner,m_sClass,m_vPlacement,m_vPlacement,m_xWall);
+			if(bFound)then
+				pxWM^.PreviewWall(m_xWall,m_sGfxClass,{{0,255,0,255}});
+			else
+				pxGhost^.SetColor({{255,0,0,255}});
+			endif;
+/*			var vec3 vPos,vRot;
+			if(CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap()^.GetValidGatePos(pxGhost^.GetPos(),1,vPos,vRot))then
+				pxGhost^.SetPos(vPos);
+				pxGhost^.SetRotation(vRot);
+				pxGhost^.SetColor({{0,255,0,255}});
+			else
+				pxGhost^.SetColor({{255,0,0,255}});
+			endif;*/
+		elseif(m_bCoastal)then
+
+
+		else
+			if(CClientWrap.GetObjMgr().GetObjPlaceChecker()^.Check(pxGhost^.GetGhostClass(),pxGhost^.GetPos(),pxGhost^.GetRotation() ))then
+				pxGhost^.SetColor({{0,255,0,255}});
+			else
+				pxGhost^.SetColor({{255,0,0,255}});
+			endif;
+		endif;
+	endproc;
+
+	export proc void AddWall()
+		var vec3 vPickpoint = GetPickpoint();
+		if(vPickpoint=={0.0,0.0,0.0})then return; endif;
+//		var int iCnt=m_xWall.NumTiles()-m_iLastTileIdx;
+//		m_xWall.ClearLast(iCnt);
+		var ^CWallMapCln pxWM=CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap();
+		var bool bFound=pxWM^.CalcWall(m_iOwner,m_sClass,m_vPlacement,vPickpoint,m_xWall,m_iLastTileIdx);
+		/// todo: check resources for all tiles present
+		pxWM^.EnableGridRendering(bFound);
+		pxWM^.PreviewWall(m_xWall,m_sGfxClass,{{0,255,0,255}});
+		if(bFound)then
+			pxWM^.PreviewWall(m_xWall,m_sGfxClass,{{0,255,0,255}});
+			pxWM^.ShowPlacement(m_xWall,vPickpoint);
+		endif;
+	endproc;
+
+	export proc void PlaceWall()
+		var ^CObjList pxSel = ^(CClientWrap.GetSelection());
+		CEvt_PlaceWallLE.Send(m_xWall,pxSel^,false,m_iOwner);
+		m_xWall.Clear();
+	endproc;
+
+	export proc bool PlaceGhost(bool p_bQueued)
+		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
+		var ^CObjList pxSel = ^(CClientWrap.GetSelection());
+
+		if(pxGhost==null)then return false; endif;
+
+		if (m_bRallyPoint) then
+			m_bRallyPoint = false;
+			var CClntHndl xInvalid;
+			var int i,iC=pxSel^.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				CEvt_GamePlayCommand.Send(pxSel^[i], "SetRallyPoint", xInvalid, m_vPlacement, "");
+			endfor;
+			return true;
+		endif;
+
+		if(m_vPlacement!={0.0,0.0,0.0})then
+			if(m_bGate)then
+				var ^CObjList pxSel = ^(CClientWrap.GetSelection());
+				CEvt_PlaceWallLE.Send(m_xWall,pxSel^,p_bQueued,m_iOwner);
+				m_xWall.Clear();
+				CClientWrap.GetObjMgr().DeleteGhost();
+				return true;
+			elseif(m_bCoastal)then
+
+				var vec3 vNewPos;
+				var Quat qNewRot;
+				var vec3 vPickpoint = GetPickpoint();
+
+				if (CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(pxGhost^.GetGhostClass(), vPickpoint, vNewPos, qNewRot) ) then
+					pxGhost^.SetPos(vNewPos);
+					pxGhost^.SetRot(qNewRot);
+					CEvt_PlaceObj.Send(m_sClass,m_vPlacement,pxGhost^.GetRotation(),pxSel^,p_bQueued);
+					return true;
+				else
+					pxGhost^.SetPos(vPickpoint);
+					pxGhost^.SetColor({{255,0,0,255}});
+					//CFeedback.Print(CLocalizer.Get().Translate("_PlaceController_Object"));
+					return false;
+				endif;
+
+			else
+				if(!CClientWrap.GetObjMgr().GetObjPlaceChecker()^.Check(pxGhost^.GetGhostClass(),m_vPlacement,pxGhost^.GetRotation()))then
+					//CFeedback.Print(CLocalizer.Get().Translate("_PlaceController_Object"));
+					return false;
+				endif;
+	/*			if(bCoastal)then
+					var Quat qRot = pxGhost^.GetRot();
+					var mat4 mRotMat;
+					qRot.ToMat4(mRotMat);
+					var vec3 vDir;
+					vDir.SetX(mRotMat.Get(1,0));
+					vDir.SetY(mRotMat.Get(1,1));
+					vDir.SetZ(0.0f);
+					vDir.Normalize();
+					var vec3 vTestVec = m_vPlacement + (vDir * 15.0f );
+					vTestVec.SetZ(vTestVec.GetZ()-3.0f);
+					CGameWrap.LogSpam("USL.PlaceController", vTestVec.ToString());
+					if (m_vPlacement.GetZ() > CClientWrap.GetScapeMgr().GetSeaLevel() )then
+						var real fHeight = CClientWrap.GetScapeMgr().GetHeight(vTestVec.GetX(), vTestVec.GetY());
+						if ( vTestVec.GetZ() < CClientWrap.GetScapeMgr().GetSeaLevel()) then
+							CEvt_PlaceObj.Send(pxGhost^.GetGhostClass(),m_vPlacement,pxGhost^.GetRotation(),pxSel^,p_bQueued);
+							return true;
+						else
+							CFeedback.Print(CLocalizer.Get().Translate("_PlaceController_Harbour"));
+						endif;
+					else
+						CFeedback.Print(CLocalizer.Get().Translate("_PlaceController_Harbour"));
+					endif;
+					return false;
+				else*/
+					CEvt_PlaceObj.Send(m_sClass,m_vPlacement,pxGhost^.GetRotation(),pxSel^,p_bQueued);
+	//			endif;
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+
+	proc vec3 GetPickpoint()
+		var vec3 vPos=CClientWrap.GetScapeMgr().GetPickPoint();
+		if(m_bCoastal)then
+			vPos.SetZ(Math.Max(vPos.GetZ(),CClientWrap.GetScapeMgr().GetSeaLevel()));
+		endif;
+/*		if(m_bGate)then
+			vPos.SetX(((vPos.GetX()/8.0).ToInt()*8).ToReal());
+			vPos.SetY(((vPos.GetY()/8.0).ToInt()*8).ToReal());
+			vPos.SetZ(CClientWrap.GetScapeMgr().GetHeight(vPos.GetX(),vPos.GetY()));
+		endif;*/
+		return vPos;
+	endproc;
+
+endclass;

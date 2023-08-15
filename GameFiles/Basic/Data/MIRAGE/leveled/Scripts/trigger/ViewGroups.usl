@@ -1,0 +1,287 @@
+class CViewGroups inherit CEnhancedFrameWindow
+	
+	var ^CList		m_pxGroups;
+	var ^CEdit		m_pxName;
+	var ^CButton	m_pxAdd, m_pxEdit, m_pxRem;
+	
+	class CGroupItem inherit CItemData
+		export var CClntHndl	m_xHndl;
+	endclass;
+	
+	var array CGroupItem m_axItems;
+	
+	var ^CViewTriggerCreate m_pxTriggerWnd;
+	
+	export constructor(^CViewTriggerCreate p_pxTriggerWnd)
+		m_pxTriggerWnd = p_pxTriggerWnd;
+		if(!InitFromResource("Trigger/ViewGroups","GroupsWindow")) then
+			CLevelEditorWrap.LogError("UI.ViewActionCreate","InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxGroups = cast<CList>(GetControl("List_Groups"));
+		m_pxName = cast<CEdit>(GetControl("Edit_Name"));
+		m_pxAdd = cast<CButton>(GetControl("Btn_Add"));
+		m_pxEdit = cast<CButton>(GetControl("Btn_Edit"));
+		m_pxRem = cast<CButton>(GetControl("Btn_Rem"));
+		
+		m_pxGroups^.m_xOnSelect = OnSelectGroup;
+		m_pxName^.m_xOnChange = OnChangeName;
+		m_pxAdd^.m_xOnClick = OnAdd;
+		m_pxRem^.m_xOnClick = OnRem;
+		m_pxEdit^.m_xOnClick = OnEdit;
+		
+		UpdateGroupList();
+	endconstructor;
+	
+	export destructor()
+		if(m_pxTriggerWnd!=null) then
+			m_pxTriggerWnd^.m_pxGroupWnd = null;
+		endif;
+	enddestructor;
+	
+	proc bool OnSelectGroup()
+		var CClntHndl xHndl = GetSelectedGroup();
+		if(xHndl.IsValid()) then
+			var ^CObj pxO = xHndl.GetObj();
+			if(pxO!=null) then
+				m_pxName^.SetText(pxO^.GetName());
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+	proc bool OnChangeName()
+		var string sName = m_pxName^.GetText();
+		if(m_pxGroups^.FindItem(sName)>=0) then return false; endif;
+		
+		var CClntHndl xHndl = GetSelectedGroup();
+		if(xHndl.IsValid()) then
+			var ^CObj pxO = xHndl.GetObj();
+			if(pxO!=null) then
+				pxO^.SetName(sName);
+				var int iSel = m_pxGroups^.GetSelectedItem();
+				m_pxGroups^.SetItemText(iSel, sName);
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+	proc void UpdateGroupList()
+		m_axItems=0;
+		m_pxGroups^.Clear();
+		
+		var ^CViewObjFinder pxFinder=CEnhancedMenu.Get().GetObjFinder();
+		if(pxFinder==null)then return; endif;
+		var ^CList pxList=pxFinder^.GetObjList();
+		if(pxList==null)then return; endif;
+
+		var int i,iC=pxList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CFinderItemObject pxItem=cast<CFinderItemObject>(pxList^.GetItemData(i));
+			if(pxItem==null)then continue; endif;
+			var CClntHndl xObjHndl=pxItem^.GetHndl();
+			var ^CObj pxObj=xObjHndl.GetObj();
+			if(pxObj==null)then continue; endif;
+			
+			if(pxObj^.GetType()=="GROU") then
+				OnGroupCreated(xObjHndl);
+			endif;
+		endfor;
+	endproc;
+	
+	proc bool OnAdd()
+		var CGuid xG;
+		xG.Generate();
+		var vec3 vP={0.0f,0.0f,0.0f};
+		CEvt_CreateObj.Send("GroupObject", -1, xG, vP);
+		return true;
+	endproc;
+	
+	proc bool OnRem()
+		var CClntHndl xHndl = GetSelectedGroup();
+		if(xHndl.IsValid()) then
+			CEvt_DeleteEntry.Send(xHndl.GetObj()^.GetGuid());
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnEdit()
+		var ^CEditGroup pxWnd = new CEditGroup(GetSelectedGroup());
+		CClientWrap.GetDesktop()^.AddChild(pxWnd);
+		pxWnd^.SetModal();
+		CWindowMgr.Get().BringWindowToTop(pxWnd,true);
+		return true;
+	endproc;
+	
+	export proc CClntHndl GetSelectedGroup()
+		var int iSel = m_pxGroups^.GetSelectedItem();
+		if(iSel>=0) then
+			var ^CGroupItem pxItem = cast<CGroupItem>(m_pxGroups^.GetItemData(iSel));
+			if(pxItem!=null) then
+				return pxItem^.m_xHndl;
+			endif;
+		endif;
+		var CClntHndl xInvalid;
+		return xInvalid;
+	endproc;
+	
+	export proc bool OnClose()
+		super.OnClose();
+		Destroy();
+		return true;
+	endproc;
+	
+	export proc void OnGroupCreated(CClntHndl p_xObj)
+		var ^CGroupItem pxItem = ^(m_axItems.NewEntryRef());
+		pxItem^.m_xHndl = p_xObj;
+		var ^CObj pxO = p_xObj.GetObj();
+		if(pxO!=null) then
+			m_pxGroups^.AddItem(pxO^.GetName(), pxItem);
+		endif;
+	endproc;
+	
+	export proc void OnGroupDeleted(CClntHndl p_xObj) 
+		var int i,iC=m_pxGroups^.NumItems();
+		for(i=0) cond(i<iC) iter(++i) do
+			var ^CGroupItem pxItem = cast<CGroupItem>(m_pxGroups^.GetItemData(i));
+			if(pxItem!=null && pxItem^.m_xHndl == p_xObj) then
+				m_pxGroups^.DeleteItem(i);
+				break;
+			endif;
+		endfor;
+	endproc;
+endclass;
+
+class CEditGroup inherit CEnhancedFrameWindow
+	
+	class CUnitItem inherit CItemData
+		export var CClntHndl m_xHndl;
+	endclass;
+	
+	var array CUnitItem			m_axItems;
+	var CClntHndl				m_xGroup;
+	
+	var ^CList					m_pxUnits;
+	var ^CButton				m_pxAdd, m_pxRem;
+	var ^CObjsInWorldTreeCtrl 	m_pxObjs;
+	
+	export constructor(CClntHndl p_xGroup)
+		m_xGroup = p_xGroup;
+		if(!InitFromResource("Trigger/ViewGroups","ViewEditGroup")) then
+			CLevelEditorWrap.LogError("UI.ViewActionCreate","InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxUnits = cast<CList>(GetControl("List_Units"));
+		m_pxAdd = cast<CButton>(GetControl("Btn_Add"));
+		m_pxRem = cast<CButton>(GetControl("Btn_Rem"));
+		m_pxObjs = cast<CObjsInWorldTreeCtrl>(GetControl("Tree_ObjsInWorld"));
+		
+		m_pxAdd^.m_xOnClick = OnAdd;
+		m_pxRem^.m_xOnClick = OnRem;
+		m_pxUnits^.m_xOnLBtnDblClick = OnRem;
+		m_pxObjs^.m_xOnLBtnDblClick = OnAdd;
+		
+		InitUnitsList();
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	proc bool OnAdd()
+		var CClntHndl xHndl = m_pxObjs^.GetSelectedObject();
+		if(xHndl.IsValid()) then
+			var ^CObj pxO = xHndl.GetObj();
+			if(m_pxUnits^.FindItem(pxO^.GetName())>=0) then return false; endif;
+			var ^CUnitItem pxItem = ^(m_axItems.NewEntryRef());
+			if(pxItem!=null) then
+				pxItem^.m_xHndl = xHndl;
+			endif;
+			m_pxUnits^.AddItem(pxO^.GetName(), pxItem);
+			var vec3 vP;
+			CEvt_ObjLECommand.Send(m_xGroup, "AddMember", xHndl, vP, "");
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	proc bool OnRem()
+		var int iSel = m_pxUnits^.GetSelectedItem();
+		if(iSel<0) then return false; endif;
+		var ^CUnitItem pxI = cast<CUnitItem>(m_pxUnits^.GetItemData(iSel));
+		if(pxI==null) then return false; endif;
+		
+		var CClntHndl xHndl = pxI^.m_xHndl;
+		if(xHndl.IsValid()) then
+			var ^CObj pxO = xHndl.GetObj();
+			m_pxUnits^.DeleteItem(iSel);
+			var vec3 vP;
+			CEvt_ObjLECommand.Send(m_xGroup, "RemMember", xHndl, vP, "");
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	proc void InitUnitsList()
+		var ^CObj pxO = m_xGroup.GetObj();
+		if(pxO!=null) then
+			var ^CAttribs pxA = pxO^.GetAttribs();
+			if(pxA==null) then return; endif;
+			
+			var int iStage, iNumStages = pxA^.GetValueInt("num_stages");
+			for(iStage=0) cond(iStage<iNumStages) iter(++iStage) do
+				var string sData = pxA^.GetValue("member_hndl_"+iStage.ToString());
+				var array string asToks;
+				
+				sData.Split(asToks, "|", true);
+				var int i, iC = asToks.NumEntries();
+				for(i=0) cond(i<iC) iter(++i) do
+					var int iHndl = HexString2Int(asToks[i]);
+					var ^CObj pxUnit = CLevelEditorWrap.GetObjMgr().GetMirrorObjFromSrvHandle(iHndl);
+					if(pxUnit!=null) then
+						var ^CUnitItem pxI = ^(m_axItems.NewEntryRef());
+						pxI^.m_xHndl = pxUnit^.GetHandle();
+						m_pxUnits^.AddItem(pxUnit^.GetName(), pxI);
+					endif;
+				endfor;
+			endfor;
+		endif;
+	endproc;
+	
+	proc int HexString2Int(string p_sVal)
+		var int iSum=0;
+		var int i = p_sVal.GetLength()-1;
+		var int iP=0;
+		for(i=i) cond(i>=0) iter(--i) do
+			var char cA = p_sVal.GetAt(i);
+			var int iVal;
+			if(cA>='0'&&cA<='9') then
+				iVal=(cA-('0').ToInt()).ToInt();
+			else
+				iVal=10+(cA-('A').ToInt()).ToInt();
+			endif;
+			iSum+=iVal*(pow(16,iP));
+			++iP;
+		endfor;
+		return iSum;
+	endproc;
+	
+	proc int pow(int p_iVal, int p_iExp)
+		if(p_iExp==0) then return 1; endif;
+		var int iVal=p_iVal;
+		var int i, iC = p_iExp;
+		for(i=1) cond(i<iC) iter(++i) do
+			iVal*=p_iVal;
+		endfor;
+		return iVal;
+	endproc;
+	
+	export proc bool OnClose()
+		super.OnClose();
+		Destroy();
+		return true;
+	endproc;
+endclass;

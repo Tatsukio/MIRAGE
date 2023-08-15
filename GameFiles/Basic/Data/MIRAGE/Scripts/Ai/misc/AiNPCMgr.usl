@@ -1,0 +1,212 @@
+class CAiNPCMgr inherit CAiGoal
+
+	var CAiObjWrapList		m_xNPCs;
+	var CAiObjWrap				m_xFortuneCookie;
+	var CAiObjWrap				m_xPoolMixer;
+	var array string			m_asValidNPCs;
+	var array string			m_asCurrentNPCs;
+
+	///constructor
+	export constructor()
+		m_xPoolMixer.FromInt(-1);
+		var CPropDB xDB;
+		if(xDB.Load(CMirageAIMgr.Get().GetURSPath()+"/Data/Base/Scripts/Server/settings/NPCList.txt"))then
+			var ^CPropDB.CNode pxHeroes=^(xDB.GetRoot());
+			if(pxHeroes!=null)then
+				var int i, iC=pxHeroes^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					var string sName=(pxHeroes^)[i].Name();
+					if(sName!="Barry_s0"&&sName!="Harry_s0"&&sName!="schliemann_zombie")then
+						m_asValidNPCs.AddEntry(sName);
+					endif;
+				endfor;
+			endif;
+		endif;
+	endconstructor;
+	
+	///destructor
+	export destructor()
+		m_xPoolMixer.FromInt(-1);
+	enddestructor;
+	
+	///Init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		super.Init(p_pxBrain);
+		SetThinkWait(5);
+		return true;
+	endproc;
+	
+	///Think
+	export proc void Think()
+		UpdatePlayerNPCs();
+	endproc;
+
+	///GetAllNPCs
+	export proc CAiObjWrapList GetAllNPCs()
+//		return GetAllNPCs(false);
+		return GetAllNPCs(true);
+	endproc;
+	
+	///GetAllNPCs
+	export proc CAiObjWrapList GetAllNPCs(bool p_bForceUpdate)
+		if(p_bForceUpdate == true)then
+			UpdatePlayerNPCs();
+		endif;
+		return m_xNPCs;
+	endproc;
+	
+	///AllNPC
+	export proc CAiObjWrap GetNPC(string p_sClass)
+		var CAiObjWrap xNPC;
+		var int i, iC = m_xNPCs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CAiObjWrap xObj = m_xNPCs[i];
+			if(!xObj.IsValid())then return xNPC; endif;
+			if(xObj.GetClassName()==p_sClass)then
+				return xObj;
+			endif;
+		endfor;
+		return xNPC;
+	endproc;
+	
+	///HasNPC-class
+	export proc bool HasNPC(string p_sClass)
+		return HasNPC(p_sClass, -1);
+	endproc;
+	
+	///HasNPC-class-level
+	export proc bool HasNPC(string p_sClass, int p_iLevel)
+		var int i, iC = m_xNPCs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CAiObjWrap xObj = m_xNPCs[i];
+			if(!xObj.IsValid())then return false; endif;
+			if(xObj.GetClassName()==p_sClass)then
+				if(p_iLevel==-1)then
+					return true;
+				elseif(p_iLevel==xObj.GetAttribValueInt("level"))then
+					return true;
+				endif;
+			endif;
+		endfor;
+		return false;
+	endproc;
+	
+	export proc bool NPCRequirementFulfilled(string p_sClass)
+		var int i, iC = m_xNPCs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_xNPCs[i].IsValid())then return false; endif;
+			if(m_xNPCs[i].GetClassName()==p_sClass)then
+				if(m_xNPCs[i].GetAttribValueInt("level")>=3)then
+					return true;
+				endif;
+			endif;
+		endfor;
+		return false;
+	endproc;
+	
+	///UpdatePlayerNPCs
+	export proc void UpdatePlayerNPCs()
+		m_xNPCs.Clear();
+		m_asCurrentNPCs=0;
+		var ^CAiBrain pxBrain = GetAiBrain();
+		if(pxBrain == null)then return; endif;
+		var string sNPCs = pxBrain^.GetPlayerAttrib("NPCList");
+		var array string asHandles;
+		sNPCs.Split(asHandles,";",true);
+		var int i, iC = asHandles.NumEntries();
+		if(iC<=0)then return; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			var CAiObjWrap xObj;
+			xObj.FromInt(asHandles[i].ToInt());
+			if(xObj.IsValid())then
+				m_asCurrentNPCs.AddEntry(xObj.GetClassName());
+				m_xNPCs.Include(xObj);
+			endif;
+		endfor;
+		var int j, iD=m_xNPCs.NumEntries();
+		if(iD<=0)then return; endif;
+		for(j=0)cond(j<iD)iter(j++)do
+			if(!m_xNPCs[j].IsValid())then continue; endif;
+			m_xFortuneCookie = m_xNPCs[j];
+			var ^CAiModuleFightDefault pxModule = cast<CAiModuleFightDefault>(pxBrain^.GetFightModule());
+			if(pxModule!=null)then
+				pxModule^.AddToKindergarten(m_xFortuneCookie, true);
+			endif;
+		endfor;
+	endproc;
+	
+	export proc bool GetStillAvailableHeroes(ref array string po_rasHeroes)
+//		if(true)then return true; endif; // Henry: fortesting heroless games
+		var int i, iC=m_asValidNPCs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_asCurrentNPCs.FindEntry(m_asValidNPCs[i])!=-1)then continue; endif;
+			po_rasHeroes.AddEntry(m_asValidNPCs[i]);
+		endfor;
+		return true;
+	endproc;
+	
+	///HasNPC-class in pool
+	export proc bool NPCLive(string p_sClass)
+		if(m_asValidNPCs.FindEntry(p_sClass)==-1)then
+			return false;
+		endif;
+		if(!m_xPoolMixer.IsValid())then
+			InitMixer();
+		endif;
+		if(m_xPoolMixer.IsValid())then
+			var string sHeroList = m_xPoolMixer.GetAttribValue("Heroes");
+			var array string asHeroes;
+			sHeroList.Split(asHeroes,":",false);
+			var int iEntry = asHeroes.FindEntry(p_sClass);
+			if(iEntry != -1)then
+				return true;
+			elseif(m_xPoolMixer.GetAttribValueInt(p_sClass)!=-2)then
+				return true;
+			endif;
+		endif;
+		return HasNPC(p_sClass, -1);
+	endproc;
+	
+	///NPC-classes in pool selection
+	export proc string GetPoolSelection()
+		var string sSelection = "";
+		if(!m_xPoolMixer.IsValid())then
+			InitMixer();
+		endif;
+		if(m_xPoolMixer.IsValid())then
+			sSelection = m_xPoolMixer.GetAttribValue("AvailableCookies");
+		endif;
+//		CMirageAIMgr.Debug("pool selection: "+sSelection);
+		return sSelection;
+	endproc;
+	
+	export proc bool NPCPreAllocated(string p_sClass)
+//		if(m_asValidNPCs.FindEntry(p_sClass)==-1)then
+//			return false;
+//		endif;
+		if(!m_xPoolMixer.IsValid())then
+			InitMixer();
+		endif;
+		if(m_xPoolMixer.IsValid())then
+			if(m_xPoolMixer.GetAttribValueInt(p_sClass)!=-2)then
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+	proc bool InitMixer()
+		var CAiObjQuery xMixerQuery;
+		var CAiObjWrapList xMixers;
+		xMixers.Clear();
+		xMixerQuery.SetOwner(-1);
+		xMixerQuery.SetClass("pool_mixer");
+		xMixerQuery.Execute(xMixers);
+		xMixers.Validate();
+		var int i, iC=xMixers.NumEntries();
+		if(iC<=0)then return false; endif;
+		m_xPoolMixer = xMixers[0];
+		return true;
+	endproc;
+	
+endclass;

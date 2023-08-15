@@ -1,0 +1,458 @@
+///CAiGoalCollectResources
+class CAiGoalCollectResources inherit CAiGoal
+
+	var ^CAiModuleDefenseDefault	m_pxDM;
+	var ^CAiNodeInstance	m_pxWorkerNI;
+	var ^CAiNodeInstance	m_pxFoodNI;
+	var ^CAiNodeInstance	m_pxWoodNI;
+	var ^CAiNodeInstance	m_pxStoneNI;
+	var ^CAiNodeInstance	m_pxFisherBoatNI;
+	var ^CAiBrain					m_pxBrain;
+	var ^CAiSensor				m_pxSensor;
+	var ^CAiTechTree			m_pxTT;
+	
+	//floating harbour protectors
+	var CAiNeedPtr				m_pxProtectorNeed;
+	var CAiTaskBuildSquad	m_xAllocator;
+	var ^CAiSolution			m_pxSolution;
+	var CAiObjWrap				m_xAjeHarbour;
+	var CAiObjWrap				m_xSeasHarbour;
+	
+	//Paraworldfan added
+	var bool						m_bMultimap;
+	
+	var string				m_sTribe;
+	var string				m_sFishingBoatClass;
+	var string				m_sLevelName;
+	var string				m_sPlayerID;
+	
+	var int						m_iPlayerID;
+	var int						m_iOutpostID;
+	
+	var vec3					m_vStonePos;
+	
+	///constructor
+	export constructor()
+	endconstructor;
+	
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	///Init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		if(super.Init(p_pxBrain)==false)then return false; endif;
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		m_bMultimap=m_pxSensor^.GetMultimap();
+		m_pxTT=GetAiTechTree();
+		if(m_pxTT==null)then return false; endif;
+		m_pxDM=cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		SetThinkWait(1);
+		SetPermanent(true);
+		var CAiAttribs xAttribs;
+		var string sTTPath;
+		var string sTribe = m_pxTT^.GetTribe();
+		m_sTribe = sTribe;
+		sTribe.MakeLower();
+		xAttribs.SetValue("level", "0");
+		sTTPath = "/Objects/" + m_pxTT^.GetTribe() + "/CHTR/" + sTribe + "_worker";
+		m_pxWorkerNI=m_pxTT^.GetNodeInstance(sTTPath, xAttribs);
+		if(m_pxWorkerNI==null)then endif;
+		xAttribs.Clear();
+		m_pxFoodNI=m_pxTT^.GetNodeInstance("food", xAttribs);
+		if(m_pxFoodNI==null)then endif;
+		m_pxWoodNI=m_pxTT^.GetNodeInstance("wood", xAttribs);
+		if(m_pxWoodNI==null)then endif;
+		m_pxStoneNI=m_pxTT^.GetNodeInstance("stone", xAttribs);
+		if(m_pxStoneNI==null)then endif;
+		if(sTribe=="hu")then
+			m_sFishingBoatClass = "hu_fishing_boat";
+		elseif(sTribe=="ninigi")then
+			m_sFishingBoatClass = "ninigi_fishing_boat";
+		elseif(sTribe=="aje")then
+			m_sFishingBoatClass = "aje_floating_harbour";
+		//Henry: added seas carrier
+		elseif(sTribe=="seas")then
+			m_sFishingBoatClass = "seas_carrier";
+		endif;
+		if(!m_sFishingBoatClass.IsEmpty())then
+			m_pxFisherBoatNI = m_pxTT^.GetNodeInstanceFromPartialName(m_sFishingBoatClass);
+		endif;
+		m_xAllocator.Init(this,false);
+		m_xAllocator.SetPriority(100.0f);
+		RemoveTask(^m_xAllocator);
+		AddTask(^m_xAllocator);
+		return true;
+	endproc;
+	
+	///Shut
+	export proc void Shut()
+		m_xAllocator.Shut();
+		RemoveTask(^m_xAllocator);
+	endproc;
+	
+	proc bool AllWorkersLocked(int p_iOutpostId)
+		if(m_pxWorkerNI==null)then
+			if(m_pxWorkerNI^.GetLockCount(p_iOutpostId)>=m_pxWorkerNI^.GetInstanceCount(p_iOutpostId))then
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+	///HasDropSite
+	export proc bool HasDropSite(int p_iOutpostId, string p_sDropsite)
+		if(m_pxTT==null)then return false; endif;
+		var CAiNeedPtr pxNeed=CAiNeed.Create();
+		m_pxTT^.QueryDropsiteNIs(pxNeed.GetNeed()^, p_sDropsite);
+		var int i, iC =pxNeed.GetNeed()^.NumEntries();
+		var bool bFound =false;
+		for(i=0)cond(i<iC)iter(++i)do		
+			var ^CAiNodeInstance pxNI = pxNeed.GetNeed()^.GetAt(i);
+			if(pxNI==null)then continue; endif;
+			if(pxNI^.GetInstanceCount(p_iOutpostId)>0)then
+				bFound = true;
+				break;
+			endif;
+		endfor;
+		return bFound;
+	endproc;
+	
+	///PickBush
+	proc bool PickBush(^CAiSensor p_pxSensor, ^CAiObjWrap p_pxOW, int p_iOutpostId)
+		if(p_pxSensor==null)then return false; endif;
+		if(p_pxOW==null)then return false; endif;
+		var CAiTaskPickBush xTask;
+		xTask.Init(this);
+		xTask.SetOutpostId(p_iOutpostId);
+		xTask.CalculateStartCost();
+		if(xTask.IsNotPossible() == true)then
+			xTask.Shut();
+			return false;
+		endif;
+		var CFourCC xResource = "FRUI";
+		var CAiObjQuery xQuery;
+		var CAiObjWrapList xList;
+		xQuery.SetType(xResource);
+		xQuery.RegionArea(xTask.GetMaxArea());
+		if((!xQuery.Execute(xList))||(xList.NumEntries()<0))then
+			xTask.Shut();
+			return false;
+		endif;
+		var CAiObjWrapList xSubjList;
+		xSubjList.AddEntry(p_pxOW^);
+		p_pxSensor^.ExecuteGamePlayCommand(xSubjList, "GetFood", xList[0].GetHandle(), xList[0].GetPos(), "");
+		xTask.Shut();
+		return true;
+	endproc;
+	
+	///UseBuilding
+	proc bool UseBuilding(^CAiSensor p_pxSensor, ^CAiObjWrap p_pxOW, string p_sClass, int p_iOutpostId)
+		if(p_pxSensor == null)then return false; endif;
+		if(m_pxBrain==null)then return false; endif;
+		if(p_pxOW == null)then return false; endif;
+		var CFourCC xType = "BLDG";
+		var CAiObjQuery xQuery;
+		var CAiObjWrapList xList;
+		xQuery.SetType(xType);
+		xQuery.SetClass(p_sClass);
+		xQuery.SetOwner(m_iPlayerID);
+		if((!xQuery.Execute(xList))||(xList.NumEntries()<0))then return false; endif;
+		var int i, iC = xList.NumEntries();
+		var CAiObjWrapList xSubjList;
+		xSubjList.AddEntry(p_pxOW^);
+		for(i=0)cond(i<iC)iter(i++)do
+			var int iObjIslandId = p_pxSensor^.ComputeIslandId(xList[i].GetPos());
+			var int iIslandId = p_pxSensor^.GetOutpost(p_iOutpostId).GetIslandId();
+			if(iObjIslandId!=iIslandId)then continue; endif;
+			if(xList[i].IsValid())then
+				if(xList[i].GetAttribValueInt("free_worker_slots")>0)then
+					p_pxSensor^.ExecuteGamePlayCommand(xSubjList, "Use", xList[i].GetHandle(), xList[i].GetPos(), "");
+					return true;
+				endif;
+			endif;
+		endfor;
+		return false;
+	endproc;
+	
+	///FishFish
+	proc void FishFish(^CAiObjWrap p_pxOW)
+		if(p_pxOW==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		var CAiTaskFishFish xTask;
+		xTask.Init(this);
+		xTask.SetOutpostId(0);
+		xTask.CalculateStartCost();
+		if(xTask.IsNotPossible())then
+			xTask.Shut();
+			return;
+		endif;
+		var CFourCC xResource = "FRUI";
+		var CAiObjQuery xQuery;
+		var CAiObjWrapList xList;
+		xQuery.SetType(xResource);
+		xQuery.SetClass("FishShoal_Tristychius");
+		xQuery.RegionArea(xTask.GetMaxArea());
+		if((!xQuery.Execute(xList))||(xList.NumEntries()<0))then
+			xTask.Shut();
+			return;
+		endif;
+		var CAiObjWrapList xSubjList;
+		xSubjList.AddEntry(p_pxOW^);
+		if(m_sLevelName=="Single 12"&&!m_bMultimap&&m_iPlayerID==5)then
+			return;
+		endif;
+		if(m_sLevelName=="Single 12"&&m_bMultimap&&m_iPlayerID==3)then
+			return;
+		endif;
+		if(m_pxProtectorNeed.GetNeed()==null&&(m_sTribe=="Aje"||m_sTribe=="SEAS"))then
+			var string sNIName;
+			//if(m_sTribe=="Hu")then
+			//	sNIName = "SHIP/hu_dragon_boat";
+			//elseif(m_sTribe=="Aje")then
+			if(m_sTribe=="Aje")then
+				sNIName = "SHIP/aje_cronosaurus";
+			//elseif(m_sTribe=="Ninigi")then
+			//	sNIName = "SHIP/ninigi_fire_boat";
+			elseif(m_sTribe=="SEAS")then
+				sNIName="SHIP/seas_submarine";
+			endif;
+			var ^CAiNodeInstance pxNI=m_pxTT^.GetNodeInstanceFromPartialName(sNIName);
+			if(pxNI!=null)then
+				m_pxProtectorNeed = CAiNeed.Create(true, 1);
+				m_pxSolution=new CAiSolution();
+				m_pxProtectorNeed.GetNeed()^.SetNeededInstanceCount(2);
+				m_pxProtectorNeed.GetNeed()^.AddEntry(pxNI);
+				m_pxProtectorNeed.GetNeed()^.SetGlobal(false);
+				m_pxSolution^.AddRequired(m_pxProtectorNeed);
+				m_xAllocator.SetSolution(m_pxSolution);
+				m_xAllocator.SetRallyPos(xList[0].GetPos());
+				m_xAllocator.Start(true);
+				if(m_sTribe=="Aje")then
+					m_xAjeHarbour=p_pxOW^;
+				elseif(m_sTribe=="SEAS")then
+					m_xSeasHarbour=p_pxOW^;
+				endif;
+			endif;
+		endif;
+		m_pxSensor^.ExecuteGamePlayCommand(xSubjList, "Fishing", xList[0].GetHandle(), xList[0].GetPos(), "");
+		xTask.Shut();
+		return;
+	endproc;
+	
+	///CollectFood
+	proc bool CollectFood(^CAiObjWrap p_pxOW, int p_iOutpostId)
+		if(p_pxOW == null)then return false; endif;
+		if(m_pxBrain==null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;
+		if(!HasDropSite(p_iOutpostId, "food"))then return false; endif;
+		if(m_sTribe=="Hu")then
+			if(UseBuilding(m_pxSensor, p_pxOW, "hu_cornfield", p_iOutpostId))then return true; endif;
+		elseif(m_sTribe=="Aje")then
+			if(UseBuilding(m_pxSensor, p_pxOW, "aje_slaughterhouse", p_iOutpostId))then return true; endif;
+		elseif(m_sTribe=="Ninigi")then
+			if(UseBuilding(m_pxSensor, p_pxOW, "ninigi_paddy", p_iOutpostId))then return true; endif;
+		elseif(m_sTribe=="SEAS")then
+			if(UseBuilding(m_pxSensor, p_pxOW, "seas_greenhouse", p_iOutpostId))then return true; endif;
+		endif;
+		return PickBush(m_pxSensor, p_pxOW, p_iOutpostId);
+	endproc;
+	
+	///CollectWood
+	proc bool CollectWood(^CAiObjWrap p_pxOW, int p_iOutpostId)
+		if(p_pxOW == null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;
+		if(!HasDropSite(p_iOutpostId, "wood"))then return false; endif;
+		var CAiTaskHarvestForest xTask;
+		xTask.Init(this);
+		xTask.SetOutpostId(p_iOutpostId);
+		xTask.CalculateStartCost();
+		if(xTask.IsNotPossible())then
+			xTask.Shut();
+			return false;
+		endif;
+		var CAiObjWrapList xSubjList;
+		xSubjList.AddEntry(p_pxOW^);
+		m_pxSensor^.ExecuteGamePlayCommand(xSubjList, "Harvest", -1, xTask.GetMaxArea().GetWorldCenterPos(), "");
+		xTask.Shut();
+		return true;
+	endproc;
+	
+	///CollectStone
+	proc bool CollectStone(^CAiObjWrap p_pxOW, int p_iOutpostId)
+		if(p_pxOW==null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;
+		if(!HasDropSite(p_iOutpostId, "stone"))then return false; endif;
+		var CAiTaskMineStone xTask;
+		xTask.Init(this);
+		xTask.SetOutpostId(p_iOutpostId);
+		xTask.CalculateStartCost();
+		if(xTask.IsNotPossible())then
+			xTask.Shut();
+			return false;
+		endif;
+		var CFourCC xResource = "STON";
+		var CAiObjQuery xQuery;
+		var CAiObjWrapList xList;
+		xQuery.SetType(xResource);
+		xQuery.RegionArea(xTask.GetMaxArea());
+		if((!xQuery.Execute(xList))||(xList.NumEntries()<0))then
+			xTask.Shut();
+			return false;
+		endif;
+		if(xList[0].IsValid())then
+			var vec3 vPos=xList[0].GetPos();
+			if(!CAiUtilityMgr.Get()^.CheckForEnemy(m_pxBrain, vPos))then 
+				xTask.Shut();
+				return false; 
+			else
+				if(m_pxDM!=null)then
+					if(m_vStonePos!=vPos)then
+						m_pxDM^.BuildTower(vPos);
+						m_vStonePos=vPos;
+						var string sClass;
+						if(m_sTribe=="Hu")then
+							sClass = "BLDG/hu_stone_quarry";
+						elseif(m_sTribe=="Aje")then
+							sClass = "BLDG/aje_bazaar";
+						elseif(m_sTribe=="Ninigi")then
+							sClass="BLDG/ninigi_stone_quarry";
+						elseif(m_sTribe=="SEAS")then
+//							sClass="BLDG/seas_steelwork";
+							sClass="BLDG/seas_small_tent";
+						endif;
+						var CAiConstructionInfoPtr pxCI=m_pxDM^.CreateRequest(sClass, "", 1, vPos);
+						if(m_pxBrain!=null)then 
+							var ^IAiModuleEconomy pxEMod=m_pxBrain^.GetEconomyModule();
+							pxEMod^.ExternalRequestConstruction(pxCI);
+						endif;
+					endif;
+				endif;
+			endif;
+		endif;
+		var CAiObjWrapList xSubjList;
+		xSubjList.AddEntry(p_pxOW^);
+		m_pxSensor^.ExecuteGamePlayCommand(xSubjList, "Mine", xList[0].GetHandle(), xList[0].GetPos(), "");
+		xTask.Shut();
+		return true;
+	endproc;
+	
+	///CollectResources
+	proc void CollectResources(^CAiObjWrap p_pxOW, int p_iOutpostId)
+		if(p_pxOW==null)then return; endif;
+		if((m_pxFoodNI==null)||(m_pxWoodNI==null)||(m_pxStoneNI==null))then return; endif;
+		var int iFood = m_pxFoodNI^.GetInstanceCount();
+		var int iWood = m_pxWoodNI^.GetInstanceCount();
+		var int iStone = m_pxStoneNI^.GetInstanceCount();
+		var int iMaxFood = m_pxFoodNI^.GetMaxInstanceCount();
+		var int iMaxWood = m_pxWoodNI^.GetMaxInstanceCount();
+		var int iMaxStone = m_pxStoneNI^.GetMaxInstanceCount();
+		var bool bSuccess;
+		if(iStone<iMaxStone)then
+			bSuccess=CollectStone(p_pxOW, p_iOutpostId);
+		endif;
+		if((!bSuccess)&&(iWood<iMaxWood))then
+			bSuccess=CollectWood(p_pxOW, p_iOutpostId);
+		endif;
+		if((!bSuccess)&&(iFood<iMaxFood))then
+			bSuccess=CollectFood(p_pxOW, p_iOutpostId);
+		endif;
+	endproc;
+	
+	///Think
+	export proc void Think()
+		if(m_pxWorkerNI==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		var int iOP, iOPC = m_pxSensor^.NumOutposts();
+		for(iOP=0)cond(iOP<iOPC)iter(iOP++)do
+			var ^CAiAllocationMgr pxAllocMgr = GetAiAllocationMgr();
+			var int i, iC = m_pxWorkerNI^.GetInstanceCount(iOP);
+			for(i=0)cond(i<iC)iter(i++)do
+				var CAiObjWrap xOW = m_pxWorkerNI^.GetUnit(i, iOP);
+				if(xOW.IsValid())then
+					if(xOW.GetAttribValue("CurTask")=="Idle"&&!pxAllocMgr^.IsUnitLocked(xOW,true,true,true))then
+						CollectResources(^xOW, iOP);
+					endif;
+				endif;
+			endfor;
+			if((!m_sFishingBoatClass.IsEmpty())&&(m_pxFisherBoatNI!=null))then
+				var int i, iC = m_pxFisherBoatNI^.GetUnlockedCount(iOP);
+				if(m_sLevelName!="Single 02")then
+					if(m_sTribe=="Aje")then
+						var CAiObjWrap xOW=FindMovingHarbour("aje_floating_harbour");
+						if(xOW.IsValid()&&xOW.GetCurrentTask()!="Fishing")then
+							FishFish(^xOW);
+							return;
+						endif;
+					endif;
+				endif;
+				if(m_sLevelName!="Single 14"&&m_sLevelName!="Single 15")then
+					if(m_sTribe=="SEAS")then
+						var CAiObjWrap xOW=FindMovingHarbour("seas_carrier");
+						if(xOW.IsValid()&&xOW.GetCurrentTask()!="Fishing")then
+							FishFish(^xOW);
+							return;
+						endif;
+					endif;
+				endif;
+				for(i=0)cond(i<iC)iter(i++)do
+					var CAiObjWrap xOW = m_pxFisherBoatNI^.GetUnit(i, iOP);
+					if(xOW.IsValid())then
+						if(xOW.GetAttribValue("CurTask") == "Idle")then
+							FishFish(^xOW);
+						endif;
+					endif;
+				endfor;
+			endif;
+		endfor;
+		if(m_xAjeHarbour.IsValid()&&m_xAllocator.GetUnits().NumEntries()>0) then
+			var int i,iC=m_xAllocator.GetUnits().NumEntries();
+			for(i=0) cond(i<iC) iter(i++)do
+				var CAiObjWrap xOW=m_xAllocator.GetUnits()[i];
+				if(!xOW.IsValid()) then continue; endif;
+				if(xOW.GetCurrentTask()!="Idle") then continue; endif;
+				//protector > 32m from Harbour
+				if((xOW.GetPos()-m_xAjeHarbour.GetPos()).Abs2S()>1024.0) then
+					m_pxSensor^.ExecuteGamePlayCommand(xOW.GetHandle(),"Action", -1, m_xAjeHarbour.GetPos(), "/AggressiveTarget");
+				endif;
+			endfor;
+		endif;
+		if(m_xSeasHarbour.IsValid()&&m_xAllocator.GetUnits().NumEntries()>0) then
+			var int i,iC=m_xAllocator.GetUnits().NumEntries();
+			for(i=0) cond(i<iC) iter(i++)do
+				var CAiObjWrap xOW=m_xAllocator.GetUnits()[i];
+				if(!xOW.IsValid()) then continue; endif;
+				if(xOW.GetCurrentTask()!="Idle") then continue; endif;
+				//protector > 32m from Harbour
+				if((xOW.GetPos()-m_xSeasHarbour.GetPos()).Abs2S()>1024.0) then
+					m_pxSensor^.ExecuteGamePlayCommand(xOW.GetHandle(),"Action", -1, m_xSeasHarbour.GetPos(), "/AggressiveTarget");
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	///FindAjeHarbour
+	proc CAiObjWrap FindMovingHarbour(string p_sID)
+		var CAiObjWrap xHarbour;
+		var CAiObjWrapList xList;
+		var CAiObjQuery xQuery;
+		xQuery.SetOwner(m_iPlayerID);
+		xQuery.SetClass(p_sID);
+		xQuery.Execute(xList);
+		if(xList.NumEntries()>0)then
+			if(xList[0].IsValid())then
+				if(xList[0].GetAttribValueInt("ReadyForWork")!=0)then
+					xHarbour=xList[0];
+				endif;
+			endif;
+		endif;
+		return xHarbour;
+	endproc;
+	
+endclass;

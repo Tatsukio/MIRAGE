@@ -1,0 +1,827 @@
+class CPlayerListWindow inherit CMapListWindow
+	
+	class CMapListRow inherit CWindow
+	
+		var int					m_iNumPlayer;
+		var string			m_sMapName;
+		
+		var ^CStaticCtrl	m_pxNumPlayer;
+		var ^CStaticCtrl	m_pxMapName;
+		var ^CMapData			m_pxMapData;
+		
+		export constructor()
+			InitFromResource("UI/PlayerListWindow","ContentMapListRow");
+			m_pxNumPlayer = cast<CStaticCtrl>(GetControl("NumPlayer"));
+			m_pxMapName = cast<CStaticCtrl>(GetControl("MapName"));
+		endconstructor;
+		
+		destructor()
+		enddestructor;
+		
+		export proc void SetNumPlayer (int p_iNumPlayer)
+			m_iNumPlayer = p_iNumPlayer;
+			m_pxNumPlayer^.SetText(m_iNumPlayer.ToString());
+			m_pxNumPlayer^.SetTextIndent(5);
+		endproc;
+		
+		export proc void SetMapName (string p_sMapName)
+			m_sMapName = p_sMapName;
+			var string sMapName=CLocalizer.Get().Translate(m_sMapName);
+			m_pxMapName^.SetText(sMapName);
+		endproc;
+		
+		export proc void SetMapData(^CMapData p_pxMapData)
+			m_pxMapData = p_pxMapData;
+		endproc;
+		
+		export proc int GetNumPlayer()
+			return m_iNumPlayer;
+		endproc;
+		
+		export proc string GetMapName()
+			return m_sMapName;
+		endproc;
+		
+		export proc ^CMapData GetMapData()
+			return m_pxMapData;
+		endproc;
+	
+	endclass;
+	
+	var ^CNewMultiPlayerPreGameWindow		m_pxOwner;
+	var ^CDesktop												m_pxDesktop;
+	var array ^CPlayerInfoSlot					m_apxPlayerInfo;
+	var CPlayerSlotID										m_xPlayerSlotID;
+	var ^CButton												m_pxBack;
+	var ^CButton												m_pxContinue;
+	var string													m_sMap;
+
+	var ^CStaticCtrl										m_pxContentPlayerList;
+	//var ^CWindow												m_pxContentSettings;
+	var ^CLevelSettingsPage							m_pxSettingsPage;
+	var ^CMirageServer									m_pxMirageSHost;
+	var ^COverViewPage									m_pxOverViewPage;
+	var ^COverViewPage2									m_pxOverViewPage2;
+	
+	var ^CStaticCtrl										m_pxColorStatic;
+	var ^CStaticCtrl										m_pxHQStatic;
+	var ^CStaticCtrl										m_pxTeamStatic;
+	
+	var CMapListFilter									m_xMapFilter;
+	var int															m_iStartTimer;
+	var int 														m_iCountDownTimer;
+	var int															m_iCountDown;
+	var ^CTabCtrl												m_pxTabCtrl;
+	var ^CMapListRow										m_pxMapListRow;
+	
+	var ^CGameInfoWindow								m_pxGameInfoWindow;
+	
+	var ^CLevelInfo											m_pxLevelInfo;
+	
+	var ^CTimerObj											m_pxBackTimer;
+	var bool														m_bIsSkirmishMode;
+	var bool														m_bInit;
+	var bool														m_bWasHost;
+	
+	export constructor(^CNewMultiPlayerPreGameWindow p_pxOwner,^CGameInfoWindow p_pxGameInfoWindow)
+		if(!InitFromResource("UI/PlayerListWindow","PlayerListWindow")) then
+			CGameWrap.LogError("UI.PlayerListWindow","InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxOwner=p_pxOwner;
+		m_pxGameInfoWindow=p_pxGameInfoWindow;
+		SetSize(650 * CGameInst.ms_iUIScaleFactor,420 * CGameInst.ms_iUIScaleFactor);
+		if(CGameWrap.IsInternetGame()) then 
+			SetCaption(CLocalizer.Get().Translate("_UI_PlLiWind_Title_InternetGame"));
+		else
+			if(CMultiPlayerClientMgr.Get().GetSkirmishMode())then
+				SetCaption(CLocalizer.Get().Translate("_UI_PlLiWind_Title_Skirmish"));
+			elseif(CMultiPlayerClientMgr.Get().GetDirectIPMode())then
+				SetCaption(CLocalizer.Get().Translate("_UI_PlLiWind_Title_InternetGame"));
+			else
+				SetCaption(CLocalizer.Get().Translate("_UI_PlLiWind_Title_LanGame"));
+			endif;
+		endif;
+		m_pxBackTimer=null;
+		m_iCountDownTimer=-1;
+		m_bInit=false;
+		m_bWasHost=false;
+	endconstructor;
+	
+	export destructor()
+		var int i, iC=m_apxPlayerInfo.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			delete m_apxPlayerInfo[i];
+		endfor;
+		if(m_pxBackTimer!=null)then
+			CTimeMgr.Get().DeleteTimer(m_pxBackTimer);
+		endif;
+	enddestructor;
+	
+	export proc ^CNewMultiPlayerPreGameWindow GetMultiPlayerPreGameWindow()
+		return m_pxOwner;
+	endproc;
+	
+	export proc ^CGameInfoWindow GetGameInfoWindow()
+		return m_pxGameInfoWindow;
+	endproc;
+	
+	export proc ^CMirageServer GetMirageSettings()
+		return m_pxMirageSHost;
+	endproc;
+	
+	export proc ^COverViewPage GetMirageOverview()
+		return m_pxOverViewPage;
+	endproc;
+	
+	export proc ^COverViewPage2 GetMirageOverview2()
+		return m_pxOverViewPage2;
+	endproc;
+	
+	export proc bool Init(bool p_bSkirmishMode)
+		m_bInit=true;
+		m_bIsSkirmishMode = p_bSkirmishMode;
+		if( m_bIsSkirmishMode) then
+			//CMultiPlayerClientMgr.Get().InitMapList();
+			var string sMap=CClientWrap.GetUserProfileValue("Multiplayer/MapFileName","");
+			CMultiPlayerClientMgr.Get().SetLevelInfo(sMap);
+			m_pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+			SetLevelInfoSkirmish();
+		else
+			m_pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+		endif;
+		m_pxDesktop=CClientWrap.GetDesktop();
+		m_pxBack=cast<CButton>(GetControl("BackButton"));
+		m_pxBack^.m_xOnClick=OnBack;
+		SetCmd("Exit", OnBack );
+		AddAccelerator("ESCAPE,NONE,Exit");
+		m_pxBack^.SetTextAlign(0);
+		m_pxContinue=cast<CButton>(GetControl("ContinueButton"));
+		m_pxContinue^.m_xOnClick=OnContinue;
+//		SetCmd("Commit", OnContinue );
+//		AddAccelerator("RETURN,NONE,Commit");
+		m_pxContinue^.SetTextAlign(0);
+		m_pxContinue^.SetText(CLocalizer.Get().Translate("_UI_PlLiWind_Button_StartGame"));
+		m_pxContinue^.SetToolTipText(CLocalizer.Get().Translate("_UI_PlLiWind_Button_StartGame_TT"));
+		m_pxContinue^.SetTextIndent(7);
+		
+		begin PlayerListPage;
+			m_pxContentPlayerList = new CStaticCtrl;
+			m_pxContentPlayerList^.InitFromResource("UI/PlayerListWindow","ContentPlayer");
+			
+			var ^CStaticCtrl pxNameStatic = cast<CStaticCtrl>(m_pxContentPlayerList^.GetControl("NameStatic"));
+			pxNameStatic^.SetTextIndent(4);
+			
+			var ^CStaticCtrl pxTribeStatic = cast<CStaticCtrl>(m_pxContentPlayerList^.GetControl("TribeStatic"));
+			pxTribeStatic^.SetTextIndent(4);
+			
+			var ^CStaticCtrl pxArmyStatic = cast<CStaticCtrl>(m_pxContentPlayerList^.GetControl("ArmyStatic"));
+			pxArmyStatic^.SetTextIndent(4);
+			
+			m_pxTeamStatic = cast<CStaticCtrl>(m_pxContentPlayerList^.GetControl("TeamStatic"));
+			m_pxTeamStatic^.SetTextIndent(4);
+			
+			m_pxColorStatic = cast<CStaticCtrl>(m_pxContentPlayerList^.GetControl("ColorStatic"));
+			m_pxColorStatic^.SetTextIndent(4);
+			
+			m_pxHQStatic = cast<CStaticCtrl>(m_pxContentPlayerList^.GetControl("HQStatic"));
+			m_pxHQStatic^.SetTextIndent(4);
+			
+			var ^CStaticCtrl pxDifficultyStatic = cast<CStaticCtrl>(m_pxContentPlayerList^.GetControl("DifficultyStatic"));
+			pxDifficultyStatic^.SetTextIndent(4);
+			
+			var bool bHost=(CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
+			if(m_bIsSkirmishMode) then
+				bHost==true;
+			endif;
+			m_apxPlayerInfo=0;
+			var int i, iC = 8;
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPlayerInfoSlot pxTmp=cast<CPlayerInfoSlot>(m_pxContentPlayerList^.GetControl("Slot_"+i.ToString()));
+				pxTmp^.SetIndex(i);
+				pxTmp^.Init(this);
+				m_apxPlayerInfo.AddEntry(pxTmp);
+				m_apxPlayerInfo[i]^.SetVisible(false);
+				//m_apxPlayerInfo[i]^.m_xOnStartGame=OnSendMap;
+				//m_apxPlayerInfo[i]^.m_xOnDisablePB=OnDisablePB;
+				//m_apxPlayerInfo[i]^.m_xOnDisableArmy=OnDisableArmy;
+			endfor;
+			i = 0;
+			var CPlayerSlotID xIter;
+			var CPlayerSlotID xIterTmp;
+			xIterTmp = CPlayerSlotID.First();
+			for(xIter=CPlayerSlotID.First())cond(xIter<=CPlayerSlotID.Last())iter(xIter.Incr())do
+				if(m_bIsSkirmishMode && xIter==xIterTmp) then
+					m_apxPlayerInfo[i]^.SetPlayerSlotID(xIter, m_bIsSkirmishMode);
+					m_xPlayerSlotID = xIter;
+				else
+					m_apxPlayerInfo[i]^.SetPlayerSlotID(xIter, m_bIsSkirmishMode);
+				endif;
+				m_apxPlayerInfo[i]^.GetInfoFromLevelInfo();
+				m_apxPlayerInfo[i]^.SetSkirmishMode(m_bIsSkirmishMode);
+				i++;
+			endfor;
+			CGameWrap.GetGame().SetAttrib("GameMode","openwaiting");
+		end PlayerListPage;
+		m_pxTabCtrl=cast<CTabCtrl>(GetControl("TabCtrl"));
+		m_pxTabCtrl^.m_xOnChangeTab=OnChangeTab;
+		m_pxTabCtrl^.AddTab(CLocalizer.Get().Translate("_UI_PlLiWind_Tab_Players"),m_pxContentPlayerList,CLocalizer.Get().Translate("_UI_Tab_Players"));
+		if(CGameWrap.GetClientID()==0 || m_bIsSkirmishMode)then
+			m_pxSettingsPage=new CLevelSettingsPageHost(this,false);
+			m_pxTabCtrl^.AddTab(CLocalizer.Get().Translate("_UI_PlLiWind_Tab_Settings"),m_pxSettingsPage,CLocalizer.Get().Translate("_UI_Tab_Settings"));
+			m_pxMirageSHost = new CMirageServer;
+			m_pxTabCtrl^.AddTab(CLocalizer.Get().Translate("_MIRAGE_UI_PlLiWind_Tab_Mirage"),m_pxMirageSHost,CLocalizer.Get().Translate("_MIRAGE_UI_PlLiWind_Tab_Mirage_TT"));
+		endif;
+		m_pxOverViewPage = new COverViewPage(this);
+		m_pxTabCtrl^.AddTab(CLocalizer.Get().Translate("_MIRAGE_UI_PlLiWind_Tab_Overview"),m_pxOverViewPage,CLocalizer.Get().Translate("_MIRAGE_UI_PlLiWind_Tab_Overview_TT"));
+		m_pxOverViewPage2 = new COverViewPage2(this);
+		m_pxTabCtrl^.AddTab(CLocalizer.Get().Translate("_MIRAGE_UI_PlLiWind_Tab_Overview_2"),m_pxOverViewPage2,CLocalizer.Get().Translate("_MIRAGE_UI_PlLiWind_Tab_Overview_TT"));
+		//OnContentPlayerList();
+		m_iCountDown=5;
+		m_iCountDownTimer=(-1);
+		SetReadyForGame(false);
+		if((CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID()) || m_bIsSkirmishMode)then
+			m_pxTabCtrl^.SetTabDisabled(1,false);
+			m_pxTabCtrl^.SetTabDisabled(2,false);
+			m_pxTabCtrl^.SetTabDisabled(3,false);
+			//m_pxSettingsButton^.SetVisible(true);
+			m_pxContinue^.SetVisible(true);
+			m_pxBack^.SetText(CLocalizer.Get().Translate("_UI_PlLiWind_Button_CancelGame"));
+			m_pxBack^.SetToolTipText(CLocalizer.Get().Translate("_UI_PlLiWind_Button_CancelGame_TT"));
+		else
+			m_pxTabCtrl^.SetTabDisabled(1,false);
+			//m_pxSettingsButton^.SetVisible(false);
+			m_pxContinue^.SetVisible(false);
+			m_pxBack^.SetText(CLocalizer.Get().Translate("_UI_PlLiWind_Button_LeaveGame"));
+			m_pxBack^.SetToolTipText(CLocalizer.Get().Translate("_UI_PlLiWind_Button_LeaveGame_TT"));
+		endif;
+		if(m_bIsSkirmishMode)then
+			m_pxContinue^.SetDisabled(false);
+		endif;
+		m_pxBackTimer=null;
+		// unset flag, server should be ready by now
+		CGameWrap.SetHostServerStarting(false);
+		return(true);
+	endproc;
+	
+	export proc void EnableSettingsPage(bool p_bValue)
+		if(m_pxTabCtrl!=null && m_pxTabCtrl^.GetNumTabs()>1)then
+			var int i, iC = m_pxTabCtrl^.GetNumTabs();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(cast<CLevelSettingsPageHost>(m_pxTabCtrl^.GetTabWindow(i))!=null || cast<CMirageServer>(m_pxTabCtrl^.GetTabWindow(i))!=null)then
+					m_pxTabCtrl^.SetTabDisabled(i,!p_bValue);
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	proc bool OnChangeTab(int p_iTab)
+		return true;
+	endproc;
+	
+	proc void SetLevelInfoSkirmish()
+		var int iTmp = 0;
+		var string sTmp;
+		CSettings.Get("Game/RecentSettingsSkirmish/NumPlayers",iTmp);
+		if(iTmp>0) then
+			m_pxLevelInfo^.SetNumPlayers(iTmp);
+			iTmp=0;
+		endif;
+	endproc;
+	
+	export proc bool SetStartTimer()
+		m_iStartTimer=SetTimer(200,true);
+		return(true);
+	endproc;
+	
+	export proc void OnLevelInfoUpdate()
+		if(!m_bInit)then return; endif;
+		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelPreview());
+		if(CGameWrap.GetClientID()==0 || m_bIsSkirmishMode)then
+			var int iNumPlayers=CClientWrap.GetUserProfileValueI("Multiplayer/NumPlayers",2);
+			if(pxLevelInfo^.GetNumPlayers()!=iNumPlayers)then
+				pxLevelInfo^.SetNumPlayers(iNumPlayers);
+			endif;
+		endif;
+		var int j,jC=m_apxPlayerInfo.NumEntries();
+		for(j=0)cond(j<jC)iter(j++)do
+			m_apxPlayerInfo[j]^.OnChangeMapExt();
+		endfor;
+		var bool bHost=(CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
+		var int iCountDownValue=CGameWrap.GetClient().GetLevelPreview().GetAttribs().GetValueInt("Countdown");
+		if(bHost && HasCountDownTimer() && iCountDownValue!=0)then
+			var int iNumPlayers=pxLevelInfo^.GetNumPlayers();
+			var int iIter=0;
+			var CPlayerSlotID xIter;
+			for(xIter=CPlayerSlotID.First())cond(xIter<=CPlayerSlotID.Last())iter(xIter.Incr())do
+				if(iIter>=iNumPlayers)then break; endif;
+				iIter++;
+				var ^CLevelInfo.CPlayerSlot pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(xIter));
+				if(pxPlayerSlot^.IsFree())then//PlayerSlot wurde beim CountDown freigegeben -> StopCountDown
+					OnAbort();
+					return;
+				endif;
+			endfor;
+		endif;
+		var int iMax = 0;
+		if(!HasCountDownTimer() && CGameWrap.GetClient().GetLevelPreview().GetAttribs().GetValueInt("Countdown")==42)then
+			var int i = 0;
+			iMax = m_pxLevelInfo^.GetNumPlayers();
+			for(i=0)cond(i<iMax)iter(i++)do
+				m_apxPlayerInfo[i]^.GetInfoFromLevelInfo();
+				m_apxPlayerInfo[i]^.SetDisabled(true);
+			endfor;
+			CMultiPlayerClientMgr.Get().StartCountDown();
+			m_pxContinue^.m_xOnClick = OnAbort;
+			m_pxContinue^.SetText(CLocalizer.Get().Translate("_UI_PlLiWind_Button_AbortCountdown"));
+			m_pxContinue^.SetToolTipText(CLocalizer.Get().Translate("_UI_PlLiWind_Button_AbortCountdown_TT"));
+		elseif(HasCountDownTimer() && CGameWrap.GetClient().GetLevelPreview().GetAttribs().GetValueInt("Countdown")!=42)then
+			StopCountDownTimer();
+			/*if(bHost)then
+				CEvt_ChatMsg.Send(": "+CLocalizer.Get().Translate("_UI_PlLiWind_Msg_Startaborted"));
+			endif;
+			*/
+			var int i = 0;
+			iMax = m_pxLevelInfo^.GetNumPlayers();
+			for(i=0)cond(i<iMax)iter(i++)do
+				m_apxPlayerInfo[i]^.GetInfoFromLevelInfo();
+				m_apxPlayerInfo[i]^.SetDisabled(false);
+			endfor;
+		endif;
+		var bool bAllReady = true;
+		var int i,iC = 8;
+		iMax = m_pxLevelInfo^.GetNumPlayers();
+		var bool bIsCountdown = false;
+		if(CGameWrap.GetClient().GetLevelPreview().GetAttribs().GetValueInt("Countdown")==42)then
+			bIsCountdown=true;
+		endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			m_apxPlayerInfo[i]^.GetInfoFromLevelInfo();
+			var bool bValid = i<iMax;
+			if(bValid && !m_apxPlayerInfo[i]^.IsReady())then
+				if(bIsCountdown) then
+					m_apxPlayerInfo[i]^.GetPlayerSlot()^.SetReady(true);
+					bAllReady=true;
+				else
+					bAllReady = false;
+				endif;
+			endif;
+			m_apxPlayerInfo[i]^.SetVisible(bValid);
+		endfor;
+		if(bAllReady) then
+			CGameWrap.GetGame().SetAttrib("GameMode","closedwaiting");
+		endif;
+		m_xMapFilter.m_iPlayers = iMax;
+		UpdateMapList();
+		/*
+		//update GameInfoWindow tribe
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPlayerInfoSlot pxWalkSlot=m_apxPlayerInfo[i];
+			if(pxWalkSlot^.GetPlayerSlotID()==CGameWrap.GetClient().GetPlayerSlotID())then
+				var string sSlotTribe=pxWalkSlot^.GetTribe();
+				if(m_pxGameInfoWindow^.GetCurTribe()!=sSlotTribe)then
+					m_pxGameInfoWindow^.OnChangeTribe(sSlotTribe);
+					break;
+				endif;
+			endif;
+		endfor;
+		*/
+		var int iGameType = CGameWrap.GetGame().GetType();
+		var int iRandomColor = CGameWrap.GetGame().GetAttribInt("RandomColor");
+		begin check_color;
+			var array int aiColorMap;
+			var bool bColorOK=true;
+			var int i,iC=m_apxPlayerInfo.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_apxPlayerInfo[i]^.GetPlayerSlot();
+				if(pxPlayerSlot==null)then continue; endif;
+				if(pxPlayerSlot^.IsFree())then continue; endif;
+				var int iSlotColor=pxPlayerSlot^.GetColor();
+				if(aiColorMap.FindEntry(iSlotColor)!=-1)then
+					bColorOK=false;
+					break;
+				endif;
+				aiColorMap.AddEntry(iSlotColor);
+			endfor;
+			if(bColorOK||iRandomColor==1)then
+				m_pxColorStatic^.RestoreDefaultTextColor();
+			else
+				m_pxColorStatic^.SetTextColor({{255,0,0,555}});
+				bAllReady=false;
+			endif;
+		end check_color;
+		begin check_HQ;
+			var array int aiHQMap;
+			var bool bHeadQuaterOK=true;
+			var bool bHQOK2=true;
+			var int i,iC=m_apxPlayerInfo.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_apxPlayerInfo[i]^.GetPlayerSlot();
+				if(pxPlayerSlot==null)then continue; endif;
+				if(pxPlayerSlot^.IsFree())then continue; endif;
+				var int iSlotHQ=pxPlayerSlot^.GetHeadQuater();
+				if(aiHQMap.FindEntry(iSlotHQ)!=-1)then
+					bHeadQuaterOK=false;
+					break;
+				endif;
+				aiHQMap.AddEntry(iSlotHQ);
+			endfor;
+			if(iGameType==2)then //Defender
+				if(aiHQMap.FindEntry(0)==-1)then//keiner hat Defender Position ausgewählt
+					bHQOK2=false;
+				endif;
+				begin TeamCheck;
+					if(pxLevelInfo!=null)then
+						var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+						if(pxGenericDB!=null)then
+							var ^CPropDB.CNode pxTeams=pxGenericDB^.FindNode("ClientSettings/DefendTeams",false);
+							if(pxTeams!=null)then
+								var array string asTeams;
+								var array int aiTeams;
+								var string sTeams=pxTeams^.Value();
+								if(sTeams!="")then
+									sTeams.Split(asTeams,":",true);
+									var int j, jC=Math.Clamp(asTeams.NumEntries(),1,pxLevelInfo^.GetMaxPlayers());
+									for(j=0)cond(j<jC)iter(j++)do
+										aiTeams.AddEntry(Math.Clamp(asTeams[j].ToInt(),1,2));
+									endfor;
+									var bool bAttacker=false, bDefender=false;
+									jC=aiTeams.NumEntries();
+									for(j=0)cond(j<jC)iter(j++)do
+										if(!bDefender&&aiTeams[j]==1&&aiHQMap.FindEntry(j)!=-1)then
+											bDefender=true;
+										endif;
+										if(!bAttacker&&aiTeams[j]==2&&aiHQMap.FindEntry(j)!=-1)then
+											bAttacker=true;
+										endif;
+										if(bDefender&&bAttacker)then break; endif;
+									endfor;
+//									bHeadQuaterOK=bHeadQuaterOK&&(bDefender&&bAttacker);
+									bHQOK2=bDefender&&bAttacker;
+								endif;
+							endif;
+						endif;
+					endif;
+				end TeamCheck;
+			endif;
+			bHeadQuaterOK=bHeadQuaterOK&&bHQOK2;
+			if(bHeadQuaterOK)then
+				m_pxHQStatic^.RestoreDefaultTextColor();
+			else
+				m_pxHQStatic^.SetTextColor({{255,0,0,555}});
+				bAllReady=false;
+			endif;
+		end check_HQ;
+		begin check_LockDiplomacy_vs_teams;
+			m_pxTeamStatic^.RestoreDefaultTextColor();
+			if(iGameType!=2)then // alles außer Defender
+				var bool bDiplomacyLocked=(CGameWrap.GetGame().GetAttribInt("DiplomacyLocked")==1);
+				if(bDiplomacyLocked)then
+					var array int aiTeamsStarted;
+					var int i,iC=m_apxPlayerInfo.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_apxPlayerInfo[i]^.GetPlayerSlot();
+						if(pxPlayerSlot==null)then continue; endif;
+						if(pxPlayerSlot^.IsFree())then continue; endif;
+						aiTeamsStarted.Include(pxPlayerSlot^.GetTeam());
+					endfor;
+					if(aiTeamsStarted.NumEntries()==1)then
+						m_pxTeamStatic^.SetTextColor({{255,0,0,555}});
+						bAllReady=false;
+					endif;
+				endif;
+			endif;
+		end check_LockDiplomacy_vs_teams;
+		if(HasCountDownTimer() && bAllReady)then return; endif;
+		SetReadyForGame(bAllReady);
+	endproc;
+	
+	export proc int NumSlots()
+		return m_apxPlayerInfo.NumEntries();
+	endproc;
+		
+	export proc ^CPlayerInfoSlot GetSlot(int p_iIndex)
+		if(p_iIndex<0 || p_iIndex>NumSlots())then p_iIndex = 0; endif;
+		return m_apxPlayerInfo[p_iIndex];
+	endproc;
+	
+	export proc ^CPlayerInfoSlot GetOwnSlot()
+		var CPlayerSlotID xOwnPSI = CGameWrap.GetClient().GetPlayerSlotID();
+		var int i, iC = NumSlots();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(GetSlot(i)^.GetPlayerSlotID() == xOwnPSI)then
+				return GetSlot(i);
+			endif;
+		endfor;
+		return GetSlot(0);
+	endproc;
+	
+	export proc bool SetCountDownTimer()
+		var int i,iC=8;
+		for(i=0)cond(i<iC)iter(i++)do
+			m_apxPlayerInfo[i]^.Disable(true);
+		endfor;
+		m_iCountDownTimer=SetTimer(1000,true);
+		return(true);
+	endproc;
+	
+	export proc bool HasCountDownTimer()
+		return m_iCountDownTimer!=-1;
+	endproc;
+	
+	export proc bool StopCountDownTimer()
+		if(m_iCountDownTimer!=(-1))then
+			var int i,iC=8;
+			for(i=0)cond(i<iC)iter(i++)do
+				m_apxPlayerInfo[i]^.GetInfoFromLevelInfo();
+			endfor;
+			UnsetTimer(m_iCountDownTimer);
+			m_iCountDownTimer=(-1);
+			m_iCountDown=5;
+		endif;
+		return(true);
+	endproc;
+	
+	export proc void SetReadyForGame(bool p_bReady)
+		if(!p_bReady)then
+			CMultiPlayerClientMgr.Get().StopCountDown();
+			CGameWrap.GetClient().GetLevelPreview().GetAttribs().SetValue("Countdown",0);
+		endif;
+		var bool bMapIsInvalid = CUIStateMgr.Get().GetSelectedMapFile().IsEmpty();
+		m_pxContinue^.SetDisabled(!p_bReady || bMapIsInvalid);
+		m_pxContinue^.m_xOnClick = OnContinue;
+		m_pxContinue^.SetText(CLocalizer.Get().Translate("_UI_PlLiWind_Button_StartGame"));
+		m_pxContinue^.SetToolTipText(CLocalizer.Get().Translate("_UI_PlLiWind_Button_StartGame_TT"));
+		m_pxContinue^.SetTextAlign(0);
+		m_pxContinue^.SetTextIndent(7);
+	endproc;
+	
+	export proc void AbortGame()
+		if(CGameWrap.GetClient().GetLevelPreview().GetAttribs().GetValueInt("Countdown")==42)then
+			OnAbort();
+		endif;
+	endproc;
+	
+	proc bool OnContinue()
+		begin Set_HP;
+			var int i,iC=m_apxPlayerInfo.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_apxPlayerInfo[i]^.GetPlayerSlot();
+				if(pxPlayerSlot==null)then continue; endif;
+				if(pxPlayerSlot^.IsFree())then continue; endif;
+				var int iHP=pxPlayerSlot^.GetHP();
+				CGameWrap.GetGame().SetAttrib("new_hc_"+i.ToString(),iHP);
+			endfor;
+		end Set_HP;
+		if(!m_bIsSkirmishMode)then
+			//CMultiPlayerClientMgr.Get().StartCountDown();
+			CGameWrap.GetClient().GetLevelPreview().GetAttribs().SetValue("Countdown",42);
+			m_pxTabCtrl^.SetDisabled(true);
+			m_pxBack^.SetDisabled(true);
+			CGameWrap.GetGame().SetAttrib("GameMode","closedplaying");
+			if(m_pxContentPlayerList!=null)then
+				m_pxContentPlayerList^.SetDisabled(true);
+			endif;
+			if(m_pxSettingsPage!=null)then
+				m_pxSettingsPage^.SetDisabled(true);
+			endif;
+			if(m_pxMirageSHost!=null)then
+				m_pxMirageSHost^.SetDisabled(true);
+			endif;
+			if(m_pxOverViewPage!=null)then
+				m_pxOverViewPage^.SetDisabled(true);
+			endif;
+			if(m_pxOverViewPage2!=null)then
+				m_pxOverViewPage2^.SetDisabled(true);
+			endif;
+		else
+			//CMultiPlayerClientMgr.Get().OnStart();
+			if(!CClientWrap.HasServer())then
+				CUIStateMgr.Get().InvalidateLoadScreenInfo();
+				CUIStateMgr.Get().ShowLoadingScreen("StartingServer",CUIStateMgr.STATE_STARTSKIRMISHGAME);
+			else
+				CUIStateMgr.Get().SetState(CUIStateMgr.STATE_STARTSKIRMISHGAME);
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnAbort()
+		//CGameWrap.GetClient().GetLevelPreview().GetPlayerSlot(CGameWrap.GetClient().GetPlayerSlotID()).SetReady(false);
+		CGameWrap.GetClient().GetLevelPreview().GetAttribs().SetValue("Countdown",0);
+		m_pxTabCtrl^.SetDisabled(false);
+		m_pxBack^.SetDisabled(false);
+		CGameWrap.GetGame().SetAttrib("GameMode","closedwaiting");
+		if(m_pxContentPlayerList!=null)then
+			m_pxContentPlayerList^.SetDisabled(false);
+		endif;
+		if(m_pxSettingsPage!=null)then
+			m_pxSettingsPage^.SetDisabled(false);
+		endif;
+		if(m_pxMirageSHost!=null)then
+			m_pxMirageSHost^.SetDisabled(false);
+		endif;
+		if(m_pxOverViewPage!=null)then
+			m_pxOverViewPage^.SetDisabled(false);
+		endif;
+		if(m_pxOverViewPage2!=null)then
+			m_pxOverViewPage2^.SetDisabled(false);
+		endif;
+		var int i, iMax = m_pxLevelInfo^.GetNumPlayers();
+		for(i=0)cond(i<iMax)iter(i++)do
+			m_apxPlayerInfo[i]^.SetDisabled(false);
+			m_apxPlayerInfo[i]^.GetInfoFromLevelInfo();
+		endfor;
+//		CEvt_ChatMsg.Send(": "+CLocalizer.Get().Translate("_UI_PlLiWind_Msg_Startaborted"));
+		CEvt_ChatMsg.Send(": "+"_UI_PlLiWind_Msg_Startaborted");
+		return true;
+	endproc;
+	
+	proc bool OnTimer(int p_iID)
+		if(p_iID==m_iStartTimer) then
+			var CPlayerSlotID xSlotID;
+			if(m_bIsSkirmishMode) then
+				xSlotID=m_xPlayerSlotID;
+			else
+				xSlotID=CGameWrap.GetClient().GetPlayerSlotID();
+			endif;
+			if(!xSlotID.IsValid())then
+				return true;
+			endif;
+			// HACK for alpha version to replace AI names
+			OverwriteSlotInfoNamesForAIPlayers();
+//			// randomize start locations
+//			if(CClientWrap.GetUserProfileValueI("Multiplayer/ChooseHQ",0)==0)then
+//				var bool bHost=(CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
+//				if(bHost)then
+//					var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelPreview());
+//					var int iNumStartLocations=pxLevelInfo^.GetMaxPlayers();
+//					var int iNumPlayers=pxLevelInfo^.GetNumPlayers();
+//					var array int aiHQLocations;
+//					var int i;
+//					for(i=0)cond(i<iNumStartLocations)iter(i++)do
+//						aiHQLocations.AddEntry(i);
+//					endfor;
+//					
+//					var int iIter=0;
+//					var CPlayerSlotID xIter;
+//					for(xIter=CPlayerSlotID.First())cond(xIter<=CPlayerSlotID.Last())iter(xIter.Incr())do
+//						if(iIter>=iNumPlayers)then break; endif;
+//						iIter++;
+//						var ^CLevelInfo.CPlayerSlot pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(xIter));
+//						var int iRandom = Random.GetInt()%aiHQLocations.NumEntries();
+//						var int iNewHQ = aiHQLocations[iRandom];
+//						aiHQLocations.DeleteEntryUS(iRandom);
+//						pxPlayerSlot^.SetHeadQuater(iNewHQ);
+//					endfor;
+//				endif;
+//			endif;
+			
+//			var ^CLevelInfoClient pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+//			var ^CLevelInfoClient pxLevelInfo=^(CGameWrap.GetClient().GetLevelPreview());
+//			var ^CPropDB pxGenericData=^(pxLevelInfo^.GetGenericData());
+//			
+//			var ^CPropDB pxGenericData=^(m_pxLevelInfo^.GetGenericData());
+			CMultiPlayerClientMgr.Get().Start();
+			UnsetTimer(m_iStartTimer);
+			m_iStartTimer = -1;
+			return true;
+		elseif(p_iID==m_iCountDownTimer)then
+			if(m_iCountDown==5)then
+				//m_pxStartButton^.SetDisabled(false);
+				//m_pxStartButton^.SetText(CLocalizer.Get().Translate("_UI_PlLiWind_Button_AbortCountdown"));
+				//m_pxStartButton^.SetText(CLocalizer.Get().Translate("_UI_PlLiWind_Button_AbortCountdown_TT"));
+				//m_pxStartButton^.m_xOnClick = OnAbort;
+			endif;
+			var bool bHost=(CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
+				
+			if(m_iCountDown>(-1))then
+				if(bHost || m_bIsSkirmishMode)then
+					if(m_iCountDown==0)then
+//						CEvt_ChatMsg.Send(": "+CLocalizer.Get().Translate("_UI_PlLiWind_Msg_Gamestartingnow"));
+						CEvt_ChatMsg.Send(": "+"_UI_PlLiWind_Msg_Gamestartingnow");
+					else
+//						CEvt_ChatMsg.Send(": "+CLocalizer.Get().Translate("_UI_PlLiWind_Option_Gamestarting")+m_iCountDown.ToString());
+						CEvt_ChatMsg.Send(": "+"_UI_PlLiWind_Option_Gamestarting"+m_iCountDown.ToString());
+					endif;
+				endif;
+			endif;
+			if(m_iCountDown<=(-2))then
+				UnsetTimer(m_iCountDownTimer);
+				m_iCountDownTimer=(-1);
+				m_iCountDown=5;
+				CMultiPlayerClientMgr.Get().OnStart();
+			else
+				m_iCountDown--;
+			endif;
+		endif;
+		//L KLog.LogSpam("MaSc","PlayerListWindow::OnTimer");
+		return false;
+	endproc;
+	
+	export proc void UpdateMapList()
+	endproc;
+	
+	proc bool OnBack()
+		m_bWasHost=(CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
+		m_pxBack^.SetDisabled(true);
+		CEvt_ClientDisconnect.Send();
+		if(CGameWrap.IsServerExeRunning())then
+			if(CGameWrap.IsClientWithHost()==true)then
+				CGameWrap.ShutHostServer();
+			else
+				CGameWrap.ShutProxyServer();
+			endif;
+		endif;
+		if(CMultiPlayerClientMgr.Get().GetSkirmishMode())then
+			//CUIStateMgr.Get().SetState(CUIStateMgr.STATE_MAINMENU);
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_NEWMULTIPLAYERLOBBY,"LAN");
+		else
+			m_pxBackTimer=CTimeMgr.Get().CreateTimer(CGameTimeSpan.OneSecond()*0.5f,false);
+			if(m_pxBackTimer!=null)then
+				m_pxBackTimer^.m_xOnTimer=ChangeToMultiPlayerLobby;
+			endif;
+		endif;
+		// check: disable all other buttons?
+		return(true);
+	endproc;
+	
+	proc void ChangeToMultiPlayerLobby(int p_iUnused)
+		//L KLog.LogSpam("MaSc","ChangeToMultiPlayerLobby");
+		CMultiPlayerClientMgr.Get().SetInit(false);
+		if(m_bIsSkirmishMode)then
+			//L KLog.LogSpam("MaSc","MainMenu");
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_MAINMENU);
+		elseif(CMultiPlayerClientMgr.Get().GetDirectIPMode()==true)then
+			if (m_bWasHost) then
+				CUIStateMgr.Get().SetState(CUIStateMgr.STATE_NEWMULTIPLAYERLOBBY,"HostIP");
+			else
+				CUIStateMgr.Get().SetState(CUIStateMgr.STATE_MULTIPLAYERJOINIP);
+			endif;
+		elseif(CGameWrap.IsInternetGame()==true)then
+			//L KLog.LogSpam("MaSc","newMultiplayerlobby-Internet");
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_NEWMULTIPLAYERLOBBY, "Internet");
+		else
+			//L KLog.LogSpam("MaSc","newMultiplayerlobby-LAN");
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_NEWMULTIPLAYERLOBBY, "LAN");			
+		endif;
+	endproc;
+	
+	export proc void UpdateReady()
+		var ^CGame pxGame = ^(CGameWrap.GetGame());
+		var string sTmp="Ext_Activate_"+CGameWrap.GetClientID().ToString();
+		if(pxGame^.GetAttribInt(sTmp)==1)then
+			var int i,iC=m_apxPlayerInfo.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				m_apxPlayerInfo[i]^.OnExtClickReady();
+			endfor;
+		endif;
+	endproc;
+	
+	// Hack for alpha version to show distinguishable names for ai players
+	proc void OverwriteSlotInfoNamesForAIPlayers()
+		var int i,iC=m_apxPlayerInfo.NumEntries();
+		var array string asNames;
+		asNames.AddEntry("Joe");
+		asNames.AddEntry("Moe");
+		asNames.AddEntry("Alice");
+		asNames.AddEntry("Bob");
+		asNames.AddEntry("Sarah");
+		asNames.AddEntry("Hal");
+		asNames.AddEntry("Z1");
+		asNames.AddEntry("The Brain");
+		//This will be handled on Serverside (credit for AyCe)
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CLevelInfo.CPlayerSlot pxWalk = m_apxPlayerInfo[i]^.GetPlayerSlot();
+			if(pxWalk==null)then continue; endif;
+			if(pxWalk^.IsAIPlayer())then
+				var string sName = "Unknown [AI]";
+				var int iPosInNameArray = Random.GetInt()%asNames.NumEntries();
+				if(iPosInNameArray>=0 && iPosInNameArray<asNames.NumEntries())then
+					// commented out for alpha version because format "AI"+PlayerID is used within ai modules for feedback messages; maybe used later
+					//sName=asNames[iPosInNameArray]+" [AI]";
+					sName="AI"+pxWalk^.GetOwner().ToString();
+					//asNames.DeleteEntryUS(iPosInNameArray);
+				endif;
+				//pxWalk^.SetName(sName);
+			endif;
+		endfor;
+	endproc;
+	
+	export proc bool IsHashOkay(int p_iID, string p_sHash, ref string p_rsOther)
+		var bool bOk=true;
+		var int i,iC=m_apxPlayerInfo.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(i==p_iID)then continue; endif;
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_apxPlayerInfo[i]^.GetPlayerSlot();
+			if(pxPlayerSlot!=null && pxPlayerSlot^.GetValue("key_hash")==p_sHash)then
+				if(!bOk)then p_rsOther+=", "; endif;
+				bOk=false;
+				p_rsOther+=pxPlayerSlot^.GetValue("name");
+			endif;
+		endfor;
+		return bOk;
+	endproc;
+	
+endclass;

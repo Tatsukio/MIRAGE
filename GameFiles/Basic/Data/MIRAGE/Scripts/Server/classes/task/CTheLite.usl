@@ -1,0 +1,326 @@
+class CTheLite inherit CTask
+	
+	var CObjHndl	m_xBorn;
+	var CObjHndl	m_xHome;
+	var CObjHndl	m_xTarget;
+	var vec3			m_vCurDest;
+	var vec3			m_vZwischenStation;
+	var string		m_sTask;
+	var vec3			m_vPos;
+	var int				m_iRetries;
+	var bool			m_bOnce;
+	var bool			m_bIgnoreRallyPoint;
+	
+	export constructor()
+		SetName("CTheLite");
+		m_iRetries = 0;
+		m_bOnce=false;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="CTLi";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xBorn.DoKArc(pxArc^);
+		m_xHome.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		(pxArc^) << m_vCurDest;
+		(pxArc^) << m_vZwischenStation;
+		(pxArc^) << m_sTask;
+		(pxArc^) << m_vPos;
+		(pxArc^) << m_iRetries;
+		(pxArc^) << m_bOnce;
+		(pxArc^) << m_bIgnoreRallyPoint;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="CTLi")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xBorn.DoKArc(pxArc^);
+			m_xHome.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			(pxArc^) << m_vCurDest;
+			(pxArc^) << m_vZwischenStation;
+			(pxArc^) << m_sTask;
+			(pxArc^) << m_vPos;
+			(pxArc^) << m_iRetries;
+			(pxArc^) << m_bOnce;
+			if(p_pxReaderNode^.GetVersion()>=2)then
+				(pxArc^) << m_bIgnoreRallyPoint;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xBorn, CObjHndl p_xHome)
+		if(!p_xBorn.IsValid()||!p_xHome.IsValid())then return false; endif;
+		m_xBorn = p_xBorn;
+		m_xHome = p_xHome;
+		m_sTask = "get_data";
+		return true;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xBorn, vec3 p_vDestination)
+		if(!p_xBorn.IsValid())then return false; endif;
+		m_xBorn = p_xBorn;
+		m_vCurDest = p_vDestination;
+		m_sTask = "go_out";
+		return true;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xBorn, CObjHndl p_xHome, bool p_bIgnoreRallyPoint)
+		if(!p_xBorn.IsValid()||!p_xHome.IsValid())then return false; endif;
+		m_xBorn = p_xBorn;
+		m_xHome = p_xHome;
+		m_bIgnoreRallyPoint=p_bIgnoreRallyPoint;
+		m_sTask = "go_out";
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CFightingObj pxHome;
+		begin CheckRallySite;
+			var ^CGameObj pxObj = m_xHome.GetObj();
+			if(pxObj!=null)then
+				pxHome = cast<CFightingObj>(pxObj);
+			endif;
+		end CheckRallySite;
+		var ^CGameObj pxBabyBorn = m_xBorn.GetObj();
+		if((pxHome==null && (m_sTask=="get_data" || m_sTask=="go_out_of_building"))||pxBabyBorn==null)then
+			EndTask();
+			return;
+		endif;
+		if(m_sTask == "get_data")then
+			m_xTarget = pxHome^.GetRallyTarget();
+			m_vCurDest = pxHome^.GetRallyPosition(0);
+			if(m_vCurDest.Abs2S()<=1.0f)then
+				m_vCurDest=pxHome^.GetPos();
+			endif;
+			var CFourCC xLink = "Ex_1";
+			if(!pxHome^.GetLinkPosWorld(xLink,m_vZwischenStation))then
+				m_vZwischenStation = pxHome^.GetPos()+({0.0,1.0,0.0}*pxHome^.GetRadius());
+			endif;
+			m_vPos = pxBabyBorn^.GetPos();
+			if(m_bIgnoreRallyPoint)then
+				m_vCurDest=m_vZwischenStation;
+			endif;
+			if(m_vCurDest=={0.0,0.0,0.0} || (m_vCurDest-m_vZwischenStation).Abs2S()<1.0)then
+				m_vCurDest = m_vZwischenStation;
+				CSrvWrap.GetObjMgr()^.GetFreePos(m_vCurDest,pxBabyBorn,m_vZwischenStation,null,true,false,false);
+			endif;
+			m_sTask = "go_out_of_building";
+		elseif(m_sTask == "go_out_of_building")then
+			var ^CFightingObj pxFght=cast<CFightingObj>(pxBabyBorn);
+			if(pxFght!=null)then
+				var bool bActionStarted;
+				var ^CNPCSeller pxTavern=cast<CNPCSeller>(pxHome);
+				if(pxTavern!=null) then
+					if(pxFght^.HasAnim("tavern_spawn")) then
+						pxFght^.MoveAnimAction(m_vZwischenStation,-1.0f,0.0,"tavern_spawn");
+						pxFght^.UpdateAggressionPos(m_vZwischenStation);
+						m_sTask = "go_out";
+						bActionStarted=true;
+					endif;
+				endif;
+				if(!bActionStarted)then
+					pxBabyBorn^.WalkAction(m_vZwischenStation,pxFght^.GetDefaultSpeed(),false,true);
+					if(m_vZwischenStation==m_vCurDest&&pxHome^.GetClassName()!="seas_tesla_machine")then
+						m_sTask = "check_task";
+					else
+						m_sTask = "go_out";
+					endif;
+				endif;
+			endif;
+			return;
+		elseif(m_sTask == "go_out")then
+			if(!m_bOnce)then
+				var ^CCharacter pxChar = cast<CCharacter>(pxBabyBorn);
+				if(pxChar!=null)then
+					if(pxChar^.GetCaste()=="res")then
+						pxBabyBorn^.InvokeGenericSCEvent(1,2.0f);
+					elseif(pxChar^.GetCaste()=="nat")then
+						pxBabyBorn^.InvokeGenericSCEvent(2,2.0f);
+					elseif(pxChar^.GetCaste()=="tec")then
+						pxBabyBorn^.InvokeGenericSCEvent(3,2.0f);
+					endif;
+				else
+					if(pxBabyBorn^.GetType()=="ANML")then
+						var ^CAnimal pxAnimal=cast<CAnimal>(pxBabyBorn);
+						if(pxAnimal!=null)then
+							pxBabyBorn^.InvokeGenericSCEvent(0,2.0f);
+						endif;
+					endif;
+				endif;
+				m_bOnce=true;
+			endif;
+			var ^CFightingObj pxFght = cast<CFightingObj>(pxBabyBorn);
+			if(pxFght!=null)then
+				pxFght^.PreCheckForEnemies();
+				pxFght^.ExamineEnemies(false);
+				var CFourCC xLink;
+				pxFght^.UpdateAggressionPos(m_vCurDest);
+				pxFght^.WalkAction(m_vCurDest,pxFght^.GetDefaultSpeed(),true);
+			endif;
+			m_sTask = "check_task";
+			return;
+		elseif(m_sTask=="check_task")then
+			if(!IsInRange() && m_iRetries<2)then
+				m_sTask = "go_out";
+				m_iRetries++;
+				return;
+			endif;
+			var bool bNextJob=false;
+			var ^CFightingObj pxChar=cast<CFightingObj>(pxBabyBorn);
+			if(pxChar!=null)then
+				var CObjList xInvalid;
+				bNextJob=pxChar^.NextJob(m_xTarget,xInvalid);
+			endif;
+			if(bNextJob)then
+				EndTask();
+				return;
+			endif;
+			m_sTask="exit";
+			return;
+		elseif(m_sTask=="exit")then
+			var ^CGameObj pxObj = m_xTarget.GetObj();
+			var ^CCharacter pxChar = cast<CCharacter>(pxBabyBorn);
+			if(pxChar!=null)then
+				if(pxChar^.GetClassName().Find("worker")!=-1)then
+					var int iType=0;
+					if(iType==0)then
+						var CForestSrvMgr.CTree xForTree;
+						if(CSrvWrap.GetForestMgr().FindNextTree(xForTree,m_vCurDest,15.0f))then
+							pxChar^.Harvest(pxObj,m_vCurDest,true);
+							iType=1;
+						endif;
+					endif;
+					if(iType==0)then
+						var CObjQuery xSearch;
+						xSearch.SetType("STON");
+						xSearch.RegionCircle(m_vCurDest,3.0);
+						var CObjList xL;
+						if(xSearch.Execute(xL))then
+							if(xL.NumEntries()>0)then
+								pxChar^.Mine(xL[0],true);
+								iType=2;
+							endif;
+						endif;
+					endif;
+					if(iType==0)then
+						var CObjQuery xSearch;
+						xSearch.SetType("FRUI");
+						xSearch.SetAttribsNeg("inactive","1");
+						xSearch.RegionCircle(m_vCurDest,10.0);
+						var CObjList xL;
+						if(xSearch.Execute(xL))then
+							if(xL.NumEntries()>0)then
+								pxChar^.GetFood(xL[0],true,0);
+								iType=3;
+							endif;
+						endif;
+					endif;
+					if(iType==0)then
+						var CObjQuery xSearch;
+						xSearch.SetType("FOOD");
+						xSearch.RegionCircle(m_vCurDest,10.0);
+						var CObjList xL;
+						if(xSearch.Execute(xL))then
+							if(xL.NumEntries()>0)then
+								pxChar^.GetFood(xL[0],true,0);
+								iType=3;
+							endif;
+						endif;
+					endif;
+					if(iType==0)then
+						var CObjQuery xSearch;
+						xSearch.SetType("BLDG");
+						xSearch.RegionCircle(m_vCurDest,10.0);
+						var CObjList xL;
+						if(xSearch.Execute(xL))then
+							if(xL.NumEntries()>0)then
+								var ^CBuilding pxBuilding=cast<CBuilding>(xL[0].GetObj());
+								var CObjList xEmpty;
+								if(pxBuilding!=null)then
+									if(!pxBuilding^.IsReady())then
+										if(pxChar^.SearchBuildingToBuildUp(null,xEmpty))then
+											iType=4;
+										endif;
+									else
+										if(pxChar^.SearchBuildingToRepair(null,xEmpty))then
+											iType=5;
+										endif;
+									endif;
+								endif;
+							endif;
+						endif;
+					endif;
+				endif;
+			endif;
+			EndTask();
+			return;
+		elseif(m_sTask=="check_pos")then
+			EndTask();
+		else
+			EndTask();
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		//L KLog.LogSpam("TechTree","CTheLite::USLOnLeave() m_sTask = "+m_sTask);
+	endproc;
+
+	export proc bool Break()
+		//L KLog.LogSpam("TechTree","CTheLite::Break() m_sTask = "+m_sTask);
+		return true;
+	endproc;
+
+	export proc void Skip()
+		//L KLog.LogSpam("TechTree","CTheLite::Skip() m_sTask = "+m_sTask);
+	endproc;
+
+	proc vec3 UseComplexGundlachAlgorithm(vec3 p_vPos, real p_fOffset);
+		Random.Seed();
+		var real fOffset=(Random.GetInt()%(p_fOffset*100.0f).ToInt()).ToReal()/100.0f;
+		if((Random.GetInt()%100)>50)then
+			p_vPos.SetX(p_vPos.GetX()+fOffset);
+		else
+			p_vPos.SetX(p_vPos.GetX()-fOffset);
+		endif;
+		fOffset=(Random.GetInt()%(p_fOffset*100.0f).ToInt()).ToReal()/100.0f;
+		if((Random.GetInt()%100)>50)then
+			p_vPos.SetY(p_vPos.GetY()+fOffset);
+		else
+			p_vPos.SetY(p_vPos.GetY()-fOffset);
+		endif;
+		return(p_vPos);
+	endproc;
+
+	proc string GetTaskForTargetAlgorithmThatIsMuchMoreComplexThanTheGundlachAlgorithm(^CGameObj p_pxTarget)
+/*		//TODO: maybe hold a member in building's class, not here
+		if(p_pxTarget^.GetClassName()=="Hu_Lumberjack_Cottage")then
+			return "Harvest";
+		elseif(p_pxTarget^.GetClassName()=="Hu_Stone_Quarry")then
+			return "Mine";
+		endif;
+*/		return "";
+	endproc;
+
+	export proc void EndTask()
+		UpdateAggressionPos(m_xBorn, true);
+		super.EndTask();
+	endproc;
+	
+	proc bool IsInRange()
+		var ^CGameObj pxBabyBorn = m_xBorn.GetObj();
+		if(pxBabyBorn==null || m_vCurDest=={0.0,0.0,0.0})then return false; endif;
+		var real fDistance = (m_vCurDest - pxBabyBorn^.GetPos()).Abs2S();
+		return fDistance <= 4.0;
+	endproc;
+
+endclass;

@@ -1,0 +1,459 @@
+class CViewSequenceCameras inherit CEnhancedFrameWindow
+
+	export constructor()
+		if(!InitFromResource("sequencer/ViewSequenceCameras","ViewSequenceCameras")) then
+			CLevelEditorWrap.LogError("UI.ViewSequenceCameras","InitFromResource failed");
+			return;
+		endif;
+
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+		pxCameraList^.m_xOnSelect = OnCameraSelect;
+		pxCameraList^.m_xOnLBtnDblClick = OnCameraDblClick;
+		pxCameraList^.SetDisabled(true);
+
+		//Buttons
+		var ^CButton	pxNew = cast<CButton>(GetControl("Bottom/New"));
+		//pxNew^.m_xOnClick = OnNew;
+		pxNew^.SetDisabled(true);
+
+		var ^CButton	pxDelete = cast<CButton>(GetControl("Bottom/Delete"));
+		pxDelete^.m_xOnClick = OnDelete;
+		pxDelete^.SetDisabled(true);
+
+		var ^CCheckBox	pxVisible = cast<CCheckBox>(GetControl("Visible"));
+		pxVisible^. m_xOnStateChange  = OnChangeVisibility;
+		pxVisible^.SetDisabled(true);
+
+		var ^CEdit	pxEdit = cast<CEdit>(GetControl("Bottom/Name"));
+		pxEdit^.m_xOnChange = OnChangeName;
+		pxEdit^.SetDisabled(true);
+
+		var ^CEdit	pxDescription = cast<CEdit>(GetControl("Description"));
+		pxDescription^.m_xOnChange = OnChangeDescription;
+		pxDescription^.SetDisabled(true);
+
+		var ^CStaticCtrl	pxStaticDescription = cast<CStaticCtrl>(GetControl("DescriptionStatic"));
+		pxStaticDescription^.SetDisabled(true);
+
+		var ^CGroupBox	pxDetails = cast<CGroupBox>(GetControl("Details"));
+		pxDetails^.SetDisabled(true);
+
+		LoadPosition("SequencerCameras");
+
+	endconstructor;
+
+	export destructor();
+
+	enddestructor;
+
+	//Called from CSequenceEditor
+	export proc bool AddCamera(string p_sName,^CSeqCamera p_pxCamera)
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+		if(pxCameraList==null)then return(false);endif;
+
+		var ^CSequenceCameraInfo	pxCameraInfo=new CSequenceCameraInfo(p_sName,p_pxCamera);
+		var int iSelect=pxCameraList^.AddItem(p_sName,pxCameraInfo);
+		pxCameraInfo^.SetDescription("Enter description here.");
+		pxCameraList^.Select(iSelect);
+		UpdateControls();
+		return(true);
+	endproc;
+
+	//New camera is beeing created
+	/*
+	proc bool OnNew()
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+		if(pxCameraList==null)then return(false);endif;
+		CEnhancedMenu.Get().GetSequenceEditor()^.OnAddCamera();
+		return(true);
+	endproc;
+	*/
+	export proc bool ClearCameraList()
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+		if(pxCameraList==null)then return(false);endif;
+		pxCameraList^.Clear();
+		UpdateControls();
+		return(true);
+	endproc;
+
+
+
+	//Delete camera
+	proc bool OnDelete()
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+		if(pxCameraList==null)then return(false);endif;
+		if(pxCameraList^.NumItems()!=0)then
+			var ^CSequenceCameraInfo pxTmp = cast<CSequenceCameraInfo>(pxCameraList^.GetItemData(pxCameraList^.GetSelectedItem()));
+			CEnhancedMenu.Get().GetSequenceEditor()^.OnDelCameraByGuid(pxTmp^.GetGuid());
+			pxCameraList^.DeleteItem(pxCameraList^.GetSelectedItem());
+			pxCameraList^.Select(0);
+		endif;
+		UpdateControls();
+		return(true);
+	endproc;
+
+	//Select camera
+	proc bool OnCameraSelect()
+		var ^CEdit	pxEdit = cast<CEdit>(GetControl("Bottom/Name"));
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+
+		/*
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		var ^CSequenceCameraInfo pxTmp = cast<CSequenceCameraInfo>(pxCameraList^.GetItemData(pxCameraList^.GetSelectedItem()));
+		var ^CObj pxObj;
+
+		pxSel^.Include(GetObjByGuid(pxTmp^.GetGuid()));
+		*/
+
+		if(pxEdit==null)then return(false);endif;
+		pxEdit^.SetText(pxCameraList^.GetSelectedItemAsString());
+		UpdateDetails();
+		UpdateControls();
+		return(true);
+	endproc;
+
+	proc CClntHndl GetObjByGuid(ref CGuid p_rxGuid)
+		var CClntHndl xInvalid;
+		xInvalid.Invalidate();
+
+		var ^CList pxList = CEnhancedMenu.Get().GetObjFinder()^.GetObjList();
+		if (pxList==null) then return xInvalid; endif;
+		var int i;
+		for (i=0) cond (i<pxList^.NumItems()) iter(++i) do
+			var ^CFinderItem pxItem = cast<CFinderItem>(pxList^.GetItemData(i));
+			if (pxItem==null) then return xInvalid; endif;
+			if (pxItem^.GetType()==CFinderItem.TYPE_OBJECT) then
+				var CClntHndl xHndl = (cast<CFinderItemObject>(pxItem))^.GetHndl();
+				if (xHndl.IsValid()) then
+					if (xHndl.GetObj()^.GetGuid() == p_rxGuid) then return xHndl; endif;
+				endif;
+			endif;
+		endfor;
+		return xInvalid;
+	endproc;
+
+
+	//Camera selected in world
+	export proc bool CameraSelected(CGuid p_xGuid)
+		var ^CEdit	pxEdit = cast<CEdit>(GetControl("Bottom/Name"));
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+		if(pxCameraList!=null&&pxEdit!=null)then
+			var int i;
+			for(i=0)cond(i<pxCameraList^.NumItems())iter(i++)do
+				var ^CSequenceCameraInfo pxTmp = cast<CSequenceCameraInfo>(pxCameraList^.GetItemData(i));
+				if(pxTmp^.GetGuid()==p_xGuid)then
+					pxCameraList^.Select(i);
+					break;
+				endif;
+			endfor;
+			pxEdit^.SetText(pxCameraList^.GetSelectedItemAsString());
+			UpdateDetails();
+			UpdateControls();
+		endif;
+		return(true);
+	endproc;
+
+	//Doubleclick activates selected camera
+	proc bool OnCameraDblClick()
+		var ^CEdit	pxEdit = cast<CEdit>(GetControl("Bottom/Name"));
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+		if(pxCameraList!=null)then
+			if(pxCameraList^.GetSelectedItem()!=(-1))then
+				var ^CSequenceCameraInfo pxTmp = cast<CSequenceCameraInfo>(pxCameraList^.GetItemData(pxCameraList^.GetSelectedItem()));
+				pxTmp^.Activate();
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+	//Change name of selected camera
+	proc bool OnChangeName()
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+		var ^CEdit	pxEdit = cast<CEdit>(GetControl("Bottom/Name"));
+		if(pxCameraList!=null)then
+			if(pxCameraList^.GetSelectedItem()!=(-1))then
+				var ^CSequenceCameraInfo pxTmp = cast<CSequenceCameraInfo>(pxCameraList^.GetItemData(pxCameraList^.GetSelectedItem()));
+				pxTmp^.SetName(pxEdit^.GetText());
+				pxCameraList^.SetItemText(pxCameraList^.GetSelectedItem(),pxEdit^.GetText());
+
+				var ^CStaticCtrl	pxName = cast<CStaticCtrl>(GetControl("Details/Name"));
+				pxName^.SetText(pxEdit^.GetText());
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+	//Changes description text of camera
+	proc bool OnChangeDescription()
+		var ^CEdit	pxDescription = cast<CEdit>(GetControl("Description"));
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+		if(pxCameraList!=null)then
+			var ^CSequenceCameraInfo pxTmp = cast<CSequenceCameraInfo>(pxCameraList^.GetItemData(pxCameraList^.GetSelectedItem()));
+			pxTmp^.SetDescription(pxDescription^.GetText());
+		endif;
+		return(true);
+	endproc;
+
+	//Update details in the info box for the activated camera
+	proc void UpdateDetails()
+
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+		if(pxCameraList!=null)then
+			if(pxCameraList^.GetSelectedItem()!=(-1))then
+				var ^CSequenceCameraInfo pxTmp = cast<CSequenceCameraInfo>(pxCameraList^.GetItemData(pxCameraList^.GetSelectedItem()));
+
+				var ^CStaticCtrl	pxName = cast<CStaticCtrl>(GetControl("Details/Name"));
+				pxName^.SetText(pxTmp^.GetName());
+
+				/*
+				var ^CCheckBox	pxVisible = cast<CCheckBox>(GetControl("Visible"));
+				if(pxTmp^.GetVisible())then
+					pxVisible^.SetChecked(1);
+				else
+					pxVisible^.SetChecked(0);
+				endif;
+				*/
+
+				var ^CEdit	pxDescription = cast<CEdit>(GetControl("Description"));
+				pxDescription^.SetText(pxTmp^.GetDescription());
+
+				var ^CStaticCtrl	pxTarget = cast<CStaticCtrl>(GetControl("Details/Target"));
+				pxTarget^.SetText("Target: "+pxTmp^.GetTarget().ToString());
+
+				var ^CStaticCtrl	pxEye = cast<CStaticCtrl>(GetControl("Details/Eye"));
+				pxEye^.SetText("Eye: "+pxTmp^.GetEye().ToString());
+
+			endif;
+		endif;
+
+	endproc;
+
+	//Visibility checkbox
+	proc bool OnChangeVisibility()
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+		if(pxCameraList!=null)then
+			if(pxCameraList^.NumItems()!=0)then
+				var ^CSequenceCameraInfo pxTmp = cast<CSequenceCameraInfo>(pxCameraList^.GetItemData(pxCameraList^.GetSelectedItem()));
+				if(pxTmp!=null)then
+					var ^CCheckBox	pxVisible = cast<CCheckBox>(GetControl("Visible"));
+					if(pxVisible^.GetCheckMark())then
+						pxTmp^.SetVisible(true);
+					else
+						pxTmp^.SetVisible(false);
+					endif;
+				endif;
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+	export proc void SetCamerasInvisible(bool p_bParam);
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+		if(pxCameraList!=null)then
+			if(pxCameraList^.NumItems()!=0)then
+				var int i;
+				for(i=0)cond(i<pxCameraList^.NumItems())iter(i++)do
+					var ^CSequenceCameraInfo pxTmp = cast<CSequenceCameraInfo>(pxCameraList^.GetItemData(i));
+					if(pxTmp!=null)then
+						if(p_bParam)then
+							pxTmp^.SetVisible(false);
+						else
+							pxTmp^.SetVisible(true);
+						endif;
+					endif;
+				endfor;
+			endif;
+		endif;
+	endproc;
+
+	export proc bool NextSequenceCamera();
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+		if(pxCameraList!=null)then
+			if(pxCameraList^.NumItems()!=0)then
+				if((pxCameraList^.GetSelectedItem()+1)<(pxCameraList^.NumItems()))then
+					pxCameraList^.Select(pxCameraList^.GetSelectedItem()+1);
+				else
+					pxCameraList^.Select(0);
+				endif;
+				OnCameraDblClick();
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+	export proc bool PreviousSequenceCamera();
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+		if(pxCameraList!=null)then
+			if(pxCameraList^.NumItems()!=0)then
+				if((pxCameraList^.GetSelectedItem()-1)>(-1))then
+					pxCameraList^.Select(pxCameraList^.GetSelectedItem()-1);
+				else
+					pxCameraList^.Select(pxCameraList^.NumItems()-1);
+				endif;
+				OnCameraDblClick();
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+	export proc void UpdateControls()
+		var ^CList			pxCameraList = cast<CList>(GetControl("CameraList"));
+		var ^CButton		pxNew = cast<CButton>(GetControl("Bottom/New"));
+		var ^CButton		pxDelete = cast<CButton>(GetControl("Bottom/Delete"));
+		var ^CCheckBox		pxVisible = cast<CCheckBox>(GetControl("Visible"));
+		var ^CEdit			pxEdit = cast<CEdit>(GetControl("Bottom/Name"));
+		var ^CEdit			pxDescription = cast<CEdit>(GetControl("Description"));
+		var ^CStaticCtrl	pxStaticDescription = cast<CStaticCtrl>(GetControl("DescriptionStatic"));
+		var ^CGroupBox		pxDetails = cast<CGroupBox>(GetControl("Details"));
+
+		if(pxCameraList!=null)then
+			if(!CEnhancedMenu.Get().GetSequenceEditor()^.IsSequenceValid())then
+				pxCameraList^.SetDisabled(true);
+				pxNew^.SetDisabled(true);
+				pxDelete^.SetDisabled(true);
+				pxVisible^.SetDisabled(true);
+				pxEdit^.SetDisabled(true);
+				pxDescription^.SetDisabled(true);
+				pxStaticDescription^.SetDisabled(true);
+				pxDetails^.SetDisabled(true);
+				return();
+			else
+				pxCameraList^.SetDisabled(false);
+				pxNew^.SetDisabled(false);
+			endif;
+			if(pxCameraList^.NumItems()==0)then
+				pxCameraList^.SetDisabled(true);
+				pxDelete^.SetDisabled(true);
+				pxVisible^.SetDisabled(true);
+				pxEdit^.SetDisabled(true);
+				pxDescription^.SetDisabled(true);
+				pxStaticDescription^.SetDisabled(true);
+				pxDetails^.SetDisabled(true);
+			else
+				pxNew^.SetDisabled(false);
+			endif;
+			if(pxCameraList^.GetSelectedItem()!=(-1))then
+				pxCameraList^.SetDisabled(false);
+				pxDelete^.SetDisabled(false);
+				pxVisible^.SetDisabled(false);
+				pxEdit^.SetDisabled(false);
+				pxDescription^.SetDisabled(false);
+				pxStaticDescription^.SetDisabled(false);
+				pxDetails^.SetDisabled(false);
+			endif;
+		endif;
+	endproc;
+
+	export proc bool LoadCameras(^CSequence p_pxSequence)
+		var ^CList	pxCameraList = cast<CList>(GetControl("CameraList"));
+		if(pxCameraList!=null)then
+			pxCameraList^.Clear();
+			var int i;
+			for(i=0)cond(i<p_pxSequence^.NumCameras())iter(i++)do
+				var ^CSequenceCameraInfo	pxCameraInfo=new CSequenceCameraInfo(p_pxSequence^.GetCamera(i)^.GetName(),p_pxSequence^.GetCamera(i));
+				pxCameraList^.AddItem(p_pxSequence^.GetCamera(i)^.GetName(),pxCameraInfo);
+			endfor;
+			UpdateControls();
+		endif;
+
+		return(true);
+	endproc;
+
+endclass;
+
+
+//This class contains all info about the sequence camera
+class CSequenceCameraInfo inherit CItemData
+
+	var ^CSeqCamera						m_pxCamera;
+	var CGuid							m_xGuid;
+	var string							m_sName;
+	var vec3							m_vTarget;
+	var vec3							m_vEye;
+	var string 							m_sDescription;
+	var bool							m_bVisible;
+
+	export constructor(string p_sName,^CSeqCamera p_pxCamera)
+		m_pxCamera=p_pxCamera;
+		SetVisible(true);
+		m_sName=m_pxCamera^.GetCameraInfo()^.GetName();
+		m_xGuid=m_pxCamera^.GetCameraInfo()^.GetIdent();
+	endconstructor;
+
+	export destructor();
+
+	enddestructor;
+
+	export proc void Activate()
+		//CClientWrap.SetCamera((m_pxCamera^.GetCameraInfo()^.GetCamera())^);
+		//CMainController.Get().GetCameraCtrl().Control(m_pxCamera^.GetCameraInfo()^.GetCamera());
+		//CLevelEditorWrap.SetCamera((m_pxCamera^.GetCameraInfo()^.GetCamera())^);
+		//CMainController.Get().GetCameraCtrl().Control(m_pxCamera^.GetCameraInfo()^.GetCamera());
+		//CEnhancedMenu.Get().GetLevelEditor()^.SetCamera(m_pxCamera^.GetCameraInfo()^.GetCamera());
+	endproc;
+
+	export proc void SetName(string p_sName)
+		if(m_pxCamera!=null)then
+			m_pxCamera^.GetCameraInfo()^.SetName(p_sName);
+			m_sName=p_sName;
+		endif;
+	endproc;
+
+	export proc string GetName()
+		return(m_sName);
+	endproc;
+
+	export proc CGuid GetGuid()
+		return(m_xGuid);
+	endproc;
+
+	export proc void SetVisible(bool p_bParam)
+		/*
+		if(m_pxCamera!=null)then
+			m_pxCamera^.GetCameraInfo()^.SetVisible(p_bParam,false);
+		endif;
+		*/
+	endproc;
+
+	export proc bool GetVisible()
+		if(m_pxCamera!=null)then
+			return(m_pxCamera^.GetCameraInfo()^.GetVisible());
+		else
+			return(false);
+		endif;
+	endproc;
+
+	export proc bool SetDescription(string p_sParam)
+		m_sDescription=p_sParam;
+		return(false);
+	endproc;
+
+	export proc string GetDescription()
+		return(m_sDescription);
+	endproc;
+
+	export proc vec3 GetTarget()
+		//m_pxCamera^.m_pxCamera^.GetCameraInfo()^.GetTarget();
+		return({0.0,0.0,0.0});
+	endproc;
+
+	export proc vec3 GetEye()
+		//m_pxCamera^.m_pxCamera^.GetCameraInfo()^.GetEye();
+		return({0.0,0.0,0.0});
+	endproc;
+
+	export proc void Update()
+
+		//((m_pxCamera^.GetCameraInfo()^.GetCamera())^).Eye()=(CClientWrap.GetCamera()^).Eye();
+		//((m_pxCamera^.GetCameraInfo()^.GetCamera())^).LookAt()=(CClientWrap.GetCamera()^).LookAt();
+
+		//CClientWrap.SetCamera((m_pxCamera^.GetCameraInfo()^.GetCamera())^);
+
+		//CLevelEditorWrap.SetCamera((m_pxCamera^.GetCameraInfo()^.GetCamera())^);
+		//CMainController.Get().GetCameraCtrl().Control(m_pxCamera^.GetCameraInfo()^.GetCamera());
+		//CEnhancedMenu.Get().GetLevelEditor()^.SetCamera(m_pxCamera^.GetCameraInfo()^.GetCamera());
+
+	endproc;
+
+
+endclass;

@@ -1,0 +1,2587 @@
+class CTriggerTreeCtrl inherit CTreeCtrl
+
+	var ^CViewTriggerCreate m_pxOwner;
+
+	export constructor()
+		SetAllowItemDragging(true);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	export proc void Init(^CViewTriggerCreate p_pxOwner)
+		m_pxOwner=p_pxOwner;
+	endproc;
+
+	proc bool OnRButtonDown()
+		super.OnRButtonDown();
+		var int iSelItem=GetSelectedItem();
+		if(iSelItem==-1)then return true; endif;
+		var ^CTriggerData pxTD = cast<CTriggerData>(GetItemData(iSelItem));
+		if(pxTD==null)then return true; endif;
+		var ^CContextMenu pxMenu=new CContextMenu(GetSHWND());
+		if(pxTD^.IsNode())then
+			//xParent = pxTD^.GetNode();
+			pxMenu^.AddItem("add node",0);
+			pxMenu^.AddItem("add trigger",1);
+			var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+			if(pxTM^.GetClipboardDataType()==CTriggerDescMgr.CDT_Trigger)then
+				pxMenu^.AddItem("paste trigger",4);
+			elseif(pxTM^.GetClipboardDataType()==CTriggerDescMgr.CDT_Node)then
+				pxMenu^.AddItem("paste node",4);
+			endif;
+		endif;
+		if(FindItem(0, "Root")!=iSelItem)then
+			pxMenu^.AddItem("delete",2);
+			pxMenu^.AddItem("copy",3);
+		endif;
+		pxMenu^.AddItem("cancel",-1);
+		pxMenu^.Show();	
+		return true;
+	endproc;
+	
+	export proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+		var string sClass = p_rxEvt.GetClass().ToString();
+		//right mouse down
+		if(sClass=="sCtxBtnC")then
+			var ^CTriggerData pxTD=null;
+			var int iSelItem=GetSelectedItem();
+			if(iSelItem!=0)then 
+				pxTD=cast<CTriggerData>(GetItemData(iSelItem));
+			endif;
+			
+			var int iID=p_rxEvt.GetInt16A();
+			if(iID==0)then//add node
+				AddTriggerNode(pxTD);
+			elseif(iID==1)then//add trigger
+				AddTrigger(pxTD);
+			elseif(iID==2)then//delete
+				DeleteElement(pxTD);
+			elseif(iID==3)then//copy
+				var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+				if(pxTD^.IsTrigger())then
+					var ^CTriggerDesc pxTrigger=pxTM^.GetTrigger(pxTD^.GetTriggerGuid());
+					if(pxTrigger!=null)then
+						pxTM^.CopyToClipbord(pxTrigger);
+					endif;
+				elseif(pxTD^.IsNode())then
+					pxTM^.CopyToClipbord(pxTD^.GetNode());
+				endif;
+			elseif(iID==4)then//paste trigger/node
+				var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+				pxTM^.PasteFromClipboard(pxTD^.GetNode());
+//				m_pxOwner^.RefreshTreeView(pxTM^.GetHierarchyRoot(),FindItem(0, "Root"));
+				m_pxOwner^.RefreshTreeView(pxTD^.GetNode(),pxTD^.GetItemID());
+			endif;
+		endif;
+		return super.HandleMessage(p_rxEvt);
+	endproc;
+	
+	proc void AddTriggerNode(^CTriggerData p_pxTriggerData)
+		if(p_pxTriggerData==null)then return; endif;
+		if(!p_pxTriggerData^.IsNode())then return; endif;
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		var CTriggerDescMgr.CNode xParent=p_pxTriggerData^.GetNode();
+		if(xParent.IsValid())then
+			var CTriggerDescMgr.CNode xNewNode=pxTM^.CreateNewNode(xParent, "New Node_" + Random.GetInt().ToString());
+			m_pxOwner^.RefreshTreeView(xParent, p_pxTriggerData^.GetItemID());
+		endif;
+	endproc;
+	
+	proc void AddTrigger(^CTriggerData p_pxTriggerData)
+		if(p_pxTriggerData==null)then return; endif;
+		if(!p_pxTriggerData^.IsNode())then return; endif;
+		var ^CTriggerDescMgr pxTM=^(CLevelEditorWrap.GetTriggerDescMgr());
+		var CGuid xTriggerGuid=pxTM^.CreateTrigger();
+		var int iIdx=pxTM^.FindTrigger(xTriggerGuid);
+		if(iIdx!=-1)then
+			var ^CTriggerDesc pxTrigger=pxTM^.GetTrigger(iIdx);
+			var CTriggerDescMgr.CNode xNode=p_pxTriggerData^.GetNode();
+			if(xNode.IsValid() && xNode.GetData()!=null)then
+				var ^CTriggerDescMgr.CHierarchyDesc pxData = xNode.GetData();
+				if (pxData^.FindTrigger(pxTrigger)>=0) then
+					m_pxOwner^.RefreshTreeView(xNode, p_pxTriggerData^.GetItemID());
+					return;
+				endif;
+				pxData^.AddTrigger(pxTrigger);
+			endif;
+			var CTriggerDescMgr.CNode xRoot = pxTM^.GetHierarchyRoot();
+			var ^CTriggerDescMgr.CHierarchyDesc pxData = xRoot.GetData();
+			if(pxData!=null)then
+				var int iIndex = pxData^.FindTrigger(pxTrigger);
+				if(iIndex >= 0)then
+					pxData^.RemTrigger(iIndex);
+				endif;
+			endif;
+			m_pxOwner^.RefreshTreeView(xNode, p_pxTriggerData^.GetItemID());
+		endif;
+	endproc;
+	
+	proc void DeleteElement(^CTriggerData p_pxTriggerData)
+		if(p_pxTriggerData==null)then return; endif;
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		var int iParentNode=GetParentItem(p_pxTriggerData^.GetItemID());
+		var ^CTriggerData pxTD = cast<CTriggerData>(GetItemData(iParentNode));
+		if(p_pxTriggerData^.IsNode())then
+			var CTriggerDescMgr.CNode xNode=p_pxTriggerData^.GetNode();
+			pxTM^.DeleteNodeAndSubs(xNode);
+			if(pxTD!=null)then
+				m_pxOwner^.RefreshTreeView(pxTD^.GetNode(), iParentNode);
+			endif;
+		elseif(p_pxTriggerData^.IsTrigger())then
+			var CTriggerDescMgr.CNode xNode, xParent;
+			var ^CTriggerDesc pxT = p_pxTriggerData^.GetTrigger();
+			if(pxT!=null)then
+				pxTM^.DeleteTrigger(pxT^.GetGuid());
+			endif;
+			if(iParentNode==0)then // Henry: Root is the parent
+				var int iRoot = FindItem(0, "Root");
+				xParent = pxTM^.GetHierarchyRoot();
+				m_pxOwner^.RefreshTreeView(xParent, iRoot);
+			elseif(pxTD!=null)then
+				m_pxOwner^.RefreshTreeView(pxTD^.GetNode(), iParentNode);
+			endif;
+		endif;
+	endproc;
+	
+endclass;
+
+class CViewTriggerCreate inherit CEnhancedFrameWindow
+
+	export const string TRIGGER_PREFIX = ">>> ";
+	export const string TRIGGER_PREFIXOFF = "... ";
+	export const int NAME_START = 4;
+
+	var ^CTriggerTreeCtrl	m_pxTriggerTree;
+	var ^CButton			m_pxNodeUp;
+	var ^CButton			m_pxNodeDown;
+	var ^CEdit				m_pxDesc;
+	var ^CTriggerSubMenu	m_pxMenu;
+	var ^CEdit				m_pxName;
+	
+	var ^CGroupBox			m_pxControls;
+	
+	var ^CGroupBox			m_pxConditionGroup;
+	var ^CConditionList		m_pxCondList;
+	var ^CButton			m_pxCondAdd, m_pxCondEdit, m_pxCondRem;
+	var ^CButton			m_pxCondUp, m_pxCondDown;
+
+	var ^CGroupBox			m_pxExpressionGroup;
+		var ^CEdit			m_pxExpression;
+
+	var ^CGroupBox			m_pxActionGroup;
+		var ^CTabCtrl		m_pxTabs;
+		var ^CActionList	m_pxActListE, m_pxActListH, m_pxActListM;
+		var ^CButton		m_pxActAdd, m_pxActEdit, m_pxActRem;
+		var ^CButton		m_pxActUp, m_pxActDown;
+
+	var ^CTriggerDescMgr 	m_pxTriggerMgr;
+
+	var ^CGroupBox			m_pxOptionsGroup;
+		var ^CCheckBox		m_pxTrailing;
+		var ^CCheckBox		m_pxRising;
+		var ^CCheckBox		m_pxFireOnce;
+		var ^CCheckBox		m_pxInitEnabled;
+		var ^CCheckBox		m_pxRandom;
+		var ^CCheckBox		m_pxDifficulty;
+
+	var ^CCheckBox			m_pxNodeActivate;
+	export var ^CViewGroups	m_pxGroupWnd;
+
+	var int m_iLastSelection;
+	
+	const int 	SEL_NONE 		= 0;
+	const int	SEL_NODE 		= 1;
+	const int	SEL_TRIGGER 	= 2;
+	const int	SEL_CONDITION 	= 3;
+	const int	SEL_ACTION 		= 4;
+
+	export constructor()
+		if (!InitFromResource("Trigger/ViewTriggerCreate", "Trigger_MainWnd")) then
+			KLog.LogError("UI.ViewTriggerCreate", "InitFromResource failed");
+			return;
+		endif;
+		m_pxGroupWnd=null;
+		
+		m_pxDesc			= 	cast<CEdit>(GetControl("Edit_Desc"));
+		m_pxNodeUp			= 	cast<CButton>(GetControl("GBox_Trigger/Btn_NodeUp"));
+		m_pxNodeDown		= 	cast<CButton>(GetControl("GBox_Trigger/Btn_NodeDown"));
+		m_pxTriggerTree 	= 	cast<CTriggerTreeCtrl>(GetControl("GBox_Trigger/Trigger_Tree"));
+		m_pxTriggerTree^.Init(this);
+		m_pxMenu			=	cast<CTriggerSubMenu>(GetControl("SubMenu"));
+		m_pxName 			= 	cast<CEdit>(GetControl("GBox_Controls/Edit_Name"));
+		m_pxControls		= 	cast<CGroupBox>(GetControl("GBox_Controls"));
+		m_pxConditionGroup	= 	cast<CGroupBox>(GetControl("GBox_Controls/GBox_Conditions"));
+		m_pxCondList		= 	cast<CConditionList>(GetControl("GBox_Controls/GBox_Conditions/List_Conditions"));
+		m_pxCondList^.Init(this);
+		m_pxCondAdd			= 	cast<CButton>(GetControl("GBox_Controls/GBox_Conditions/Btn_CondAdd"));
+		m_pxCondEdit		= 	cast<CButton>(GetControl("GBox_Controls/GBox_Conditions/Btn_CondEdit"));
+		m_pxCondRem 		= 	cast<CButton>(GetControl("GBox_Controls/GBox_Conditions/Btn_CondRem"));
+		m_pxCondUp 	 		= 	cast<CButton>(GetControl("GBox_Controls/GBox_Conditions/Btn_Up"));
+		m_pxCondDown 		= 	cast<CButton>(GetControl("GBox_Controls/GBox_Conditions/Btn_Down"));
+		m_pxExpressionGroup	= 	cast<CGroupBox>(GetControl("GBox_Controls/GBox_Expression"));
+		m_pxExpression		=	cast<CEdit>(GetControl("GBox_Controls/GBox_Expression/Edit_Exp"));
+		m_pxActionGroup		= 	cast<CGroupBox>(GetControl("GBox_Controls/GBox_Actions"));
+		//m_pxActList			= 	cast<CList>(GetControl("GBox_Controls/GBox_Actions/List_Actions"));
+		m_pxTabs			= 	cast<CTabCtrl>(GetControl("GBox_Controls/GBox_Actions/Tabs_Difficulty"));		
+		m_pxActAdd			= 	cast<CButton>(GetControl("GBox_Controls/GBox_Actions/Btn_ActAdd"));
+		m_pxActEdit			= 	cast<CButton>(GetControl("GBox_Controls/GBox_Actions/Btn_ActEdit"));
+		m_pxActRem 			= 	cast<CButton>(GetControl("GBox_Controls/GBox_Actions/Btn_ActRem"));
+		m_pxActUp 			= 	cast<CButton>(GetControl("GBox_Controls/GBox_Actions/Btn_Up"));
+		m_pxActDown			= 	cast<CButton>(GetControl("GBox_Controls/GBox_Actions/Btn_Down"));
+		m_pxOptionsGroup	= 	cast<CGroupBox>(GetControl("GBox_Controls/GBox_Options"));
+		m_pxTrailing		= 	cast<CCheckBox>(GetControl("GBox_Controls/GBox_Options/Chk_Trailing"));
+		m_pxRising			= 	cast<CCheckBox>(GetControl("GBox_Controls/GBox_Options/Chk_Rising"));
+		m_pxFireOnce		=	cast<CCheckBox>(GetControl("GBox_Controls/GBox_Options/Chk_FireOnce"));
+		m_pxInitEnabled		= 	cast<CCheckBox>(GetControl("GBox_Controls/GBox_Options/Chk_InitEnabled"));
+		m_pxRandom			=	cast<CCheckBox>(GetControl("GBox_Controls/GBox_Options/Chk_Random"));
+		m_pxDifficulty		= 	cast<CCheckBox>(GetControl("GBox_Controls/GBox_Options/Chk_Difficulty"));
+		
+		m_pxMenu^.Init(this);
+
+		m_pxName^.m_xOnUpdate = OnNameUpdate;
+		m_pxDesc^.m_xOnUpdate = OnDescUpdate;
+		m_pxExpression^.m_xOnUpdate = OnExpressionUpdate;
+		
+		m_pxNodeUp^.m_xOnClick = OnNodeUp;
+		m_pxNodeDown^.m_xOnClick = OnNodeDown;
+
+		m_pxActListE = new CActionList(this,0);
+		m_pxActListM = new CActionList(this,1);		
+		m_pxActListH = new CActionList(this,2);
+				
+		//m_pxTabs^.AddTab("Easy", m_pxActListE);
+		m_pxTabs^.AddTab("Medium", m_pxActListM,false);
+		//m_pxTabs^.AddTab("Hard", m_pxActListH);
+		
+		m_pxTriggerTree^.m_xOnSelect = OnSelectNode;
+		m_pxTriggerTree^.m_xOnLBtnDblClick=OnDblClickNode;
+		m_pxCondList^.m_xOnSelect = OnSelectCondition;
+		m_pxActListE^.m_xOnSelect = OnSelectAction;
+		m_pxActListM^.m_xOnSelect = OnSelectAction;
+		m_pxActListH^.m_xOnSelect = OnSelectAction;
+		
+
+		m_pxCondAdd^.m_xOnClick = OnAddCondition;
+		m_pxCondEdit^.m_xOnClick = OnEditCondition;
+		m_pxCondRem^.m_xOnClick = OnDelCondition;
+		m_pxCondUp^.m_xOnClick = OnCondUp;
+		m_pxCondDown^.m_xOnClick = OnCondDown;
+		
+		m_pxActAdd^.m_xOnClick = OnAddAction;
+		m_pxActEdit^.m_xOnClick = OnEditAction;
+		m_pxActRem^.m_xOnClick = OnDelAction;
+		m_pxActUp^.m_xOnClick = OnActUp;
+		m_pxActDown^.m_xOnClick = OnActDown;
+
+		m_pxTrailing^.m_xOnStateChange = OnChangeEdgeType;
+		m_pxRising^.m_xOnStateChange = OnChangeEdgeType;
+		m_pxFireOnce^.m_xOnStateChange = OnChangeFireOnce;
+		m_pxInitEnabled^.m_xOnStateChange = OnChangeInitEnabled;
+		m_pxRandom^.m_xOnStateChange = OnChangedRandom;
+		m_pxDifficulty^.m_xOnStateChange = OnDifficultyChange;
+	
+		m_pxConditionGroup^.SetVisible(false);
+		m_pxExpressionGroup^.SetVisible(false);
+		m_pxActionGroup^.SetVisible(false);
+		m_pxOptionsGroup^.SetVisible(false);
+
+		m_pxTriggerTree^.m_xOnMoveNode = OnMoveNode;
+		m_pxTriggerTree^.m_xOnPostMoveNode = OnPostMoveNode;
+		
+		m_pxNodeActivate = new CCheckBox();
+		m_pxControls^.AddChild(m_pxNodeActivate);
+		m_pxNodeActivate^.SetPos(m_pxConditionGroup^.GetPos());
+		m_pxNodeActivate^.SetSize(m_pxConditionGroup^.GetWidth(), 25);
+		m_pxNodeActivate^.SetVisible(false);
+		m_pxNodeActivate^.SetText("Activate");
+		m_pxNodeActivate^.m_xOnStateChange = OnChangeNodeActive;
+		
+		m_pxTriggerMgr = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		Reset();
+		LoadPosition("TriggerCreate");
+	endconstructor;
+
+	export destructor()
+		delete m_pxActListM;
+		delete m_pxActListE;
+		delete m_pxActListH;
+	enddestructor;
+
+	export proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+		return true;
+	endproc;
+	
+	var int m_iAsyncTickTimer;
+	var int m_iCurTrigger;
+	var bool m_bActions;
+	var int m_iCurSub;
+	var int m_iNumTrigger;
+		
+	proc void StartAsyncTriggerUpdate()
+		CLevelEditorInst.SetLoadWindow("Updating Trigger");
+		
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		m_iNumTrigger = pxTM^.NumTrigger();
+		m_iCurTrigger = 0;
+		m_iCurSub = 0;
+		m_bActions = true;
+		m_iAsyncTickTimer = SetTimer(10, true);
+	endproc;
+	
+	proc void AsyncTriggerUpdateTick()
+		if(m_iNumTrigger==0)then return; endif; // Henry: to avoid division by zero...
+		var real fProgress = m_iCurTrigger.ToReal()/m_iNumTrigger.ToReal();
+		
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		if(m_iCurTrigger>=m_iNumTrigger) then
+			EndAsyncTriggerUpdate();
+			return;
+		endif;
+		
+		var ^CTriggerDesc pxTDesc = pxTM^.GetTrigger(m_iCurTrigger);
+		if(pxTDesc!=null) then
+			var int iNumActions = pxTDesc^.NumActions();
+			var int iNumConds = pxTDesc^.NumConditions();
+			if(m_bActions) then				
+				if(m_iCurSub>=iNumActions) then
+					m_iCurSub = 0;
+					m_bActions = false;
+				else
+					CLevelEditorInst.SetLoadWindowProgress(fProgress, pxTDesc^.GetName()+"("+m_iCurSub.ToString()+"/"+(iNumActions+iNumConds).ToString()+")");
+					var ^CViewActionCreate pxViewActCreate=new CViewActionCreate(pxTDesc^.GetGuid(),m_iCurSub, 1);
+					pxViewActCreate^.OnFinish();
+					++m_iCurSub;
+				endif;
+			endif;
+			if(!m_bActions) then
+				if(m_iCurSub>=iNumConds) then
+					m_iCurSub = 0;
+					m_bActions=true;
+					++m_iCurTrigger;
+				else
+					CLevelEditorInst.SetLoadWindowProgress(fProgress, pxTDesc^.GetName()+" (" + (iNumActions+m_iCurSub).ToString()+"/"+iNumConds.ToString()+")");
+					var ^CViewCondCreate pxViewCondCreate=new CViewCondCreate(pxTDesc^.GetGuid(),m_iCurSub);
+					pxViewCondCreate^.OnFinish();
+					++m_iCurSub;
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	proc void EndAsyncTriggerUpdate()
+		UnsetTimer(m_iAsyncTickTimer);
+		CLevelEditorInst.DeleteLoadWindow();
+	endproc;
+	
+	proc bool OnTimer(int p_iID)
+		if(p_iID == m_iAsyncTickTimer) then
+			AsyncTriggerUpdateTick();
+		endif;
+		return true;
+	endproc;
+	
+	export proc void UpdateAllTrigger()
+		StartAsyncTriggerUpdate();
+		return;
+	endproc;
+
+	export proc ^CTreeCtrl GetTriggerTree()
+		return m_pxTriggerTree;
+	endproc;
+
+	export proc ^CTriggerSubMenu GetMenu()
+		return m_pxMenu;
+	endproc;
+
+	export proc bool SetTempInvisible()
+		var bool bRet = super.SetTempInvisible();
+		//if (GetVisible()) then
+		var int iRoot = m_pxTriggerTree^.FindItem(0, "Root");
+			RefreshTreeView(m_pxTriggerMgr^.GetHierarchyRoot(), iRoot);
+		//endif;
+		return bRet;
+	endproc;
+
+	export proc void OnSave()		
+	endproc;
+	/*
+	proc bool InitMPModus(string p_sModus, ^CMPModusSettings p_pxSettings)
+		return m_pxMenu^.InitMPModus(p_sModus, p_pxSettings);
+	endproc;
+	
+	export proc bool ApplyMPModus(string p_sModus, ^CMPModusSettings p_pxSettings)
+		return m_pxMenu^.ApplyMPModus(p_sModus, p_pxSettings);
+	endproc;
+	*/
+
+	proc bool MoveNode(bool p_bUp)
+		var bool bMoved = false;
+		var string sNodeName;
+		var string sParentName;
+		var CTriggerDescMgr.CNode xParentNode;
+		var int iSel = m_pxTriggerTree^.GetSelectedItem();
+		if(iSel>0) then
+			sNodeName = m_pxTriggerTree^.GetItemText(iSel);
+			var ^CTriggerData pxTD = cast<CTriggerData>(m_pxTriggerTree^.GetItemData(iSel));
+			if(pxTD!=null) then
+				if(pxTD^.IsTrigger()) then
+					var ^CTriggerDesc pxTrigger = pxTD^.GetTrigger();
+					xParentNode = m_pxTriggerMgr^.FindTriggerNode(pxTrigger);
+					if(!xParentNode.IsValid()) then return false; endif;
+					if(xParentNode.GetData()^.NumTriggers()<=1) then return false; endif;
+					sParentName = xParentNode.GetData()^.GetNodeName();
+					var int iIdx = xParentNode.GetData()^.FindTrigger(pxTrigger);
+					if(iIdx >= 0 && pxTrigger!=null) then
+						m_pxTriggerMgr^.MoveTrigger(xParentNode, iIdx, p_bUp);
+						bMoved = true;
+					endif;
+				else
+					var CTriggerDescMgr.CNode xNode = pxTD^.GetNode();
+					var int iParID = m_pxTriggerTree^.GetParentItem(iSel);
+					if(iParID>0) then
+						var ^CTriggerData pxParTD = cast<CTriggerData>(m_pxTriggerTree^.GetItemData(iParID));
+						if(pxParTD!=null && pxParTD^.IsNode()) then
+							xParentNode = pxParTD^.GetNode();
+							sParentName = m_pxTriggerTree^.GetItemText(iParID);
+						endif;
+					endif;
+					if(xNode.IsValid() && xParentNode.IsValid()) then 
+						if(xParentNode.NumChildren()<=1) then return false; endif;
+						var int iIdx = xParentNode.GetChildIdx(xNode.GetData()^.GetNodeName());
+						if(iIdx>=0) then
+							m_pxTriggerMgr^.MoveNode(xParentNode, iIdx, p_bUp);
+							bMoved = true;
+						endif;
+					endif;
+				endif;
+			endif;
+		endif;
+		if(bMoved)then
+			var int iParentID = m_pxTriggerTree^.FindItem(0, sParentName);
+			RefreshTreeView(xParentNode, iParentID); 
+			iParentID = m_pxTriggerTree^.FindItem(0, sParentName);
+			if (iParentID <= 0) then return false; endif;
+			var int i, iC = m_pxTriggerTree^.ItemNumChildren(iParentID);
+			for(i=0) cond(i<iC) iter(++i) do
+				var int iChild = m_pxTriggerTree^.GetChildItem(iParentID, i);
+				if(iChild > 0 && m_pxTriggerTree^.GetItemText(iChild)==sNodeName) then
+					m_pxTriggerTree^.Select(iChild);
+					break;
+				endif;
+			endfor;
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnNodeUp()
+		return MoveNode(true);
+	endproc;
+	
+	proc bool OnNodeDown()
+		return MoveNode(false);
+	endproc;
+
+
+	proc bool OnMoveNode(int p_iNodeID, int p_iNewParent)
+		var CTriggerDescMgr.CNode xNode, xNewParent;
+		var ^CTriggerDesc pxTrigger = null;
+		var ^CTriggerData pxTD = cast<CTriggerData>(m_pxTriggerTree^.GetItemData(p_iNodeID));
+		if (pxTD!=null) then
+			xNode = pxTD^.GetNode();
+			if(pxTD^.IsTrigger()) then
+				pxTrigger = pxTD^.GetTrigger();
+			endif;
+		endif;
+		pxTD = cast<CTriggerData>(m_pxTriggerTree^.GetItemData(p_iNewParent));
+		if (pxTD!=null && pxTD^.IsNode())then
+			xNewParent = pxTD^.GetNode();
+		endif;
+		
+		begin;
+			var int iPar = m_pxTriggerTree^.GetParentItem(p_iNodeID);
+			if(iPar == p_iNewParent) then 
+				return false; 
+			endif;
+		end;
+		
+		if (xNode.IsValid() && xNewParent.IsValid()) then
+			if (pxTrigger != null) then
+				m_pxTriggerMgr^.MoveTrigger(pxTrigger, xNode, xNewParent);
+			else
+				m_pxTriggerMgr^.MoveNode(xNode, xNewParent);
+			endif;
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	proc bool OnPostMoveNode()
+		RefreshTreeView(m_pxTriggerMgr^.GetHierarchyRoot(), m_pxTriggerTree^.FindItem(0,"Root"));
+		/*var int iIdx = m_pxTriggerTree^.GetLastExpandedItem();
+		if(iIdx > 0) then
+			m_pxTriggerTree^.EnsureVisible(iIdx);
+		endif;*/
+		//UpdateItemData();
+		Reset();
+		return true;
+	endproc;
+	
+	proc void UpdateItemData()
+		var CTriggerDescMgr.CNode xRoot = m_pxTriggerMgr^.GetHierarchyRoot();
+		var int iRoot = m_pxTriggerTree^.FindItem(0, "Root");
+		
+		UpdateItemDataRec(xRoot, iRoot);
+	endproc;
+	
+	proc void UpdateItemDataRec(ref CTriggerDescMgr.CNode p_rxNode, int p_iNode)
+		var ^CTriggerDescMgr.CHierarchyDesc pxNodeData = p_rxNode.GetData();
+		if(pxNodeData!=null) then
+			if (m_pxTriggerTree^.GetItemText(p_iNode)== pxNodeData^.GetNodeName()) then
+				return;
+			endif;
+		endif;
+		
+		delete m_pxTriggerTree^.GetItemData(p_iNode);
+		m_pxTriggerTree^.SetItemData(p_iNode, new CTriggerData(p_rxNode,p_iNode));
+		
+		var int i, iC = p_rxNode.NumChildren();
+		/*if (iC != m_pxTriggerTree^.ItemNumChildren(p_iNode)) then
+			return;
+		endif;*/
+		
+		for(i=0) cond(i<iC) iter(++i) do
+			var int iChildID = m_pxTriggerTree^.GetChildItem(p_iNode, i);
+			var CTriggerDescMgr.CNode xChild = p_rxNode.GetChild(i);
+			if (iChildID <= 0 || !xChild.IsValid()) then KLog.LogSpam("MaZi", "F");continue; endif;
+			UpdateItemDataRec(xChild, iChildID);
+		endfor;
+		
+		var ^CTriggerDescMgr.CHierarchyDesc pxData = p_rxNode.GetData();
+		if (pxData!=null) then
+			iC = pxData^.NumTriggers();
+			for (i=0) cond(i<iC) iter(++i) do
+				var ^CTriggerDesc pxTrigger = pxData^.GetTrigger(i);
+				if (pxTrigger != null) then
+					var string sSearch = TRIGGER_PREFIX;
+					if(pxTrigger^.IsCompleteDisabled()) then sSearch=TRIGGER_PREFIXOFF; endif;
+					sSearch += pxTrigger^.GetName();
+					
+					var int iTriggerItem = m_pxTriggerTree^.FindItem(p_iNode, sSearch);
+					if (iTriggerItem > 0) then
+						delete m_pxTriggerTree^.GetItemData(iTriggerItem);
+						m_pxTriggerTree^.SetItemData(iTriggerItem, new CTriggerData(pxTrigger,iTriggerItem));
+					else
+						var int iItemIdx=m_pxTriggerTree^.AddItem(p_iNode, TRIGGER_PREFIX + pxTrigger^.GetName());
+						m_pxTriggerTree^.SetItemData(iItemIdx,new CTriggerData(pxTrigger,iItemIdx));
+					endif;
+				endif;
+			endfor;
+		endif;
+	endproc;
+
+	export proc void Reset()
+		m_pxTriggerTree^.StartIterate();
+		var int iCur = 0;
+		repeat
+			m_pxTriggerTree^.Iterate(iCur);
+			if (iCur <= 1) then break; endif;
+			delete m_pxTriggerTree^.GetItemData(iCur);
+			m_pxTriggerTree^.SetItemData(iCur, null);
+		until ( iCur <= 0 ) endrepeat;
+		m_pxTriggerTree^.Clear();
+		var int iItemIdx=m_pxTriggerTree^.AddItem(0,"Root");
+		m_pxTriggerTree^.SetItemData(iItemIdx,new CTriggerData(m_pxTriggerMgr^.GetHierarchyRoot(),iItemIdx));
+		RefreshTreeViewRecursive(m_pxTriggerMgr^.GetHierarchyRoot(),iItemIdx);
+	endproc;
+	
+	export proc void DelChildrenRec(int p_iCur)
+		while(m_pxTriggerTree^.ItemNumChildren(p_iCur) > 0) do
+			var int iChild = m_pxTriggerTree^.GetChildItem(p_iCur, 0);
+			DelChildrenRec(iChild);
+			delete m_pxTriggerTree^.GetItemData(iChild);
+			m_pxTriggerTree^.DeleteItem(iChild, false);
+		endwhile;
+	endproc;
+	
+	export proc void RefreshTreeView(CTriggerDescMgr.CNode p_xNode, int p_iCurNode)
+		//m_pxTriggerTree^.StartIterate();
+		DelChildrenRec(p_iCurNode);
+		RefreshTreeViewRecursive(p_xNode, p_iCurNode);
+	endproc;
+	
+	export proc void RefreshTreeViewRecursive( CTriggerDescMgr.CNode p_xNode, int p_iCurNode )
+		var ^CTriggerDescMgr.CHierarchyDesc pxData = p_xNode.GetData();
+		if (pxData!=null) then
+			m_pxTriggerTree^.SetItemText(p_iCurNode, pxData^.GetNodeName());
+			var int i, iC = pxData^.NumTriggers();
+			for (i=0) cond(i<iC) iter(++i) do
+				var ^CTriggerDesc pxTrigger = pxData^.GetTrigger(i);
+				if (pxTrigger!=null) then KLog.LogSpam("MaZi", "Inserting Trigger: " + pxTrigger^.GetName()); endif;
+				var int j, iJC = m_pxTriggerTree^.ItemNumChildren(p_iCurNode);
+				for(j=0) cond(j<iJC) iter(++j) do
+					var int iChild = m_pxTriggerTree^.GetChildItem(p_iCurNode, j);
+					if(m_pxTriggerTree^.GetItemText(iChild).Mid(NAME_START)==pxTrigger^.GetName()) then 
+						m_pxTriggerTree^.SetItemData(iChild, new CTriggerData(pxTrigger,iChild));
+						KLog.LogSpam("MaZi", "Set");
+						continue;
+					endif;
+				endfor;
+				if (pxTrigger!=null) then
+					var string sPrefix=TRIGGER_PREFIX;
+					if(pxTrigger^.IsCompleteDisabled()) then sPrefix=TRIGGER_PREFIXOFF; endif;
+					m_pxTriggerTree^.AddItem(p_iCurNode, sPrefix + pxTrigger^.GetName(), new CTriggerData(pxTrigger,p_iCurNode));
+					KLog.LogSpam("MaZi", "added");
+				else
+					m_pxTriggerTree^.AddItem(p_iCurNode, "** Invalid Trigger **");
+				endif;
+			endfor;
+		endif;
+
+		var int i, iC = p_xNode.NumChildren();
+		for (i=0) cond(i<iC) iter(++i) do
+			var CTriggerDescMgr.CNode xNode;
+			xNode = p_xNode.GetChild(i);
+			if (xNode.IsValid()) then
+				var ^CTriggerDescMgr.CHierarchyDesc pxData = xNode.GetData();
+				if (pxData!=null && pxData^.GetNodeName()=="WinningConditions" && m_pxMenu^.m_bHideTrigger) then continue; endif;
+				var int iNewNode = m_pxTriggerTree^.AddItem(p_iCurNode, "NewNode_"+i.ToString());
+				m_pxTriggerTree^.SetItemData(iNewNode,new CTriggerData(xNode,iNewNode));
+				RefreshTreeViewRecursive(xNode, iNewNode);
+			endif;
+		endfor;
+		if (!p_xNode.IsActive()) then
+			m_pxTriggerTree^.SetItemDisabled(p_iCurNode, true, true);
+		endif;
+	endproc;
+
+	proc bool OnSelectNode()
+		var int iIdx = m_pxTriggerTree^.GetSelectedItem();
+		if (iIdx > 0) then
+			if (m_pxTriggerTree^.GetItemData(iIdx)!=null && cast<CTriggerData>(m_pxTriggerTree^.GetItemData(iIdx))^.IsTrigger()) then
+				var ^CTriggerData pxTD = cast<CTriggerData>(m_pxTriggerTree^.GetItemData(iIdx));
+				if (pxTD!=null) then
+					return OnTriggerSelected(pxTD^.GetTrigger());
+				else
+					return false;
+				endif;
+			else
+				return OnNodeSelected();
+			endif;
+		endif;
+		m_iLastSelection = SEL_NONE;
+		m_pxConditionGroup^.SetVisible(false);
+		m_pxExpressionGroup^.SetVisible(false);
+		m_pxActionGroup^.SetVisible(false);
+		m_pxDesc^.SetText("");
+		m_pxDesc^.SetDisabled(true);
+		return false;
+	endproc;
+
+	proc bool OnDblClickNode()
+		var ^CTriggerDesc pxTrigger = GetSelectedTrigger();
+		var int iIdx = m_pxTriggerTree^.GetSelectedItem();
+		if(pxTrigger!=null&&iIdx!=-1) then
+			pxTrigger^.SetCompleteDisabled(!pxTrigger^.IsCompleteDisabled());
+			var string sPrefix=TRIGGER_PREFIX;
+			if(pxTrigger^.IsCompleteDisabled()) then sPrefix=TRIGGER_PREFIXOFF; endif;
+			m_pxTriggerTree^.SetItemText(iIdx, sPrefix + pxTrigger^.GetName());
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnSelectCondition()
+		var ^CTriggerDesc.CCondition pxC = GetSelectedCondition();
+		if (pxC!=null) then
+			m_iLastSelection = SEL_CONDITION;
+			m_pxName^.SetText(pxC^.GetName());
+			m_pxDesc^.SetDisabled(false);
+			m_pxDesc^.SetText(pxC^.GetDesc());
+			
+			var int iTab = m_pxTabs^.GetCurrentTab();
+			if (iTab >= 0) then
+				var ^CList pxList = cast<CList>(m_pxTabs^.GetTabWindow(iTab));
+				pxList^.RemoveSelection();
+			endif;
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	proc bool OnSelectAction()
+		var ^CTriggerDesc.CAction pxA = GetSelectedAction();
+		if (pxA!=null) then
+			m_iLastSelection = SEL_ACTION;
+			m_pxName^.SetText(pxA^.GetName());
+			m_pxDesc^.SetDisabled(false);
+			m_pxDesc^.SetText(pxA^.GetDesc());
+			m_pxCondList^.RemoveSelection();
+			
+			var ^CAttribs pxAttr = ^(pxA^.GetParams());
+			if (pxAttr!=null) then
+				var int iRenderable = pxAttr^.GetValueInt("renderable");
+				if (iRenderable>0)then
+					HandleRenderable(pxAttr);
+				else
+					RemoveAllTriggerRenderingStuff();
+				endif;
+			endif;
+			return true;
+		endif;
+		RemoveAllTriggerRenderingStuff();
+		return false;
+	endproc;
+	
+	proc bool OnNodeSelected()
+		m_pxName^.SetText(m_pxTriggerTree^.GetSelectedItemAsString());
+		m_pxNodeActivate^.m_xOnStateChange.Clear();
+		var CTriggerDescMgr.CNode xNode = GetSelectedNode();
+		if (xNode.IsValid()) then
+			var int iChk = 0;
+			if (xNode.IsActive()) then iChk=1; endif;
+			m_pxNodeActivate^.SetChecked(iChk);
+		endif;
+		m_pxNodeActivate^.m_xOnStateChange = OnChangeNodeActive;
+		m_pxNodeActivate^.SetVisible(true);
+		m_pxConditionGroup^.SetVisible(false);
+		m_pxExpressionGroup^.SetVisible(false);
+		m_pxActionGroup^.SetVisible(false);
+		m_pxOptionsGroup^.SetVisible(false);
+		m_iLastSelection = SEL_NODE;
+		m_pxDesc^.SetText("");
+		m_pxDesc^.SetDisabled(true);
+		return true;
+	endproc;
+
+	proc bool OnTriggerSelected( ^CTriggerDesc p_pxTrigger )
+		m_pxNodeActivate^.SetVisible(false);
+		m_pxConditionGroup^.SetVisible(true);
+		m_pxExpressionGroup^.SetVisible(true);
+		m_pxActionGroup^.SetVisible(true);
+		m_pxOptionsGroup^.SetVisible(true);
+		m_pxDifficulty^.m_xOnStateChange = TempOnDifChange;
+		UpdateOptions();
+		m_pxDifficulty^.m_xOnStateChange = OnDifficultyChange;
+		UpdateConditions();
+		UpdateActions();
+		var ^CList pxActList=null;
+		var int iTab = m_pxTabs^.GetCurrentTab();
+		if (iTab>=0) then
+			pxActList = cast<CList>(m_pxTabs^.GetTabWindow(iTab));
+		endif;
+		m_pxCondList^.RemoveSelection();
+		if (pxActList!=null) then
+			pxActList^.RemoveSelection();
+		endif;
+		m_iLastSelection = SEL_TRIGGER;
+		m_pxName^.SetText(p_pxTrigger^.GetName());
+		m_pxExpression^.SetText(p_pxTrigger^.GetExpression());
+		m_pxDesc^.SetDisabled(false);
+		m_pxDesc^.SetText(p_pxTrigger^.GetDesc());
+		return true;
+	endproc;
+
+	export proc void UpdateConditions()
+		var ^CTriggerDesc.CCondition pxC = GetSelectedCondition();
+		var int iOldSel = m_pxCondList^.GetSelectedItem();
+		var ^CTriggerDesc pxTrigger = GetSelectedTrigger();
+		var int i, iC = m_pxCondList^.NumItems();
+		for (i=0) cond(i<iC) iter(++i) do
+			delete m_pxCondList^.GetItemData(i);
+		endfor;
+		m_pxCondList^.Clear();
+		if(pxTrigger==null) then return; endif;
+		iC = pxTrigger^.NumConditions();
+		for (i=0) cond(i<iC) iter(++i) do
+			var ^CTriggerDesc.CCondition pxCond = pxTrigger^.GetCondition(i);
+			var string sCondName = (i+1).ToString() + ": " + " ( " + pxCond^.GetType().AsString() + " )  " + pxCond^.GetName();
+			m_pxCondList^.AddItem(sCondName, new CConditionData(pxTrigger, pxCond));
+		endfor;
+		m_pxCondList^.Select(iOldSel);
+		var ^CTriggerDesc.CCondition pxNewC = GetSelectedCondition();
+		if (pxC != pxNewC) then
+			var int i, iC = m_pxCondList^.NumItems();
+			for (i=0) cond(i<iC) iter(++i) do
+				var ^CConditionData pxTD = cast<CConditionData>(m_pxCondList^.GetItemData(i));
+				if (pxTD!=null) then
+					var ^CTriggerDesc.CCondition pxCur = pxTD^.GetCondition();
+					if (pxCur != null && pxCur == pxC) then
+						m_pxCondList^.Select(i);
+						return;
+					endif;
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	export proc void UpdateActions()
+		var ^CTriggerDesc.CAction pxA = GetSelectedAction();
+		m_pxActListE^.m_xOnSelect.Clear();
+		m_pxActListM^.m_xOnSelect.Clear();
+		m_pxActListH^.m_xOnSelect.Clear();
+		var int iSelItemE=m_pxActListE^.GetSelectedItem();
+		var int iSelItemM=m_pxActListM^.GetSelectedItem();
+		var int iSelItemH=m_pxActListH^.GetSelectedItem();
+		var array ^CList apxLists;
+		apxLists.AddEntry(m_pxActListE);
+		apxLists.AddEntry(m_pxActListM);
+		apxLists.AddEntry(m_pxActListH);
+		//var int iOldSel = -1;
+		var int iTab = m_pxTabs^.GetCurrentTab();
+		/*
+		if (iTab>=0) then
+			 iOldSel = apxLists[iTab]^.GetSelectedItem();
+		endif;
+		*/
+		var ^CTriggerDesc pxTrigger = GetSelectedTrigger();
+		var int iCurList, iNumLists = apxLists.NumEntries();
+		for(iCurList=0) cond(iCurList<iNumLists) iter(iCurList++) do
+			var ^CList pxList = apxLists[iCurList];
+			var int i, iC = pxList^.NumItems();
+			for (i=0) cond(i<iC) iter(++i) do
+				delete pxList^.GetItemData(i);
+			endfor;
+			pxList^.Clear();
+		endfor;
+		if(pxTrigger==null) then return; endif;
+		var int i, iC = pxTrigger^.NumActions();
+		var bool bDiff = m_pxDifficulty^.GetCheckMark();
+		for(i=0)cond(i<iC)iter(i++) do
+			var ^CTriggerDesc.CAction pxAct = pxTrigger^.GetAction(i);
+			var string sActName = (i+1).ToString() + ": " + " ( " + pxAct^.GetType().AsString() + " )  " + pxAct^.GetName();
+			var int iDifficulty = 1;
+			var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+			if (pxAttr!=null && bDiff) then
+				iDifficulty = pxAttr^.GetValueInt("difficulty");
+			endif;
+			apxLists[iDifficulty]^.AddItem(sActName, new CActionData(pxTrigger, pxAct,i));
+			if(pxAct==pxA)then
+				iTab=iDifficulty;
+				//iOldSel=apxLists[iDifficulty]^.NumItems();
+			endif;
+		endfor;
+		m_pxActListE^.Select(iSelItemE);
+		m_pxActListM^.Select(iSelItemM);
+		m_pxActListH^.Select(iSelItemH);
+		m_pxActListE^.m_xOnSelect = OnSelectAction;
+		m_pxActListM^.m_xOnSelect = OnSelectAction;
+		m_pxActListH^.m_xOnSelect = OnSelectAction;
+	endproc;
+	
+	proc void UpdateOptions()
+		var ^CTriggerDesc pxTrigger = GetSelectedTrigger();
+		if(pxTrigger==null) then return; endif;
+		var bitset dwType=pxTrigger^.GetEdgeType();
+		begin;
+			var int iTmp=0;
+			if((dwType&CTriggerDesc.TF_TrailingEdge)==CTriggerDesc.TF_TrailingEdge)then
+				iTmp=1;
+			endif;
+			m_pxTrailing^.SetChecked(iTmp);
+		end;
+		begin;
+			var int iTmp=0;
+			if((dwType&CTriggerDesc.TF_RisingEdge)==CTriggerDesc.TF_RisingEdge)then
+				iTmp=1;
+			endif;
+			m_pxRising^.SetChecked(iTmp);
+		end;
+		begin;
+			if((dwType&CTriggerDesc.TF_InitialyEnabled)==CTriggerDesc.TF_InitialyEnabled)then
+				m_pxInitEnabled^.SetChecked(1);
+			else
+				m_pxInitEnabled^.SetChecked(0);
+			endif;
+		end;
+		if ( (dwType&CTriggerDesc.TF_FireOnce)==CTriggerDesc.TF_FireOnce ) then
+			m_pxFireOnce^.SetChecked(1);
+		else
+			m_pxFireOnce^.SetChecked(0);
+		endif;
+		if ( (dwType&CTriggerDesc.TF_RandomAction)!=0b) then
+			m_pxRandom^.SetChecked(1);
+		else
+			m_pxRandom^.SetChecked(0);
+		endif;
+		if ( (dwType&CTriggerDesc.TF_MultiDifficulty)!=0b) then
+			m_pxDifficulty^.SetChecked(1);
+		else
+			m_pxDifficulty^.SetChecked(0);
+		endif;
+	endproc;
+	
+	proc bool OnMsgBoxQuestion(int p_iResult)
+		var bitset dwResult = Math.IntToBitset(p_iResult);
+		if(dwResult==CMessageBox.SID_YES)then
+			var ^CTriggerDesc pxT = GetSelectedTrigger();
+			var int i, iC = pxT^.NumActions();
+			for(i=0) cond(i<iC) iter(++i) do
+				var ^CTriggerDesc.CAction pxA=pxT^.GetAction(i);
+				if (pxA!=null && pxA^.GetParams().GetValueInt("difficulty")!=1 ) then 
+					pxT^.DelAction(i);
+					--i; --iC;
+				endif;
+			endfor;
+			while(m_pxTabs^.GetNumTabs()>0) do
+				m_pxTabs^.RemoveTab(0);
+			endwhile;
+			m_pxTabs^.AddTab("Medium", m_pxActListM,false);
+		else
+			m_pxDifficulty^.m_xOnStateChange.Clear();
+			m_pxDifficulty^.SetChecked(1);
+			m_pxDifficulty^.m_xOnStateChange = OnDifficultyChange;
+		endif;
+		return true;
+	endproc;
+
+	proc bool TempOnDifChange()
+		var bool bChecked = m_pxDifficulty^.GetCheckMark();
+		while(m_pxTabs^.GetNumTabs()>0) do
+			m_pxTabs^.RemoveTab(0);
+		endwhile;
+		if (bChecked) then
+			m_pxTabs^.AddTab("Easy", m_pxActListE,false);
+			m_pxTabs^.AddTab("Medium", m_pxActListM,false);
+			m_pxTabs^.AddTab("Hard", m_pxActListH,false);
+		else
+			m_pxTabs^.AddTab("Medium", m_pxActListM,false);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnDifficultyChange()
+		var bool bChecked = m_pxDifficulty^.GetCheckMark();
+		if (!bChecked && (m_pxActListE^.NumItems()>0 || m_pxActListH^.NumItems()>0)) then
+			CMessageBox.MsgBox_YESNO("Are you sure", "Are you sure you want to change the difficulty setting? All Actions for Easy- and Hard-Mode will get lost", CMessageBox.SMB_ICONQUESTION, OnMsgBoxQuestion);
+			return true;
+		endif;
+		while(m_pxTabs^.GetNumTabs()>0) do
+			m_pxTabs^.RemoveTab(0);
+		endwhile;
+		if (bChecked) then
+			/*m_pxTabs^.SetTabDisabled(0, false);
+			m_pxTabs^.SetTabDisabled(1, false);
+			m_pxTabs^.SetTabDisabled(2, false);*/
+			m_pxTabs^.AddTab("Easy", m_pxActListE,false);
+			m_pxTabs^.AddTab("Medium", m_pxActListM,false);
+			m_pxTabs^.AddTab("Hard", m_pxActListH,false);
+		else
+			m_pxTabs^.AddTab("Medium", m_pxActListM,false);
+			/*m_pxTabs^.SelectTab(1);
+			m_pxTabs^.SetTabDisabled(0, true);
+			m_pxTabs^.SetTabDisabled(2, true);*/
+		endif;
+		var ^CTriggerDesc pxT = GetSelectedTrigger();
+		if(pxT!=null) then
+			pxT^.SetMultiDifficulty(bChecked);
+		endif;
+		UpdateActions();
+		return true;
+	endproc;
+	
+	proc bool OnNameUpdate()
+		var string sNewName = m_pxName^.GetText();
+		var int i;
+		m_pxTriggerTree^.StartIterate();
+		var bool bFound = false;
+		while(m_pxTriggerTree^.Iterate(i)) do
+			if (i>0) then
+				var string sTest = m_pxTriggerTree^.GetItemText(i);
+				if (sTest.Left(4) == TRIGGER_PREFIX || sTest.Left(4) == TRIGGER_PREFIXOFF) then
+					sTest.Delete(0,4);
+				endif;
+				if (sTest == sNewName) then bFound = true; endif;
+			endif;
+		endwhile;
+		if (bFound) then return false; endif;
+		if (m_iLastSelection == SEL_TRIGGER) then
+			var ^CTriggerDesc pxTrigger = GetSelectedTrigger();
+			var int iIdx = m_pxTriggerTree^.GetSelectedItem();
+			if (pxTrigger!=null) then
+				pxTrigger^.SetName(sNewName);
+				var string sPrefix=TRIGGER_PREFIX;
+				if(pxTrigger^.IsCompleteDisabled()) then sPrefix=TRIGGER_PREFIXOFF; endif;
+				m_pxTriggerTree^.SetItemText(iIdx, sPrefix + pxTrigger^.GetName());
+				return true;
+			endif;
+		elseif (m_iLastSelection == SEL_NODE) then
+			var int iIdx = m_pxTriggerTree^.GetSelectedItem();
+			var string sItemName = m_pxTriggerTree^.GetItemText(iIdx);
+			var CTriggerDescMgr.CNode xNode = m_pxMenu^.FindNodeByName(sItemName);
+			var ^CTriggerDescMgr.CHierarchyDesc pxData = xNode.GetData();
+			if (pxData!=null) then
+				pxData^.SetNodeName(sNewName);
+				m_pxTriggerTree^.SetItemText(iIdx, sNewName);
+			endif;
+			return true;
+		elseif (m_iLastSelection == SEL_CONDITION) then
+			var ^CTriggerDesc.CCondition pxCond = GetSelectedCondition();
+			if (pxCond!=null) then
+				pxCond^.SetName(sNewName);
+				UpdateConditions();
+			endif;
+			return true;
+		elseif (m_iLastSelection == SEL_ACTION) then
+			var ^CTriggerDesc.CAction pxAct = GetSelectedAction();
+			if (pxAct!=null) then
+				pxAct^.SetName(sNewName);
+				UpdateActions();
+			endif;
+			return true;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnDescUpdate()
+		var string sDesc = m_pxDesc^.GetText();
+		if (m_iLastSelection == SEL_TRIGGER) then
+			var ^CTriggerDesc pxT = GetSelectedTrigger();
+			if (pxT!=null) then
+				pxT^.SetDesc(sDesc);
+			endif;
+			return true;
+		elseif (m_iLastSelection == SEL_CONDITION) then
+			var ^CTriggerDesc.CCondition pxC=GetSelectedCondition();
+			if (pxC!=null) then
+				pxC^.SetDesc(sDesc);
+			endif;
+		elseif (m_iLastSelection == SEL_ACTION) then
+			var ^CTriggerDesc.CAction pxA = GetSelectedAction();
+			if (pxA!=null) then
+				pxA^.SetDesc(sDesc);
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+	proc CTriggerDescMgr.CNode GetSelectedNode()
+		var int iIdx = m_pxTriggerTree^.GetSelectedItem();
+		if (iIdx >= 0 && m_pxTriggerTree^.GetItemData(iIdx)!=null && 
+			cast<CTriggerData>(m_pxTriggerTree^.GetItemData(iIdx))^.IsNode()) then
+			var ^CTriggerData pxTD = cast<CTriggerData>(m_pxTriggerTree^.GetItemData(iIdx));
+			if (pxTD!=null) then
+				return pxTD^.GetNode();
+			endif;
+		endif;
+		var CTriggerDescMgr.CNode xN;
+		return xN;
+	endproc;
+	
+	export proc ^CTriggerDesc GetSelectedTrigger()
+		var int iIdx = m_pxTriggerTree^.GetSelectedItem();
+		if (iIdx >= 0 && m_pxTriggerTree^.GetItemData(iIdx)!=null && 
+			cast<CTriggerData>(m_pxTriggerTree^.GetItemData(iIdx))^.IsTrigger()) then
+			var ^CTriggerData pxTD = cast<CTriggerData>(m_pxTriggerTree^.GetItemData(iIdx));
+			if (pxTD!=null) then
+				return pxTD^.GetTrigger();
+			endif;
+		endif;
+		return null;
+	endproc;
+	
+	proc ^CTriggerDesc.CCondition GetSelectedCondition()
+		var int iIdx = m_pxCondList^.GetSelectedItem();
+		if (iIdx < 0) then return null; endif;
+		var ^CConditionData pxCD = cast<CConditionData>(m_pxCondList^.GetItemData(iIdx));
+		if (pxCD!=null) then
+			return pxCD^.GetCondition();
+		endif;
+		return null;
+	endproc;
+	
+	proc ^CTriggerDesc.CAction GetSelectedAction()
+		var int iTab = m_pxTabs^.GetCurrentTab();
+		if (iTab<0) then return null; endif;
+		var ^CList pxList = cast<CList>(m_pxTabs^.GetTabWindow(iTab));
+		if (pxList==null) then return null; endif;
+		var int iIdx = pxList^.GetSelectedItem();
+		if (iIdx < 0) then return null; endif;
+		var ^CActionData pxAD = cast<CActionData>(pxList^.GetItemData(iIdx));
+		if (pxAD!=null) then
+			return pxAD^.GetAction();
+		endif;
+		return null;
+	endproc;
+	
+	proc bool OnExpressionUpdate()
+		var ^CTriggerDesc pxTrigger=GetSelectedTrigger();
+		if(pxTrigger!=null)then
+			if (m_pxTriggerMgr^.ValidateExpression(m_pxExpression^.GetText())) then
+				pxTrigger^.SetExpression(m_pxExpression^.GetText());
+				return true;
+			else
+				CMessageBox.MsgBox(CLocalizer.Get().Translate("_TriggerCreate_MS_InvalidExpression"), CLocalizer.Get().Translate("_TriggerCreate_MS_TheEntered"));
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnAddCondition()
+		var ^CTriggerDesc pxTrigger=GetSelectedTrigger();
+		if(pxTrigger!=null)then
+			var ^CViewCondCreate pxViewCondCreate=new CViewCondCreate(pxTrigger^.GetGuid(),-1);
+			CClientWrap.GetDesktop()^.AddChild(pxViewCondCreate);
+			CWindowMgr.Get().BringWindowToTop(pxViewCondCreate,true);
+			pxViewCondCreate^.m_xOnFinish=UpdateConditions;
+			//pxViewCondCreate^.SetModal();
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnEditCondition()
+		var ^CTriggerDesc pxTrigger=GetSelectedTrigger();
+		if(pxTrigger!=null)then
+			var ^CViewCondCreate pxViewCondCreate=new CViewCondCreate(pxTrigger^.GetGuid(),m_pxCondList^.GetSelectedItem());
+			CClientWrap.GetDesktop()^.AddChild(pxViewCondCreate);
+			CWindowMgr.Get().BringWindowToTop(pxViewCondCreate,true);
+			pxViewCondCreate^.m_xOnFinish=UpdateConditions;
+			//pxViewCondCreate^.SetModal();
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnDelCondition()
+		var int iSel=m_pxCondList^.GetSelectedItem();
+		if (iSel < 0) then return false; endif;
+		var ^CTriggerDesc pxTrigger=GetSelectedTrigger();
+		if(pxTrigger!=null)then
+			pxTrigger^.DelCondition(iSel);
+		endif;
+		UpdateConditions();
+		return true;
+	endproc;
+
+	proc bool OnAddAction()
+		var ^CTriggerDesc pxTrigger=GetSelectedTrigger();
+		if(pxTrigger!=null)then
+			var int iTab = m_pxTabs^.GetCurrentTab();
+			var ^CList pxList = cast<CList>(m_pxTabs^.GetTabWindow(iTab));
+			if (pxList != null) then
+				var string sTrigger = pxList^.GetSelectedItemAsString();
+				if (sTrigger.Find("WYPT") != -1) then
+					var ^CObjMgr.CWaypointPath pxPath = CLevelEditorWrap.GetObjMgr().GetWaypointPath();
+					pxPath^.Clear();
+				endif;
+			endif;
+			var int iDifficulty = m_pxTabs^.GetCurrentTab();
+			if (!m_pxDifficulty^.GetCheckMark()) then iDifficulty=1; endif;
+			var ^CViewActionCreate pxViewActionCreate=new CViewActionCreate(pxTrigger^.GetGuid(),-1, iDifficulty);
+			CClientWrap.GetDesktop()^.AddChild(pxViewActionCreate, "ActionCreate");
+			CWindowMgr.Get().BringWindowToTop(pxViewActionCreate,true);
+			pxViewActionCreate^.m_xOnFinish=UpdateActions;
+			//pxViewActionCreate^.SetModal();
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnEditAction()
+		var ^CTriggerDesc pxTrigger=GetSelectedTrigger();
+		if(pxTrigger!=null)then
+			var int iTab = m_pxTabs^.GetCurrentTab();
+			var int iDifficulty = iTab;
+			if (!m_pxDifficulty^.GetCheckMark()) then iDifficulty=1; endif;
+			var int iIdx = -1;
+			var ^CList pxList = cast<CList>(m_pxTabs^.GetTabWindow(iTab));
+			var int iSel = pxList^.GetSelectedItem();
+			if (iSel >= 0) then 
+				var ^CActionData pxAD = cast<CActionData>(pxList^.GetItemData(iSel));
+				var ^CTriggerDesc.CAction pxA = pxAD^.GetAction();
+				if (pxA!=null) then 
+					iIdx = pxTrigger^.FindAction(pxA);
+				endif;
+			endif;
+			var ^CViewActionCreate pxViewActionCreate=new CViewActionCreate(pxTrigger^.GetGuid(),iIdx, iDifficulty);
+			CClientWrap.GetDesktop()^.AddChild(pxViewActionCreate, "ActionCreate");
+			CWindowMgr.Get().BringWindowToTop(pxViewActionCreate,true);
+			pxViewActionCreate^.m_xOnFinish=UpdateActions;
+			//pxViewActionCreate^.SetModal();
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnDelAction()
+		var int iTab=m_pxTabs^.GetCurrentTab();
+		if (iTab<0) then return false; endif;
+		var ^CList pxList=cast<CList>(m_pxTabs^.GetTabWindow(iTab));
+		if(pxList==null)then return true; endif;
+		var int iSel=pxList^.GetSelectedItem();
+		if (iSel<0) then return false; endif;
+		var ^CActionData pxTD = cast<CActionData>(pxList^.GetItemData(pxList^.GetSelectedItem()));
+		if(pxTD==null)then return true; endif;
+		var ^CTriggerDesc pxTrigger=GetSelectedTrigger();
+		if(pxTrigger!=null)then
+			pxTrigger^.DelAction(pxTD^.GetIdx());
+		endif;
+		UpdateActions();
+		//pxList^.Select(iSel,false);
+		return true;
+	endproc;
+
+	proc bool OnChangeInitEnabled()
+		var ^CTriggerDesc pxTrigger=GetSelectedTrigger();
+		if(pxTrigger!=null)then
+			var bitset dwType=pxTrigger^.GetEdgeType();
+			if (m_pxInitEnabled^.GetCheckMark()) then
+				dwType |= CTriggerDesc.TF_InitialyEnabled;
+			else
+				dwType &= ~CTriggerDesc.TF_InitialyEnabled;
+			endif;
+			pxTrigger^.SetEdgeType(dwType);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnChangeEdgeType()
+		var ^CTriggerDesc pxTrigger=GetSelectedTrigger();
+		if(pxTrigger!=null)then
+			var bitset dwType=pxTrigger^.GetEdgeType();
+			if(m_pxTrailing^.GetCheckMark())then
+				dwType|=CTriggerDesc.TF_TrailingEdge;
+			else
+				dwType&= ~CTriggerDesc.TF_TrailingEdge;
+			endif;
+			if(m_pxRising^.GetCheckMark())then
+				dwType|=CTriggerDesc.TF_RisingEdge;
+			else
+				dwType&= ~CTriggerDesc.TF_RisingEdge;
+			endif;
+			pxTrigger^.SetEdgeType(dwType);
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnChangeNodeActive()
+		var bool bChecked = m_pxNodeActivate^.GetCheckMark();
+		var CTriggerDescMgr.CNode xNode = GetSelectedNode();
+		if (xNode.IsValid()) then
+			var CTriggerDescMgr.CNode xParent = xNode.GetParent();
+			if(xParent.IsValid() && !xParent.IsActive()) then
+				m_pxNodeActivate^.SetChecked(0);
+				return false;
+			endif;
+			var bool bRec = !bChecked;
+			xNode.SetActive(bChecked, bRec);
+			var int iIdx = m_pxTriggerTree^.GetSelectedItem();
+			if (iIdx > 0) then
+				m_pxTriggerTree^.SetItemDisabled(iIdx, !bChecked, bRec);
+				if(!bRec) then
+					var int i,iC=m_pxTriggerTree^.ItemNumChildren(iIdx);
+					for(i=0)cond(i<iC)iter(++i) do
+						var int iChild = m_pxTriggerTree^.GetChildItem(iIdx,i);
+						if(m_pxTriggerTree^.ItemNumChildren(iChild)==0) then
+							m_pxTriggerTree^.SetItemDisabled(iChild, !bChecked, bRec);
+						endif;
+					endfor;
+				endif;
+			endif;
+			return true;
+		endif;
+		return false;
+	endproc;
+
+	proc bool OnChangedRandom()
+		var ^CTriggerDesc pxTrigger = GetSelectedTrigger();
+		if (pxTrigger!=null) then
+			pxTrigger^.SetRandomAction(m_pxRandom^.GetCheckMark());
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnChangeFireOnce()
+		var ^CTriggerDesc pxTrigger=GetSelectedTrigger();
+		if(pxTrigger!=null)then
+			var bitset dwflags = pxTrigger^.GetEdgeType();
+			if (m_pxFireOnce^.GetChecked()==1) then
+				dwflags |= CTriggerDesc.TF_FireOnce;
+				m_pxRising^.m_xOnClick = OnClickedRise_FireOnce;
+				m_pxTrailing^.m_xOnClick = OnClickedTrail_FireOnce;
+				OnClickedRise_FireOnce();
+			else
+				dwflags &= ~CTriggerDesc.TF_FireOnce;
+				m_pxRising^.m_xOnClick = OnClickedRise;
+				m_pxTrailing^.m_xOnClick = OnClickedTrail;
+			endif;
+			pxTrigger^.SetEdgeType(dwflags);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnClickedRise_FireOnce()
+		m_pxRising^.SetChecked(1);
+		m_pxTrailing^.SetChecked(0);
+		return true;
+	endproc;
+
+	proc bool OnClickedTrail_FireOnce()
+		m_pxRising^.SetChecked(0);
+		m_pxTrailing^.SetChecked(1);
+		return true;
+	endproc;
+
+	proc bool OnClickedRise()
+		if(m_pxRising^.GetCheckMark()) then
+			m_pxRising^.SetChecked(0);
+		else
+			m_pxRising^.SetChecked(1);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnClickedTrail()
+		if (m_pxTrailing^.GetCheckMark()) then
+			m_pxTrailing^.SetChecked(0);
+		else
+			m_pxTrailing^.SetChecked(1);
+		endif;
+		return true;
+	endproc;
+	
+	proc void ClampInt(ref int po_riVal, int p_iMin, int p_iMax)
+		if(po_riVal<p_iMin) then po_riVal=p_iMin; return; endif;
+		if(po_riVal>p_iMax) then po_riVal=p_iMax; return; endif;
+	endproc;
+	
+	proc bool MoveCondition (bool p_bUp)
+		var ^CTriggerDesc pxTrigger = GetSelectedTrigger();
+		if (pxTrigger != null) then
+			var ^CTriggerDesc.CCondition pxCond = GetSelectedCondition();
+			if (pxCond!=null) then
+				var int i, iC = pxTrigger^.NumConditions();
+				for(i=0) cond(i<iC) iter(++i) do
+					if (pxTrigger^.GetCondition(i) == pxCond) then
+						pxTrigger^.MoveCondition(i, p_bUp);
+						UpdateConditions();
+						var int iNewSel = i;
+						if(p_bUp) then --iNewSel; else ++iNewSel; endif;
+						ClampInt(iNewSel, 0, m_pxCondList^.NumItems()-1);
+						m_pxCondList^.Select(iNewSel);
+						return true;
+					endif;
+				endfor;
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+	proc bool MoveAction (bool p_bUp)
+		var ^CTriggerDesc pxTrigger = GetSelectedTrigger();
+		if (pxTrigger != null) then
+			var ^CTriggerDesc.CAction pxAct = GetSelectedAction();
+			if (pxAct!=null) then
+				var int i, iC = pxTrigger^.NumActions();
+				for(i=0) cond(i<iC) iter(++i) do
+					if (pxTrigger^.GetAction(i) == pxAct) then
+						pxTrigger^.MoveAction(i, p_bUp);
+						UpdateActions();
+						var array ^CList apxLists;
+						apxLists.AddEntry(m_pxActListE);
+						apxLists.AddEntry(m_pxActListM);
+						apxLists.AddEntry(m_pxActListH);
+						var int iTab = m_pxTabs^.GetCurrentTab();
+						if(!m_pxDifficulty^.GetCheckMark()) then
+							iTab=1;
+						endif;
+						KLog.LogSpam("MaZi", "TabIdx: " + iTab.ToString());
+						if (iTab>=0) then
+							var int iNewSel = i;
+							if(p_bUp) then --iNewSel; else ++iNewSel; endif;
+							ClampInt(iNewSel, 0, apxLists[iTab]^.NumItems()-1);
+							apxLists[iTab]^.Select(iNewSel);
+						endif;
+						return true;
+					endif;
+				endfor;
+			endif;
+		endif;
+		return false;
+	endproc;
+
+	proc bool OnCondUp()
+		return MoveCondition(true);
+	endproc;
+
+	proc bool OnCondDown()
+		return MoveCondition(false);
+	endproc;
+
+	proc bool OnActUp()
+		return MoveAction(true);
+	endproc;
+
+	proc bool OnActDown()
+		return MoveAction(false);
+	endproc;
+	
+	proc void RemoveAllTriggerRenderingStuff()
+		HideDummyObj();
+		//CLevelEditorWrap.GetObjMgr().GetWaypointPath()^.SetDraw(false);
+		CLevelEditorWrap.GetObjMgr().GetWaypointPath()^.Clear();
+	endproc;
+	
+	proc void HandleRenderable( ^CAttribs p_pxAttr )
+		var string sRenderType = p_pxAttr^.GetValue("renderable_type");
+		var ^CObjMgr pxOM = ^(CLevelEditorWrap.GetObjMgr());
+		if (sRenderType == "Waypoints") then
+			//pxOM^.SetDrawAllWaypointPathes(false);
+			var ^CObjMgr.CWaypointPath pxPath = pxOM^.GetWaypointPath();
+			pxPath^.Clear();
+			var string sWaypoints = p_pxAttr^.GetValue("waypoints");
+			var array string asToks;
+			sWaypoints.Split(asToks, "|", true);
+			var vec3 vP;
+			var int i, iC = asToks.NumEntries();
+			for(i=0) cond(i<iC) iter(++i) do
+				vP.FromString(asToks[i]);
+				pxPath^.AddWaypoint(vP);
+			endfor;
+			pxPath^.SetDraw(iC>0);
+		elseif (sRenderType == "CreationDummy") then
+			var string sClass = p_pxAttr^.GetValue("obj_name");
+			var string sPos = p_pxAttr^.GetValue("obj_pos");
+			var vec3 vPos; vPos.FromString(sPos);
+			var string sRot = p_pxAttr^.GetValue("obj_rot");
+			var vec3 vR; vR.FromString(sRot);
+			var Quat qR; qR.FromVec3(vR);
+			ShowDummyObj(sClass, p_pxAttr^.GetValueInt("obj_owner"), vPos, qR);
+		endif;
+	endproc;
+	
+	proc void ShowDummyObj(string p_sClass, int p_iOwner, vec3 p_vPos, Quat p_qRot)
+		if (CLevelEditorWrap.GetObjMgr().GetGhost()!=null) then
+			CLevelEditorWrap.GetObjMgr().DeleteGhost();
+		endif;
+		CLevelEditorWrap.GetObjMgr().CreateGhost(p_sClass);
+		var ^CGhost pxGhost = CLevelEditorWrap.GetObjMgr().GetGhost();
+		if (pxGhost!=null) then
+			pxGhost^.SetOwner(p_iOwner);
+			pxGhost^.SetPos(p_vPos);
+			pxGhost^.SetRot(p_qRot);
+		endif;
+		CMainController.Get().GetObjCreator()^.SetIgnoreMessages(true);
+	endproc;
+
+	proc void HideDummyObj()
+		CLevelEditorWrap.GetObjMgr().DeleteGhost();
+		CMainController.Get().GetObjCreator()^.SetIgnoreMessages(false);
+	endproc;
+
+endclass;
+
+class CTriggerData inherit CItemData
+
+	export const int TYPE_INVALID		=-1;
+	export const int TYPE_TRIGGER		= 0;
+	export const int TYPE_NODE			= 1;
+
+	var int				m_iType;
+
+	var string		m_sName;
+	var CGuid			m_xGuid;
+	var int				m_iItemID;
+	
+	var CTriggerDescMgr.CNode m_xNode;
+
+	export constructor( CGuid p_xGuid, int p_iItemID)
+		m_iType = TYPE_TRIGGER;
+		m_xGuid = p_xGuid;
+		m_iItemID=p_iItemID;
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		var int iIdx = pxTM^.FindTrigger(m_xGuid);
+		if (iIdx >= 0) then
+			var ^CTriggerDesc pxT = pxTM^.GetTrigger(iIdx);
+			if (pxT!=null) then
+				m_sName = pxT^.GetName();
+			endif;
+		else
+			m_iType = TYPE_INVALID;
+		endif;
+	endconstructor;
+
+	export constructor( ^CTriggerDesc p_pxTrigger, int p_iItemID)
+		m_iItemID=p_iItemID;
+		if (p_pxTrigger!=null) then
+			m_iType = TYPE_TRIGGER;
+			m_sName = p_pxTrigger^.GetName();
+			m_xGuid = p_pxTrigger^.GetGuid();
+		else
+			m_iType = TYPE_INVALID;
+		endif;
+	endconstructor;
+	
+	export constructor( CTriggerDescMgr.CNode p_xNode, int p_iItemID)
+		m_iItemID=p_iItemID;
+		if (p_xNode.IsValid()) then
+			m_iType = TYPE_NODE;
+			m_xNode = p_xNode;
+		else
+			m_iType = TYPE_INVALID;
+		endif;
+	endconstructor;
+
+	export proc bool	IsValid()
+		return m_iType!=TYPE_INVALID;
+	endproc;
+	
+	export proc bool IsTrigger()
+			return m_iType==TYPE_TRIGGER;
+	endproc;
+	
+	export proc bool IsNode()
+		return m_iType==TYPE_NODE;
+	endproc;
+	
+	export proc int GetItemID()
+		return m_iItemID;
+	endproc;
+	
+	export proc CTriggerDescMgr.CNode GetNode()
+		if (m_iType == TYPE_TRIGGER) then
+			var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+			var CTriggerDescMgr.CNode xRoot = pxTM^.GetHierarchyRoot();
+			return pxTM^.FindTriggerNode(m_xGuid);
+		elseif (m_iType == TYPE_NODE) then
+			return m_xNode;
+		endif;
+		var CTriggerDescMgr.CNode xInvalid;
+		return xInvalid;
+	endproc;
+	
+	export proc ^CTriggerDesc GetTrigger()
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		var int iIdx = pxTM^.FindTrigger(m_xGuid);
+		if (iIdx >= 0) then
+			return pxTM^.GetTrigger(iIdx);
+		else
+			return null;
+		endif;
+	endproc;
+	
+	export proc CGuid GetTriggerGuid()
+		return m_xGuid;
+	endproc;
+	
+endclass;
+
+class CConditionData inherit CItemData
+	
+	var ^CTriggerDesc								m_pxTrigger;
+	var ^CTriggerDesc.CCondition		m_pxCondition;
+	
+	export constructor( ^CTriggerDesc p_pxTrigger, ^CTriggerDesc.CCondition p_pxCond )
+		m_pxTrigger = p_pxTrigger;
+		m_pxCondition = p_pxCond;
+	endconstructor;
+	
+	export proc ^CTriggerDesc GetTrigger()
+		return m_pxTrigger;
+	endproc;
+	
+	export proc ^CTriggerDesc.CCondition GetCondition()
+		return m_pxCondition;
+	endproc;
+	
+endclass;
+
+class CActionData inherit CItemData
+	var ^CTriggerDesc						m_pxTrigger;
+	var ^CTriggerDesc.CAction		m_pxAction;
+	var int 										m_iIdx;
+	
+	export constructor( ^CTriggerDesc p_pxTrigger, ^CTriggerDesc.CAction p_pxAct, int p_iIdx)
+		m_pxTrigger = p_pxTrigger;
+		m_pxAction = p_pxAct;
+		m_iIdx=p_iIdx;
+	endconstructor;	
+	
+	export proc ^CTriggerDesc GetTrigger()
+		return m_pxTrigger;
+	endproc;
+	
+	export proc ^CTriggerDesc.CAction GetAction()
+		return m_pxAction;
+	endproc;
+		
+	export proc int GetIdx()
+		return m_iIdx;
+	endproc;
+	
+endclass;
+
+class CTriggerSubMenu inherit CMenu
+	
+	var ^CViewTriggerCreate m_pxTriggerWnd;
+	
+	var array ^CDropButton m_apxMenuEntries;
+	
+	var array ^CDropButton	m_apxSortButtons;
+	var array ^CDropButton	m_apxVariablesButtons;
+	var array ^CDropButton	m_apxWizardButtons;
+	var array ^CDropButton	m_apxGroupButtons;	
+	
+	export var bool m_bHideTrigger;
+	
+	export constructor()
+		m_apxMenuEntries = 5;
+		m_apxMenuEntries[0] = new CDropButton({0,0}, "Sort");
+		m_apxMenuEntries[1] = new CDropButton({0,0}, "Variables");
+		m_apxMenuEntries[2] = new CDropButton({0,0}, "Makro Trigger"); // MakroTrigger		
+		m_apxMenuEntries[3] = new CDropButton({0,0}, "Groups");
+		m_apxMenuEntries[4] = new CDropButton({0,0}, "Debug");
+		var ^CDropButton pxBtn = null;
+		
+		// create Sort-Menu-Entries
+		m_apxSortButtons = 4;
+		m_apxSortButtons[0] = new CDropButton({0,0}, "Sort Ascending");
+		m_apxSortButtons[0]^.m_xOnClick = SortAscend;
+		m_apxSortButtons[1] = new CDropButton({0,0}, "Sort Descending");
+		m_apxSortButtons[1]^.m_xOnClick = SortDescend;
+		m_apxSortButtons[2] = new CDropButton({0,0}, "Sort Ascending ( Recursive )");
+		m_apxSortButtons[2]^.m_xOnClick = SortAscendRec;
+		m_apxSortButtons[3] = new CDropButton({0,0}, "Sort Descending ( Recursive )");
+		m_apxSortButtons[3]^.m_xOnClick = SortDescendRec;
+		
+		// create Variables-Menu-Entries
+		m_apxVariablesButtons=3;
+		m_apxVariablesButtons[0]=new CDropButton({0,0}, "Edit Variables");
+		m_apxVariablesButtons[0]^.m_xOnClick=OnEditVariables;
+		m_apxVariablesButtons[1]=new CDropButton({0,0}, "Edit UIFeedbackFrames");
+		m_apxVariablesButtons[1]^.m_xOnClick=OnEditUIFeedbackFrames;
+		m_apxVariablesButtons[2]=new CDropButton({0,0}, "Edit Screen Regions");
+		m_apxVariablesButtons[2]^.m_xOnClick=OnEditScreenRegions;
+		
+		// create MP-Modi-Menu-Entries
+		m_apxWizardButtons=1;
+		m_apxWizardButtons[0]=new CDropButton({0,0}, "Open Wizard");
+		m_apxWizardButtons[0]^.m_xOnClick = OnStartWizard;
+		
+		m_apxGroupButtons=1;
+		m_apxGroupButtons[0]=new CDropButton({0,0}, "Edit");
+		m_apxGroupButtons[0]^.m_xOnClick = OnEditGroups;
+		
+		m_apxMenuEntries[0]^.AddItem(m_apxSortButtons[0]);
+		m_apxMenuEntries[0]^.AddItem(m_apxSortButtons[1]);
+		m_apxMenuEntries[0]^.AddItem(m_apxSortButtons[2]);
+		m_apxMenuEntries[0]^.AddItem(m_apxSortButtons[3]);
+		m_apxMenuEntries[1]^.AddItem(m_apxVariablesButtons[0]);
+		m_apxMenuEntries[1]^.AddItem(m_apxVariablesButtons[1]);
+		m_apxMenuEntries[1]^.AddItem(m_apxVariablesButtons[2]);
+		m_apxMenuEntries[2]^.AddItem(m_apxWizardButtons[0]);
+		m_apxMenuEntries[3]^.AddItem(m_apxGroupButtons[0]);		
+
+		// create Debug-Menu_Entries
+		pxBtn = new CDropButton({0,0}, "Force All Trigger Update");
+		pxBtn^.m_xOnClick = OnUpdateAllTrigger;
+		m_apxMenuEntries[4]^.AddItem(pxBtn);
+		pxBtn = new CDropButton({0,0}, "Refresh TreeView");
+		pxBtn^.m_xOnClick = OnResetAll;
+		m_apxMenuEntries[4]^.AddItem(pxBtn);
+		pxBtn = new CDropButton({0,0}, "Dump Hierarchy");
+		pxBtn^.m_xOnClick = DumpHierarchy;
+		m_apxMenuEntries[4]^.AddItem(pxBtn);
+		
+		pxBtn = new CDropButton({0,0}, "Hide/Show Hidden Trigger");
+		pxBtn^.m_xOnClick = OnShowHidden;
+		m_apxMenuEntries[4]^.AddItem(pxBtn);
+		AddDropButton(m_apxMenuEntries[0]);
+		AddDropButton(m_apxMenuEntries[1]);
+		AddDropButton(m_apxMenuEntries[2]);
+		AddDropButton(m_apxMenuEntries[3]);
+		AddDropButton(m_apxMenuEntries[4]);
+		m_bHideTrigger = true;
+	endconstructor;
+	
+	export destructor()
+		var int i,iC=m_apxSortButtons.NumEntries();
+		for(i=0) cond(i<iC) iter(++i) do
+			m_apxSortButtons[i]^.Destroy();
+		endfor;
+		
+		iC=m_apxVariablesButtons.NumEntries();
+		for(i=0) cond(i<iC) iter(++i) do
+			m_apxVariablesButtons[i]^.Destroy();
+		endfor;
+		
+		iC=m_apxWizardButtons.NumEntries();
+		for(i=0) cond(i<iC) iter(++i) do
+			m_apxWizardButtons[i]^.Destroy();
+		endfor;
+		
+		iC=m_apxGroupButtons.NumEntries();
+		for(i=0) cond(i<iC) iter(++i) do
+			m_apxGroupButtons[i]^.Destroy();
+		endfor;
+		
+		iC=m_apxMenuEntries.NumEntries();
+		for(i=0) cond(i<iC) iter(++i) do
+			m_apxMenuEntries[i]^.Destroy();
+		endfor;
+		
+	enddestructor;
+	
+	proc bool OnShowHidden()
+		m_bHideTrigger = !m_bHideTrigger;
+		return true;
+	endproc;
+
+	export proc void Init( ^CViewTriggerCreate p_pxWnd )
+		m_pxTriggerWnd = p_pxWnd;
+	endproc;
+	
+	proc bool OnResetAll()
+		m_pxTriggerWnd^.Reset();
+		return true;
+	endproc;
+	
+	export proc bool OnUpdateAllTrigger()
+		m_pxTriggerWnd^.UpdateAllTrigger();
+		return true;
+	endproc;
+
+	proc bool SortAscend()		Sort(true, false); return true; 		endproc;
+	proc bool SortDescend()		Sort(false, false); return true; 		endproc;
+	proc bool SortAscendRec()	Sort(true, true); return true; 			endproc;
+	proc bool SortDescendRec()	Sort(false, true); return true; 		endproc;
+
+	proc void Sort(bool p_bAscend, bool p_bRec)
+		var ^CTreeCtrl pxTree = m_pxTriggerWnd^.GetTriggerTree();
+		var int iItemID = pxTree^.GetSelectedItem();
+		var ^CTriggerData pxTD = cast<CTriggerData>(pxTree^.GetItemData(iItemID));
+		if (pxTD!=null && pxTD^.IsTrigger()) then
+			iItemID = pxTree^.GetParentItem(iItemID);
+			pxTD = cast<CTriggerData>(pxTree^.GetItemData(iItemID));
+		endif;
+		if (pxTD==null) then return; endif;
+		var CTriggerDescMgr.CNode xNode = pxTD^.GetNode();
+		if (xNode.IsValid()) then
+			xNode.SortChildren(p_bAscend, p_bRec);
+		endif;
+		m_pxTriggerWnd^.RefreshTreeView(xNode, iItemID);
+	endproc;
+
+	proc bool DumpHierarchy()
+//		CLevelEditorWrap.GetTriggerDescMgr()^.DumpHierarchy();
+		return true;
+	endproc;
+
+	export proc void UpdateMenuEntries()
+		// TODO
+	endproc;
+
+	export proc CTriggerDescMgr.CNode FindNodeByName( string p_sName )
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		var CTriggerDescMgr.CNode xRoot = pxTM^.GetHierarchyRoot();
+		return FindNodeRecursive(p_sName, xRoot);
+	endproc;
+
+	proc CTriggerDescMgr.CNode FindNodeRecursive(string p_sName, CTriggerDescMgr.CNode p_xNode )
+		if (p_xNode.IsValid() && p_xNode.GetData()!=null && p_xNode.GetData()^.GetNodeName()==p_sName) then
+			return p_xNode;
+		endif;
+
+		var int i, iC = p_xNode.NumChildren();
+		for (i=0) cond(i<iC) iter(++i) do
+			var CTriggerDescMgr.CNode xChild = p_xNode.GetChild(i);
+			if (xChild.IsValid()) then
+				var ^CTriggerDescMgr.CHierarchyDesc pxData = xChild.GetData();
+				if (pxData!=null) then
+					if (pxData^.GetNodeName() == p_sName) then
+						return xChild;
+					endif;
+				endif;
+				var CTriggerDescMgr.CNode xNode = FindNodeRecursive(p_sName, xChild);
+				if (xNode.IsValid() && xNode.GetData()!=null && xNode.GetData()^.GetNodeName()==p_sName) then
+					return xNode;
+				endif;
+			endif;
+		endfor;
+		var CTriggerDescMgr.CNode xInvalid;
+		return xInvalid;
+	endproc;
+
+	
+	proc void RemoveNodeRecursive( int p_iCur )
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		var ^CTreeCtrl pxTree = m_pxTriggerWnd^.GetTriggerTree();
+
+		if (pxTree^.GetItemData(p_iCur)!=null) then
+			var ^CTriggerData pxTD = cast<CTriggerData>(pxTree^.GetItemData(p_iCur));
+			if (pxTD!=null) then
+				if (pxTD^.IsTrigger()) then
+					pxTM^.DeleteTrigger(pxTD^.GetTriggerGuid());
+				endif;
+				delete pxTD;
+			endif;
+		endif;
+		
+		while(pxTree^.ItemNumChildren(p_iCur)>0) do
+			RemoveNodeRecursive(pxTree^.GetChildItem(p_iCur, 0));
+		endwhile;
+		
+		pxTree^.DeleteItem(p_iCur, true);		
+	endproc;
+		
+	proc bool OnRemoveCondition()
+		return false;
+	endproc;
+
+	proc bool OnRemoveAction()
+		return false;
+	endproc;
+
+	proc bool OnEditVariables()
+		var ^CViewTCVariables pxTmp=new CViewTCVariables();
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		pxTmp^.SetModal();
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		return true;
+	endproc;
+	
+	proc bool OnEditUIFeedbackFrames()
+		var ^CViewUIFeedbackFrames pxTmp=new CViewUIFeedbackFrames();
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		//pxTmp^.SetModal();
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		return true;
+	endproc;
+	
+	proc bool OnEditScreenRegions()
+		var ^CViewScreenRegions pxTmp=new CViewScreenRegions();
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		//pxTmp^.SetModal();
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		return true;
+	endproc;
+	
+	proc bool OnStartWizard()
+		var ^CTriggerWizard pxW = new CTriggerWizard();
+		pxW^.Initialize(m_pxTriggerWnd);
+		CClientWrap.GetDesktop()^.AddChild(pxW);
+		CWindowMgr.Get().BringWindowToTop(pxW, true);
+		CWindowMgr.Get().SetModal(pxW);
+		return true;
+	endproc;
+	
+	/*proc bool OnEditMPModi()
+		var ^CMPModiMainWnd pxW = new CMPModiMainWnd();
+		
+		pxW^.m_xOnInit=InitMPModus;
+		pxW^.m_xOnApply=ApplyMPModus;
+		pxW^.Initialize();
+		CClientWrap.GetDesktop()^.AddChild(pxW);
+		CWindowMgr.Get().BringWindowToTop(pxW, true);
+		CWindowMgr.Get().SetModal(pxW);
+		return true;
+	endproc;*/
+	
+	proc bool OnEditGroups()
+		m_pxTriggerWnd^.m_pxGroupWnd = new CViewGroups(m_pxTriggerWnd);
+		CClientWrap.GetDesktop()^.AddChild(m_pxTriggerWnd^.m_pxGroupWnd);
+		m_pxTriggerWnd^.m_pxGroupWnd^.SetModal();
+		CWindowMgr.Get().BringWindowToTop(m_pxTriggerWnd^.m_pxGroupWnd,true);
+		return true;
+	endproc;
+	/*
+	proc CTriggerDescMgr.CNode GetWinCondNode(string p_sModus, bool p_bCreate)
+		var CTriggerDescMgr.CNode xInvalid;
+		
+		var ^CTriggerDescMgr pxRM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		
+		var CTriggerDescMgr.CNode xNode = FindNodeByName("Root");
+		if (xNode.IsValid()) then
+			var CTriggerDescMgr.CNode xWinCond = xNode.FindChild("WinningConditions");
+			if (!xWinCond.IsValid()) then
+				if (p_bCreate) then
+					xWinCond = pxRM^.CreateNewNode(xNode, "WinningConditions");
+				else
+					return xInvalid;
+				endif;
+			endif;
+			
+			if(xWinCond.IsValid()) then
+				var CTriggerDescMgr.CNode xMode = xWinCond.FindChild(p_sModus);
+				if(!xMode.IsValid()) then
+					if (p_bCreate) then 
+						xMode = pxRM^.CreateNewNode(xWinCond, p_sModus);
+					endif;
+				else
+					if (p_bCreate) then
+						pxRM^.DeleteNodeAndSubs(xMode);
+						xMode = pxRM^.CreateNewNode(xWinCond, p_sModus);
+					endif;
+				endif;
+				return xMode;
+			endif;			
+		endif;
+		return xInvalid;
+	endproc;
+	
+	proc bool InitMPModusDM(CTriggerDescMgr.CNode p_xNode, ^CDMSettings p_pxSettings)
+		if (p_xNode.IsValid()) then
+			var ^CTriggerDescMgr.CHierarchyDesc pxData = p_xNode.GetData();
+			if (pxData!=null && pxData^.NumTriggers() > 0) then
+				p_pxSettings^.m_bAvailable = true;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool InitMPModusDef(CTriggerDescMgr.CNode p_xNode, ^CDefSettings p_pxSettings)
+		if (p_xNode.IsValid()) then
+			var bool bAvail = false;
+			var ^CTriggerDescMgr.CHierarchyDesc pxData = p_xNode.GetData();
+			if (pxData!=null) then
+				var int i, iC = pxData^.NumTriggers();
+				for(i=0) cond(i<iC) iter(++i) do
+					var ^CTriggerDesc pxTrigger = pxData^.GetTrigger(i);
+					if (pxTrigger==null) then continue; endif;
+					
+					if (pxTrigger^.GetName() == "Defender-Dead") then
+						var int iCond, iNumConds = pxTrigger^.NumConditions();
+						for(iCond=0) cond(iCond < iNumConds) iter(++iCond) do
+							var ^CTriggerDesc.CCondition pxCond = pxTrigger^.GetCondition(iCond);
+							if (pxCond!=null && pxCond^.GetType()=="PLDE") then
+								p_pxSettings^.m_iDefender = pxCond^.GetParams().GetValueInt("player_id");
+								bAvail = true;
+							endif;
+						endfor;
+					elseif (pxTrigger^.GetName() == "Timer") then
+						var int iCond, iNumConds = pxTrigger^.NumConditions();
+						for(iCond=0) cond(iCond < iNumConds) iter(++iCond) do
+							var ^CTriggerDesc.CCondition pxCond = pxTrigger^.GetCondition(iCond);
+							if (pxCond!=null && pxCond^.GetType()=="TIME") then
+								p_pxSettings^.m_iSecsToSurvive = pxCond^.GetParams().GetValueInt("duration");
+								bAvail = true;
+							endif;
+						endfor;
+					endif;
+					p_pxSettings^.m_bAvailable = bAvail;
+				endfor;
+			endif;
+		else
+			p_pxSettings^.m_bAvailable = false;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool InitMPModusKOTH(CTriggerDescMgr.CNode p_xNode, ^CKOTHSettings p_pxSettings)
+		if(p_xNode.IsValid()) then
+			var bool bAvail = false;
+			var array CGuid axGuids;
+			
+			var ^CTriggerDescMgr.CHierarchyDesc pxData = p_xNode.GetData();
+			if(pxData!=null) then
+				var int i, iC = pxData^.NumTriggers();
+				for(i=0) cond(i<iC) iter(++i) do
+					var ^CTriggerDesc pxTD = pxData^.GetTrigger(i);
+					if(pxTD^.GetName()=="Create-Timer") then
+						var int j, iJC = pxTD^.NumActions();
+						for(j=0) cond(j<iJC) iter(++j) do
+							var ^CTriggerDesc.CAction pxAction = pxTD^.GetAction(j);
+							if(pxAction!=null) then
+								var ^CAttribs pxA = ^(pxAction^.GetParams());
+								if(pxA!=null) then
+									var string sOp = pxA^.GetValue("op");
+									if(sOp=="add_sector") then
+										var CGuid xG;
+										xG.FromString(pxA^.GetValue("rgn_guid"));
+										axGuids.AddEntry(xG);
+									elseif(sOp=="create_timer") then
+										p_pxSettings^.m_iSecsToWin = pxA^.GetValueFloat("duration").ToInt();
+									endif;
+								endif;
+							endif;
+						endfor;
+					endif;
+				endfor;
+			endif;
+			
+			bAvail = axGuids.NumEntries()>0;
+			p_pxSettings^.m_bAvailable = bAvail;
+			if(bAvail) then
+				var int i, iC = axGuids.NumEntries();
+				for(i=0) cond(i<iC) iter(++i) do
+					var ^CRegionBase pxRegion = CClientWrap.GetRegionMgr()^.GetRegion(axGuids[i]);
+					if(pxRegion!=null) then
+						p_pxSettings^.m_apxSecondarySectors.AddEntry(pxRegion);
+					endif;
+				endfor;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool InitMPModusDimGate(CTriggerDescMgr.CNode p_xNode, ^CDimGateSettings p_pxSettings)
+		if (p_xNode.IsValid()) then
+			p_pxSettings^.m_bOptional = false;
+			var ^CTriggerDescMgr.CHierarchyDesc pxData = p_xNode.GetData();
+			if(pxData!=null) then
+				var int i, iC = pxData^.NumTriggers();
+				for(i=0) cond(i<iC) iter(++i) do
+					if(pxData^.GetTrigger(i)^.GetName()=="__Optional__")then
+						p_pxSettings^.m_bOptional = true;
+					endif;
+				endfor;
+			endif;
+			p_pxSettings^.m_bAvailable = pxData^.NumTriggers()>1;
+		else
+			p_pxSettings^.m_bOptional = false;
+			p_pxSettings^.m_bAvailable = false;
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool InitMPModus(string p_sModus, ^CMPModusSettings p_pxSettings)
+		var CTriggerDescMgr.CNode xNode = GetWinCondNode(p_sModus, false);
+		
+		if(p_sModus=="Deathmatch") then 	
+			return InitMPModusDM(xNode, cast<CDMSettings>(p_pxSettings));
+		endif;
+		
+		if(p_sModus=="Defender") then 
+			return InitMPModusDef(xNode, cast<CDefSettings>(p_pxSettings));
+		endif;
+		
+		if(p_sModus=="KingOfTheHill") then 
+			return InitMPModusKOTH(xNode, cast<CKOTHSettings>(p_pxSettings));
+		endif;
+		
+		if(p_sModus=="DimensionGate") then 
+			return InitMPModusDimGate(xNode, cast<CDimGateSettings>(p_pxSettings));
+		endif;
+		return false;
+	endproc;
+	
+	proc bool ApplyMPModusDM(CTriggerDescMgr.CNode p_xNode, ^CDMSettings p_pxSettings)
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		if (!p_pxSettings^.m_bAvailable) then
+			return true;
+		endif;
+		
+		if (p_xNode.IsValid()) then
+			var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+			var ^CPropDB pxLI = ^(pxLevelInfo^.GetGenericData());
+			var ^CPropDB.CNode pxBaseNode=^((pxLI^)["Base"]);
+			var int iMaxPlayer = pxBaseNode^.GetValueI("MaxPlayers");
+			
+			var int i, iC = 8;
+			for(i=0) cond(i<iC) iter(++i) do
+				var CGuid xG = pxTM^.CreateTrigger("Dead_Player_" + i.ToString());
+				var int iIdx = pxTM^.FindTrigger(xG);
+				var ^CTriggerDesc pxTriggerDead = pxTM^.GetTrigger(iIdx);
+				if (pxTriggerDead!=null) then
+					var CFourCC xT = "PLDE";
+					
+					var int iIdx = pxTriggerDead^.AddCondition(xT);
+					var ^CTriggerDesc.CCondition pxCond = pxTriggerDead^.GetCondition(iIdx);
+					if (pxCond!=null) then
+						var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+						if (pxAttr!=null) then
+							pxAttr^.SetValue("player_id", i);
+							pxAttr^.SetValue("check_bldgs", 0);
+							pxAttr^.SetValue("check_producer", 1);
+						endif;
+					endif;
+					
+					xT="GAOV";
+					iIdx = pxTriggerDead^.AddAction(xT);
+					var ^CTriggerDesc.CAction pxAct = pxTriggerDead^.GetAction(iIdx);
+					if(pxAct!=null) then
+						var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+						if(pxAttr!=null) then
+							pxAttr^.SetValue("player_id", i);
+							pxAttr^.SetValue("reason", "MultiplayerLost");
+						endif;
+					endif;
+					
+					xT="VARS";
+					iIdx = pxTriggerDead^.AddAction(xT);
+					pxAct = pxTriggerDead^.GetAction(iIdx);
+					if(pxAct!=null) then
+						var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+						if(pxAttr!=null) then
+							pxAttr^.SetValue("local", 1);
+							pxAttr^.SetValue("varname", "_Internal_DeadEnemyCnt");
+							pxAttr^.SetValue("value", "1");
+							pxAttr^.SetValue("operation", "+");
+						endif;
+					endif;
+					
+					pxTriggerDead^.SetEdgeType(CTriggerDesc.TF_RisingEdge | CTriggerDesc.TF_InitialyEnabled);
+					pxTM^.MoveTrigger(pxTriggerDead, pxTM^.GetHierarchyRoot(), p_xNode);
+				endif;
+				
+				xG = pxTM^.CreateTrigger("Player_Won_" + i.ToString());
+				iIdx = pxTM^.FindTrigger(xG);
+				pxTriggerDead = pxTM^.GetTrigger(iIdx);
+				if (pxTriggerDead!=null) then
+					var CFourCC xT = "CVAR";
+					var int iIdx = pxTriggerDead^.AddCondition(xT);
+					var ^CTriggerDesc.CCondition pxCond = pxTriggerDead^.GetCondition(iIdx);
+					if (pxCond!=null) then
+						var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+						if (pxAttr!=null) then
+							pxAttr^.SetValue("local", 1);
+							pxAttr^.SetValue("varname", "_Internal_DeadEnemyCnt");
+							pxAttr^.SetValue("value", "$(_Internal_NeededDeadEnemies)");
+							pxAttr^.SetValue("operation", "==");
+						endif;
+					endif;
+					
+					xT="PLDE";
+					iIdx = pxTriggerDead^.AddCondition(xT);
+					pxCond = pxTriggerDead^.GetCondition(iIdx);
+					if (pxCond!=null) then
+						var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+						if (pxAttr!=null) then
+							pxAttr^.SetValue("player_id", i);
+							pxAttr^.SetValue("check_bldgs", 0);
+							pxAttr^.SetValue("check_producer", 1);
+						endif;
+					endif;
+					
+					xT="GAOV";
+					iIdx = pxTriggerDead^.AddAction(xT);
+					var ^CTriggerDesc.CAction pxAct = pxTriggerDead^.GetAction(iIdx);
+					if(pxAct!=null) then
+						var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+						if(pxAttr!=null) then
+							pxAttr^.SetValue("player_id", i);
+							pxAttr^.SetValue("reason", "MultiplayerWin");
+						endif;
+					endif;
+					
+					pxTriggerDead^.SetExpression("1 && !2");
+					pxTriggerDead^.SetEdgeType(CTriggerDesc.TF_RisingEdge | CTriggerDesc.TF_InitialyEnabled);
+					pxTM^.MoveTrigger(pxTriggerDead, pxTM^.GetHierarchyRoot(), p_xNode);
+				endif;
+			endfor;
+			p_xNode.SetActive(false, true);
+		endif;
+		return true;
+	endproc;
+	
+	proc bool ApplyMPModusDef(CTriggerDescMgr.CNode p_xNode, ^CDefSettings p_pxSettings)
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		if (!p_pxSettings^.m_bAvailable) then
+			return true;
+		endif;
+		
+		if (p_xNode.IsValid()) then
+			//--- Create the Timer-Trigger
+			//--- If the Timer fires and the Defender is alive then he is the winner
+			var CGuid xG = pxTM^.CreateTrigger("Timer");
+			var CGuid xTimer = xG;
+			var int iIdx = pxTM^.FindTrigger(xG);
+			var ^CTriggerDesc pxTriggerTime = pxTM^.GetTrigger(iIdx);
+			if (pxTriggerTime!=null) then
+				var CFourCC xT = "TIME";
+				
+				var int iIdx = pxTriggerTime^.AddCondition(xT);
+				var ^CTriggerDesc.CCondition pxCond = pxTriggerTime^.GetCondition(iIdx);
+				if (pxCond!=null) then
+					var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+					if (pxAttr!=null) then
+						pxAttr^.SetValue("duration", p_pxSettings^.m_iSecsToSurvive);
+						pxAttr^.SetValue("repeat", 0);
+						pxAttr^.SetValue("show", 1);
+						pxAttr^.SetValue("countup",0);
+						pxAttr^.SetValue("reset", 1);
+					endif;
+				endif;
+				
+				xT="GAOV";
+				var int i, iC = 8;
+				for(i=0) cond(i<iC) iter(++i) do
+					iIdx = pxTriggerTime^.AddAction(xT);
+					var ^CTriggerDesc.CAction pxAct = pxTriggerTime^.GetAction(iIdx);
+					if(pxAct!=null) then
+						var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+						if(pxAttr!=null) then
+							pxAttr^.SetValue("player_id", i);
+							if (i==p_pxSettings^.m_iDefender) then 
+								pxAttr^.SetValue("reason", "MultiplayerWin");
+							else
+								pxAttr^.SetValue("reason", "MultiplayerLost");
+							endif;
+						endif;
+					endif;
+				endfor;
+			
+				pxTriggerTime^.SetEdgeType(CTriggerDesc.TF_RisingEdge|CTriggerDesc.TF_FireOnce);
+				pxTM^.MoveTrigger(pxTriggerTime, pxTM^.GetHierarchyRoot(), p_xNode);
+			endif;
+			
+			//--- Create Trigger to check if the defending player is dead.
+			//--- if this one fires before the Timer, the attacker has won
+			xG = pxTM^.CreateTrigger("Defender-Dead");
+			var CGuid xDeadZeuch = xG;
+			iIdx = pxTM^.FindTrigger(xG);
+			var ^CTriggerDesc pxTriggerDead = pxTM^.GetTrigger(iIdx);
+			if (pxTriggerDead!=null) then
+				var CFourCC xT = "PLDE";
+				
+				var int iIdx = pxTriggerDead^.AddCondition(xT);
+				var ^CTriggerDesc.CCondition pxCond = pxTriggerDead^.GetCondition(iIdx);
+				if (pxCond!=null) then
+					var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+					if (pxAttr!=null) then
+						pxAttr^.SetValue("player_id", p_pxSettings^.m_iDefender);
+						pxAttr^.SetValue("check_bldgs", 0);
+						pxAttr^.SetValue("check_producer", 1);
+					endif;
+				endif;
+				
+				xT="TRIG";
+				iIdx = pxTriggerDead^.AddAction(xT);
+				var ^CTriggerDesc.CAction pxAct = pxTriggerDead^.GetAction(iIdx);
+				if(pxAct!=null) then
+					var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+					if(pxAttr!=null) then
+						pxAttr^.SetValue("guid", xTimer.ToString());
+						pxAttr^.SetValue("state", 0);
+					endif;
+				endif;
+				
+				xT="GAOV";
+				var int i, iC = 8;
+				for(i=0) cond(i<iC) iter(++i) do
+					iIdx = pxTriggerDead^.AddAction(xT);
+					var ^CTriggerDesc.CAction pxAct = pxTriggerDead^.GetAction(iIdx);
+					if(pxAct!=null) then
+						var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+						if(pxAttr!=null) then
+							pxAttr^.SetValue("player_id", i);
+							if (i==p_pxSettings^.m_iDefender) then 
+								pxAttr^.SetValue("reason", "test");
+							else
+								pxAttr^.SetValue("reason", "MultiplayerWin");
+							endif;
+							
+						endif;
+					endif;
+				endfor;
+				pxTriggerDead^.SetEdgeType(CTriggerDesc.TF_RisingEdge);
+				pxTM^.MoveTrigger(pxTriggerDead, pxTM^.GetHierarchyRoot(), p_xNode);
+			endif;
+			
+			//--- Create the Timer-Trigger-Enable-Trigger ;)
+			xG = pxTM^.CreateTrigger("TimerEnableTimer ;)");
+			iIdx = pxTM^.FindTrigger(xG);
+			var ^CTriggerDesc pxTriggerT2 = pxTM^.GetTrigger(iIdx);
+			if (pxTriggerT2!=null) then
+				var CFourCC xT = "TIME";
+				
+				var int iIdx = pxTriggerT2^.AddCondition(xT);
+				var ^CTriggerDesc.CCondition pxCond = pxTriggerT2^.GetCondition(iIdx);
+				if (pxCond!=null) then
+					var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+					if (pxAttr!=null) then
+						pxAttr^.SetValue("duration", 2);
+						pxAttr^.SetValue("repeat", 0);
+						pxAttr^.SetValue("show", 0);
+						pxAttr^.SetValue("countup",0);
+						pxAttr^.SetValue("reset", 1);
+					endif;
+				endif;
+				
+				xT="TRIG";
+				iIdx = pxTriggerT2^.AddAction(xT);
+				var ^CTriggerDesc.CAction pxAct = pxTriggerT2^.GetAction(iIdx);
+				if(pxAct!=null) then
+					var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+					if(pxAttr!=null) then
+						pxAttr^.SetValue("guid", xTimer.ToString());
+						pxAttr^.SetValue("state", 1);
+					endif;
+				endif;
+				
+				xT="TRIG";
+				iIdx = pxTriggerT2^.AddAction(xT);
+				pxAct = pxTriggerT2^.GetAction(iIdx);
+				if(pxAct!=null) then
+					var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+					if(pxAttr!=null) then
+						pxAttr^.SetValue("guid", xDeadZeuch.ToString());
+						pxAttr^.SetValue("state", 1);
+					endif;
+				endif;
+				
+				xT="TRIG";
+				iIdx = pxTriggerT2^.AddAction(xT);
+				pxAct = pxTriggerT2^.GetAction(iIdx);
+				if(pxAct!=null) then
+					var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+					if(pxAttr!=null) then
+						pxAttr^.SetValue("guid", xG.ToString());
+						pxAttr^.SetValue("state", 0);
+					endif;
+				endif;
+			
+				pxTriggerT2^.SetEdgeType(CTriggerDesc.TF_RisingEdge | CTriggerDesc.TF_InitialyEnabled | CTriggerDesc.TF_FireOnce);
+				pxTM^.MoveTrigger(pxTriggerT2, pxTM^.GetHierarchyRoot(), p_xNode);
+			endif;
+			
+			p_xNode.SetActive(false, true);
+		endif;		
+		return true;
+	endproc;
+	
+	proc bool ApplyMPModusKOTH(CTriggerDescMgr.CNode p_xNode, ^CKOTHSettings p_pxSettings)
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		if (!p_pxSettings^.m_bAvailable) then
+			return true;
+		endif;
+		
+		if (p_xNode.IsValid()) then
+			var CGuid xG = pxTM^.CreateTrigger("Create-Timer");
+				
+			var int iIdx = pxTM^.FindTrigger(xG);
+			var ^CTriggerDesc pxTriggerTime = pxTM^.GetTrigger(iIdx);
+			if (pxTriggerTime!=null) then
+				var CFourCC xT = "TIME";
+				
+				var int iIdx = pxTriggerTime^.AddCondition(xT);
+				var ^CTriggerDesc.CCondition pxCond = pxTriggerTime^.GetCondition(iIdx);
+				if (pxCond!=null) then
+					var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+					if (pxAttr!=null) then
+						pxAttr^.SetValue("duration", 1);
+						pxAttr^.SetValue("repeat", 0);
+					endif;
+				endif;
+				
+				
+				var int i, iC = p_pxSettings^.m_apxSecondarySectors.NumEntries();
+				for(i=0) cond(i<iC) iter(++i) do
+					xT="AKOS";
+					iIdx = pxTriggerTime^.AddAction(xT);
+					var ^CTriggerDesc.CAction pxAct = pxTriggerTime^.GetAction(iIdx);
+					if(pxAct!=null) then
+						var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+						if(pxAttr!=null) then
+							pxAttr^.SetValue("rgn_guid", p_pxSettings^.m_apxSecondarySectors[i]^.GetGUID().ToString());
+							pxAttr^.SetValue("op", "add_sector");
+						endif;
+					endif;
+				endfor;
+				
+				xT="AKOS";
+				iIdx = pxTriggerTime^.AddAction(xT);
+				var ^CTriggerDesc.CAction pxAct = pxTriggerTime^.GetAction(iIdx);
+				if(pxAct!=null) then
+					var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+					if(pxAttr!=null) then
+						pxAttr^.SetValue("duration", p_pxSettings^.m_iSecsToWin.ToReal());
+						pxAttr^.SetValue("op", "create_timer");
+					endif;
+				endif;
+				
+				pxTriggerTime^.SetEdgeType(CTriggerDesc.TF_RisingEdge | CTriggerDesc.TF_FireOnce | CTriggerDesc.TF_InitialyEnabled);
+				pxTM^.MoveTrigger(pxTriggerTime, pxTM^.GetHierarchyRoot(), p_xNode);
+			endif;
+			p_xNode.SetActive(false, true);
+		endif;
+		
+		
+		return false;
+	endproc;
+	
+	proc bool ApplyMPModusDimGate(CTriggerDescMgr.CNode p_xNode, ^CDimGateSettings p_pxSettings)
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		
+		if (!p_pxSettings^.m_bAvailable) then
+			return true;
+		endif;
+		
+		if (p_xNode.IsValid()) then
+			if(p_pxSettings^.m_bOptional) then
+				var CGuid xG = pxTM^.CreateTrigger("__Optional__");
+				var int iIdx = pxTM^.FindTrigger(xG);
+				var ^CTriggerDesc pxTrigger = pxTM^.GetTrigger(iIdx);
+				pxTM^.MoveTrigger(pxTrigger, pxTM^.GetHierarchyRoot(), p_xNode);
+			endif;
+			
+			var int iPlayer, iNumPlayers = 8;
+			for(iPlayer=0) cond(iPlayer<iNumPlayers) iter(++iPlayer) do
+				var CGuid xG = pxTM^.CreateTrigger("Player_Won_" + iPlayer.ToString());
+				var int iIdx = pxTM^.FindTrigger(xG);
+				var ^CTriggerDesc pxTrigger = pxTM^.GetTrigger(iIdx);
+				if (pxTrigger!=null) then
+					var CFourCC xT = "DGBL";
+					iIdx = pxTrigger^.AddCondition(xT);
+					var ^CTriggerDesc.CCondition pxCond = pxTrigger^.GetCondition(iIdx);
+					if (pxCond!=null) then
+						var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+						if (pxAttr!=null) then
+							pxAttr^.SetValue("player", iPlayer);
+						endif;
+					endif;
+					
+					xT="GAOV";
+					iIdx = pxTrigger^.AddAction(xT);
+					var ^CTriggerDesc.CAction pxAct = pxTrigger^.GetAction(iIdx);
+					if(pxAct!=null) then
+						var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+						if(pxAttr!=null) then
+							pxAttr^.SetValue("player_id", iPlayer);
+							pxAttr^.SetValue("reason", "MultiplayerWin");
+						endif;
+					endif;
+					
+					pxTrigger^.SetEdgeType(CTriggerDesc.TF_RisingEdge | CTriggerDesc.TF_InitialyEnabled);
+					pxTM^.MoveTrigger(pxTrigger, pxTM^.GetHierarchyRoot(), p_xNode);
+				endif;
+			endfor;
+			p_xNode.SetActive(false, true);
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool ApplyMPModus(string p_sModus, ^CMPModusSettings p_pxSettings)
+		var CTriggerDescMgr.CNode xNode = GetWinCondNode(p_sModus, true);
+		
+		if(p_sModus=="Deathmatch") then
+			return ApplyMPModusDM(xNode, cast<CDMSettings>(p_pxSettings));
+		endif;
+		
+		if(p_sModus=="Defender") then
+			return ApplyMPModusDef(xNode, cast<CDefSettings>(p_pxSettings));
+		endif;
+		
+		if(p_sModus=="KingOfTheHill") then 	
+			return ApplyMPModusKOTH(xNode, cast<CKOTHSettings>(p_pxSettings));
+		endif;
+		
+		if(p_sModus=="DimensionGate") then
+			return ApplyMPModusDimGate(xNode, cast<CDimGateSettings>(p_pxSettings));
+		endif;
+		
+		return false;
+	endproc;
+	*/
+
+endclass;
+
+class CConditionList inherit CList
+	var ^CViewTriggerCreate m_pxOwner;
+	export proc void Init(^CViewTriggerCreate p_pxOwner)
+		m_pxOwner=p_pxOwner;
+	endproc;
+	
+	proc bool OnRButtonDown()		
+		var ^CContextMenu pxMenu=null;
+		var int iSelItem=GetSelectedItem();
+		if(iSelItem!=-1)then
+			if(pxMenu==null)then
+				pxMenu=new CContextMenu(GetSHWND());
+			endif;
+			pxMenu^.AddItem("copy",0);
+		endif;
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		if(pxTM^.GetClipboardDataType()==CTriggerDescMgr.CDT_Condition)then
+			if(pxMenu==null)then
+				pxMenu=new CContextMenu(GetSHWND());
+			endif;
+			pxMenu^.AddItem("paste condition",1);
+		endif;
+		if(pxMenu!=null)then
+			pxMenu^.Show();
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+		var string sClass = p_rxEvt.GetClass().ToString();
+		//right mouse down
+		if(sClass=="sCtxBtnC")then
+			var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+			var ^CTriggerData pxTD=null;
+			var int iID=p_rxEvt.GetInt16A();
+			if(iID==0)then//copy
+				var int iSelItem=GetSelectedItem();
+				if(iSelItem!=-1) then
+					var ^CConditionData pxCD = cast<CConditionData>(GetItemData(iSelItem));
+					if (pxCD!=null) then
+						var ^CTriggerDesc.CCondition pxCondition=pxCD^.GetCondition();
+						if(pxCondition!=null)then
+							pxTM^.CopyToClipbord(pxCondition);
+						endif;
+					endif;
+				endif;
+			elseif(iID==1)then//paste condition
+				if(pxTM^.GetClipboardDataType()==CTriggerDescMgr.CDT_Condition)then
+					var ^CTriggerDesc pxTrigger = m_pxOwner^.GetSelectedTrigger();
+					if(pxTrigger!=null)then
+						pxTM^.PasteConditionFromClipboard(pxTrigger);
+						m_pxOwner^.UpdateConditions();
+					endif;
+				endif;
+			endif;
+		endif;
+		return super.HandleMessage(p_rxEvt);
+	endproc;
+endclass;
+
+class CActionList inherit CList
+	var ^CViewTriggerCreate m_pxOwner;
+	var int m_iDifficulty;
+	
+	export constructor(^CViewTriggerCreate p_pxOwner,int p_iDifficulty)
+		m_pxOwner=p_pxOwner;
+		m_iDifficulty=p_iDifficulty;
+	endconstructor;
+	
+	proc bool OnRButtonDown()
+		var ^CContextMenu pxMenu=null;
+		var int iSelItem=GetSelectedItem();
+		if(iSelItem!=-1)then
+			if(pxMenu==null)then
+				pxMenu=new CContextMenu(GetSHWND());
+			endif;
+			pxMenu^.AddItem("copy",0);
+		endif;
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		if(pxTM^.GetClipboardDataType()==CTriggerDescMgr.CDT_Action)then
+			if(pxMenu==null)then
+				pxMenu=new CContextMenu(GetSHWND());
+			endif;
+			pxMenu^.AddItem("paste action",1);
+		endif;
+		if(pxMenu!=null)then
+			pxMenu^.Show();
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+		var string sClass = p_rxEvt.GetClass().ToString();
+		//right mouse down
+		if(sClass=="sCtxBtnC")then
+			var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+			var ^CTriggerData pxTD=null;
+			var int iID=p_rxEvt.GetInt16A();
+			if(iID==0)then//copy
+				var int iSelItem=GetSelectedItem();
+				if(iSelItem!=-1) then
+					var ^CActionData pxAD = cast<CActionData>(GetItemData(iSelItem));
+					if (pxAD!=null) then
+						var ^CTriggerDesc.CAction pxAction=pxAD^.GetAction();
+						if(pxAction!=null)then
+							pxTM^.CopyToClipbord(pxAction);
+						endif;
+					endif;
+				endif;
+			elseif(iID==1)then//paste action
+				if(pxTM^.GetClipboardDataType()==CTriggerDescMgr.CDT_Action)then
+					var ^CTriggerDesc pxTrigger = m_pxOwner^.GetSelectedTrigger();
+					if(pxTrigger!=null)then
+						pxTM^.PasteActionFromClipboard(pxTrigger,m_iDifficulty);
+						m_pxOwner^.UpdateActions();
+					endif;
+				endif;
+			endif;
+		endif;
+		return super.HandleMessage(p_rxEvt);
+	endproc;
+	
+endclass;

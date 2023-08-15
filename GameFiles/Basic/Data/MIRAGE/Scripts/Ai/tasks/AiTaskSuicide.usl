@@ -1,0 +1,405 @@
+class CAiTaskSuicide inherit CAiTaskTargetRealization
+
+	var CAiObjWrap	m_xActor;
+	var CAiObjWrap	m_xAnimal;
+	var bool		m_bInFight;
+	
+	///constructor
+	export constructor()
+	endconstructor;
+	
+	
+	///destructor
+	export destructor()
+	enddestructor;
+
+
+	///Init
+	export proc void Init(^CAiGoal p_pxGoal)
+		super.Init(p_pxGoal);
+		if(p_pxGoal==null)then return; endif;
+				
+		m_pxBrain = GetGoal()^.GetAiBrain(); 
+		if(m_pxBrain==null)then return; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		
+		SetThinkWait(40);
+		SetTimer(1);
+	endproc;
+
+
+	///called on start
+	export proc bool Start()
+		m_bInFight=false;	
+		if(!ChooseActor())then
+			SetImpossible();
+			Abort();
+		endif;
+		SetStarted();
+		if(StartAttack())then
+			SetRunning();
+		else
+			if(!IsCompleted())then
+				GiveActorBackToMOD();
+				SetImpossible();
+				Abort();
+				return false;
+			endif;
+		endif;
+		return true;
+	endproc;
+
+
+	///called to shut
+	export proc void Shut()
+		GiveActorBackToMOD();
+		Abort();
+		m_bInFight=false;
+	endproc;
+	
+	
+	///OnUserInteraction
+	export proc void OnUserInteraction(CAiObjWrap p_xOW)
+		if(m_xActor.IsValid())then
+			if(m_xActor.IsSameAs(p_xOW))then
+				Shut();
+			endif;
+		endif;
+	endproc;
+	
+	
+	///GetActor
+	export proc ref CAiObjWrap GetActor()
+		return m_xActor;
+	endproc;
+	
+	
+	///IsObjImportant
+	proc bool IsObjImportant(CAiObjWrap p_xOW)
+		if(!p_xOW.IsValid())then return true; endif;
+		if(p_xOW.GetClassName() == "aje_resource_collector")then 
+			return true;
+		endif;
+		if(p_xOW.GetClassName() == "Stina_s0")then 
+			return true;
+		endif;
+		//Henry: added other name of Stina
+		if(p_xOW.GetClassName() == "special_eusmilus")then 
+			return true;
+		endif;
+		if(p_xOW.GetClassName() == "Bela_s0")then 
+			return true;
+		endif;
+		if(p_xOW.GetClassName() == "Cole_s0")then
+			return true;
+		endif;
+		if(p_xOW.GetClassName() == "mayor_s0")then 
+			return true;
+		endif;
+		if(p_xOW.GetClassName() == "darwin_s0")then 
+			return true;
+		endif;
+		if(p_xOW.GetClassName() == "lovelace_s0")then 
+			return true;
+		endif;
+		if(p_xOW.GetClassName() == "hermit_s0")then 
+			return true;
+		endif;
+		if(p_xOW.GetClassName() == "tesla_s0")then 
+			return true;
+		endif;
+		if(p_xOW.GetClassName() == "babbage_s0")then 
+			return true;
+		endif;
+		if(p_xOW.GetClassName() == "livingstone_s0")then 
+			return true;
+		endif;
+		if(p_xOW.GetClassName() == "schliemann_s0")then 
+			return true;
+		endif;
+		//Henry: added new heroes
+		if(p_xOW.GetClassName() == "Tarna_s0")then 
+			return true;
+		endif;
+		if(p_xOW.GetClassName() == "Larry_s0")then 
+			return true;
+		endif;
+		if(p_xOW.GetClassName() == "Miyagi_s0")then 
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	
+	///GetResultLevel
+	proc int GetResultLevel()
+		var int i, iC = GetSolution()^.NumResults();
+		var ^CAiNodeInstance pxNI;
+		for(i=0)cond(i<iC)iter(++i)do
+			pxNI = GetSolution()^.GetResult(i);
+			if(pxNI != null)then
+				break;
+			endif;
+		endfor;
+		if(iC==0)then return -1; endif;
+		return pxNI^.GetFlags().GetValue("level").ToInt();
+	endproc;
+	
+	
+	///ChooseActor
+	proc bool ChooseActor()
+		var int iSubjIdx = GetSolution()^.GetSubject();
+		var int iActorOutpostID;
+	
+		var CAiNeedPtr pxNeed;
+		if(iSubjIdx<0)then return false; endif;
+		
+		pxNeed = GetSolution()^.GetRequired(iSubjIdx);
+		if(pxNeed==null)then return false; endif;
+		
+		var int i, iC = pxNeed.GetNeed()^.NumEntries();
+		for(i = 0)cond(i < iC)iter(i++)do
+			var ^CAiNodeInstance pxNI = pxNeed.GetNeed()^.GetAt(i);
+			var CAiObjWrap xOW;
+	
+			if(pxNI==null)then continue; endif;
+			xOW = pxNI^.GetFirstNonExternalLockedUnit();
+			if(!xOW.IsValid())then continue; endif;
+			
+			if(IsObjImportant(xOW))then continue; endif;
+			
+			m_xActor = xOW;	
+			if(!m_xActor.IsValid())then continue; endif;
+			
+			if(m_xActor.GetClassName().Find("_worker")!=(-1))then
+				if(CheckWorkerCount()<=15)then return false; endif;
+			endif;
+			
+			if(m_xActor.GetClassName()=="aje_resource_collector")then return false; endif;
+			
+			if(m_pxSensor!=null)then
+				var int iMainOutpostID=m_pxSensor^.ComputeOutpostId(m_pxSensor^.GetStartLocation());
+				
+				if(m_pxSensor^.FindObjInOutpost(m_xActor)==iMainOutpostID)then
+					if(!m_xActor.IsValid())then continue; endif;
+					iActorOutpostID=m_pxSensor^.ComputeOutpostId(m_xActor.GetPos());
+				
+					if(iActorOutpostID!=iMainOutpostID)then continue; endif;
+					
+					var ^CAiAllocationMgr pxAllocMgr = GetAiAllocationMgr();
+					if(pxAllocMgr==null)then return false; endif;
+					pxAllocMgr^.ExternalLock(m_xActor,"suicide");
+					
+					return true;
+				else
+					return false;
+				endif;
+			endif; 
+		endfor;
+		
+		if(m_pxBrain==null)then return false; endif;
+		
+		var ^CAiModuleDefenseDefault	pxDM;
+		pxDM=cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		if(pxDM==null)then return false; endif;
+		
+		var CAiObjWrapList	xDummy;
+		var CAiObjWrapList	xDummy2;
+		var int iResultLevel = GetResultLevel();
+		pxDM^.GetMOD().QueryUnits(xDummy, 1, 1, 1.0, 0, xDummy2, iResultLevel);
+		
+		var int ik, iD=xDummy.NumEntries();
+		if(iD>0)then
+			for(ik=0)cond(ik<iD)iter(ik++)do
+				if(!xDummy[ik].IsValid())then continue; endif;
+								
+				if(m_pxSensor^.FindObjInOutpost(xDummy[ik])==0)then
+					m_xActor = xDummy[ik];
+					return true;
+				else
+					return false;
+				endif;
+			endfor;
+		endif;
+		
+		var ^CAiPyramid pxPyr = m_pxSensor^.GetPyramid();
+		var ^CAiAllocationMgr pxAllocMgr = ^(m_pxBrain^.GetAllocationMgr());
+
+		if(pxPyr==null)then return false; endif;
+		var CAiObjWrapList xList;
+		pxPyr^.GetUnits(iResultLevel, xList);
+		
+		var int j, iK=xList.NumEntries();
+		if(iK>0)then
+			for(j=0)cond(j<iK)iter(j++)do
+				if(!xList[j].IsValid())then continue; endif;
+				
+				if(m_pxSensor^.FindObjInOutpost(xList[j])==0)then
+					if(!pxAllocMgr^.IsUnitLocked(xList[j], false, false, true))then
+						pxPyr^.KillUnit(xList[j]);
+						return true;
+					endif;
+				endif;
+			endfor;
+		else	
+			return false;
+		endif;
+		return false;
+	endproc;
+	
+
+	//StartAttack
+	proc bool StartAttack()
+		if(m_xActor.IsValid()==false)then return true; endif;
+		if(m_pxSensor==null)then return false; endif;
+				
+		if(m_xActor.GetClassName().Find("_worker")!=(-1))then
+			if(CheckWorkerCount()<=15)then return false; endif;
+		endif;
+
+		if(!m_xActor.GetAttribValue("inventory_item_name").IsEmpty())then
+			m_pxSensor^.ExecuteGamePlayCommand(m_xActor.GetHandle(), "Action", -1, {0.0, 0.0, 0.0}, "/Kill");
+			return true;
+		endif;
+		
+		m_xAnimal = GetNextAnimal();		
+		if(!m_xAnimal.IsValid())then 
+			m_pxSensor^.ExecuteGamePlayCommand(m_xActor.GetHandle(), "Action", -1, {0.0, 0.0, 0.0}, "/Kill");
+			return true; 
+		endif;
+		
+		m_pxSensor^.ExecuteGamePlayCommand(m_xActor.GetHandle(), "Action", m_xAnimal.GetHandle(), m_xAnimal.GetPos(), "/AggressiveTarget");
+		m_bInFight=true;
+		return true;
+	endproc;
+	
+	
+	///EvtTimeOut
+	export proc void EvtTimeOut()
+		if(m_pxSensor==null)then return; endif;
+		if(m_xActor.IsValid())then
+			if(m_xActor.GetClassName().Find("_worker")!=(-1))then
+				if(CheckWorkerCount()<=15)then return; endif;
+			endif;
+			m_pxSensor^.ExecuteGamePlayCommand(m_xActor.GetHandle(), "Action", -1, {0.0, 0.0, 0.0}, "/Kill");
+		endif;
+		Abort();
+	endproc;
+	
+	
+	//GetNextAnimal
+	proc CAiObjWrap GetNextAnimal()
+		var ^CAiMaps	pxMaps = ^(m_pxSensor^.GetAiMaps());
+		var ^CAiMaps	pxGlobalMaps = ^(m_pxSensor^.GetGlobalAiMaps());
+		var CAiMap		xFriendlyAnimal;
+		var CAiMap		xNeutralAnimal;
+		var CAiMap		xHostileAnimal;
+		var CAiArea		xMax;
+		var CAiObjWrap xInvalid;
+		var int iOwner = m_iPlayerID;
+		
+		if(m_pxSensor==null)then return xInvalid; endif;
+		
+		if(!m_xActor.IsValid())then
+			SetCompleted();
+			return xInvalid;
+		endif;
+		
+		xFriendlyAnimal.CopyFrom(pxGlobalMaps^.GetAiMap("FriendlyAnimal", iOwner));
+		xFriendlyAnimal.OpMultiplication(pxMaps^.GetAiMap("FriendlyAnimalModifier", iOwner), true);
+		xFriendlyAnimal.MultMosaicFast(m_xActor.GetPos());
+		
+		xNeutralAnimal.CopyFrom(pxGlobalMaps^.GetAiMap("NeutralAnimal", iOwner));
+		xNeutralAnimal.OpMultiplication(pxMaps^.GetAiMap("NeutralAnimalModifier", iOwner), true);
+		xNeutralAnimal.MultMosaicFast(m_xActor.GetPos());
+		
+		xHostileAnimal.CopyFrom(pxGlobalMaps^.GetAiMap("HostileAnimal", iOwner));
+		xHostileAnimal.OpMultiplication(pxMaps^.GetAiMap("HostileAnimalModifier", iOwner), true);
+		xHostileAnimal.MultMosaicFast(m_xActor.GetPos());		
+		xMax = xHostileAnimal.FindMinArea();
+		if(xHostileAnimal.GetValue(xMax)>=0.0)then
+			xMax = xNeutralAnimal.FindMinArea();
+			if(xNeutralAnimal.GetValue(xMax)>=0.0)then
+				return xInvalid;
+			endif;
+		endif;		
+
+		var CFourCC xResource = "ANML";
+		var CAiObjQuery xQuery;
+		xQuery.SetType(xResource);
+		xQuery.SetOwner(-1);
+		xQuery.RegionArea(xMax);
+		var CAiObjWrapList xList;
+
+		if(xQuery.Execute(xList))then
+			if(xList.NumEntries()>0)then
+				return xList[Random.GetInt()%xList.NumEntries()];
+			endif;
+		endif;
+		
+		return xInvalid;
+	endproc;
+
+
+	///GiveActorBackToMOD
+	proc void GiveActorBackToMOD()
+		if(m_pxBrain==null)then return; endif;
+		
+		var ^CAiModuleDefenseDefault pxDM;
+		pxDM = cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		if(pxDM == null)then return; endif;
+		
+		var CAiObjWrapList xDummy;
+		if(m_xActor.IsValid())then
+			xDummy.AddEntry(m_xActor);
+			pxDM^.GetMOD().AddUnitsToPool(xDummy);
+		endif;
+	endproc;
+	
+	
+	///CheckWorkerCount
+	proc int CheckWorkerCount()
+		var CAiObjWrapList xWorkerList;
+		var CAiObjQuery xWorkerQuery;
+		xWorkerList.Clear();
+		
+		xWorkerQuery.SetOwner(m_iPlayerID);
+		xWorkerQuery.SetClass("hu_worker");
+		xWorkerQuery.SetClass("aje_worker",true);
+		xWorkerQuery.SetClass("ninigi_worker",true);
+		xWorkerQuery.SetClass("seas_worker",true);
+		xWorkerQuery.Execute(xWorkerList);
+		
+		return xWorkerList.NumEntries();
+	endproc;
+
+
+	//called when thinking
+	export proc void Think()
+		if(!IsRunning())then return; endif;
+		
+		if(!m_xActor.IsValid())then
+			SetCompleted();
+			return;
+		endif;
+		
+		if(!m_bInFight)then return; endif;
+		if(m_xAnimal.IsValid())then return; endif;
+		
+		m_bInFight=false;
+		if(StartAttack())then return; endif;
+		
+		if(IsCompleted())then return; endif;
+		
+		GiveActorBackToMOD();
+		Abort();
+		
+		return;
+	endproc;
+	
+endclass;

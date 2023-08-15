@@ -1,0 +1,223 @@
+class CShootBurstArrow inherit CSpecialActionTask
+
+	var CObjHndl		m_xCharacter;
+	var CObjHndl		m_xTarget;
+	var string			m_sState;
+	var int					m_iRetryCounter;
+	var vec3				m_vPos;
+	var bool				m_bTrp;
+	var CGameTime		m_xStart;
+	var real				m_fAnimLength;
+	var bool				m_bSkipVis;
+
+	export constructor()
+		SetName("BurstA");
+		SetCivil(false);
+		m_bTrp=false;
+		m_bSkipVis=false;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="SBAr";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,3);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xCharacter.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_iRetryCounter;
+		(pxArc^) << m_vPos;
+		(pxArc^) << m_bTrp;
+		m_xStart.DoKArc(pxArc^);
+		(pxArc^) << m_fAnimLength;
+		(pxArc^) << m_bSkipVis;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="SBAr")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			m_xCharacter.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_iRetryCounter;
+			if(iVersion>=2)then
+				(pxArc^) << m_vPos;
+				(pxArc^) << m_bTrp;
+				m_xStart.DoKArc(pxArc^);
+				(pxArc^) << m_fAnimLength;
+			endif;
+			if(iVersion>=3)then
+				(pxArc^) << m_bSkipVis;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xCharacter,CObjHndl p_xTarget, string p_sPath, bool p_bTrp, bool p_bSkipVis)
+		m_sState="goto_target";
+		if(!p_xCharacter.IsValid() || !p_xTarget.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xCharacter = p_xCharacter;
+		m_xTarget = p_xTarget;
+		m_bTrp=p_bTrp;
+		m_bSkipVis=p_bSkipVis;
+		SetSpecialActionPath(p_sPath);
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			ResetSpecial();
+			EndTask();
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		var ^CFightingObj pxTarget = cast<CFightingObj>(m_xTarget.GetObj());
+		if(pxCharacter==null || pxTarget==null)then ResetSpecial(); EndTask(); return; endif;
+		if(m_sState == "goto_target")then
+			pxCharacter^.MemorizeCurrentFightState(CObjHndl.Invalid(),false,false);
+			m_vPos = pxCharacter^.GetPos();
+			if(m_bTrp)then
+				var ^CTransportObj pxTransporter = cast<CTransportObj>(pxCharacter^.GetTransportObj().GetObj());
+				if(pxTransporter!=null)then
+					if((pxTransporter^.IsTrapped()&&!pxTransporter^.ExcludeBuildUp())||pxTransporter^.IsFeignDeath()||pxTransporter^.GetTransportObj().IsValid())then
+						ResetSpecial();
+						EndTask();
+						return;
+					endif;
+					m_vPos = pxTransporter^.GetPos();
+				else
+					m_bTrp = false;
+				endif;
+			endif;
+			var real fAttackRange = pxCharacter^.GetAttackRange();
+			if(!IsInRange())then
+				if(m_bTrp || !pxCharacter^.FollowEnemy(pxTarget,false))then
+					ResetSpecial();
+					EndTask();
+				endif;
+			endif;
+			m_sState = "rotate";
+		elseif(m_sState == "rotate")then
+			if(!IsInRange())then
+				if(m_iRetryCounter>3)then
+					ResetSpecial();
+					EndTask();
+				else
+					m_iRetryCounter++;
+					m_sState = "goto_target";
+					return;
+				endif;
+			else
+				if(!m_bTrp)then
+					var vec3 vDir=pxTarget^.GetPos()-pxCharacter^.GetPos();
+					var Quat qTRot;
+					qTRot.FromXYDir(vDir.GetX(),vDir.GetY());
+					pxCharacter^.RotateAction(qTRot);
+				else
+					var Quat qAddRot = pxCharacter^.GetAdditionalRot();
+					var vec3 vFO=pxTarget^.GetPos();
+					var vec3 vDir = (vFO-pxCharacter^.GetPos()).GetNormalized();
+					vDir.SetZ(0.0f);
+					vDir.Normalize();
+					var vec3 vSelf = {0.0f, 1.0f, 0.0};
+					pxCharacter^.GetRot().VecRotateU(vSelf);
+					qAddRot.VecRotateU(vSelf);
+					vSelf.SetZ(0.0f);
+					vSelf.Normalize();
+					var real fDiff = (vDir-vSelf).Abs2();
+					if(fDiff > 0.1f)then
+						var Quat qR; qR.FromXYDir(vDir.GetX(), vDir.GetY());
+						qR /= pxCharacter^.GetRot();
+						fDiff *= 0.1;
+						pxCharacter^.SecRotAction(qR, fDiff);
+					endif;
+				endif;
+				m_sState = "throw";
+				return;
+			endif;
+		elseif(m_sState == "throw")then
+//			if(!StartSpecialActionTimer(pxCharacter, m_bSkipVis))then EndTask();return;endif;
+			pxCharacter^.AddSpecialActionTimer(GetSpecialActionPath());
+			SetUnStoppable(true);
+			var ^CBurstArrow pxArrow=cast<CBurstArrow>(CSrvWrap.GetObjMgr()^.CreateObj("Aje_Burst_Arrow",pxCharacter^.GetOwner(),pxCharacter^.GetProjectileStartPos()));
+			if(pxArrow!=null)then
+				pxArrow^.Set(pxCharacter, pxTarget);
+				pxArrow^.LinkAction(pxCharacter^.GetHandle(),pxCharacter^.GetProjectileLink());
+			endif;
+			if(!m_bTrp)then
+				pxCharacter^.AnimAction("tec_sm_burst_arrow",1,false,false);
+				m_sState = "finished";
+			else
+//				pxCharacter^.SetAnim("tec_sm_burst_arrow",1);
+				pxCharacter^.SetSLEAnim("tec_sm_burst_arrow",1,false,false,m_fAnimLength);
+				m_xStart=CTimeMgr.Get().GetTime();
+				m_sState = "wait";
+				if(pxCharacter^.GetFSM()!=null)then
+					pxCharacter^.GetFSM()^.Enable(true);
+				endif;
+			endif;
+		elseif(m_sState == "finished")then
+			m_sState="EndTask";
+			SetUnStoppable(false);
+			pxCharacter^.ResetSpecialAction();
+			pxCharacter^.ReturnToFight();
+		elseif(m_sState == "wait")then
+			if((CTimeMgr.Get().GetTime()-m_xStart).GetSecondsF()<m_fAnimLength)then
+				return;
+			endif;
+			m_sState="EndTask";
+			SetUnStoppable(false);
+			pxCharacter^.AttackTransportersTargetAfterSpecial();
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc bool IsInRange()
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		var ^CGameObj pxTarget = m_xTarget.GetObj();
+		if(pxCharacter==null || pxTarget==null)then return false; endif;
+		var real fTargetRadius = pxTarget^.GetRadius();
+		var real fAttackRange = pxCharacter^.GetAttackRange()+2.0;
+//		var real fDistance = (pxTarget^.GetPos() - pxCharacter^.GetPos()).Abs2S();
+		var real fDistance = (pxTarget^.GetPos() - m_vPos).Abs2S();
+		return fDistance <= (fAttackRange+fTargetRadius)*(fAttackRange+fTargetRadius);
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc bool Break()
+		if(m_sState!="throw" && m_sState!="EndTask")then
+			if(m_xCharacter.IsValid()&&!m_bTrp)then
+				m_xCharacter.GetObj()^.TerminateAction();
+			endif;
+		endif;
+		m_sState = "EndTask";
+		return false;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+	proc void ResetSpecial()
+		if(!m_bTrp)then return; endif;
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		if(pxCharacter!=null)then
+//			pxCharacter^.ResetSpecialAction();
+//			pxCharacter^.AttackTransportersTarget();
+			pxCharacter^.AttackTransportersTargetAfterSpecial();
+		endif;
+	endproc;
+
+endclass;

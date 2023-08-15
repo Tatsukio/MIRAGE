@@ -1,0 +1,976 @@
+class CHarvesterTask inherit CGenericHarvest
+
+	var CObjHndl			m_xCurLog;
+	var CObjHndl			m_xCurTree;
+	var CForestSrvMgr.CTree m_xForTree;
+
+	var vec3				m_vJobPos;			///< wood on this pos
+	var real				m_fDelivRadius;
+	var bool				m_bFirstHit;
+	var bool				m_bLastHit;
+	var bool				m_bWalkAction;			// true, if a WalkAction was started, its not a must to use it everytime
+	var vec3				m_vLastImportantPos;	// valid if m_bWalkAction is true
+	var vec3				m_vCurLogPos;
+	var vec3				m_vCurDeliverPos;
+	var vec3				m_vCurTreePos;
+	var array vec3	m_avOldInvalidJobPos;
+	var array vec3	m_avOldDeliveryPos;
+	var array vec3	m_avUnreachableTreePos;
+
+	var CObjQuery	m_xWoodLogSearch;
+	var CObjQuery	m_xTreeSearch;
+	var CObjQuery	m_xDeliverSearch;
+	
+	const int 		MAX_INVALID_TARGETS =5;
+	const real		STD_XP_GAIN 		=20.0;
+	
+	export constructor()
+		SetName("HarvestT");
+	endconstructor;	
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="HaTa";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xCurLog.DoKArc(pxArc^);
+		m_xCurTree.DoKArc(pxArc^);
+		m_xForTree.DoKArc(pxArc^);
+		(pxArc^) << m_vJobPos;
+		(pxArc^) << m_fDelivRadius;
+		(pxArc^) << m_bFirstHit;
+		(pxArc^) << m_bLastHit;
+		(pxArc^) << m_bWalkAction;
+		(pxArc^) << m_vLastImportantPos;
+		(pxArc^) << m_vCurLogPos;
+		(pxArc^) << m_vCurDeliverPos;
+		var int i,iC=m_avOldInvalidJobPos.NumEntries();
+		(pxArc^) << iC;
+		for(i=0) cond(i<iC) iter(i++)do
+			(pxArc^) << m_avOldInvalidJobPos[i];
+		endfor;
+		iC=m_avOldDeliveryPos.NumEntries();
+		(pxArc^) << iC;
+		for(i=0) cond(i<iC) iter(i++)do
+			(pxArc^) << m_avOldDeliveryPos[i];
+		endfor;
+		iC=m_avUnreachableTreePos.NumEntries();
+		(pxArc^) << iC;
+		for(i=0) cond(i<iC) iter(i++)do
+			(pxArc^) << m_avUnreachableTreePos[i];
+		endfor;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="HaTa")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			m_xCurLog.DoKArc(pxArc^);
+			m_xCurTree.DoKArc(pxArc^);
+			m_xForTree.DoKArc(pxArc^);
+			(pxArc^) << m_vJobPos;
+			(pxArc^) << m_fDelivRadius;
+			(pxArc^) << m_bFirstHit;
+			(pxArc^) << m_bLastHit;
+			(pxArc^) << m_bWalkAction;
+			(pxArc^) << m_vLastImportantPos;
+			(pxArc^) << m_vCurLogPos;
+			(pxArc^) << m_vCurDeliverPos;
+			var int i,iC;
+			(pxArc^) << iC;
+			m_avOldInvalidJobPos=iC;
+			for(i=0) cond(i<iC) iter(i++)do
+				(pxArc^) << m_avOldInvalidJobPos[i];
+			endfor;
+			(pxArc^) << iC;
+			m_avOldDeliveryPos=iC;
+			for(i=0) cond(i<iC) iter(i++)do
+				(pxArc^) << m_avOldDeliveryPos[i];
+			endfor;
+			if(iVersion>=2)then
+				(pxArc^) << iC;
+				m_avUnreachableTreePos=iC;
+				for(i=0) cond(i<iC) iter(i++)do
+					(pxArc^) << m_avUnreachableTreePos[i];
+				endfor;
+			endif;
+			InitSearch();
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	proc CObjHndl CreateObjTree(ref CForestSrvMgr.CTree po_rxForTree)
+		CSrvWrap.GetForestMgr().Refresh( po_rxForTree );
+		if ( po_rxForTree.IsValid() ) then
+			var CObjHndl xTree;
+			var CObjHndl xInvalid;
+			var string sSetting=CSrvWrap.GetCurLevel()^.GetLevelInfo().GetAttribs().GetValue("Setting");
+			if(sSetting=="Cave1")then
+				sSetting="Savanna";
+			elseif(sSetting=="Cave2")then
+				sSetting="Ashvalley";
+			elseif(sSetting=="Cave3")then
+				sSetting="Oasis";
+			endif;
+			var vec3 vTreePos;
+			if(CSrvWrap.GetForestMgr().GetTreePos(po_rxForTree, vTreePos)==true)then
+				m_vCurTarget = vTreePos;
+				var int iTreeType = CSrvWrap.GetForestMgr().GetTreeType(po_rxForTree);
+				if ( iTreeType != -1 ) then
+					xTree=CSrvWrap.GetObjMgr()^.CreateObj(sSetting+"_Tree_0"+(iTreeType+1).ToString()+"_Timber",(-1),m_vCurTarget)^.GetHandle();
+					//CSrvWrap.LogSpam("Harvest","Setting:  "+sSetting+"_Tree_0"+(iTreeType+1).ToString()+"_Timber");
+				else
+					if ( po_rxForTree.IsValid() ) then
+						var ^CGameObj pxObj = po_rxForTree.GetObjHandle().GetObj();
+						var string sName = pxObj^.GetClassName();
+						//CSrvWrap.LogSpam("Harvest","Timber:  "+sName);
+						var ^CGameObj pxTemp=CSrvWrap.GetObjMgr()^.CreateObj(sName+"_Timber",(-1),m_vCurTarget);
+						if(pxTemp!=null)then
+							xTree=pxTemp^.GetHandle();
+						else
+							CSrvWrap.LogWarning( "Harvest", "Somthing got really messed up here." );
+							return(xInvalid);
+						endif;
+						if(!po_rxForTree.IsConvertedFromFake()) then
+							//KLog.LogError("CHP","create Stump");
+							//if tree is converted, trunk exists already as "fake-trunk"
+							var vec3 vTrunkRot={0.0,0.0,0.0};
+							var ^CGameObj pxTrunk;
+							pxTrunk=CSrvWrap.GetObjMgr()^.CreateObj(sName+"_Stump",(-1),m_vCurTarget);
+							if(pxTrunk!=null)then
+								pxTrunk^.SetRotation(vTrunkRot);
+							else
+								CSrvWrap.LogWarning( "Harvest", "Somthing got really messed up here." );
+								return(xInvalid);
+							endif;
+						endif;
+					else
+						//L CSrvWrap.LogSpam( "Harvest", "CreateObjTree .. po_rxForTree is not valid!!!" );
+					endif;
+				endif;
+				// delete all old invalid treepos of the last jobsearch
+				m_avOldInvalidJobPos=0;
+				m_avUnreachableTreePos=0;
+				CSrvWrap.GetForestMgr().ChopTree(po_rxForTree);
+			else
+				//L CSrvWrap.LogSpam( "Harvest","CreateObjTree - GetTreePos false" );
+				m_sState="search_for_jobs";
+			endif;
+			return xTree;
+		else
+			var CObjHndl xInvalidObj;
+		return xInvalidObj;
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xWorker,vec3 p_vPos)
+		if(!p_xWorker.IsValid())then
+			return false;
+		endif;
+		m_xWorker=p_xWorker;
+		var ^CGameObj pxWorker = m_xWorker.GetObj();
+		var ^CAttribs pxAttr = pxWorker^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+		endif;
+		if(pxWorker==null || p_vPos=={0.0,0.0,0.0})then return false; endif;
+		m_vJobPos=p_vPos;
+		m_vCurTarget = p_vPos;
+		InitSearch();
+		var bool bNewTree = false;
+		var CForestSrvMgr.CTree xForTree;
+		bNewTree = CSrvWrap.GetForestMgr().FindHarvestTree( xForTree, pxWorker^.GetPos(), m_vCurTarget );
+		if(xForTree.IsValid())then
+			if ( bNewTree == true ) then
+				CSrvWrap.GetForestMgr().SetHitPoints(xForTree, CSrvWrap.GetForestMgr().GetMaxHPFakeTrees() ); // 6 hits to chop a tree
+			endif;
+			m_xForTree = xForTree;
+			m_sState = "goto_chop_forest";
+		else
+			m_sState = "search_for_jobs";
+		endif;
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel!=null)then
+			var ^CPlayer pxPlayer = pxLevel^.GetPlayer(pxWorker^.GetOwner());
+			var ^CPropDB pxRes;
+			var ^CPropDB.CNode pxResTable;
+			if(pxPlayer!=null)then
+				//If Player exists, take its DB
+				var ^CBasePlayer pxBasePlayer = cast<CBasePlayer>(pxPlayer);
+				pxRes = pxBasePlayer^.GetResourceTable();
+			endif;
+			if(pxRes!=null)then
+				pxResTable = pxRes^.GetRoot().Get("WOOD");
+			endif;
+			//get all available resources for this tribe
+			m_asResources=0;
+			var int i;
+			if(pxResTable!=null)then
+				for(i=0)cond(i<pxResTable^.NumSubs())iter(i++)do
+					m_asResources.AddEntry((pxResTable^)[i].Name());
+				endfor;
+			endif;
+			m_afMineVal=m_asResources.NumEntries();
+		endif;
+		return true;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xWorker, CObjHndl p_xTarget)
+		if(!p_xWorker.IsValid())then
+			return false;
+		endif;
+		m_xWorker=p_xWorker;
+		var ^CGameObj pxWorker = m_xWorker.GetObj();
+		var ^CGameObj pxTarget = p_xTarget.GetObj();
+		if(pxWorker==null || pxTarget==null )then return false; endif;
+		m_vCurTarget = pxTarget^.GetPos();
+		if(pxTarget^.GetType()=="WOOD")then
+			m_xCurLog = p_xTarget;
+			m_vJobPos = pxTarget^.GetPos();
+			m_sState = "goto_harvest";
+		elseif(pxTarget^.GetType()=="TREE")then
+			// CSrvWrap.LogSpam( "Harvest","Init:: TREE case" );
+			m_xCurTree = p_xTarget;
+			m_vJobPos = pxTarget^.GetPos();
+			m_sState = "goto_chop";
+		else
+			//L CSrvWrap.LogSpam( "Harvest","exit 1" );
+			m_sState = "exit";
+			return false;
+		endif;
+		InitSearch();
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel!=null)then
+			var ^CPlayer pxPlayer = pxLevel^.GetPlayer(pxWorker^.GetOwner());
+			var ^CPropDB pxRes;
+			var ^CPropDB.CNode pxResTable;
+			if(pxPlayer!=null)then
+				//If Player exists, take its DB
+				var ^CBasePlayer pxBasePlayer = cast<CBasePlayer>(pxPlayer);
+				pxRes = pxBasePlayer^.GetResourceTable();
+			endif;
+			if(pxRes!=null)then
+				pxResTable = pxRes^.GetRoot().Get("WOOD");
+			endif;
+			//get all available resources for this tribe
+			m_asResources=0;
+			var int i;
+			if(pxResTable!=null)then
+				for(i=0)cond(i<pxResTable^.NumSubs())iter(i++)do
+					m_asResources.AddEntry((pxResTable^)[i].Name());
+				endfor;
+			endif;
+			m_afMineVal=m_asResources.NumEntries();
+		endif;
+		return true;
+	endproc;
+
+	proc void InitSearch()
+		var ^CFightingObj pxWorker = cast<CFightingObj>(m_xWorker.GetObj());
+		if(pxWorker==null)then return; endif;
+		m_xWoodLogSearch.SetType("WOOD");
+		m_xTreeSearch.SetType("TREE");
+		m_xDeliverSearch.SetOwner(pxWorker^.GetOwner());
+		m_xDeliverSearch.SetAttribsNeg("CurTask","BuildUpB");
+		m_xDeliverSearch.SetAttribsNeg("ReadyForWork",0);
+		m_xDeliverSearch.SetAttribsPos("woodDelivery",true);
+		var CObjList xL;
+		if(m_xDeliverSearch.Execute(xL))then
+			xL.SortDistance(m_vCurTarget);
+			var int i;
+			for(i=0)cond(i<xL.NumEntries())iter(i++)do
+				if(xL[i].IsValid()&&(i==xL.NumEntries()-1||pxWorker^.CheckMaxAutoprodDist(xL[i])))then
+					m_vCurDelivery = xL[i].GetObj()^.GetPos();
+					break;
+				endif;
+			endfor;
+		endif;
+	endproc;
+
+	// Proc USLOnEnter ======================================================
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if (pxWorker==null) then
+			//L KLog.LogSpam( "Harvest","USLOnEnter No Worker -> EndTask" );
+			EndTask();
+			return;
+		endif;
+		var ^CTransportObj	pxTransporter;
+		pxTransporter=cast<CTransportObj>(pxWorker);
+		if(m_asResources.NumEntries()<=0)then
+			EndTask();
+			return;
+		endif;
+		if(pxTransporter!=null)then
+			pxTransporter^.SetTaskDescription(m_asResources[0]);
+		endif;
+		// RT#8432
+		var ^CAttribs pxAttr = pxWorker^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+		endif;
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel!=null)then
+			var ^CPlayer pxPlayer = pxLevel^.GetPlayer(pxWorker^.GetOwner());
+			var ^CPropDB pxRes;
+			var ^CPropDB.CNode pxResTable;
+			if(pxPlayer!=null)then
+				//If Player exists, take its DB
+				var ^CBasePlayer pxBasePlayer = cast<CBasePlayer>(pxPlayer);
+				pxRes = pxBasePlayer^.GetResourceTable();
+			endif;
+			if(pxRes!=null)then
+				pxResTable = pxRes^.GetRoot().Get("WOOD");
+			endif;
+			//get all available resources for this tribe
+			m_asResources=0;
+			var int i;
+			if(pxResTable!=null)then
+				for(i=0)cond(i<pxResTable^.NumSubs())iter(i++)do
+					m_asResources.AddEntry((pxResTable^)[i].Name());
+				endfor;
+			endif;
+			m_afMineVal=m_asResources.NumEntries();
+		endif;
+		if (m_sState=="exit") then
+			//L CSrvWrap.LogWarning( "Harvest","USLOnEnter State==Exit -> EndTask" );
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc bool AddFailedTarget()
+		m_avOldInvalidJobPos.AddEntry(m_vCurTarget);
+		if (m_avOldInvalidJobPos.NumEntries()>MAX_INVALID_TARGETS) then
+			m_avUnreachableTreePos.AddEntry(m_vJobPos);
+			m_avOldInvalidJobPos=0;
+			//m_avOldInvalidJobPos.DeleteEntries(0,m_avOldInvalidJobPos.NumEntries()-10);
+			//return false;
+		endif;
+		return true;
+	endproc;
+
+	proc bool CheckWalkFail(ref vec3 p_rvWorker,string p_sSuccState,string p_sFailState)
+		if(m_vLastImportantPos==p_rvWorker)then
+			// WalkAction failed
+			m_iWalkFailCnt++;
+			if(!AddFailedTarget()) then return false; endif;
+			if(m_iWalkFailCnt>=15) then
+				//L CSrvWrap.LogWarning("Harvest","Failed 1 - "+m_xWorker.AsInt().ToString());
+				m_sState="exit";
+				return false;
+			endif;
+			m_sState=p_sFailState;
+			return false;
+		else
+			// try to get nearer with another WalkAction
+			m_bWalkAction=false;
+			m_iWalkFailCnt=0;
+			m_sState=p_sSuccState;
+			return true;
+		endif;
+	endproc;
+
+	proc bool CheckWalkPos(ref vec3 p_rvPos)
+		var int i;
+		var int iC=m_avOldInvalidJobPos.NumEntries();
+		for (i=0) cond (i<iC) iter (i++)do
+			if ((p_rvPos-m_avOldInvalidJobPos[i]).Abs()<3.0f) then
+				return false;
+			endif;
+		endfor;
+		return true;
+	endproc;
+
+	// Proc USLOnTick =======================================================
+	proc void USLOnTick(int p_iTime)
+		var ^CTransportObj pxWorker;
+		begin CheckWorker;
+			if(!m_xWorker.IsValid()) then EndTask(); return; endif;
+			var ^CGameObj pxTmp=m_xWorker.GetObj();
+			if(pxTmp==null)then
+				//L CSrvWrap.LogSpam( "Harvest","USLOnTick WorkerObj==NULL -> EndTask" );
+				EndTask();
+				return;
+			endif;
+			if((cast<CHarvester>(pxTmp)==null) && (cast<CMammoth>(pxTmp)==null || !(cast<CMammoth>(pxTmp))^.CanHarvest()) && (cast<CMechWalker>(pxTmp)==null || !(cast<CMechWalker>(pxTmp))^.CanHarvest()))then
+				EndTask();
+				return;
+			endif;
+			pxWorker=cast<CTransportObj>(pxTmp);
+			if(pxWorker==null) then EndTask(); return; endif;
+		end CheckWorker;
+		//L CSrvWrap.LogSpam( "Harvest", " State for Worker"+m_xWorker.AsInt().ToString()+"State "+m_sState);
+		var int i;
+		if(pxWorker^.LinkOccupied() && m_sState!="drop_trees")then
+			m_sState="goto_deliver";
+		endif;
+		var bool bConvertedFakeTree=false;
+		CSrvWrap.GetForestMgr().Refresh(m_xForTree);
+		if(m_xForTree.IsObject()&&m_xForTree.GetObjHandle().GetObj()!=null) then
+			m_xCurTree=m_xForTree.GetObjHandle(); //forest tree could have benn converted
+			bConvertedFakeTree=true;
+		endif;
+		var ^CTree pxTree;
+		begin CheckTree;
+			var ^CGameObj pxTmp=m_xCurTree.GetObj();
+			if(pxTmp!=null)then
+				pxTree=cast<CTree>(pxTmp);
+			endif;
+		end CheckTree;
+		var ^CWood pxLog;
+		begin CheckLog;
+			var ^CGameObj pxTmp=m_xCurLog.GetObj();
+			if(pxTmp!=null)then
+				pxLog=cast<CWood>(pxTmp);
+			endif;
+		end CheckLog;
+		var vec3 vPosWorker=pxWorker^.GetPos();
+		//L CSrvWrap.LogSpam( "Harvest", "m_sState: "+m_sState );
+		if(m_sState=="goto_chop")then
+			if(pxTree==null)then
+				m_sState="search_for_jobs";
+			else
+				pxWorker^.HideWeapons();
+				//pxWorker^.SetLinkGFX(m_xFCCWeaponLink,"Hu_Woodcutter_Axe");
+				if( (pxWorker^.GetPos()-pxTree^.GetPos()).Abs()>10.0 )then
+//					m_vCurTarget = GetAdoptedDest( pxWorker^.GetPos(), pxTree^.GetPos(), 3.0f );
+					CSrvWrap.GetObjMgr()^.GetFreePos(m_vCurTarget,pxWorker,pxTree^.GetPos());
+					if(pxWorker^.GetOnWall())then
+						pxWorker^.WallWalkAction(m_vCurTarget,true,pxWorker^.GetDefaultSpeed(),false);
+					else
+						pxWorker^.WalkAction(m_vCurTarget,pxWorker^.GetDefaultSpeed(),true);
+					endif;
+					// pxWorker^.AdvanceAction(pxTree^.GetHandle(),2.0f,2);
+				endif;
+				m_sState="rotate_to_tree";
+			endif;
+		elseif(m_sState=="goto_chop_forest")then
+			//L CSrvWrap.LogSpam( "Harvest", "Goto_Chop_Forest Worker "+m_xWorker.AsInt().ToString() );
+			if (m_bWalkAction==true) then
+				CheckWalkFail(vPosWorker,"search_for_jobs","search_for_jobs");
+			else
+				//CSrvWrap.GetForestMgr().Refresh(m_xForTree);
+				if ( CSrvWrap.GetForestMgr().GetTreePos(m_xForTree, m_vJobPos ) == true ) then
+					//pxWorker^.SetLinkGFX(m_xFCCWeaponLink,"Hu_Woodcutter_Axe");
+					if((vPosWorker-m_vJobPos).Abs()>8.0)then
+						CSrvWrap.GetObjMgr()^.GetFreePos(m_vCurTarget,pxWorker,m_vJobPos);
+//						m_vCurTarget=GetAdoptedDest(vPosWorker,m_vJobPos,2.0f);
+						if(pxWorker^.GetOnWall())then
+							pxWorker^.WallWalkAction(m_vCurTarget,true,pxWorker^.GetDefaultSpeed(),false);
+						else
+							pxWorker^.WalkAction(m_vCurTarget,pxWorker^.GetDefaultSpeed(),true);
+						endif;
+						//pxWorker^.AdvanceAction(m_xForTree^.GetHandle(),2.0f);
+						m_bWalkAction=true;
+						m_vLastImportantPos=pxWorker^.GetPos();
+					endif;
+					m_sState="rotate_to_tree_forest";
+				else
+					m_vJobPos=pxWorker^.GetPos();
+					m_sState="search_for_jobs";
+				endif;
+			endif;
+		elseif(m_sState=="rotate_to_tree_forest"||m_sState=="rotate_to_tree")then
+			//L CSrvWrap.LogSpam( "Harvest", "Rotate_To_Tree_Forest Worker "+m_xWorker.AsInt().ToString() );
+			if(!m_xForTree.IsValid()&&pxTree==null)then
+				m_sState="search_for_jobs";
+				return;
+			endif;
+			var real fTDistS=(vPosWorker-m_vJobPos).Abs();
+			if(fTDistS>10.0f)then
+				m_sState="search_for_jobs";
+				if (!AddFailedTarget()) then
+					CSrvWrap.SendGenericEvtToPlayer(pxWorker^.GetOwner(), "NoMoreWood");
+					EndTask();
+					return;
+				endif;
+			else
+				m_bWalkAction = false;
+				//L CSrvWrap.LogSpam( "Harvest", "Do RotateAction Worker"+m_xWorker.AsInt().ToString() );
+				var vec3 vDir=m_vJobPos-pxWorker^.GetPos();
+				var Quat qTRot;
+				qTRot.FromXYDir(vDir.GetX(),vDir.GetY());
+				pxWorker^.RotateAction(qTRot);
+				m_bFirstHit=true;
+				if(m_sState=="rotate_to_tree_forest") then
+					m_sState="chop_tree_forest";
+				else
+					m_sState="chop_tree";
+					m_bFirstHit=true;
+				endif;
+			endif;
+		elseif(m_sState=="chop_tree"||m_sState=="chop_tree_forest")then
+//			CSrvWrap.LogSpam( "Harvest","CHOP_TREE" );
+			if(pxTree!=null)then	//real tree
+				var CGameTime xNow=CTimeMgr.Get().GetTime();
+				pxWorker^.DoCutAnim();
+				if(m_bFirstHit)then
+					m_bFirstHit=false;
+				else
+					//pxRider^.m_pxExperienceMgr^.GainExperience(pxRider,"wood",STD_XP_GAIN_PER_LOOPk);
+					//pxWorker^.ChangeRecovery(-0.5f);
+				endif;
+				m_xLastTick=xNow;
+				if(!pxTree^.Hit(100000.0)) then
+					var CGameEvtPtr xEvt=CGameEvtPtr.CreateEvent("Bash");
+					xEvt.SetBool(0,!bConvertedFakeTree);
+					pxTree^.HandleEvent(xEvt);
+				else
+					var CGameEvtPtr xEvt=CGameEvtPtr.CreateEvent("Chop");
+					pxTree^.HandleEvent(xEvt);
+				endif;
+			elseif(m_xForTree.IsFakeTree()&&m_xForTree.IsValid())then	//forest tree
+				var CGameTime xNow=CTimeMgr.Get().GetTime();
+				pxWorker^.DoCutAnim();
+				if(m_bFirstHit)then
+					m_bFirstHit=false;
+				else
+					//pxRider^.m_pxExperienceMgr^.GainExperience(pxRider,"wood",STD_XP_GAIN_PER_LOOP);
+					//pxWorker^.ChangeRecovery(-0.5f);
+				endif;
+				m_xLastTick=xNow;
+				var real fCurHitPoints = CSrvWrap.GetForestMgr().HitTree(m_xForTree, 100000.0f );
+				if ( fCurHitPoints <= 0.0f ) then
+					CreateObjTree(m_xForTree);
+				else
+					Convert2ObjTree(m_xForTree);
+				endif;
+			else //invalid
+				if(!m_bFirstHit) then
+					//pxWorker^.AnimAction("chop_tree",0,m_bFirstHit,true);
+				endif;
+				m_sState="search_for_jobs";
+			endif;
+		elseif(m_sState=="search_for_jobs")then
+			//L CSrvWrap.LogSpam( "Harvest","Search_For_Jobs Worker "+m_xWorker.AsInt().ToString() );
+			m_bWalkAction=false;
+			begin FindWoodLog;
+				m_xWoodLogSearch.RegionCircle(m_vJobPos,32.0f);
+				var CObjList xLog;
+				if(m_xWoodLogSearch.Execute(xLog))then
+					xLog.SortDistance(m_vCurDelivery);
+					var int i;
+					for (i=0) cond (i<xLog.NumEntries()) iter(++i)do
+						var ^CWood pxWood = cast<CWood>(xLog[i].GetObj());
+						if (pxWood!=null) then
+							if(m_avUnreachableTreePos.FindEntry(pxWood^.GetPos())!=-1)then
+								continue;
+							endif;
+							if(CheckWalkPos(pxWood^.GetPos())&&pxWorker^.CheckMaxAutoprodDist(pxWood^.GetPos())) then
+								if (pxWood^.AddWorker(pxWorker^.GetHandle())) then
+									//L CSrvWrap.LogSpam( "Harvest","Search_For_Jobs Worker -> Found a WOOD"+m_xWorker.AsInt().ToString() );
+									m_xCurLog=xLog[i];
+									m_sState="goto_harvest";
+									return;
+								endif;
+							endif;
+						endif;
+					endfor;
+				endif;
+			end FindWoodLog;
+			begin FindForestTree;
+				var bool bNewTree=false;
+				var CForestSrvMgr.CTree xTree;
+				var int iSkip=0;
+				var vec3 vTree;
+				//var array CForestSrvMgr.CTree axTreesSkipped;
+				var bool bTreeFound;
+				while(true)do
+					var bool bNewTree=CSrvWrap.GetForestMgr().FindNextTreeShortDelivery(xTree,m_vJobPos,m_vCurDelivery,32.0f,iSkip);
+					if(!xTree.IsValid()) then break; endif;
+					if ( bNewTree == true ) then
+						CSrvWrap.GetForestMgr().SetHitPoints(m_xForTree, CSrvWrap.GetForestMgr().GetMaxHPFakeTrees() ); // 6 hits to chop a tree
+					endif;
+					CSrvWrap.GetForestMgr().GetTreePos( xTree, vTree );
+					if(m_avUnreachableTreePos.FindEntry(vTree)!=-1)then
+						iSkip++;
+						continue;
+					endif;
+					if(Math.Abs(vTree.GetZ()-vPosWorker.GetZ())>10.0f) then //tree z diff to high
+						//CSrvWrap.LogError( "Harvest","skipt z10 tree "+m_xWorker.AsInt().ToString()+" "+iSkip.ToString() );
+						iSkip++;
+						continue;
+					else
+						if(!CheckWalkPos(vTree)) then
+							//CSrvWrap.LogError( "Harvest","skipt ivalid tree "+m_xWorker.AsInt().ToString() );
+							//axTreesSkipped.AddEntry(xTree);
+							iSkip++;
+							continue;
+						endif;
+					endif;
+					bTreeFound=true;
+					break;
+				endwhile;
+				if(bTreeFound) then
+					m_xForTree = xTree;
+					if ( bNewTree == true ) then
+						CSrvWrap.GetForestMgr().SetHitPoints(m_xForTree, CSrvWrap.GetForestMgr().GetMaxHPFakeTrees() ); // 6 hits to chop a tree
+					endif;
+					m_vJobPos=vTree;
+					m_sState = "goto_chop_forest";
+					//L CSrvWrap.LogSpam( "Harvest","1 new Tree Found for Worker "+m_xWorker.AsInt().ToString() );
+					return;
+				endif;
+/*				if(axTreesSkipped.NumEntries()>0) then
+					m_xForTree = axTreesSkipped[Random.GetInt()%axTreesSkipped.NumEntries()];
+					m_sState = "goto_chop_forest";
+					CSrvWrap.GetForestMgr().GetTreePos( m_xForTree, vTree );
+					m_vJobPos=vTree;
+					return;
+				endif;*/
+				m_xTreeSearch.RegionCircle(m_vJobPos,32.0f);
+				var CObjList xTrees;
+				if(m_xTreeSearch.Execute(xTrees))then
+					xTrees.SortDistance(m_vCurDelivery);
+					var int i;
+					for (i=0) cond (i<xTrees.NumEntries()) iter(++i)do
+						var ^CTree pxTree= cast<CTree>(xTrees[i].GetObj());
+						if (pxTree!=null) then
+							if(m_avUnreachableTreePos.FindEntry(pxTree^.GetPos())!=-1)then
+								continue;
+							endif;
+							if(CheckWalkPos(pxTree^.GetPos())&&pxWorker^.CheckMaxAutoprodDist(pxTree^.GetPos())) then
+								m_xCurTree=pxTree^.GetHandle();
+								m_sState="goto_chop";
+								//L CSrvWrap.LogSpam( "Harvest","new Tree Found for Worker "+m_xWorker.AsInt().ToString() );
+								return;
+							endif;
+						endif;
+					endfor;
+				endif;
+			end FindForestTree;
+			//L CSrvWrap.LogSpam( "Harvest","no new job found! endtask"+m_xWorker.AsInt().ToString() );
+			//pxWorker^.RemLinkGFX(m_xFCCWeaponLink);
+			CSrvWrap.SendGenericEvtToPlayer(pxWorker^.GetOwner(), "NoMoreWood");
+			EndTask();
+			return;
+		elseif(m_sState=="goto_harvest")then
+			if(pxLog==null)then
+				m_sState="search_for_jobs";
+			else
+				m_vCurTarget = pxLog^.GetPos();
+				if(m_bWalkAction==true) then
+					CheckWalkFail(vPosWorker,"rotate_to_log","search_for_jobs");
+				else
+					m_vCurLogPos = pxLog^.GetPos();
+//					m_vCurTarget=GetAdoptedDest(pxWorker^.GetPos(),m_vCurLogPos,2.0f);
+					CSrvWrap.GetObjMgr()^.GetFreePos(m_vCurTarget,pxWorker,m_vCurLogPos);
+					if((m_vCurTarget-pxWorker^.GetPos()).Abs() > 6.0)then
+						m_bWalkAction=true;
+						//L CSrvWrap.LogSpam( "Harvest","Goto_Harvest Started WalkAction for Worker "+m_xWorker.AsInt().ToString() );
+						if(pxWorker^.GetOnWall())then
+							pxWorker^.WallWalkAction(m_vCurTarget,true,pxWorker^.GetDefaultSpeed(),false);
+						else
+							pxWorker^.WalkAction(m_vCurTarget,pxWorker^.GetDefaultSpeed(),true);
+						endif;
+						// pxWorker^.AdvanceAction(pxLog^.GetHandle(),2.0f,2);
+						m_vLastImportantPos = pxWorker^.GetPos();
+					endif;
+					m_sState="rotate_to_log";
+				endif;
+			endif;
+		elseif(m_sState=="rotate_to_log")then
+			//L CSrvWrap.LogSpam( "Harvest","Rotate_To_Log for Worker "+m_xWorker.AsInt().ToString() );
+			if(pxLog==null)then
+				//L CSrvWrap.LogSpam( "Harvest","Rotate_To_Log pxLog==null for Worker "+m_xWorker.AsInt().ToString() );
+				m_sState="search_for_jobs";
+			else
+				if((pxWorker^.GetPos()-m_vCurTarget).Abs()>6.0)then
+					//L CSrvWrap.LogSpam( "Harvest", "Rotate_To_Log Distance to high for Worker"+m_xWorker.AsInt().ToString() );
+					m_sState="search_for_jobs";
+					if (!AddFailedTarget()) then
+						CSrvWrap.SendGenericEvtToPlayer(pxWorker^.GetOwner(), "NoMoreWood");
+						EndTask();
+						return;
+					endif;
+				else
+					m_bWalkAction = false;
+					var vec3 vDir=pxLog^.GetPos()-pxWorker^.GetPos();
+					var Quat qTRot;
+					qTRot.FromXYDir(vDir.GetX(),vDir.GetY());
+					//pxWorker^.SetLinkGFX(m_xFCCWeaponLink,"Hu_Woodcutter_Axe");
+					pxWorker^.RotateAction(qTRot);
+					m_bFirstHit=true;
+					m_bLastHit=false;
+					//L CSrvWrap.LogSpam( "Harvest","Rotate_To_Log RotateAction for Worker "+m_xWorker.AsInt().ToString() );
+					m_sState="harvest_log";
+				endif;
+			endif;
+		elseif(m_sState=="harvest_log")then
+			if(pxLog==null)then
+				//L CSrvWrap.LogSpam( "Harvest","Harvest_Log pxLog==Null for Worker "+m_xWorker.AsInt().ToString() );
+				m_sState="search_for_jobs";
+			else
+				if (pxLog^.IsInList(pxWorker^.GetHandle())==false) then
+					pxLog^.AddWorker(pxWorker^.GetHandle());
+				endif;
+				if (pxLog^.IsInList(pxWorker^.GetHandle())) then
+					//L CSrvWrap.LogSpam( "Harvest","Harvest_Log Mining for Worker "+m_xWorker.AsInt().ToString() );
+					m_sState="add_forest_to_inv";
+					if(pxWorker^.LinkOccupied())then
+						m_sState="goto_deliver";
+					endif;
+					pxWorker^.DoTakeAnim();
+					var CGameTime xNow=CTimeMgr.Get().GetTime();
+					m_xLastTick=xNow;
+				else
+					//L CSrvWrap.LogSpam( "Harvest","Harvest_Log No Place for Worker ... searching other tree for Worker "+m_xWorker.AsInt().ToString() );
+					var CForestSrvMgr.CTree xTree;
+					// var bool bNewTree = CSrvWrap.GetForestMgr().FindNextTree(xTree, pxWorker^.GetPos(),32.0f);
+					var bool bNewTree=CSrvWrap.GetForestMgr().FindNextTreeShortDelivery(xTree, pxWorker^.GetPos(),m_vCurDelivery,32.0f);
+					if(xTree.IsValid())then
+						//L CSrvWrap.LogSpam( "Harvest","Harvest_Log Got Valid Tree for Worker "+m_xWorker.AsInt().ToString() );
+						if ( bNewTree == true ) then
+							CSrvWrap.GetForestMgr().SetHitPoints(m_xForTree, CSrvWrap.GetForestMgr().GetMaxHPFakeTrees() ); // 6 hits to chop a tree
+						endif;
+						m_xForTree = xTree;
+						m_bWalkAction=false;
+						m_sState="goto_chop_forest";
+					else
+						//L CSrvWrap.LogSpam( "Harvest","Harvest_Log Got No Valid Tree Goto-> search_for_jobs for Worker "+m_xWorker.AsInt().ToString() );
+						m_sState="search_for_jobs";
+					endif;
+				endif;
+			endif;
+		elseif(m_sState=="add_forest_to_inv")then
+			if(pxLog==null)then
+				//L CSrvWrap.LogSpam( "Harvest","Harvest_Log pxLog==Null for Worker "+m_xWorker.AsInt().ToString() );
+				m_sState="search_for_jobs";
+			else
+//				var real fMinedAll=0.0;
+				if(pxLog!=null)then
+//					if(pxWorker^.GetClassName()=="seas_mechanical_walker")then
+						var real fBefore=pxWorker^.GetResInvWLO();
+						var real fMined=pxLog^.Mine(pxWorker^.GetResInvCapWood()-fBefore);
+						pxWorker^.SetResInv(fMined+fBefore);
+//					else
+//						var real fBefore=pxWorker^.GetResInvWLO();
+//						pxWorker^.SetResInv(pxLog^.Mine(pxLog^.GetValueLeft()+1.0f)+fBefore);
+//					endif;
+				endif;
+				m_sState="goto_deliver";
+			endif;
+		elseif(m_sState=="goto_deliver")then
+			//L CSrvWrap.LogSpam( "Harvest","Goto_Deliver for Worker "+m_xWorker.AsInt().ToString() );
+			//pxWorker^.RemLinkGFX(m_xFCCWeaponLink);
+			if ( m_bWalkAction == true ) then
+				//L CSrvWrap.LogSpam( "Harvest","Goto_Deliver m_bWalkAction=true  Worker "+m_xWorker.AsInt().ToString() );
+				if ( m_vLastImportantPos == pxWorker^.GetPos() ) then
+					// WalkAction failed
+					if(m_iWalkFailCnt<5) then
+						m_iWalkFailCnt++;
+						if(m_iWalkFailCnt%2==0) then
+							//pxWorker^.AnimAction("standanim"); //performace issue
+							return;
+						endif;
+						var vec3 vJitter;
+						vJitter.SetXYZ(Random.MTRandF()-0.5f,Random.MTRandF()-0.5f,0.0f);
+						vJitter.Normalize();
+						//vJitter*=3.0f;
+						vJitter*=Math.I2F((m_iWalkFailCnt+1)/2);
+						if(pxWorker^.GetOnWall())then
+							pxWorker^.WallWalkAction(m_vCurDeliverPos+vJitter,true,pxWorker^.GetDefaultSpeed(),false);
+						else
+							pxWorker^.WalkAction(m_vCurDeliverPos+vJitter, pxWorker^.GetDefaultSpeed() );
+						endif;
+						//L CSrvWrap.LogSpam( "Harvest","Jitter "+m_iWalkFailCnt.ToString());
+						return;
+					endif;
+					//L CSrvWrap.LogWarning( "Harvest","Goto_Deliver Walkaction failed for Worker "+m_xWorker.AsInt().ToString() );
+					//trash 'da whole stuff
+					pxWorker^.ClearLink();
+					m_sState="harvest_log";
+					return;
+				else
+					m_bWalkAction=false;
+				endif;
+			else
+				var CObjList xDeliveries;
+				CSrvWrap.GetDiplomacyMgr().AddOtherFriendsToSearch(pxWorker^.GetOwner(), m_xDeliverSearch);
+				if ( m_xDeliverSearch.Execute(xDeliveries) ) then
+				//L CSrvWrap.LogSpam( "Harvest","Goto_deliver Search DeliverPos Worker "+m_xWorker.AsInt().ToString() );
+					xDeliveries.SortDistance(pxWorker^.GetPos());
+					var bool bFound = true;
+//					// some prints
+//					var int iCur, iCnt;
+//					iCnt = xDeliveries.NumEntries();
+//					for ( iCur = 0 ) cond ( iCur < iCnt ) iter ( iCur++ )do
+//						CSrvWrap.LogSpam( "Harvest","GD Del  "+iCur.ToString()+". Pos="+xDeliveries[iCur].GetObj()^.GetPos().ToString() );
+//					endfor;
+//					iCnt = m_avOldDeliveryPos.NumEntries();
+//					for ( iCur = 0 ) cond ( iCur < iCnt ) iter ( iCur++ )do
+//						CSrvWrap.LogSpam( "Harvest","GD OldPos  "+iCur.ToString()+". Pos="+m_avOldDeliveryPos[iCur].ToString() );
+//					endfor;
+//					// end of prints
+					var int iCurDeliv, iDelCnt;
+					iDelCnt = xDeliveries.NumEntries();
+					for ( iCurDeliv = 0 ) cond ( iCurDeliv < iDelCnt ) iter ( iCurDeliv++ )do
+						bFound = true;
+						var int iT, iC;
+						iC = m_avOldDeliveryPos.NumEntries();
+						for ( iT = 0 ) cond ( iT < iC ) iter ( iT++ )do
+							if ( m_avOldDeliveryPos[iT] == xDeliveries[iCurDeliv].GetObj()^.GetPos() ) then
+								bFound = false;
+								break;
+							endif;
+						endfor;
+						if(iCurDeliv<iDelCnt-1&&!pxWorker^.CheckMaxAutoprodDist(xDeliveries[iCurDeliv])) then
+							bFound=false;
+						endif;
+						if ( bFound == true ) then
+							// found a deliveryPos success
+							break;
+						endif;
+					endfor;
+					if ( bFound == true ) then
+						//L CSrvWrap.LogSpam( "Harvest","goto_deliver bFound==true  Worker "+m_xWorker.AsInt().ToString() );
+						m_vCurDeliverPos = xDeliveries[iCurDeliv].GetObj()^.GetPos();
+						m_xCurDelivery = xDeliveries[iCurDeliv];
+						m_vCurTarget=m_vCurDeliverPos;
+						//pxWorker^.WalkAction(m_vCurTarget,pxWorker^.GetDefaultSpeed(),true);
+						m_fDelivRadius = xDeliveries[iCurDeliv].GetObj()^.GetRadius();
+						//L CSrvWrap.LogSpam( "Harvest","goto_deliver To: "+m_vCurDeliverPos.ToString()+" r:"+m_fDelivRadius.ToString() );
+						var string sSetting=CSrvWrap.GetCurLevel()^.GetLevelInfo().GetAttribs().GetValue("Setting");
+						if(sSetting=="Cave1")then
+							sSetting="Savanna";
+						elseif(sSetting=="Cave2")then
+							sSetting="Ashvalley";
+						elseif(sSetting=="Cave3")then
+							sSetting="Oasis";
+						endif;
+						if(pxWorker^.GetClassName()=="ninigi_harvester"||pxWorker^.GetClassName()=="hu_mammoth_lumber_upgrade"||pxWorker^.GetClassName()=="seas_mechanical_walker"||pxWorker^.GetClassName()=="seas_lumberjack")then
+							pxWorker^.LinkToStock("hu_mammoth_lumber_upgrade_wood");
+						else
+							pxWorker^.LinkToStock(sSetting+"_Tree_01");  
+						endif;
+//						var CFourCC xType="sldr";
+						var CGameObj.CAdvanceActionParams xAWAP;
+						xAWAP.m_fMinDistance=0.0f; // m_fDelivRadius;
+						xAWAP.m_iPrefSpeed=pxWorker^.GetDefaultSpeed();
+						xAWAP.m_xWalkSet="sldr";
+						if(pxWorker^.GetOnWall())then
+							pxWorker^.AdvanceWallAction(xDeliveries[iCurDeliv],xAWAP,true,false);
+						else
+							pxWorker^.AdvanceAction(xDeliveries[iCurDeliv],xAWAP);
+						endif;
+						m_vLastImportantPos = pxWorker^.GetPos();
+						m_bWalkAction = true;
+						m_iWalkFailCnt=0;
+						//L CSrvWrap.LogSpam( "Harvest", "Goto_Delivery WalkAction==true for "+m_xWorker.AsInt().ToString() );
+						m_sState="drop_trees";
+					else
+						//L CSrvWrap.LogSpam( "Harvest", "Goto_Deliver No place for delivery found (1)!");
+						pxWorker^.ClearLink();
+						EndTask();
+						return;
+					endif;
+				else
+					//L CSrvWrap.LogSpam( "Harvest", "Goto_Deliver No place for delivery found (2)!");
+					pxWorker^.ClearLink();
+					EndTask();
+					return;
+				endif;
+			endif;
+		elseif(m_sState=="drop_trees")then
+			//L CSrvWrap.LogSpam( "Harvest","Drop_Trees for Worker "+m_xWorker.AsInt().ToString() );
+			if ((pxWorker^.GetPos()-m_vCurTarget).Abs()>=m_fDelivRadius*1.256893f) then
+				//L CSrvWrap.LogSpam( "Harvest", "Drop_trees Distance to high for Worker"+m_xWorker.AsInt().ToString()+" WP:"+pxWorker^.GetPos().ToString()+" TP:"+ m_vCurTarget.ToString()+" r:"+m_fDelivRadius.ToString() );
+				//L CSrvWrap.LogSpam( "Harvest", "Abs:"+ (pxWorker^.GetPos()-m_vCurTarget).Abs().ToString());
+				//L if ( m_bWalkAction==true ) then
+				//L 	CSrvWrap.LogSpam( "Harvest", "Drop_trees WalkAction==true for "+m_xWorker.AsInt().ToString() );
+				//L else
+				//L 	CSrvWrap.LogSpam( "Harvest", "Drop_trees WalkAction==false for "+m_xWorker.AsInt().ToString() );
+				//L endif;
+				m_sState="goto_deliver";
+			else
+				//L CSrvWrap.LogSpam( "Harvest","drop_trees set m_bWalkAction=false  Worker "+m_xWorker.AsInt().ToString() );
+				m_bWalkAction = false;
+				var int iDelCnt = m_avOldDeliveryPos.NumEntries();
+				var int iD = 0;
+				for ( iD = 0 ) cond( iD < iDelCnt ) iter ( iD++ )do
+					m_avOldDeliveryPos.DeleteEntry(0);
+				endfor;
+				var bool bPutSomethingDown = false;
+				if(pxWorker^.CheckInResInv())then
+					bPutSomethingDown = true;
+				endif;
+				if(bPutSomethingDown)then
+					var ^CFightingObj pxDelivery = cast<CFightingObj>(m_xCurDelivery.GetObj());
+					if(pxDelivery!=null)then
+						pxDelivery^.AcceptDeliveries();
+					endif;
+					//L CSrvWrap.LogSpam( "Harvest","drop_trees CheckInResInv true/Anim-play-Ablegen  Worker "+m_xWorker.AsInt().ToString() );
+					//pxWorker^.AnimAction("put_down");
+					pxWorker^.ClearLink();
+					if(pxTree!=null)then
+						m_sState="goto_tree";
+					elseif(pxLog!=null)then
+						m_sState="goto_harvest";
+					else
+						m_sState="search_for_jobs";
+					endif;
+				else
+					//L CSrvWrap.LogSpam( "Harvest","drop_trees CheckInResInv false Worker "+m_xWorker.AsInt().ToString() );
+					if (pxWorker^.GetResInv()==0.0) then
+						m_sState="search_for_jobs";
+						return;
+					endif;
+					pxWorker^.WaitAction(2.0f); //wait 2 secs for free checkin
+					//L CSrvWrap.LogSpam( "Harvest","drop_trees Inv not full or something like that Worker "+m_xWorker.AsInt().ToString() );
+					return;
+				endif;
+			endif;
+		else
+			//L CSrvWrap.LogSpam("Harvest","invalid state: "+m_sState);
+			//pxWorker^.RemLinkGFX(m_xFCCWeaponLink);
+			EndTask();
+		endif;
+	endproc;
+
+	// Proc USLOnLeave ======================================================
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		//L CSrvWrap.LogSpam( "Harvest", "Harvest USLONLEAVE "+m_xWorker.AsInt().ToString()+"State "+m_sState);
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker!=null)then
+			//L CSrvWrap.LogSpam( "Harvest", ""+m_xWorker.AsInt().ToString());
+			//pxWorker^.RemLinkGFX(m_xFCCWeaponLink);
+			(cast<CFightingObj>(pxWorker)^.ShowWeapons());
+		endif;
+
+		var int iT, iC;
+		iC = m_avOldInvalidJobPos.NumEntries();
+		for(iT=0)cond(iT<iC)iter(iT++)do
+			m_avOldInvalidJobPos.DeleteEntryUS(iT);
+			iT--; iC--;
+		endfor;
+		iC = m_avOldDeliveryPos.NumEntries();
+		for(iT=0)cond(iT<iC)iter(iT++)do
+			m_avOldDeliveryPos.DeleteEntryUS(iT);
+			iT--; iC--;
+		endfor;
+		iC = m_avUnreachableTreePos.NumEntries();
+		for(iT=0)cond(iT<iC)iter(iT++)do
+			m_avUnreachableTreePos.DeleteEntryUS(iT);
+			iT--; iC--;
+		endfor;
+	endproc;
+
+	// Proc Break ===========================================================
+	export proc bool Break()
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker!=null)then pxWorker^.TerminateAction(); endif;
+		if (m_xCurLog.IsValid()) then
+			var ^CWood pxLog = cast<CWood>(m_xCurLog.GetObj());
+			if (pxLog!=null) then
+				pxLog^.Remove(m_xWorker);
+			endif;
+		endif;
+		return true;
+	endproc;
+
+endclass;
+

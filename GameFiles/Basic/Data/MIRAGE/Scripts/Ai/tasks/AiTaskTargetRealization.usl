@@ -1,0 +1,406 @@
+class CAiTaskTargetRealization inherit CAiTask
+
+	var ^CAiBrain		m_pxBrain;
+	var ^CAiSensor		m_pxSensor;
+	var CAiObjWrapList	m_xObjects;				///<list of allocated objects (objects in the sense of a gameplay cmd)
+	var CAiObjWrapList	m_xSubjects;			///<list of allocated subjects
+	var CAiObjWrapList	m_xLockedObjs;			///<list of all allocated objects
+	var CAiObjWrapList	m_xResultObjs;			///<list of result objects (produced by the task)
+	var ^CAiModuleControlDefault m_pxCM;
+	var bool			m_bTargetTask;			///<if true, the task is a target task (evaluated by TargetRealizationGoal)
+	var int				m_iChkPointTimeouts;	///<counts the number of timeouts of checkpoints
+	var int 			m_iMaxChkPointTimeouts;	///<the maximum allowed checkpoint timeouts
+	var int				m_iOutpostId;
+	var vec3			m_vPos;
+	var vec3			m_vLastValidSubjectPos;
+	var int				m_iPlayerID;
+	var string			m_sPlayerID;
+	var string			m_sTribe;
+	var	int				m_iWorkerCounter;
+
+	///constructor
+	export constructor()
+	endconstructor;
+	
+	
+	///destructor
+	export destructor()
+	enddestructor;
+
+
+	///init
+	export proc void Init(^CAiGoal p_pxGoal)
+		super.Init(p_pxGoal);
+		if(p_pxGoal==null)then return; endif;
+				
+		m_pxBrain = GetGoal()^.GetAiBrain(); 
+		if(m_pxBrain==null)then return; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		m_sTribe=m_pxSensor^.GetTechTree().GetTribe();
+		m_sTribe.MakeLower();
+		
+//		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		
+		var int iDifficulty;
+		m_pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		if(m_pxCM^.GetDifficulty()=="Easy")then
+			iDifficulty=14;
+		elseif(m_pxCM^.GetDifficulty()=="Medium")then
+			iDifficulty=9;
+		else
+			iDifficulty=4;
+		endif;
+		
+		SetThinkWait(iDifficulty+iType);
+		
+		m_iChkPointTimeouts=0;
+		m_iMaxChkPointTimeouts=3;
+		m_bTargetTask=false;
+		m_iWorkerCounter=0;
+	endproc;
+	
+	
+	///SetOutpostId
+	export proc void SetOutpostId(int p_iOutpostId)
+		m_iOutpostId = p_iOutpostId;
+	endproc;
+
+
+	///GetOutpostId
+	export proc int GetOutpostId()
+		return m_iOutpostId;
+	endproc;
+	
+	
+	///SetPos
+	export proc void SetPos(vec3 p_vPos)
+		m_vPos = p_vPos;
+	endproc;
+	
+	///set target task
+	export proc void SetTargetTask(bool p_bTargetTask)
+		m_bTargetTask = p_bTargetTask;
+	endproc;
+	
+	
+	///is target
+	export proc bool IsTargetTask()
+		return m_bTargetTask;
+	endproc;
+	
+	
+	///get result count
+	export proc int GetResultCount()
+		return 1;
+	endproc;
+	
+	
+	///GetResults
+	export proc ref CAiObjWrapList GetResults()
+		return m_xResultObjs;
+	endproc;
+	
+	
+	///GetSubjects
+	export proc ref CAiObjWrapList GetSubjects()
+		return m_xSubjects;
+	endproc;
+	
+	
+	///GetLastValidPosition
+	export proc vec3 GetLastValidPosition()
+		return m_vLastValidSubjectPos;
+	endproc;
+
+
+	///calculate cost
+	export proc real CalculateStartCost()
+		var real fCost=0.0;
+		return fCost;
+	endproc;
+
+
+	///start
+	export proc bool Start()
+		SetStarted();		
+		var ^CAiSolution pxSolution=GetSolution();
+		if(pxSolution==null)then 
+			SetImpossible();
+			return false; 
+		endif;
+		
+		if(pxSolution^.GetAdditionalAttribs()=="/Actions/Ninigi/Upgrades/ninigi_fireplace/Explode")then 
+			SetImpossible();
+			return false;
+		endif;
+		
+		if(!TryAllocate(pxSolution, m_iOutpostId, 4))then
+			SetImpossible();
+			return false;
+		endif;
+		return true;
+	endproc;
+
+
+	///shut
+	export proc void Shut()
+		Abort();
+	endproc;
+	
+	
+	///GetCharResultClass
+	proc string GetCharResultClass()
+		var int i;
+		var int iC = GetSolution()^.NumResults();
+		for(i = 0)cond(i < iC)iter(i++)do
+			var ^CAiNodeInstance	pxNI	= GetSolution()^.GetResult(i);
+			var string				sTTPath	= pxNI^.GetTTPath();
+			
+			if(sTTPath.Find("/CHTR/") != -1)then
+				return sTTPath.Mid(sTTPath.FindRev('/') + 1);
+			endif;
+		
+		endfor;
+		return "";
+	endproc;
+	
+
+	///execute solution
+	export proc void ExecuteSolution(int p_iObject, vec3 p_vPos)
+		if(m_pxSensor==null) then return; endif;
+		
+		var ^CAiSolution pxSolution = GetSolution();
+		var ^CAiNodeInstance pxResInst = pxSolution^.GetResult(0);
+		var real fDuration = 200.0 + (pxSolution^.GetDuration().ToReal() * 3.0);
+		var int iObjectHandle=-1;
+		
+		if(p_iObject>=0)then
+			iObjectHandle=m_xObjects[p_iObject].GetHandle();
+		endif;
+		
+		m_pxSensor^.AddCheckpoint(this,0,"atto:"+m_xSubjects[0].GetHandle().ToString()+",CurProcessObj,==,"+GetSolution()^.GetAdditionalAttribs(),100.0);
+		m_pxSensor^.AddCheckpoint(this,500,"ttch:"+pxResInst^.GetTTPath(),fDuration);
+		
+		m_pxSensor^.ExecuteGamePlayCommand(m_xSubjects, pxSolution^.GetGPCmd(), iObjectHandle, p_vPos, pxSolution^.GetAdditionalAttribs());
+	endproc;
+	
+	
+	//called when event allocation is complete
+	export proc void EvtAllocationComplete(^CAiAllocation p_pxAllocation)
+		m_xLockedObjs.Clear();
+
+		var int iObj;
+		var int iCObjs=p_pxAllocation^.GetNumSubjects();
+		m_xLockedObjs = p_pxAllocation^.GetAllObjs();
+		
+		if(iCObjs<1)then
+			Abort();
+			return;		
+		else 
+			m_xSubjects.Clear();
+			for(iObj=0)cond(iObj<iCObjs)iter(iObj++)do
+				var CAiObjWrap xOW=p_pxAllocation^.GetSubject(iObj);
+				m_xSubjects.AddEntry(xOW);
+			endfor;
+		endif;		
+		
+		var int iObjectIdx=-1;
+		
+		if(p_pxAllocation^.GetSolution()^.GetObject()>=0)then
+			iCObjs=p_pxAllocation^.GetNumObjects();
+			if(iCObjs<1)then
+				m_xObjects.Clear();
+				
+				var int iObjIdx=p_pxAllocation^.GetSolution()^.GetObject();				
+				if(iObjIdx>=0)then
+					var CAiNeedPtr pxObjectNeed=p_pxAllocation^.GetSolution()^.GetRequired(iObjIdx);
+					if(pxObjectNeed!=null)then
+						iCObjs=pxObjectNeed.GetNeed()^.NumEntries();
+						for(iObj=0)cond(iObj<iCObjs)iter(iObj++)do
+							var ^CAiNodeInstance pxObjectNI=pxObjectNeed.GetNeed()^.GetAt(iObj);
+							
+							if(pxObjectNI!=null)then
+								if(pxObjectNI^.GetUnlockedCount(m_iOutpostId)>0)then
+									var CAiObjWrap xOW=pxObjectNI^.GetUnit(0, m_iOutpostId);	
+									m_xObjects.AddEntry(xOW);
+									iObjectIdx=0;
+									break;
+								endif;
+							endif;
+						endfor;
+					endif;
+				endif;
+			else
+				m_xObjects.Clear();
+				for(iObj=0)cond(iObj<iCObjs)iter(iObj++)do
+					var CAiObjWrap xOW=p_pxAllocation^.GetObject(iObj);					
+					m_xObjects.AddEntry(xOW);
+				endfor;
+				iObjectIdx=0;
+			endif;
+		endif;			
+		ExecuteSolution(iObjectIdx, p_pxAllocation^.GetTarget());
+	endproc;
+	
+	
+	///EvtAllocationFailed
+	export proc void EvtAllocationFailed(^CAiAllocation p_pxAllocation)
+		Abort();
+	endproc;
+	
+	
+	///EvtAllocationDestroyed
+	export proc void EvtAllocationDestroyed(^CAiAllocation p_pxAllocation,int p_iUnitHandle)
+		if(m_pxSensor==null)then return; endif;
+		m_pxSensor^.RemoveCheckpoints(this);		
+		Abort();
+		if(Start() == false)then
+			Abort();
+		endif;
+	endproc;
+	
+	
+	///EvtCheckpointReached
+	export proc void EvtCheckpointReached(int p_iCheckpointId, int p_iObjHandle)
+		if(m_pxSensor==null)then return; endif;
+		var bool		bFinished	= false;
+		
+		if(p_iCheckpointId>=500)then
+			bFinished = true;
+			m_pxSensor^.RemoveCheckpoint(this,p_iCheckpointId);
+			m_pxSensor^.RemoveCheckpoint(this,p_iCheckpointId-400);
+			m_pxSensor^.RemoveCheckpoint(this,p_iCheckpointId-500);
+		
+		elseif(p_iCheckpointId>=100)then
+			bFinished = true;
+			
+			var CAiObjWrap xObj;			
+			xObj.FromInt(p_iObjHandle);
+			if(xObj.IsValid() == true)then
+				m_xResultObjs.AddEntry(xObj);
+			endif;
+
+			m_pxSensor^.RemoveCheckpoint(this,p_iCheckpointId);
+			m_pxSensor^.RemoveCheckpoint(this,p_iCheckpointId+400);
+		
+		else
+			m_pxSensor^.RemoveCheckpoint(this,p_iCheckpointId);
+			
+			var real fDur=GetSolution()^.GetDuration().ToReal()*3.0f;
+			var bool bFound=false;
+			
+			var int i,iC=GetSolution()^.NumResults();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CAiNodeInstance pxNI=GetSolution()^.GetResult(i);
+				
+				if(!pxNI^.IsDiscrete())then continue; endif;
+				if(pxNI^.IsResource())then continue; endif;
+				if(pxNI^.IsVirtual())then continue; endif;
+				if(pxNI^.IsContained())then continue; endif;
+				
+				var string sTTPath=pxNI^.GetTTPath();
+				var string sClass=sTTPath.Mid(sTTPath.FindRev('/')+1);
+				var vec3 vCreatePos = m_xSubjects[p_iCheckpointId].GetPos();
+
+				m_xSubjects[p_iCheckpointId].GetSpawnPoint(vCreatePos);
+				m_pxSensor^.AddCheckpoint(this,100+p_iCheckpointId+i,"nobj:"+sClass,100.0 + fDur, vCreatePos, 100.0 + fDur, false);
+				bFound=true;
+			endfor;
+
+			if(!bFound)then
+				m_pxSensor^.AddCheckpoint(this,100+p_iCheckpointId,"atto:"+m_xSubjects[p_iCheckpointId].GetHandle().ToString()+",CurProcessObj,!=,"+GetSolution()^.GetAdditionalAttribs(),100.0 + fDur);
+			endif;
+
+		endif;
+		
+		if(bFinished)then
+			SetCompleted();
+			if(m_pxBrain==null)then return; endif;
+			m_pxBrain^.GetEconomyModule()^.SetConstructionFinished(true);
+		endif;
+	endproc;
+	
+	
+	///EvtCheckpointTimeout
+	export proc void EvtCheckpointTimeout(int p_iCheckpointId)
+		m_iChkPointTimeouts++;
+		if((m_iChkPointTimeouts > m_iMaxChkPointTimeouts) || (IsNotPossible() == true))then
+			Abort();
+		else
+			Abort();
+			if(Start() == false)then
+				Abort();
+			endif;
+		endif;
+	endproc;
+	
+	
+	///CheckWorkerCount
+	proc int CheckWorkerCount()
+		var CAiObjWrapList 	xWorkerList;
+		var CAiObjQuery 	xWorkerQuery;
+		xWorkerList.Clear();
+		
+		xWorkerQuery.SetOwner(m_iPlayerID);
+		xWorkerQuery.SetClass("hu_worker");
+		xWorkerQuery.SetClass("aje_worker",true);
+		xWorkerQuery.SetClass("ninigi_worker",true);
+		xWorkerQuery.SetClass("seas_worker",true);
+		
+		xWorkerQuery.Execute(xWorkerList);
+		
+		return xWorkerList.NumEntries();
+	endproc;
+
+	
+	///Think
+	export proc void Think()
+		var int i, iC = m_xSubjects.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			if(m_xSubjects[i].IsValid() == true)then
+				m_vLastValidSubjectPos = m_xSubjects[i].GetPos();
+				break;
+			endif;
+		endfor;
+		if(m_pxCM^.GetOldDifficultyInt()==9)then
+			if(m_iWorkerCounter==0)then
+				if(CheckWorkerCount()<=1)then
+					var CAiObjQuery xQuery;
+					var CAiObjWrapList xList;
+					
+					xQuery.SetOwner(m_iPlayerID);
+					xQuery.SetClass("hu_fireplace");
+					xQuery.SetClass("ninigi_fireplace",true);
+					xQuery.SetClass("aje_resource_collector",true);
+					xQuery.SetClass("seas_headquarters",true);
+					
+					xList.Clear();
+					xQuery.Execute(xList);
+					if(xList.Validate()>0)then
+						var string sTribe;
+						if(m_sTribe=="hu")then
+							sTribe="Hu";
+						elseif(m_sTribe=="aje")then
+							sTribe="Aje";
+						elseif(m_sTribe=="ninigi")then
+							sTribe="Ninigi";
+						elseif(m_sTribe=="seas")then
+							sTribe="SEAS";
+						endif;
+						m_pxSensor^.ExecuteGamePlayCommand(xList[0].GetHandle(), "Action", -1, {0.0,0.0,0.0},"/Actions/"+sTribe+"/Build/CHTR/"+m_sTribe+"_worker /AI_Help");
+					endif;
+				endif;
+				m_iWorkerCounter=20;
+			endif;
+			m_iWorkerCounter--;
+		endif;
+	endproc;
+	
+endclass;

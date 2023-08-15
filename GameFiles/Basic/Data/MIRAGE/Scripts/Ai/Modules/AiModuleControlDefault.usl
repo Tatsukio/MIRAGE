@@ -1,0 +1,1018 @@
+class CAiModuleControlDefault inherit IAiModuleControl
+
+	var CAiModuleEconomyDefault		m_xEModule;
+	var CAiModuleFightDefault			m_xFModule;
+	var CAiModuleAreaDefault			m_xAModule;
+	var CAiModuleDefenseDefault		m_xDModule;	
+	var ^CAiBrain									m_pxBrain;
+	var ^CAiSensor								m_pxSensor;
+	var ^CAiEliza									m_pxEliza;
+	var CAiCheatMgr								m_xCheater;
+	var CAiNPCMgr									m_xNPCMgr;
+	
+	var bool							m_bInitialized;
+	var bool							m_bWalls;
+	var bool							m_bMarketplace;
+	var bool							m_bHarbour;
+	var bool							m_bMapWarpgate;
+	var bool							m_bHuntAnimal;
+	var bool							m_bWatermap;
+	var bool							m_bDefenderplayer;
+	var bool							m_bMultimap;
+	var bool							m_bSameCount;
+	var bool							m_bSend;
+	var bool							m_bKindergarden;
+	var bool							m_bEcoAssist;
+	var bool							m_bDefAssist;
+	var bool							m_bAtkAssist;
+	var bool							m_bAssist;
+	var bool							m_bEpochSix;
+	
+	var string						m_sSubStrategy;
+	var string 						m_sDifficulty;
+	var string 						m_sBehavior;
+	var string						m_sMsg;
+	var string						m_sAnswer;
+	var string						m_sGameType;
+	var string						m_sPlayerID;
+	var string						m_sLevelName;
+	var string						m_sCredits;
+
+	var int								m_iTeam;
+	var int								m_iDifficulty;
+	var int								m_iPlayerID;
+	var int								m_iOldDifficulty;
+	var int								m_iUnitCount;
+	var int								m_iCheckForUnitsCounter;
+	var int								m_iThinkCallsForAskRes;
+
+	///constructor
+	export constructor()
+		m_bInitialized=false;
+		m_pxBrain = null;
+		m_sDifficulty="Hard";
+		m_iDifficulty=9;
+		m_iOldDifficulty=9;
+		m_sBehavior="Dodo";
+//		m_sBehavior="Giraffe";
+		m_sLevelName="";
+		m_sCredits="";
+		m_bEcoAssist=false;
+		m_bDefAssist=false;
+		m_bAtkAssist=false;
+		m_bAssist=false;
+		m_sSubStrategy="1";
+		m_iThinkCallsForAskRes= -70; //wait 70 AI ticks
+		m_bEpochSix=CMirageAIMgr.Get().EpochSix();
+	endconstructor;
+	
+	///destructor
+	export destructor()
+		delete m_pxEliza;
+	enddestructor;
+	
+	///Init
+	export proc bool Init(^CAiBrain p_pxBrain,bool p_bReInit)
+		if(super.Init(p_pxBrain,p_bReInit)==false)then return false; endif;
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null)then return false; endif;
+		m_pxBrain^.AddModule(^m_xEModule);
+		m_pxBrain^.AddModule(^m_xFModule);
+		m_pxBrain^.AddModule(^m_xAModule);
+		m_pxBrain^.AddModule(^m_xDModule);
+		m_xFModule.SetBehavior("enable");
+		m_xEModule.SetTotalProductionSpeed(70.0);
+		m_xCheater.Init(m_pxBrain);
+		AddGoal(^m_xCheater);
+		m_xNPCMgr.Init(m_pxBrain);
+		AddGoal(^m_xNPCMgr);
+		m_xNPCMgr.Activate();
+		m_pxEliza=new CAiEliza();
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		m_bDefenderplayer=CAiUtilityMgr.Get()^.IsDefenderPlayer(m_iPlayerID);
+		m_sGameType=CAiUtilityMgr.Get()^.GetGameType(m_pxBrain);
+		m_sCredits=m_pxSensor^.GetPBCredits().ToString();
+		m_bWalls=m_pxSensor^.GetWalls();
+		m_bMarketplace=m_pxSensor^.GetMarketplace();
+		m_bHarbour=m_pxSensor^.GetHarbour();
+		m_bMapWarpgate=m_pxSensor^.GetMapWarpgate();
+		m_bHuntAnimal=m_pxSensor^.GetHuntAnimal();
+		m_bWatermap=m_pxSensor^.GetWatermap();
+		m_bKindergarden=true;
+		m_bSameCount=false;
+		m_bSend=true;
+		m_iUnitCount=0;
+		m_iCheckForUnitsCounter=0;
+		m_sMsg="";
+		m_sAnswer="";
+//		Test();
+		return true;
+	endproc;
+	
+	///GetCheatMgr
+	export proc ref CAiCheatMgr GetCheatMgr()
+		return m_xCheater;
+	endproc;
+	
+	///GetNPCMgr
+	export proc ref CAiNPCMgr GetNPCMgr()
+		return m_xNPCMgr;
+	endproc;
+	
+	///SetKindergardenEnabled
+	proc void SetKindergardenEnabled(bool p_bKindergarden)
+		m_bKindergarden=p_bKindergarden;
+	endproc;
+	
+	///GetKindergardenEnabled
+	export proc bool GetKindergardenEnabled()
+		return m_bKindergarden;
+	endproc;
+	
+	
+	///OnCreatePointBuyPreset
+	export proc void OnCreatePointBuyPreset(ref string po_rsAiPresetPath);
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		var string sTribe;
+		sTribe = m_pxSensor^.GetTechTree().GetTribe()+"/";
+		po_rsAiPresetPath = sTribe+"AiPBPreset" +m_sSubStrategy+GetDifficulty()+".txt";
+	endproc;
+
+	//SetDifficulty
+	export proc void SetDifficulty(int p_iDifficulty)
+//		var int iType = 1+Random.GetInt()%7;
+		var int iType = 1+Random.GetInt()%7;
+		SetOldDifficultyInt(p_iDifficulty);
+		if(p_iDifficulty==0)then
+			m_sDifficulty="Easy"; m_iDifficulty=80;SetThinkWait(80+iType);
+		elseif(p_iDifficulty==1)then
+			m_sDifficulty="Easy"; m_iDifficulty=70; SetThinkWait(70+iType);
+		elseif(p_iDifficulty==2)then
+			m_sDifficulty="Easy"; m_iDifficulty=50; SetThinkWait(50+iType);
+		elseif(p_iDifficulty==3)then
+			m_sDifficulty="Medium"; m_iDifficulty=40; SetThinkWait(40+iType);
+		elseif(p_iDifficulty==4)then
+			m_sDifficulty="Medium"; m_iDifficulty=30; SetThinkWait(30+iType);
+		elseif(p_iDifficulty==5)then
+			m_sDifficulty="Medium"; m_iDifficulty=25; SetThinkWait(25+iType);
+		elseif(p_iDifficulty==6)then
+			m_sDifficulty="Hard"; m_iDifficulty=20; SetThinkWait(20+iType);
+		elseif(p_iDifficulty==7)then
+			m_sDifficulty="Hard"; m_iDifficulty=15; SetThinkWait(15+iType);
+		elseif(p_iDifficulty==8)then
+			m_sDifficulty="Hard"; m_iDifficulty=10; SetThinkWait(10+iType);
+		elseif(p_iDifficulty==9)then
+			m_sDifficulty="Hard"; m_iDifficulty=5; SetThinkWait(5+iType);
+		else
+			m_sDifficulty="Hard"; m_iDifficulty=1; SetThinkWait(1+iType);
+		endif;
+	endproc;
+
+	///SetOldDifficultyInt
+	export proc void SetOldDifficultyInt(int p_iOldDifficulty)
+		m_iOldDifficulty=p_iOldDifficulty;
+	endproc;
+	
+		
+	///GetOldDifficultyInt
+	export proc int GetOldDifficultyInt()
+		return m_iOldDifficulty;
+	endproc;
+
+
+	///GetDifficulty
+	export proc string GetDifficulty()
+		return m_sDifficulty;
+	endproc;
+	
+	///GetDifficultyInt
+	export proc int GetDifficultyInt()
+		return m_iDifficulty;
+	endproc;
+	
+	
+	///SetAIEnabled
+	export proc void SetAIAssistEnabled(bool p_bEnabled)
+		m_bAssist=p_bEnabled;
+	endproc;
+	
+	
+	///GetAIEnabled
+	export proc bool GetAIAssistEnabled()
+		return m_bAssist;
+	endproc;
+	
+	
+	///SetAIAssistFight
+	export proc void SetAIAssistFight(bool p_bEnabled)
+		m_bAtkAssist=p_bEnabled;
+	endproc;
+	
+	
+	///GetAIAssistFight
+	export proc bool GetAIAssistFight()
+		return m_bAtkAssist;
+	endproc;
+	
+	///SetAIAssistDefense
+	export proc void SetAIAssistDefense(bool p_bEnabled)
+		m_bDefAssist=p_bEnabled;
+	endproc;
+	
+	
+	///GetAIAssistDefense
+	export proc bool GetAIAssistDefense()
+		return m_bDefAssist;
+	endproc;
+	
+	
+	///SetAIAssistEconomy
+	export proc void SetAIAssistEconomy(bool p_bEnabled)
+		m_bEcoAssist=p_bEnabled;
+	endproc;
+
+	
+	///GetAIAssistEconomy
+	export proc bool GetAIAssistEconomy()
+		return m_bEcoAssist;
+	endproc;
+	
+	
+	//SetBehaviorType
+	export proc void SetBehaviorType(string p_sBehavior)
+		m_sBehavior=p_sBehavior;
+	endproc;
+	
+	
+	//GetBehaviorType
+	export proc string GetBehaviorType()
+		return m_sBehavior;
+	endproc;
+	
+	
+	//SetTeam
+	export proc void SetTeam(int p_iTeam)
+		m_iTeam=p_iTeam;
+	endproc;
+	
+	
+	//GetTeam
+	export proc int GetTeam()
+		return m_iTeam;
+	endproc;
+	
+	
+	//SetBehavior
+	export proc bool SetBehavior(string p_sBehavior)
+		if(m_pxSensor==null)then return false; endif;
+		if(m_pxBrain==null)then return false; endif;
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		m_bMultimap=m_pxSensor^.GetMultimap();
+		if((CAiUtilityMgr.Get()^.GetGameType(m_pxBrain)=="Defender")&&(m_bDefenderplayer))then
+			p_sBehavior = "Schnecke";
+		endif;
+		if(m_sLevelName=="multi_arena_001"&&m_bMultimap)then
+			p_sBehavior="Dodo";
+		endif;
+//		CMirageAIMgr.Debug("p_sBehavior for "+m_iPlayerID.ToString()+" is: "+p_sBehavior);
+//		CMirageAIMgr.Debug("m_sLevelName: "+m_sLevelName+" m_bMultimap: "+m_bMultimap.ToString());
+//		CMirageAIMgr.Debug("extra "+GetExtraData());
+		if(!m_bMultimap||(m_sLevelName=="Single 01"||m_sLevelName=="Single 02"||
+		m_sLevelName=="Single 03"||m_sLevelName=="Single 04"||m_sLevelName=="Single 05"||
+		m_sLevelName=="Single 06"||m_sLevelName=="Single 07"||m_sLevelName=="Single 08"||
+		m_sLevelName=="Single 09"||m_sLevelName=="Single 10"||m_sLevelName=="Single 11"||
+		m_sLevelName=="Single 12"||m_sLevelName=="Single 13"||m_sLevelName=="Single 14"||
+		m_sLevelName=="Single 15"||m_sLevelName=="Single 16"||m_sLevelName=="Single B41"||
+		m_sLevelName=="Single B42"||m_sLevelName=="Single B43"))then GetCheatMgr().SetEnabled(true); endif;
+		var ^CAiTechTree pxT = ^(m_pxSensor^.GetTechTree());
+		SetBehaviorType(p_sBehavior);
+//		CMirageAIMgr.Debug("preset is: "+sTabPath);
+		if(p_sBehavior=="Dodo")then
+			var string sPath= "/" + pxT^.GetTribe()+ "/"+p_sBehavior+GetDifficulty()+ ".txt";
+			if(pxT^.LoadValueTable(sPath)==false)then
+				KLog.LogWarn("AiModuleControlDefault", "Dodo table not found! PlayerID: "+m_sPlayerID);
+			endif;
+			m_pxBrain^.BrainWash();
+			var int iType = 1+Random.GetInt()%4;
+			m_sSubStrategy = "D" + iType.ToString();
+			m_xEModule.SetBehavior("village_level D"+iType.ToString());
+			m_xFModule.SetBehavior("tactics " + m_sSubStrategy);
+			m_xFModule.SetBehavior("aggressiveness 100");
+			m_xFModule.SetBehavior("riskiness 100");
+			m_xDModule.SetBehavior("upgrade_walls 1");
+			m_xDModule.SetBehavior("upgrade_towers 1");
+			m_xDModule.SetBehavior("close_start_location 0");
+			m_xDModule.SetBehavior("attacks_risk_level 1.0");
+			m_xDModule.SetBehavior("guard_village 1");
+			m_xDModule.SetBehavior("army");
+			SetCurrentStrategy(p_sBehavior);
+			SetBehaviorType("Dodo");
+			SetKindergardenEnabled(true);
+			return true;
+		elseif(p_sBehavior=="Schnecke")then
+			var string sPath= "/" + pxT^.GetTribe() + "/"+p_sBehavior+GetDifficulty()+ ".txt";
+			if(!pxT^.LoadValueTable(sPath))then
+				KLog.LogWarn("AiModuleControlDefault", "Schnecken table not found! PlayerID: "+m_sPlayerID);
+			endif;
+			m_pxBrain^.BrainWash();
+			var int iType = 1+Random.GetInt()%4;
+			m_sSubStrategy = "S" + iType.ToString();
+			m_xEModule.SetBehavior("village_level S2");
+			m_xFModule.SetBehavior("aggressiveness 10");
+			m_xFModule.SetBehavior("tactics " + m_sSubStrategy);
+			m_xFModule.SetBehavior("riskiness 10");
+			m_xDModule.SetBehavior("upgrade_walls 1");
+			m_xDModule.SetBehavior("upgrade_towers 1");
+			m_xDModule.SetBehavior("close_start_location 1");
+			m_xDModule.SetBehavior("attacks_risk_level 1.3");
+			m_xDModule.SetBehavior("guard_village 1");
+			m_xDModule.SetBehavior("army");
+			SetCurrentStrategy(p_sBehavior);
+			SetBehaviorType("Schnecke");
+			SetKindergardenEnabled(true);
+			return true;
+		elseif(p_sBehavior=="Giraffe")then
+			var string sPath= "/" + pxT^.GetTribe()+ "/"+p_sBehavior+GetDifficulty()+ ".txt";
+			if(!pxT^.LoadValueTable(sPath))then
+				KLog.LogWarn("AiModuleControlDefault", "Giraffen table not found! PlayerID: "+m_sPlayerID);
+			endif;
+			m_pxBrain^.BrainWash();
+			var int iType = 1+Random.GetInt()%4;
+			m_sSubStrategy = "G" + iType.ToString();
+			m_xEModule.SetBehavior("village_level G1");
+			m_xFModule.SetBehavior("aggressiveness 50");
+			m_xFModule.SetBehavior("tactics " + m_sSubStrategy);
+			m_xFModule.SetBehavior("riskiness 50");
+			m_xDModule.SetBehavior("upgrade_walls 1");
+			m_xDModule.SetBehavior("upgrade_towers 1");
+			m_xDModule.SetBehavior("close_start_location 1");
+			m_xDModule.SetBehavior("attacks_risk_level 1.0");
+			m_xDModule.SetBehavior("guard_village 1");
+			m_xDModule.SetBehavior("army");
+			SetCurrentStrategy(p_sBehavior);
+			SetBehaviorType("Giraffe");
+			SetKindergardenEnabled(true);
+			return true;
+		elseif(p_sBehavior=="Mikrobe")then
+//			CMirageAIMgr.Debug("Paused!!! "+m_iPlayerID.ToString());
+			m_pxBrain^.SetPaused(true);
+			SetCurrentStrategy(p_sBehavior);
+			m_xDModule.SetBehavior("army");
+			return true;
+		elseif(p_sBehavior=="FightOnly")then
+			if(!pxT^.LoadValueTable("/"+pxT^.GetTribe()+"/Dodo"+GetDifficulty()+".txt"))then
+				KLog.LogWarn("AiModuleControlDefault", "table not found! PlayerID: "+m_sPlayerID);
+			endif;
+			m_xFModule.SetBehavior("tactics D2");
+			m_xFModule.SetBehavior("aggressiveness 100");
+			m_xFModule.SetBehavior("riskiness 100");
+			m_xEModule.Shut();
+			m_xEModule.Deactivate();
+			m_xDModule.SetBehavior("upgrade_walls 0");
+			m_xDModule.SetBehavior("upgrade_towers 0");
+			m_xDModule.SetBehavior("close_start_location 0");
+			m_xDModule.SetBehavior("attacks_risk_level 1.0");
+			m_xDModule.SetBehavior("guard_village 1");
+			SetCurrentStrategy(p_sBehavior);
+			SetBehaviorType("Dodo");
+			SetKindergardenEnabled(true);
+			return true;
+		elseif(p_sBehavior=="Turtle")then
+			if(!pxT^.LoadValueTable("/"+pxT^.GetTribe()+"/Schnecke"+GetDifficulty()+".txt"))then
+				KLog.LogWarn("AiModuleControlDefault", "table not found! PlayerID: "+m_sPlayerID);
+			endif;
+			m_pxBrain^.BrainWash();
+			m_sSubStrategy = "S5";
+			
+			m_xEModule.SetBehavior("village_level S2");
+			m_xFModule.SetBehavior("aggressiveness 10");
+			m_xFModule.SetBehavior("tactics " + m_sSubStrategy);
+			m_xFModule.SetBehavior("riskiness 10");
+			m_xDModule.SetBehavior("upgrade_walls 1");
+			m_xDModule.SetBehavior("upgrade_towers 1");
+			m_xDModule.SetBehavior("close_start_location 1");
+			m_xDModule.SetBehavior("attacks_risk_level 1.3");
+			m_xDModule.SetBehavior("guard_village 1");
+			m_xDModule.SetBehavior("army");
+			
+			SetCurrentStrategy(p_sBehavior);
+			SetBehaviorType("Turtle");
+			SetKindergardenEnabled(true);
+			return true;
+		elseif(p_sBehavior.Find("Singleplayer")!=-1)then
+			if(!pxT^.LoadValueTable("/"+pxT^.GetTribe()+"/Singleplayer.txt"))then
+				KLog.LogWarn("AiModuleControlDefault", "table not found! PlayerID: "+m_sPlayerID);
+			endif;
+			m_pxBrain^.BrainWash();
+			m_sSubStrategy = "G1";
+			SetKindergardenEnabled(true);
+			if(p_sBehavior=="Singleplayer_L3_1")then
+				m_xFModule.SetBehavior("tactics X1");
+				m_xEModule.SetBehavior("village_level X1");
+				m_xFModule.SetBehavior("aggressiveness 100");
+				m_xFModule.SetBehavior("riskiness 100");
+				m_xDModule.SetBehavior("upgrade_walls 0");
+				m_xDModule.SetBehavior("upgrade_towers 0");
+				m_xDModule.SetBehavior("close_start_location 0");
+				m_xDModule.SetBehavior("attacks_risk_level 1.0");
+				m_xDModule.SetBehavior("guard_village 1");
+				m_xDModule.SetBehavior("army Level_3_Guards1");
+				return true;
+			elseif(p_sBehavior=="Singleplayer_L3_2")then
+				m_xFModule.SetBehavior("tactics X2");
+				m_xEModule.SetBehavior("village_level X2");
+				m_xFModule.SetBehavior("aggressiveness 100");
+				m_xFModule.SetBehavior("riskiness 100");
+				m_xDModule.SetBehavior("upgrade_walls 0");
+				m_xDModule.SetBehavior("upgrade_towers 1");
+				m_xDModule.SetBehavior("close_start_location 0");
+				m_xDModule.SetBehavior("attacks_risk_level 1.3");
+				m_xDModule.SetBehavior("guard_village 1");
+				m_xDModule.SetBehavior("army Level_3_Guards2");
+				return true;
+			elseif(p_sBehavior=="Singleplayer_L3_3")then
+				m_xFModule.SetBehavior("tactics X3");
+				m_xEModule.SetBehavior("village_level X3");
+				m_xFModule.SetBehavior("aggressiveness 100");
+				m_xFModule.SetBehavior("riskiness 100");
+				m_xDModule.SetBehavior("upgrade_walls 1");
+				m_xDModule.SetBehavior("upgrade_towers 1");
+				m_xDModule.SetBehavior("close_start_location 0");
+				m_xDModule.SetBehavior("attacks_risk_level 1.0");
+				m_xDModule.SetBehavior("guard_village 1");
+				m_xDModule.SetBehavior("army Level_3_Guards1");
+				var vec3 vPos = {566.0, 816.0, 48.0};
+				var string sPos = vPos.ToString();
+				sPos.Replace(" ", "_");
+				m_xDModule.SetBehavior("defend_place "+sPos);
+				return true;
+			elseif(p_sBehavior=="Singleplayer_L8_1")then
+				m_xFModule.SetBehavior("tactics X1");
+				m_xEModule.SetBehavior("village_level X1");
+				m_xFModule.SetBehavior("aggressiveness 20");
+				m_xFModule.SetBehavior("riskiness 100");
+				m_xDModule.SetBehavior("upgrade_walls 1");
+				m_xDModule.SetBehavior("upgrade_towers 1");
+				m_xDModule.SetBehavior("close_start_location 0");
+				m_xDModule.SetBehavior("attacks_risk_level 1.0");
+				m_xDModule.SetBehavior("guard_village 1");
+				m_xDModule.SetBehavior("army Level_8_Guards1");
+				return true;
+			elseif(p_sBehavior=="Singleplayer_L8_2")then
+				m_xFModule.SetBehavior("tactics X2");
+				m_xEModule.SetBehavior("village_level X2");
+				m_xFModule.SetBehavior("aggressiveness 100");
+				m_xFModule.SetBehavior("riskiness 100");
+				m_xDModule.SetBehavior("upgrade_walls 1");
+				m_xDModule.SetBehavior("upgrade_towers 1");
+				m_xDModule.SetBehavior("close_start_location 0");
+				m_xDModule.SetBehavior("attacks_risk_level 1.0");
+				m_xDModule.SetBehavior("guard_village 1");
+				m_xDModule.SetBehavior("army Level_8_Guards2");
+				return true;
+			endif;
+		elseif(p_sBehavior.Find("AIAssist")!=(-1))then
+			if(!m_bMultimap||(m_sLevelName=="Single 01"||m_sLevelName=="Single 02"||
+			m_sLevelName=="Single 03"||m_sLevelName=="Single 04"||m_sLevelName=="Single 05"||
+			m_sLevelName=="Single 06"||m_sLevelName=="Single 07"||m_sLevelName=="Single 08"||
+			m_sLevelName=="Single 09"||m_sLevelName=="Single 10"||m_sLevelName=="Single 11"||
+			m_sLevelName=="Single 12"||m_sLevelName=="Single 13"||m_sLevelName=="Single 14"||
+			m_sLevelName=="Single 15"||m_sLevelName=="Single 16"||m_sLevelName=="Single B41"||
+			m_sLevelName=="Single B42"||m_sLevelName=="Single B43"))then return false; endif;
+			if(p_sBehavior=="AIAssistEco_0")then
+				m_xEModule.SetBehavior("village_level Deactivate");
+				m_xEModule.SetBehavior("disable_collect_resources");
+			endif;
+			if(p_sBehavior=="AIAssistDef_0")then
+				m_pxBrain^.GetSensor().EnableWallplacer(false);
+				m_xDModule.SetBehavior("deactivate_towers");
+				m_xDModule.SetBehavior("deactivate_walls");
+			endif;
+			if(p_sBehavior=="AIAssistFig_0")then
+				m_xDModule.SetBehavior("deactivate_unit_defence");
+				m_xFModule.SetBehavior("disable");
+				m_xAModule.SetBehavior("disable");
+			endif;
+			if(p_sBehavior=="AIAssistEco_1")then SetAIAssistEconomy(true); endif;
+			if(p_sBehavior=="AIAssistDef_1")then SetAIAssistDefense(true); endif;
+			if(p_sBehavior=="AIAssistFig_1")then SetAIAssistFight(true); endif;
+			if((p_sBehavior=="AIAssistEco_1")||(p_sBehavior=="AIAssistDef_1")||(p_sBehavior=="AIAssistFig_1"))then
+				m_xCheater.SetEnabled(false);
+				m_xEModule.SetBehavior("enable_user_interaction");
+				SetKindergardenEnabled(false);
+				SetDifficulty(9);
+				SetAIAssistEnabled(true);
+			endif;
+			return true;
+		endif;
+		return false;
+	endproc;
+
+	///Think
+	export proc void Think()
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		var ^CAiTechTree pxT=^(m_pxSensor^.GetTechTree());
+		var ^CAiNodeInstance pxNI;
+		var int iTimeOut=7500;
+		var vec3 vPos = {0.0, 0.0, 0.0};
+		var string sIcon="";
+		var int iAiID=m_iPlayerID;
+		if(m_xCheater.GetEnabled())then
+			m_xCheater.UpdateFightFactors();
+		endif;
+		SetExtraData("Tribe: "+pxT^.GetTribe()+"\nBehavior: "+GetBehaviorType()+"\nDifficulty: "+GetDifficulty()+"\nDifficultyInt: "+GetOldDifficultyInt().ToString()+"\nCurrent Age: "+CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain).ToString()+"\nMapName: "+CAiUtilityMgr.Get()^.GetLevelName(GetBrain())+"\nMultimap: "+m_bMultimap.ToString()+"\nCredits: "+m_sCredits+"\nPlayerID: "+m_sPlayerID);
+		if((!m_bEcoAssist)&&(!m_bDefAssist)&&(!m_bAtkAssist))then
+			if(m_sLevelName!="multi_arena_001")then
+				if(m_iPlayerID!=0)then
+					var real fFactor;
+					var int iAge = CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain,m_bEpochSix);
+					if(iAge>=6)then
+						fFactor=4.0;
+					elseif(iAge>=5)then
+						fFactor=3.0;
+					elseif(iAge>=4)then
+						fFactor=2.5;
+					elseif(iAge>=3)then
+						fFactor=2.0;
+					elseif(iAge>=2)then
+						fFactor=1.5;
+					elseif(iAge>=1)then
+						fFactor=1.0;
+					endif;
+					var int iFood=0, iWood=0, iStone=0, iIron=0;
+					if(GetOldDifficultyInt()==9)then
+						iFood=9;
+						iWood=9;
+						iStone=9;
+						iIron=2;
+					elseif(GetOldDifficultyInt()==8)then
+						iFood=8;
+						iWood=8;
+						iStone=6;
+						iIron=1;
+					elseif(GetOldDifficultyInt()==7)then
+						iFood=7;
+						iWood=7;
+						iStone=2;
+						iIron=1;
+					elseif(GetOldDifficultyInt()==6)then
+						iFood=5;
+						iWood=5;
+						iStone=2;
+					elseif(GetOldDifficultyInt()==5)then
+						iFood=4;
+						iWood=4;
+						iStone=1;
+					elseif(GetOldDifficultyInt()==4)then
+						iFood=3;
+						iWood=3;
+						iStone=1;
+					elseif(GetOldDifficultyInt()==3)then
+						iFood=2;
+						iWood=2;
+						iStone=1;
+					elseif(GetOldDifficultyInt()==2)then
+						iFood=1;
+						iWood=1;
+					endif;
+					if(GetOldDifficultyInt()>1)then
+						if(m_sLevelName=="_CU_MP_6_BFPW_HIGHLAND"||m_sLevelName=="BfPW - Highland"||m_sLevelName=="BfPW - HL")then
+							iIron=0;
+						endif;
+						GetCheatMgr().SpawnResources("food", (iFood.ToReal()*fFactor).ToInt());
+						GetCheatMgr().SpawnResources("wood", (iWood.ToReal()*fFactor).ToInt());
+						if(iStone>0)then
+							GetCheatMgr().SpawnResources("stone",(iStone.ToReal()*fFactor).ToInt());
+						endif;
+						if(iIron>0)then
+							GetCheatMgr().SpawnResources("iron", (iIron.ToReal()*fFactor).ToInt());
+						endif;
+					endif;
+				endif;
+			endif;
+		endif;
+		///ChatMessageData from Player
+		var string sMsg = m_pxSensor^.GetAiStringEvt();
+//		if(sMsg=="brainwash")then
+//			CMirageAIMgr.Debug("brainwash");
+//			m_pxBrain^.BrainWash();
+//		endif;
+		if(m_sMsg!=sMsg)then
+			m_sMsg=sMsg;
+			var array string asMsg;
+			m_sMsg.Split(asMsg, " ", false);
+			var int i,j,iC=asMsg.NumEntries();
+			if(iC>=3)then
+				var int iPlayerID=asMsg[0].ToInt();
+				var int iWanted=GetWantedAi(asMsg[1]);
+				///only wanted Ai will Answer
+				if(iWanted==iAiID)then
+					///psychological help *^^*
+					if((asMsg[2]!="Help")&&(asMsg[2]!="help")&&(asMsg[2]!="Food")&&(asMsg[2]!="food")&&
+						(asMsg[2]!="Stone")&&(asMsg[2]!="stone")&&(asMsg[2]!="Wood")&&(asMsg[2]!="wood")&&
+						(asMsg[2]!="Iron")&&(asMsg[2]!="iron")&&(asMsg[2]!="Skull")&&(asMsg[2]!="Skulls")&&(asMsg[2]!="skull")&&(asMsg[2]!="skulls")&&(asMsg[2]!="Gift")&&(asMsg[2]!="gift"))then
+						var string sEMsg;
+						for(j=2)cond(j<iC)iter(j++)do
+							sEMsg+=(asMsg[j]+" ");
+						endfor;
+						var string sEAnswer=m_pxEliza^.Process(sEMsg);
+						SendAnswer(sEAnswer, iPlayerID);
+						return;
+					endif;
+					///AI has had help from a player
+					if((asMsg[2]=="Gift")||(asMsg[2]=="gift"))then
+						m_pxSensor^.SendChatMsg("_NT_AI_THANKSFORHELP", iTimeOut, vPos,iPlayerID);
+						return;
+					endif;
+					///process players needs only if he is no enemy
+					if(m_pxSensor^.IsEnemy(iPlayerID)==false)then
+						///defense help
+						if((asMsg[2]=="Help")||(asMsg[2]=="help"))then
+							var bool bSendSupportSquad=true;
+							var int iAvailableUnits;
+							var ^CAiGoalMinistryOfDefense pxMOD = CAiUtilityMgr.Get()^.GetMOD(m_pxBrain);
+							if(pxMOD==null)then
+								KLog.LogWarn("AiModuleControlDefault", "MOD is null!");
+								bSendSupportSquad = false;
+							elseif((iAvailableUnits = pxMOD^.NumUnits()) <= 3)then
+								KLog.LogWarn("AiModuleControlDefault", "To few units in MOD!");
+								bSendSupportSquad = false;
+							elseif(m_xDModule.IsDefending())then
+								bSendSupportSquad = false;
+							endif;
+							if(bSendSupportSquad==true)then
+								iAvailableUnits -= 3;
+								//iAvailableUnits can change with call
+								bSendSupportSquad = m_xFModule.InitiateCoopSupportAttack(iAvailableUnits, iPlayerID);
+								if(bSendSupportSquad==false)then
+									KLog.LogWarn("AiModuleControlDefault", "Failed to initiate Attack!");
+								endif;
+							endif;
+							if(bSendSupportSquad==true)then
+								m_pxSensor^.SendChatMsg("_NT_AI_CONFIRMHELP\t"+iAvailableUnits.ToString(), iTimeOut, vPos,iPlayerID);
+							else
+								m_pxSensor^.SendChatMsg("_NT_AI_CANTHELP", iTimeOut, vPos,iPlayerID);
+							endif;
+						endif;
+						///food help
+						if((asMsg[2]=="Food")||(asMsg[2]=="food"))then
+							var int iAmountWanted = GetAmountWanted(asMsg);
+							pxNI=pxT^.GetNodeInstanceFromPartialName("food");
+							var int iTotalCount=pxNI^.GetInstanceCount();
+							var int iLockCount=pxNI^.GetLockCount();
+							var int iActualCount=iTotalCount-iLockCount;
+							if(iActualCount>=iAmountWanted)then
+								m_pxSensor^.GiveResourcesTo(iPlayerID, iAmountWanted, 0, 0, 0);
+								m_pxSensor^.SendChatMsg("_NT_AI_SENDFOOD\t"+iAmountWanted.ToString(), iTimeOut, vPos, iPlayerID);
+							else
+								m_pxSensor^.SendChatMsg("_NT_AI_CANTSENDFOOD", iTimeOut, vPos,iPlayerID);
+							endif;
+						endif;
+						///stone help
+						if((asMsg[2]=="Stone")||(asMsg[2]=="stone"))then
+							var int iAmountWanted = GetAmountWanted(asMsg);
+							pxNI=pxT^.GetNodeInstanceFromPartialName("stone");
+							var int iTotalCount=pxNI^.GetInstanceCount();
+							var int iLockCount=pxNI^.GetLockCount();
+							var int iActualCount=iTotalCount-iLockCount;
+							if(iActualCount>=iAmountWanted)then
+								m_pxSensor^.GiveResourcesTo(iPlayerID, 0, 0, iAmountWanted, 0);
+								m_pxSensor^.SendChatMsg("_NT_AI_SENDSTON\t"+iAmountWanted.ToString(), iTimeOut, vPos,iPlayerID);
+							else
+								m_pxSensor^.SendChatMsg("_NT_AI_CANTSENDSTON", iTimeOut, vPos,iPlayerID);
+							endif;
+						endif;
+						///wood help
+						if((asMsg[2]=="Wood")||(asMsg[2]=="wood"))then
+							var int iAmountWanted = GetAmountWanted(asMsg);
+							pxNI=pxT^.GetNodeInstanceFromPartialName("wood");
+							var int iTotalCount=pxNI^.GetInstanceCount();
+							var int iLockCount=pxNI^.GetLockCount();
+							var int iActualCount=iTotalCount-iLockCount;
+							if(iActualCount>=iAmountWanted)then
+								m_pxSensor^.GiveResourcesTo(iPlayerID, 0, iAmountWanted, 0, 0);
+								m_pxSensor^.SendChatMsg("_NT_AI_SENDWOOD\t"+iAmountWanted.ToString(), iTimeOut, vPos,iPlayerID);
+							else
+								m_pxSensor^.SendChatMsg("_NT_AI_CANTSENDWOOD", iTimeOut, vPos,iPlayerID);
+							endif;
+						endif;
+						//iron help
+						if((asMsg[2]=="Iron")||(asMsg[2]=="iron")||(asMsg[2]=="skull")||(asMsg[2]=="skulls")||(asMsg[2]=="Skull")||(asMsg[2]=="Skulls"))then
+							var int iAmountWanted = GetAmountWanted(asMsg);
+							pxNI=pxT^.GetNodeInstanceFromPartialName("iron");
+							var int iTotalCount=pxNI^.GetInstanceCount();
+							var int iLockCount=pxNI^.GetLockCount();
+							var int iActualCount=iTotalCount-iLockCount;
+							if(iActualCount>=iAmountWanted)then
+								m_pxSensor^.GiveResourcesTo(iPlayerID, 0, 0, 0, iAmountWanted);
+								m_pxSensor^.SendChatMsg("_NT_AI_SENDIRON\t"+iAmountWanted.ToString(), iTimeOut, vPos, iPlayerID);
+							else
+								m_pxSensor^.SendChatMsg("_NT_AI_CANTSENDIRON", iTimeOut, vPos,iPlayerID);
+							endif;
+						endif;
+					else
+						m_pxSensor^.SendChatMsg("_NT_AI_DENIEHELPENEMY", iTimeOut, vPos,iPlayerID);
+					endif;
+				endif;
+			endif;
+		endif;
+		//Make AI ask forres by Adder & Kharg [improved by AyCe :P]
+//		if(m_iThinkCallsForAskRes>=11)then //1 Tick = 0.25 seconds?!? so 20*(11+1) ticks= 1 minute?
+//			var int iTotalCount;
+//			var int iMaxCount;
+//			var int iLockCount;
+//			var int iMissingCount;
+//			//food
+//			pxNI=pxT^.GetNodeInstanceFromPartialName("food");
+//			iTotalCount=pxNI^.GetInstanceCount();
+//			iMaxCount=pxNI^.GetMaxInstanceCount();
+//			iLockCount=GetAskRes() + pxNI^.GetLockCount();
+//			if(iLockCount>iMaxCount) then
+//				iLockCount= iMaxCount;
+//			endif;
+//			//SendMsgToAnyone("food LockCount="+iLockCount.ToString()+"/"+iTotalCount.ToString()+"/"+iMaxCount.ToString());
+//			iMissingCount=iLockCount-iTotalCount;
+//			if(iMissingCount>0)then
+//				SendMsgToAI("food"+" "+iMissingCount.ToString());
+//				SendMsgToAllies("_NT_AI_NEEDRESSOURCES\t"+iMissingCount.ToString()+"\t_NT_AI_RESSOURCE_FOOD");
+//				m_iThinkCallsForAskRes=0;
+//			endif;
+//			//wood
+//			pxNI=pxT^.GetNodeInstanceFromPartialName("wood");
+//			iTotalCount=pxNI^.GetInstanceCount();
+//			iMaxCount=pxNI^.GetMaxInstanceCount();
+//			iLockCount=GetAskRes() + pxNI^.GetLockCount();
+//			if(iLockCount>iMaxCount) then
+//				iLockCount= iMaxCount;
+//			endif;
+//			//SendMsgToAnyone("wood LockCount="+iLockCount.ToString()+"/"+iTotalCount.ToString()+"/"+iMaxCount.ToString());
+//			iMissingCount=iLockCount-iTotalCount;
+//			if(iMissingCount>0)then
+//				SendMsgToAI("wood"+" "+iMissingCount.ToString());
+//				SendMsgToAllies("_NT_AI_NEEDRESSOURCES\t"+iMissingCount.ToString()+"\t_NT_AI_RESSOURCE_WOOD");
+//				m_iThinkCallsForAskRes=0;
+//			endif;
+//			//stone
+//			pxNI=pxT^.GetNodeInstanceFromPartialName("stone");
+//			iTotalCount=pxNI^.GetInstanceCount();
+//			iMaxCount=pxNI^.GetMaxInstanceCount();
+//			iLockCount=GetAskRes() + pxNI^.GetLockCount();
+//			if(iLockCount>iMaxCount) then
+//				iLockCount= iMaxCount;
+//			endif;
+//			//SendMsgToAnyone("stone LockCount="+iLockCount.ToString()+"/"+iTotalCount.ToString()+"/"+iMaxCount.ToString());
+//			iMissingCount=iLockCount-iTotalCount;
+//			if(iMissingCount>0)then
+//				SendMsgToAI("stone"+" "+iMissingCount.ToString());
+//				SendMsgToAllies("_NT_AI_NEEDRESSOURCES\t"+iMissingCount.ToString()+"\t_NT_AI_RESSOURCE_STON");
+//				m_iThinkCallsForAskRes=0;
+//			endif;
+//			//Skulls
+//			pxNI=pxT^.GetNodeInstanceFromPartialName("iron");
+//			iTotalCount=pxNI^.GetInstanceCount();
+//			iMaxCount=pxNI^.GetMaxInstanceCount();
+//			iLockCount=GetAskResSkulls() + pxNI^.GetLockCount();
+//			if(iLockCount>iMaxCount) then
+//				iLockCount= iMaxCount;
+//			endif;
+//			//SendMsgToAnyone("iron LockCount="+iLockCount.ToString()+"/"+iTotalCount.ToString()+"/"+iMaxCount.ToString());
+//			iMissingCount=iLockCount-iTotalCount;
+//			if(iMissingCount>0)then
+//				SendMsgToAI("iron"+" "+iMissingCount.ToString());
+//				SendMsgToAllies("_NT_AI_NEEDRESSOURCES\t"+iMissingCount.ToString()+"\t_NT_AI_RESSOURCE_IRON");
+//				m_iThinkCallsForAskRes=0;
+//			endif;
+//		else
+//			m_iThinkCallsForAskRes= m_iThinkCallsForAskRes+1;
+//		endif;
+	endproc;
+
+	//Script by Adder
+	proc int GetAskRes()
+		var int iAge = CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain);
+		if(iAge>=5) then
+			return 1000;
+		elseif(iAge>=4) then
+			return 800;
+		elseif(iAge>=3) then
+			return 600;
+		elseif(iAge>=2) then
+			return 400;
+		elseif(iAge>=1) then
+			return 200;
+		else
+			SendMsgToAnyone("Ages Start with 0?");
+			return 100;
+		endif;
+	endproc;
+
+	//Script by Adder, changed by AyCe
+	proc int GetAskResSkulls()
+		var int iAge = CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain);
+		if(iAge>=5) then
+			return 300;
+		elseif(iAge>=4) then
+			return 100;
+		elseif(iAge>=3) then
+			return 50;
+		elseif(iAge>=2) then
+			return 25;
+		elseif(iAge>=1) then
+			return 25;
+		else
+			SendMsgToAnyone("Ages Start with 0?");
+			return 25;
+		endif;
+	endproc;
+
+
+	//Script by Adder
+	proc void SendMsgToAI(string p_sMsg)
+		var vec3 vPos = {0.0, 0.0, 0.0};
+		var int i, iC = m_pxSensor^.GetNumPlayers();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(i==m_iPlayerID)then
+				continue;
+			endif;
+			var ^CAiBrain pxBrain = CAiWrap.GetBrain(i);
+			if(pxBrain==null)then //human
+				continue;
+			endif;
+			if(m_pxSensor^.GetDiplomacyMyOpinion(i)==2)then
+				m_pxSensor^.SendChatMsg("AI"+i.ToString()+": "+p_sMsg, 7500, vPos,i);
+			endif;
+		endfor;
+	endproc;
+
+	//Script by Adder
+	proc void SendMsgToAllies(string p_sMsg)
+		var vec3 vPos = {0.0, 0.0, 0.0};
+		var int i, iC = m_pxSensor^.GetNumPlayers();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(i==m_iPlayerID)then
+				continue;
+			endif;
+			if(m_pxSensor^.GetDiplomacyMyOpinion(i)==2)then
+				m_pxSensor^.SendChatMsg(p_sMsg, 7500, vPos,i);
+			endif;
+		endfor;
+	endproc;
+
+	//Script by Adder
+	proc void SendMsgToAnyone(string p_sMsg)
+		var vec3 vPos = {0.0, 0.0, 0.0};
+		var int i, iC = m_pxSensor^.GetNumPlayers();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(i==m_iPlayerID)then
+				continue;
+			endif;
+			m_pxSensor^.SendChatMsg(p_sMsg, 7500, vPos,i);
+		endfor;
+	endproc;
+
+	//Script by Adder
+	proc int GetAmountWanted(array string p_asMsg)
+		var int iAmountWanted = 100;
+		if(p_asMsg.NumEntries()>3) then
+			iAmountWanted = p_asMsg[3].ToInt();
+			if(iAmountWanted>500)then
+				iAmountWanted=500;
+			endif;
+		endif;
+		if(iAmountWanted<=0) then
+			iAmountWanted = 100;
+		endif;
+		return iAmountWanted;
+	endproc;
+
+	///Eliza is sending her answer to the player
+	proc void SendAnswer(string p_sAnswer, int p_iPlayerID)
+		if(m_pxSensor==null)then return; endif;
+		if(m_sAnswer!=p_sAnswer)then
+			m_sAnswer=p_sAnswer;
+			var int iTimeOut=10000;
+			var vec3 vPos = {0.0, 0.0, 0.0};
+			m_pxSensor^.SendChatMsg(p_sAnswer, iTimeOut, vPos,p_iPlayerID);
+		endif;
+	endproc;
+
+	///GetWantedAi
+	proc int GetWantedAi(string p_sMsg)
+		var int iWantedAi;
+		if(p_sMsg=="AI1:")then
+			iWantedAi=1;
+		elseif(p_sMsg=="AI2:")then
+			iWantedAi=2;
+		elseif(p_sMsg=="AI3:")then
+			iWantedAi=3;
+		elseif(p_sMsg=="AI4:")then
+			iWantedAi=4;
+		elseif(p_sMsg=="AI5:")then
+			iWantedAi=5;
+		elseif(p_sMsg=="AI6:")then
+			iWantedAi=6;
+		elseif(p_sMsg=="AI7:")then
+			iWantedAi=7;
+		endif;
+		return iWantedAi;
+	endproc;
+	
+	///FindEnemyMainbase
+	export proc void FindEnemyMainBase(ref array vec3 po_ravBasePosses)
+		if(m_pxSensor==null)then return; endif;
+		var int iOutpost;
+		var CAiArea xArea;
+		var int iX, iY;
+		var CAiObjWrapList xOutObj;
+		var CAiObjWrapList xTempObj; 
+		var CAiObjWrapList xObjList;
+		var CAiObjQuery xObjQuery;
+		var int i, iC=m_pxSensor^.GetNumPlayers();
+		if(iC>0)then
+			for(i=0)cond(i<iC)iter(i++)do
+				xObjQuery.Clear();
+				xObjList.Clear();
+				if(m_sLevelName!="multi_arena_001")then
+					xObjQuery.SetOwner(i);
+					xObjQuery.SetType("BLDG");
+					xObjQuery.Execute(xObjList);
+				else
+					xObjQuery.SetOwner(i);
+					xObjQuery.SetType("SLOC");
+					xObjQuery.Execute(xObjList);
+				endif;
+				var int j, iD=xObjList.NumEntries();
+				var vec3 vEnemyBasePos;
+				var int iOut=0;
+				var int iMax=0;
+				if(iD>0)then
+					for(j=0)cond((j<iD)&&(j>=0))iter(j++)do
+						CAiArea.Vec3ToArea(xObjList[j].GetPos(), iX, iY);
+						xArea.SetX(iX);
+						xArea.SetY(iY);
+						xOutObj.Clear();
+						m_pxSensor^.GetObjectGroupInArea(i, xArea, false, false, true, false, xOutObj);
+						iOut=xOutObj.NumEntries();
+						if(iOut>iMax)then
+							vEnemyBasePos=FindCentre(xOutObj);
+							iMax=iOut;
+						endif;
+						var CAiObjQuery xOQ;
+						xOQ.Exclude(xOutObj);
+						xTempObj.Clear();
+						xOQ.Execute(xObjList, xTempObj);
+						xObjList.Clear();
+						xObjList.CopyFrom(xTempObj);
+						j-=(iD-xObjList.NumEntries());
+						iD-=(iD-xObjList.NumEntries());	
+					endfor;	
+					po_ravBasePosses.AddEntry(vEnemyBasePos);
+				else
+					continue;
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	///FindCentre
+	proc vec3 FindCentre(CAiObjWrapList p_xList)
+		var int i, iC = p_xList.NumEntries();
+		var int iCount = iC;
+		var vec3 vPos;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(p_xList[i].IsValid()==false)then
+				iCount--;
+				continue;
+			endif;
+			vPos+=p_xList[i].GetPos();
+		endfor;
+		if(iCount <= 0)then
+			return {0.0, 0.0, 0.0};
+		endif;
+		return vPos/=iCount.ToReal();
+	endproc;
+	
+	export proc ^CAiGoal GetGoalByName(string p_sGoal)
+		var int i,iC=NumGoals();
+		if(iC<1)then return null; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiGoal pxGoal=GetGoal(i);
+			if(pxGoal==null)then continue; endif;
+			if(pxGoal^.GetDbgString()==p_sGoal)then
+				return pxGoal;
+			endif;
+		endfor;
+		return null;
+	endproc;
+	
+	export proc void Test()
+////		CMirageAIMgr.Debug("test begins");
+	endproc;
+	
+endclass;

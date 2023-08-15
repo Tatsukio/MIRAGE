@@ -1,0 +1,821 @@
+class CGameCameraModule inherit CCameraControllerModule
+
+	var array ^CGameCameraModule.CShake		m_apxCameraShakes;
+	
+	class CShake
+		export var CGameTimeSpan 			m_xShakeLength;
+		export var CGameTime	 			m_xShakeStart;
+		export var real						m_fShakeStrength;
+		export var real						m_fShakeFadeOut;
+		export var real						m_fMaxRange;
+		export var vec3						m_vShakePos;
+
+		export constructor(CGameTimeSpan p_xShakeLength, CGameTime p_xShakeStart, real p_fShakeStrength, real p_fShakeFadeOut, vec3 p_vShakePos, real p_fMaxRange)
+			m_xShakeLength=p_xShakeLength;
+			m_xShakeStart=p_xShakeStart;
+			m_fShakeStrength=p_fShakeStrength;
+			m_fShakeFadeOut=p_fShakeFadeOut;
+			m_vShakePos=p_vShakePos;
+			m_fMaxRange=p_fMaxRange;
+		endconstructor;
+
+		export destructor()
+		enddestructor;
+	endclass;
+
+	export var real m_fSlopePos;
+
+	export var real m_fMouseSpeedScale;
+	export var real m_fKeySpeedScale;
+
+	export var procref<void,vec3,bool,bool,bool> m_xOnMiniMapRightClick;
+
+	//Options
+	var	bool m_bSnapBack;
+	var	bool m_bAllowTurn;
+	var	bool m_bAllowZoom;
+	var array int m_aiDir;
+	var bool m_bLevelEd;
+
+	export var bitset m_dwCursorKeys;
+	export var bitset m_dwScreenBorders;
+	
+	export var real m_fDefaultView;
+
+	//Shake Helper
+	var	real	m_fShakeHelperX;
+	var	real	m_fShakeHelperY;
+	var	real	m_fShakeHelperZ;
+	var bool	m_bShake;
+	var real	m_fScrollAccel;
+	var real	m_fAutoZoom;
+	var real	m_fMatrixMove;
+	var real	m_fMatrixStopTime;
+	var vec3	m_vMatrixOrgDir;
+	var real	m_fMatrixCurRot;
+	var real	m_fMatrixSizeFactorXY;
+	var real	m_fMatrixSizeFactorZ;
+	var vec3	m_vMatrixDestPos;
+
+	export constructor()
+		m_sModuleName="GameCamera";
+		var CConfig xConf;
+		m_bLevelEd=CVersionInfo.GetCompatibleVersionsString().Find(" LevelEd ")!=-1;
+		var int iWASD=Math.Clamp(xConf.GetSetI("Client/GameplayOptions/WASDSwitch",0),0,3);
+		m_aiDir=4;
+		var bool bWASD=(m_bLevelEd&&(iWASD==2||iWASD==3))||(!m_bLevelEd&&(iWASD==1||iWASD==3));
+		if(bWASD)then
+			m_aiDir[0]=65;
+			m_aiDir[1]=68;
+			m_aiDir[2]=87;
+			m_aiDir[3]=83;
+		else
+			m_aiDir[0]=37;
+			m_aiDir[1]=39;
+			m_aiDir[2]=38;
+			m_aiDir[3]=40;
+		endif;
+		m_fSlopePos=80.0;
+		m_fScrollAccel=1.0;
+		m_fMouseSpeedScale=4.0;
+		var real fTmp=4.0f;
+		if(!CSettings.Get("Client/ScrollSpeed",fTmp))then
+			CSettings.Set("Client/ScrollSpeed",fTmp);
+		endif;
+		m_fKeySpeedScale=fTmp;
+		
+		m_fAutoZoom=0.0f;
+		m_fMatrixMove=-1.0f;
+		m_fMatrixStopTime=-1.0f;
+
+		m_bShake=false;
+		
+		var string sTemp;
+		if(CSettings.Get("Game/ControllerOptions/SnapBack",sTemp)==false)then
+			sTemp="true";
+			CSettings.Set("Game/ControllerOptions/SnapBack",sTemp);
+		endif;
+		m_bSnapBack=(sTemp=="true");
+
+		if(CSettings.Get("Game/ControllerOptions/AllowTurn",sTemp)==false)then
+			sTemp="false";
+			CSettings.Set("Game/ControllerOptions/AllowTurn",sTemp);
+		endif;
+		m_bAllowTurn=(sTemp=="true");
+
+		if(CSettings.Get("Game/ControllerOptions/AllowZoom",sTemp)==false)then
+			sTemp="false";
+			CSettings.Set("Game/ControllerOptions/AllowZoom",sTemp);
+		endif;
+		m_bAllowZoom=(sTemp=="true");
+
+		// Curve 0: Eye point distance
+		ClearCurve(0,101.0);
+		SetCurvePoint(0,-30.0,0.3);
+		SetCurvePoint(0,101.0,80.0);
+		// Curve 1: Eye point elevation angle
+		ClearCurve(1,101.0);
+		SetCurvePoint(1,0.0,0.1);
+		SetCurvePoint(1,25.0,0.3);
+		SetCurvePoint(1,70.0,Math.Pi()/5.5);
+		SetCurvePoint(1,101.0,Math.Pi()/4.2);
+		// Curve 2: LookAt point height
+		ClearCurve(2,101.0);
+		SetCurvePoint(2,0.0,0.4);
+		SetCurvePoint(2,20.0,4.8);
+		SetCurvePoint(2,101.0,0.0);
+		// Curve 3: FOV
+		ClearCurve(3,101.0);
+		SetCurvePoint(3,0.0,0.958);
+		SetCurvePoint(3,60.0,0.758);
+		SetCurvePoint(3,101.0,0.658);
+
+		// mini map handling
+		CClientWrap.GetUIMgr().GetMiniMap().m_xOnMouseEvent=OnMiniMapMouseEvent;
+		
+		// default view (will be updated in OnGameStart
+		m_fDefaultView=0.785f;
+	endconstructor;
+
+	export destructor()
+    	var int i,iC=m_apxCameraShakes.NumEntries();
+    	for(i=0)cond(i<iC)iter(i++)do
+    		delete m_apxCameraShakes[i];
+    	endfor;
+	enddestructor;
+
+
+	export proc bool Init()
+		return true;
+	endproc;
+
+	export proc bool Shut()
+		return true;
+	endproc;
+
+	export proc void SetKeySpeedScale(real p_fKeySpeedScale)
+		if(m_fKeySpeedScale==p_fKeySpeedScale) then return; endif;
+		m_fKeySpeedScale=p_fKeySpeedScale;
+	endproc;
+	
+	export proc real GetKeySpeedScale()
+		return m_fKeySpeedScale;
+	endproc;
+	
+	export proc bool IsSnapAllowed()
+		return m_bSnapBack;
+	endproc;
+
+	export proc void ChangeSnap(bool p_bSnap)
+		m_bSnapBack=p_bSnap;
+	endproc;
+
+	export proc bool IsTurnAllowed()
+		return m_bAllowTurn;
+	endproc;
+
+	export proc void ChangeAllowTurn(bool p_bTurn)
+		m_bAllowTurn=p_bTurn;
+	endproc;
+
+	export proc bool IsZoomAllowed()
+		return m_bAllowZoom;
+	endproc;
+
+	export proc void ChangeAllowZoom(bool p_bZoom)
+		m_bAllowZoom=p_bZoom;
+	endproc;
+
+	export proc bitset GetBorderBitset()
+		return m_dwScreenBorders;
+	endproc;
+
+	proc void UpdateSlopePos()
+		m_fSlopePos=GetCurvePoint(0,m_fDistance);
+	endproc;
+
+	export proc void OnSetCamera(^CCamera p_pxCamera)
+		UpdateFromCamera(p_pxCamera);
+		UpdateDirections();
+		UpdateSlopePos();
+		m_pxParent^.SetGroundSnapping(true);
+	endproc;
+
+	export proc void OnActivate(^CCamera p_pxCamera)
+		UpdateFromCamera(p_pxCamera);
+		UpdateDirections();
+		UpdateSlopePos();
+		m_pxParent^.SetGroundSnapping(true);
+	endproc;
+
+	export proc void PreActivate(^CCamera p_pxCamera)
+		UpdateFromCamera(p_pxCamera);
+		UpdateDirections();
+		UpdateSlopePos();
+		m_pxParent^.SetGroundSnapping(true);
+	endproc;
+
+	export proc void OnDecativate(^CCamera p_pxCamera)
+		m_pxParent^.SetGroundSnapping(false);
+	endproc;
+
+	export proc bool OnKeyDown(bitset p_dwFlags, int p_iKey)
+		if(p_iKey==m_aiDir[0])then // left
+			m_dwCursorKeys|=00001b;
+		elseif(p_iKey==m_aiDir[1])then // right
+			m_dwCursorKeys|=00010b;
+		elseif(p_iKey==m_aiDir[2])then // up
+			m_dwCursorKeys|=00100b;
+		elseif(p_iKey==m_aiDir[3])then // down
+			m_dwCursorKeys|=01000b;
+		endif;
+		return false;
+	endproc;
+
+	export proc bool OnKeyUp(bitset p_dwFlags, int p_iKey)
+		if(p_iKey==m_aiDir[0])then // left
+			m_dwCursorKeys&=01110b;
+		elseif(p_iKey==m_aiDir[1])then // right
+			m_dwCursorKeys&=01101b;
+		elseif(p_iKey==m_aiDir[2])then // up
+			m_dwCursorKeys&=01011b;
+		elseif(p_iKey==m_aiDir[3])then // down
+			m_dwCursorKeys&=00111b;
+		endif;
+		return false;
+	endproc;
+
+	export proc bool OnTick()
+		//if modal window is open (menu) don't move cam! (RT#7223)
+		if(CWindowMgr.Get().GetModalWindow()!=null) then
+			m_dwScreenBorders=0d;
+			ResetKeyboardScrolling(); //(RT#16389)
+			return false;
+		endif;
+		
+		if(m_fMatrixMove>=0.0)then
+			var real fTime=m_fMatrixMove;
+			var real fTotalLength=20.0f;
+			var real fTimeFreezeStart=4.0f;
+			var real fTimeFreezeEnd=2.0f;
+			var real fTimeRotationAccel=8.0f;
+			var real fTimeRotationBrake=4.0f;
+			var real fMaxRotation=0.04f;
+			var real fTimeScale=4.8f;
+
+			if(m_fMatrixStopTime!=-1.0f)then
+				fTotalLength=m_fMatrixStopTime;
+			else
+				fTotalLength=m_fMatrixMove+20.0f;
+			endif;
+			
+			if(m_fMatrixMove==0.0)then
+				m_vMatrixDestPos=m_vEye;
+				m_fMatrixCurRot=0.0f;
+				m_vMatrixOrgDir=m_vEye-m_vLookAt;
+				m_fMatrixSizeFactorXY=1.0f;
+				m_fMatrixSizeFactorZ=1.0f;
+				var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+				if(pxSel^.NumEntries()>0)then
+					var ^CObj pxObj = pxSel^[0].GetObj();
+					if(pxObj!=null)then
+						m_vMatrixDestPos=pxObj^.GetPos();
+						var vec3 vSize=pxObj^.GetSize();
+						m_fMatrixSizeFactorXY=Math.Sqrt(Math.Max(vSize.GetX(),vSize.GetY()))/2.0f;
+						m_fMatrixSizeFactorZ=vSize.GetZ()+4.0f;
+					endif;
+				endif;
+			endif;
+			
+			m_fMatrixMove+=0.04f;
+
+			m_vLookAt=m_vLookAt*0.975f+m_vMatrixDestPos*0.025f;
+			var vec3 vDir=m_vMatrixOrgDir;
+
+			// end check
+			if(fTime>fTotalLength)then
+				m_fMatrixMove=-1.0f;
+				return true;
+			endif;
+			// time freeze at start of move			
+			if(fTime<=fTimeFreezeStart)then
+				var real fFactor=(1.0f-(fTime)/fTimeFreezeStart)*0.9f+0.1f;
+				fFactor=Math.Clamp(fFactor,0.1f,1.0f);
+				//CGameWrap.GameSpeedSet(fFactor);
+			endif;			
+			// time unfreeze at end of move			
+			if(fTime>=fTotalLength-fTimeFreezeEnd)then
+				var real fFactor=((fTime-(fTotalLength-fTimeFreezeEnd))/(fTimeFreezeEnd))*0.9f+0.1f;
+				fFactor=Math.Clamp(fFactor,0.1f,1.0f);				
+				//CGameWrap.GameSpeedSet(fFactor);
+			endif;
+
+			// apply scaling
+			begin Scaling;
+				var real fScaleIPol=1.0f;
+				if(fTime<=fTimeScale)then
+					fScaleIPol=fTime/fTimeScale;
+				endif;
+				if(fTime>=fTotalLength-fTimeScale)then
+					fScaleIPol=1.0f-((fTime-(fTotalLength-fTimeScale))/fTimeScale);
+				endif;
+				var real fXYDistOrg=vDir.Abs2F();
+				var real fXYDistTarget=25.0f*m_fMatrixSizeFactorXY;
+				var real fZOrg=vDir.GetZ();
+				var real fZTarget=m_fMatrixSizeFactorZ;
+				var real fXYScale=(fXYDistTarget*fScaleIPol)+(fXYDistOrg*(1.0f-fScaleIPol));
+				vDir.SetZ(0.0f);
+				vDir.Normalize();
+				vDir.SetX(vDir.GetX()*fXYScale);
+				vDir.SetY(vDir.GetY()*fXYScale);
+				vDir.SetZ(fZOrg*(1.0f-fScaleIPol)+fZTarget*fScaleIPol);
+			end Scaling;
+
+			// apply rotation
+			begin Rotation;
+				var real fRotationSpeed=fMaxRotation;
+				// adapt rotationspeed
+				if(fTime<=fTimeRotationAccel)then
+					fRotationSpeed=((fTime)/fTimeRotationAccel)*fMaxRotation;
+				endif;
+				if(fTime>=fTotalLength-fTimeRotationBrake)then
+					fRotationSpeed=fMaxRotation-((fTime-(fTotalLength-fTimeRotationBrake))/(fTimeRotationBrake))*fMaxRotation;
+				endif;
+				m_fMatrixCurRot+=fRotationSpeed;
+				vDir.RotZ(m_fMatrixCurRot);
+			end Rotation;
+
+			m_vEye=m_vLookAt+vDir;
+			return true;
+		endif;
+		
+		// Field of View, Range: 0.5 (narrow) - 1.8 (wide)  Default: 0.785
+		var point xMouse=CWindowMgr.Get().GetMousePos();
+		var real fFactor=m_pxParent^.CheckScreenBordersLoose(xMouse.GetX(), xMouse.GetY() ,m_dwScreenBorders);
+		var bitset dwMove=m_dwCursorKeys|m_dwScreenBorders;
+		if(m_fAutoZoom!=0.0)then
+			var vec3 vDir=m_vLookAt-m_vEye;
+			vDir.SetZ(0.0f);
+			vDir.Normalize();
+			var real fSlopeOld=m_fSlopePos;
+			var real fDiff=(m_fAutoZoom-m_fSlopePos)*0.25f;
+			fDiff=Math.Clamp(fDiff,-2.5f,2.5f);
+			m_vLookAt+=vDir*fDiff*0.10f;
+			m_vEye+=vDir*fDiff*0.10f;
+			m_fSlopePos+=fDiff;
+			UpdateSlope();
+			if(m_fSlopePos==fSlopeOld)then
+				m_fAutoZoom=0.0f;
+			endif;
+		endif;
+		
+		if((dwMove&01111b)!=00b)then
+			UpdateDirections();
+			dwMove=m_dwScreenBorders;
+			if(dwMove!=00b)then
+				var vec3 vDir;
+				fFactor=m_fScrollAccel*fFactor*0.2;
+				if((dwMove&00001b)!=00b)then vDir+=(m_vDirX*m_fKeySpeedScale*fFactor*1.5f); endif;
+				if((dwMove&00010b)!=00b)then vDir-=(m_vDirX*m_fKeySpeedScale*fFactor*1.5f); endif;
+				if((dwMove&00100b)!=00b)then vDir+=(m_vDirY*m_fKeySpeedScale*fFactor*1.5f); endif;
+				if((dwMove&01000b)!=00b)then vDir-=(m_vDirY*m_fKeySpeedScale*fFactor*1.5f); endif;
+				m_vEye+=vDir;
+				m_vLookAt+=vDir;
+				m_fScrollAccel=Math.Min(m_fScrollAccel+0.05,5.0);	
+				var ^CUTCmdSender pxUTCmdSender=CClientWrap.GetUTCmdSender();
+				if(pxUTCmdSender!=null)then
+					pxUTCmdSender^.CameraScroll(vDir);
+				endif;
+			endif;
+			dwMove=m_dwCursorKeys;
+			if(dwMove!=00b)then
+				var vec3 vDir;
+				if((dwMove&00001b)!=00b)then vDir+=(m_vDirX*m_fKeySpeedScale); endif;
+				if((dwMove&00010b)!=00b)then vDir-=(m_vDirX*m_fKeySpeedScale); endif;
+				if((dwMove&00100b)!=00b)then vDir+=(m_vDirY*m_fKeySpeedScale); endif;
+				if((dwMove&01000b)!=00b)then vDir-=(m_vDirY*m_fKeySpeedScale); endif;
+				m_vEye+=vDir;
+				m_vLookAt+=vDir;				
+				var ^CUTCmdSender pxUTCmdSender=CClientWrap.GetUTCmdSender();
+				if(pxUTCmdSender!=null)then
+					pxUTCmdSender^.CameraScroll(vDir);
+				endif;
+			endif;
+			UpdateSlope();
+			return true;
+		endif;
+		m_fScrollAccel=1.0;
+		UpdateSlope();
+		return false;
+	endproc;
+	
+	
+	export proc void UpdateShakes()
+		if(m_apxCameraShakes.NumEntries()>0)then
+			var int i, iC = m_apxCameraShakes.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!Shake(m_apxCameraShakes[i]))then
+					delete m_apxCameraShakes[i];
+					m_apxCameraShakes.DeleteEntry(i);
+					i--;iC--;
+				endif;
+			endfor;
+		endif;
+	endproc;
+
+	export proc bool OnBtnDown(bitset p_dwFlags, int p_iBtn)
+		super.OnBtnDown(p_dwFlags,p_iBtn);
+		var bool bAlt = ((p_dwFlags&0100b)==0100b);
+		return bAlt || GetMMB();
+	endproc;
+
+	export proc bool OnBtnUp(bitset p_dwFlags, int p_iBtn)
+		super.OnBtnUp(p_dwFlags,p_iBtn);
+		var bool bAlt = ((p_dwFlags&0100b)==0100b);
+		if(m_bSnapBack && Math.Abs(m_fAngle-m_fDefaultView)>0.001)then
+			ResetCameraToDefaultView();
+		endif;
+		return bAlt || GetMMB();
+	endproc;
+
+	export proc bool OnMouseMove(bitset p_dwFlags, int p_iX, int p_iY)
+		var bool bAlt = ((p_dwFlags&0100b)==0100b);
+		m_dwScreenBorders=00b;
+		
+		var bool bPan=false;
+		var bool bTurn=false;
+
+		var real fDiffX=GetDiffX().ToReal();
+		var real fDiffY=GetDiffY().ToReal();
+
+		if((bAlt)&&(GetRMB()))then	bPan=true; endif;
+		if((bAlt)&&(GetLMB()))then	bTurn=true; endif;
+		
+				
+		if(GetMMB())then
+			if(GetRMB())then
+				bPan=false;
+				bTurn=true;
+			else
+				bPan=true;
+				bTurn=false;
+			endif;
+		endif;
+
+		if(bPan)then
+			if((Math.Abs(fDiffX)<200.0)&&(Math.Abs(fDiffY)<200.0))then
+				var real fMouseSpeed=m_fMouseSpeedScale*CCameraControllerBase.GetMousePanSpeed();
+				UpdateDirections();
+				m_pxParent^.EnableMouseWrapAutoReset();
+				// -- pan view
+				var real fXScale=0.025*fMouseSpeed;
+				var real fYScale=0.025*fMouseSpeed;
+				var vec3 vMoveX = m_vDirX*fDiffX*fXScale;
+				var vec3 vMoveY = m_vDirY*fDiffY*fYScale;
+				m_vLookAt+=vMoveX;
+				m_vLookAt+=vMoveY;
+				m_vEye+=vMoveX;
+				m_vEye+=vMoveY;
+				UpdateSlope();
+				var ^CUTCmdSender pxUTCmdSender=CClientWrap.GetUTCmdSender();
+				if(pxUTCmdSender!=null)then
+					pxUTCmdSender^.CameraPan();
+				endif;
+				return true;
+			endif;
+		endif;
+
+		if(bTurn)then
+			if((Math.Abs(fDiffX)<200.0)&&(Math.Abs(fDiffY)<200.0))then
+				m_pxParent^.EnableMouseWrapAutoReset();
+				// -- turn view
+				if(m_bAllowTurn)then
+					var real fXDrehScale=0.01;
+					var real fXDrehChange=0.0;
+					fXDrehChange=fDiffX*fXDrehScale;
+					m_fAngle+=fXDrehChange;
+				endif;
+				EyeFromAngles();
+
+				if(m_bAllowZoom)then
+					var real fYDrehScale=0.01*6.0*m_fMouseSpeedScale;
+					var real fYDrehChange=0.0;
+					fYDrehChange=fDiffY*fYDrehScale;
+					m_fSlopePos+=fYDrehChange;
+					UpdateSlope();
+				endif;
+				var ^CUTCmdSender pxUTCmdSender=CClientWrap.GetUTCmdSender();
+				if(pxUTCmdSender!=null)then
+					pxUTCmdSender^.CameraTurn();
+				endif;
+				return true;
+			endif;
+		endif;
+
+		m_pxParent^.CheckScreenBorders(p_iX,p_iY,m_dwScreenBorders);
+
+		return false;
+	endproc;
+
+	export proc bool OnMouseWheel(bitset p_dwFlags, int p_iDelta)
+		var real fWheelDelta = (p_iDelta.ToReal()/150.0)*(2.0*m_fMouseSpeedScale);
+		if(m_bAllowZoom)then			
+			m_fSlopePos -= fWheelDelta;
+			UpdateSlope();	
+			var ^CUTCmdSender pxUTCmdSender=CClientWrap.GetUTCmdSender();
+			if(pxUTCmdSender!=null)then				
+				pxUTCmdSender^.CameraZoom(fWheelDelta);
+			endif;					
+		else
+			if(p_iDelta>0)then
+				ZoomIn();
+			else
+				ZoomOut();
+			endif;			
+		endif;
+		return true;		
+	endproc;
+
+	export proc bool OnOtherMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+		if(p_dwType==088d)then
+			ResetKeyboardScrolling();
+		elseif(p_dwType==014d)then // client app gained focus
+			ResetKeyboardScrolling();
+		elseif(p_dwType==015d)then // client app lost focus
+			ResetKeyboardScrolling();
+		endif;
+		return false;
+	endproc;
+
+	export proc void UpdateSlope()
+		// calculate eye elevation and distance by using some fastfuncs
+		m_fSlopePos=Math.Clamp(m_fSlopePos,10.0,100.0);
+		m_fDistance=GetCurveValue(0,m_fSlopePos);
+		m_fElevation=GetCurveValue(1,m_fSlopePos);
+		m_fFOV=GetCurveValue(3,m_fSlopePos);
+		EyeFromAngles();
+
+		var vec3 vOfs={0.0,0.0,0.0};
+		vOfs.SetZ(GetCurveValue(2,m_fSlopePos));
+		m_pxParent^.SetSnapOffset(vOfs);
+		if(!m_pxParent^.SnapOnGround(m_vEye,m_vLookAt))then
+			UpdateShakes();
+		endif;
+	endproc;
+
+	export proc void AutoZoomToggle()
+		if(m_fSlopePos<50.0f)then
+			m_fAutoZoom=100.0f;
+		else
+			m_fAutoZoom=10.0f;
+		endif;
+	endproc;
+
+	export proc void CameraMatrixMove()
+		if(m_fMatrixMove>=0.0f)then
+			m_fMatrixStopTime=m_fMatrixMove+10.0f;
+		else
+			m_fMatrixStopTime=-1.0f;
+			m_fMatrixMove=0.0f;
+		endif;
+	endproc;
+
+	export proc void ZoomIn()
+		if(m_fSlopePos>80.0)then
+			m_fSlopePos=80.0;
+		elseif(m_fSlopePos>60.0)then
+			m_fSlopePos=60.0;
+		elseif(m_fSlopePos>40.0)then
+			m_fSlopePos=40.0;
+		elseif(m_fSlopePos>20.0)then
+			m_fSlopePos=20.0;
+		else
+			m_fSlopePos=0.0;
+		endif;
+		UpdateSlope();
+		m_pxParent^.UpdateCamera();
+		var ^CUTCmdSender pxUTCmdSender=CClientWrap.GetUTCmdSender();
+		if(pxUTCmdSender!=null)then			
+			pxUTCmdSender^.CameraZoom(15.0f);
+		endif;
+	endproc;
+
+	export proc void ZoomOut()
+		if(m_fSlopePos<20.0)then
+			m_fSlopePos=20.0;
+		elseif(m_fSlopePos<40.0)then
+			m_fSlopePos=40.0;
+		elseif(m_fSlopePos<60.0)then
+			m_fSlopePos=60.0;
+		elseif(m_fSlopePos<80.0)then
+			m_fSlopePos=80.0;
+		else
+			m_fSlopePos=100.0;
+		endif;
+		UpdateSlope();
+		m_pxParent^.UpdateCamera();
+		var ^CUTCmdSender pxUTCmdSender=CClientWrap.GetUTCmdSender();
+		if(pxUTCmdSender!=null)then			
+			pxUTCmdSender^.CameraZoom(-15.0f);
+		endif;
+	endproc;
+
+	export proc void ResetCamera()
+		m_fSlopePos=100.0;
+		ResetKeyboardScrolling();
+		m_dwScreenBorders = 00b;
+		UpdateSlope();
+		m_pxParent^.UpdateCamera();
+	endproc;
+	
+	export proc void ResetCameraToDefaultView()
+		m_fSlopePos=100.0;
+		m_fAngle=m_fDefaultView;
+		ResetKeyboardScrolling();
+		m_dwScreenBorders = 00b;
+		UpdateSlope();
+		m_pxParent^.UpdateCamera();
+	endproc;
+	
+	export proc void ResetKeyboardScrolling()
+		m_dwCursorKeys = 00b;
+	endproc;
+	
+	proc bool OnMiniMapDblClick(vec3 p_vPos)
+		m_pxParent^.SetCameraTarget(p_vPos,true);
+		return true;
+	endproc;
+
+	proc bool OnMiniMapMouseEvent(vec3 p_vPos, bitset p_dwMouseButtons, bitset p_dwKeyModifiers)
+		var bool bStrg = (p_dwKeyModifiers & Msg.KM_CONTROL) !=0d;
+		var bool bAlt = (p_dwKeyModifiers & Msg.KM_ALT) !=0d;
+		var bool bShift = (p_dwKeyModifiers & Msg.KM_SHIFT) !=0d;
+
+		var bool bLMB = (p_dwMouseButtons & CMiniMap.MB_Left) != 0d;
+		var bool bRMB = (p_dwMouseButtons & CMiniMap.MB_Right) != 0d;
+		var bool bMMB = (p_dwMouseButtons & CMiniMap.MB_Middle) != 0d;
+		var bool bRMBUp = (p_dwMouseButtons & CMiniMap.MB_RightUp) != 0d;
+		if(bLMB)then
+			m_pxParent^.SetCameraTarget(p_vPos,true);
+			m_pxParent^.UpdateCamera();
+		endif;
+
+		if(bRMBUp)then
+			// [PaHa] initiate walk action
+			if(!(m_xOnMiniMapRightClick.IsNull()))then
+				m_xOnMiniMapRightClick.Call(p_vPos,bShift,bStrg,bAlt);
+			endif;
+		endif;
+
+		return true;
+	endproc;
+
+	proc bool Shake(^CGameCameraModule.CShake p_pxShake)
+		var CGameTimeSpan	xTmp=CTimeMgr.Get().GetTime()-p_pxShake^.m_xShakeStart;
+		if(xTmp<p_pxShake^.m_xShakeLength)then
+			var CGameTimeSpan	xFadeLength=(p_pxShake^.m_xShakeLength/100.0f)*p_pxShake^.m_fShakeFadeOut;
+			//FadeOut
+			if(xTmp>(p_pxShake^.m_xShakeLength-xFadeLength))then
+				var CGameTimeSpan xFadeProgress=(xTmp-(p_pxShake^.m_xShakeLength-xFadeLength));
+				var real fPercentage=1.0f;
+				while(((xFadeLength/100.0f)*fPercentage)<xFadeProgress)do
+					fPercentage+=1.0f;
+				endwhile;
+				fPercentage=(100.0f-fPercentage);
+				var real fNewShakeStrength=(p_pxShake^.m_fShakeStrength/100.0f)*fPercentage;
+				Shake(fNewShakeStrength,p_pxShake^.m_vShakePos,p_pxShake^.m_fMaxRange);
+			else
+				Shake(p_pxShake^.m_fShakeStrength,p_pxShake^.m_vShakePos,p_pxShake^.m_fMaxRange);
+			endif;
+		else
+			return false;
+		endif;	
+		return(true);
+	endproc;
+
+	export proc bool ShakeCameraTheGundlachStyle(real p_fDuration, int p_iStrength, real p_fFadeOut, vec3 p_vPos, real p_fMaxRange)
+		if((p_fDuration<0.01f))then return(false);endif;
+		if(CMultiCameraController.Get().GetGameCameraModule()^.IsShakeInRange(p_vPos,p_fMaxRange))then
+			p_fFadeOut=Math.Clamp(p_fFadeOut,1.0,100.0);
+			var CGameTimeSpan xTmp=p_fDuration;
+			var ^CGameCameraModule.CShake	pxTmp=new CGameCameraModule.CShake(xTmp,CTimeMgr.Get().GetTime(),p_iStrength.ToReal(),p_fFadeOut,p_vPos,p_fMaxRange);
+			m_apxCameraShakes.AddEntry(pxTmp);
+			return(true);
+		else
+			return(false);
+		endif;	
+		
+	endproc;
+	
+	//Without Maxrange. Automaticaly set to 60.0m
+	export proc bool ShakeCameraTheGundlachStyle(real p_fDuration, int p_iStrength, real p_fFadeOut, vec3 p_vPos)
+		return ShakeCameraTheGundlachStyle(p_fDuration, p_iStrength, p_fFadeOut, p_vPos, 60.0f);
+	endproc;
+
+	export proc void Shake(real p_fStrength,vec3 p_vShakePos, real p_fMaxRange)
+		var real	fX,fY,fZ;
+		var vec3	vTmp;
+		if(!m_bShake)then
+			Random.Seed();
+			if(p_fStrength<=0.0f)then return();endif;
+			var real	fStrength=0.03f*(p_fStrength);
+			fX=Random.MTRandF(-fStrength,fStrength);
+			fY=Random.MTRandF(-fStrength,fStrength);
+			fZ=Random.MTRandF(-fStrength,fStrength);
+			vTmp.SetX(fX/2.0f);
+			vTmp.SetY(fY/2.0f);
+			vTmp.SetZ(fZ);
+			m_fShakeHelperX=fX;
+			m_fShakeHelperY=fY;
+			m_fShakeHelperZ=fZ;
+			m_bShake=true;
+			if(p_vShakePos!={0.0,0.0,0.0})then
+				ModifyByRange(p_vShakePos,vTmp,p_fMaxRange);
+			endif;
+			m_pxParent^.SetEyeAndLookat(m_pxParent^.GetEye()+vTmp,m_pxParent^.GetLookAt()+vTmp);
+		else
+			if(p_fStrength<=0.0f)then return();endif;
+			var real	fStrength=0.03f*(p_fStrength);
+			vTmp.SetX((m_fShakeHelperX)*(-1.0f));
+			vTmp.SetY((m_fShakeHelperY)*(-1.0f));
+			vTmp.SetZ((m_fShakeHelperZ)*(-1.0f));
+			m_bShake=false;
+			if(p_vShakePos!={0.0,0.0,0.0})then
+				ModifyByRange(p_vShakePos,vTmp,p_fMaxRange);
+			else
+				//L KLog.LogWarn("Manni","p_vShakePos not valid!");
+			endif;
+			m_pxParent^.SetEyeAndLookat(m_pxParent^.GetEye()+vTmp,m_pxParent^.GetLookAt()+vTmp);
+		endif;
+	endproc;
+
+	export proc bool IsShakeInRange(vec3 p_vShakePos, real p_fMaxRange);
+		var real fDistance=(m_pxParent^.GetLookAt()-p_vShakePos).Abs();
+		if(fDistance>p_fMaxRange)then
+			return(false);
+		else
+			return(true);
+		endif;
+	endproc;
+
+	proc bool ModifyByRange(vec3 p_vShakePos,ref vec3 po_rvTmp, real p_fMaxRange);
+		var real fDistance=(m_pxParent^.GetLookAt()-p_vShakePos).Abs();
+		if(fDistance>p_fMaxRange)then
+			po_rvTmp={0.0,0.0,0.0};
+			return(false);
+		elseif(fDistance<15.0f)then
+			return(true);
+		else
+			fDistance-=15.0f;
+			var real fOnePercent=0.45f;
+			var real fPercentage=(fDistance/fOnePercent);
+			fPercentage=(100.0f-fPercentage);
+			po_rvTmp=(po_rvTmp/100.0f)*fPercentage;
+		endif;
+		return(true);
+	endproc;
+	
+	export proc string ToString()
+		var vec3 vEye=m_vEye;
+		var vec3 vLookAt=m_vLookAt;
+		var real fAngle=m_fAngle;
+		var real fSlopePos=m_fSlopePos;
+				
+		var string sData;
+		sData+=m_vEye.ToString()+";";
+		sData+=m_vLookAt.ToString()+";";
+		sData+=m_fAngle.ToString()+";";
+		sData+=m_fSlopePos.ToString()+";";
+		return sData;
+	endproc;
+	
+	export proc void FromString(string p_sData)
+		var array string asTokens;
+		p_sData.Split(asTokens,";",false);
+		if(asTokens.NumEntries()>=4)then			
+			m_vEye.FromString(asTokens[0]);
+			m_vLookAt.FromString(asTokens[1]);
+			m_fAngle=asTokens[2].ToReal();
+			m_fSlopePos=asTokens[3].ToReal();				
+		endif;
+	endproc;
+
+	export proc void SetMovementKeys(int p_iSwitch)
+		if(m_aiDir.NumEntries()!=4)then
+			m_aiDir=4;
+		endif;
+		var bool bWASD=(m_bLevelEd&&(p_iSwitch==2||p_iSwitch==3))||(!m_bLevelEd&&(p_iSwitch==1||p_iSwitch==3));
+		if(bWASD)then
+			m_aiDir[0]=65;
+			m_aiDir[1]=68;
+			m_aiDir[2]=87;
+			m_aiDir[3]=83;
+		else
+			m_aiDir[0]=37;
+			m_aiDir[1]=39;
+			m_aiDir[2]=38;
+			m_aiDir[3]=40;
+		endif;
+	endproc;
+	
+endclass;

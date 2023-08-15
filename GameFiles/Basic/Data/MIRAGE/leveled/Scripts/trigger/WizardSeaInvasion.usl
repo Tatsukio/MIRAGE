@@ -1,0 +1,989 @@
+class CSeaInvasion1 inherit CWizardStepWnd
+	
+	var ^CSpinCtrlNumber 	m_pxPlayer;
+	var ^CSpinCtrlNumber 	m_pxNumShips;
+	var ^CStaticCtrl		m_pxTribe;
+	
+	export constructor()
+		if (!InitFromResource("Trigger/WizardSeaInvasion", "SeaInvasion_Step1")) then
+			KLog.LogError("UI.TriggerWizard", "InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxPlayer = cast<CSpinCtrlNumber>(GetControl("Spin_Player"));
+		m_pxNumShips = cast<CSpinCtrlNumber>(GetControl("Spin_NumShips"));
+		m_pxTribe = cast<CStaticCtrl>(GetControl("Txt_Tribe"));
+		
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		var ^CPropDB.CNode pxBase=^((pxGenericDB^)["Base"]);
+		if(pxBase!=null) then
+			var int iMax = pxBase^.GetValueI("MaxPlayers");
+			m_pxPlayer^.SetLimits(0, iMax-1, 1);
+		endif;
+		
+		m_pxPlayer^.m_xOnChange = OnChangePlayer;
+		
+		OnChangePlayer();
+		CLevelEditorWrap.GetObjMgr().GetWaypointPath()^.Clear();
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	proc bool OnChangePlayer()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		
+		var ^CPropDB.CNode pxNode = pxGenericDB^.FindNode("PlayerSettings/Player_"+m_pxPlayer^.GetValueInt().ToString()+"/Restrictions/Base/Tribes", false);
+		if(pxNode!=null) then
+			m_pxTribe^.SetText(pxNode^.GetValueS("Default", ""));
+		endif;
+		return true;
+	endproc;
+	
+	
+	proc void StoreData()
+		var ^CPropDB.CNode pxNode = ^(m_pxParentWnd^.GetData().GetRoot());
+		if(pxNode!=null) then
+			pxNode^.SetValue("Player", m_pxPlayer^.GetValueInt());
+			pxNode^.SetValue("Tribe", m_pxTribe^.GetText());
+			pxNode^.SetValue("NumShips", m_pxNumShips^.GetValueInt());
+		endif;
+	endproc;
+	
+	export proc void OnNext()
+		StoreData();
+	endproc;
+	
+	export proc void OnBack()
+		StoreData();
+	endproc;
+	
+	export proc bool IsLast()
+		return false;
+	endproc;
+endclass;
+
+
+class CSeaInvasion2 inherit CWizardStepWnd
+	
+	var ^CDropList 			m_pxShips;
+	var ^CTreeCtrl			m_pxShipInv;
+	var ^CObjectTreeCtrl	m_pxObjs;
+	var ^CStaticCtrl		m_pxSpace;
+	var ^CSpinCtrlNumber	m_pxLevel;
+	
+	var int					m_iPlayer;
+	var int					m_iNumShips;
+	var string 				m_sTribe;
+	
+	class CPassenger
+		export var ^CTechTree.CNode	m_pxNode;
+		export var array CPassenger	m_axPassengers;
+		export var int m_iLevel;
+	endclass;
+	
+	class CShipInfo
+		export var ^CTechTree.CNode	m_pxNode;
+		export var array CPassenger m_axPassengers;
+		export var int				m_iUsedSlots;
+		export var int				m_iMaxSlots;
+	endclass;
+	
+	var array CShipInfo m_axShips;
+	
+	export constructor()
+		if (!InitFromResource("Trigger/WizardSeaInvasion", "SeaInvasion_Step2")) then
+			KLog.LogError("UI.TriggerWizard", "InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxShips = cast<CDropList>(GetControl("Drop_Ship"));
+		m_pxShipInv = cast<CTreeCtrl>(GetControl("Tree_Ship"));
+		m_pxObjs = cast<CObjectTreeCtrl>(GetControl("Tree_Objs"));
+		m_pxSpace = cast<CStaticCtrl>(GetControl("Txt_Space"));
+		m_pxLevel = cast<CSpinCtrlNumber>(GetControl("Spin_Level"));
+		
+		m_pxObjs^.m_xOnSelect = OnSelectObj;
+		m_pxShipInv^.AddItem(0, "Ship");
+		m_iPlayer = -1;
+		m_iNumShips = -1;
+		m_sTribe = "";
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	proc void InitShips()
+	
+		var CTechTreeDef xTTDef;
+		var ^CTechTreeMgr pxTTMgr=^(CLevelEditorWrap.GetClient().GetTechTreeMgr());
+		var CTechTree xTT=pxTTMgr^.GetTechTree(xTTDef);
+		
+		var ^CPropDB.CNode pxRoot = ^(m_pxParentWnd^.GetData().GetRoot());
+		var int i, iC = pxRoot^.GetValueI("NumShips", 0);
+		m_axShips=iC;
+		
+		var string sTribe = pxRoot^.GetValueS("Tribe");
+		var string sShipObjPath = "Objects/"+sTribe;
+		KLog.LogSpam("MaZi", "Tribe: "+sTribe);
+		if(sTribe!="SEAS") then
+			sShipObjPath += "/SHIP/";
+		else
+			sShipObjPath += "/VHCL/";
+		endif;
+		
+		if(sTribe=="Hu") then
+			sShipObjPath+="hu_transport_ship";
+		elseif(sTribe=="Aje") then
+			sShipObjPath+="aje_transport_turtle";
+		elseif(sTribe=="Ninigi") then
+			sShipObjPath+="ninigi_transport_boat";
+		elseif(sTribe=="SEAS") then
+			sShipObjPath+="seas_hovercraft";
+		endif;
+		
+		for(i=0) cond(i<iC) iter(++i) do
+			var ^CShipInfo pxShip = ^(m_axShips[i]);
+			pxShip^.m_iUsedSlots=1;
+			pxShip^.m_pxNode = xTT.FindNode(sShipObjPath);
+			if(pxShip^.m_pxNode==null) then
+				KLog.LogSpam("MaZi", "ShipPath: " + sShipObjPath);
+				break;
+			endif;
+			pxShip^.m_iMaxSlots = pxShip^.m_pxNode^.GetSubValueI("max_passengers", 10);
+			
+			var ^CPropDB.CNode pxShipNode = m_pxParentWnd^.GetData().FindNode("Ships/Ship_"+i.ToString(), false);
+			if(pxShipNode!=null) then
+				var int j, iJC = pxShipNode^.NumSubs();
+				pxShip^.m_axPassengers = iJC;
+				
+				for(j=0) cond(j<iJC) iter(++j) do
+					pxShip^.m_axPassengers[j].m_pxNode = xTT.FindNode(pxShipNode^.Get(j).Value());
+					
+					var ^CPropDB.CNode pxPasNode = pxShipNode^.Get(j).Get("Passengers");
+					if(pxPasNode!=null) then
+						var ^CPassenger pxPas = ^(pxShip^.m_axPassengers[j]);
+						var int iNumPas = pxPasNode^.NumSubs();
+						pxPas^.m_axPassengers=iNumPas;
+						var int k;
+						for(k=0) cond(k<iNumPas) iter(++k) do
+							pxPas^.m_axPassengers[k].m_pxNode = xTT.FindNode(pxPasNode^.Get(k).Value());
+						endfor;												
+					endif;
+				endfor;
+			endif;
+		endfor;
+	endproc;
+	
+	proc bool OnSelectObj()
+		var ^CTechTree.CNode pxNode = m_pxObjs^.GetSelectedTTNode();
+		if(pxNode!=null) then
+			var string sPath = pxNode^.GetAbsPath();
+			var string sType;
+			var array string asToks;
+			sPath.Split(asToks, "/", true);
+			var int iIdx = asToks.NumEntries()-2;
+			if(iIdx>=0) then
+				sType = asToks[iIdx];
+			endif;
+			
+			if(sType == "CHTR") then
+				m_pxLevel^.SetDisabled(false);
+				var int iMin = pxNode^.GetSubValueI("captainlevel", 1);
+				m_pxLevel^.SetLimits(iMin, 5, 1);
+				m_pxLevel^.SetValue(iMin);
+			else
+				m_pxLevel^.SetDisabled(true);
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool UpdateShipInv()
+		m_pxShipInv^.Clear();
+		var int iRoot = m_pxShipInv^.AddItem(0, "Ship");
+		var int iSel = m_pxShips^.GetSelectedItem();
+		if(iSel>=0) then
+			var int i, iC = m_axShips[iSel].m_axPassengers.NumEntries();
+			UpdateSpaceCnt();
+			for(i=0) cond(i<iC) iter(++i) do
+				var ^CPassenger pxPas = ^(m_axShips[iSel].m_axPassengers[i]);
+				if(pxPas^.m_pxNode!=null) then
+					var int iCur = m_pxShipInv^.AddItem(iRoot, pxPas^.m_pxNode^.GetName());
+					 
+					var int j, iJC = pxPas^.m_axPassengers.NumEntries();
+					for(j=0) cond(j<iJC) iter(++j) do
+						var ^CPassenger pxSubPas = ^(pxPas^.m_axPassengers[j]);
+						if(pxSubPas^.m_pxNode!=null) then
+							m_pxShipInv^.AddItem(iCur, pxSubPas^.m_pxNode^.GetName());
+						else
+							KLog.LogSpam("MaZi", "SubPassenger with invalid TT-Node");
+						endif;
+					endfor;				
+				else
+					KLog.LogSpam("MaZi", "Passenger with invalid TT-Node");
+				endif;
+			endfor;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool UpdateSpaceCnt()
+		var int iSel = m_pxShips^.GetSelectedItem();
+		if(iSel>=0) then
+			m_pxSpace^.SetText("Space "+m_axShips[iSel].m_iUsedSlots.ToString() + "/" + m_axShips[iSel].m_iMaxSlots.ToString());
+			
+			if(m_axShips[iSel].m_iUsedSlots>=m_axShips[iSel].m_iMaxSlots) then
+				m_pxObjs^.SetDisabled(true);
+			else
+				m_pxObjs^.SetDisabled(false);
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnAddObj()
+		var ^CTechTree.CNode pxNode = m_pxObjs^.GetSelectedTTNode();
+		if(pxNode!=null) then
+			var int iSel=m_pxShips^.GetSelectedItem();
+			if(iSel>=0) then
+				if(m_axShips[iSel].m_iUsedSlots+1 <= m_axShips[iSel].m_iMaxSlots) then
+					var int iSelPas = m_pxShipInv^.GetSelectedItem();
+					if(iSelPas>0) then
+						var int iPas, iSubPas;
+						iPas = FindPassenger(m_pxShipInv^.GetItemText(iSelPas), true, iSubPas);
+						if(iPas>=0) then
+							var ^CPassenger pxPas = ^(m_axShips[iSel].m_axPassengers[iPas]);
+							if(pxPas^.m_pxNode!=null) then
+								var int iMaxPas = pxPas^.m_pxNode^.GetSubValueI("max_passengers", 0);
+								if(pxPas^.m_axPassengers.NumEntries()+2 <=iMaxPas) then
+									pxPas^.m_axPassengers.NewEntryRef().m_pxNode = pxNode;
+									pxPas^.m_axPassengers[pxPas^.m_axPassengers.NumEntries()-1].m_iLevel = m_pxLevel^.GetValueInt();
+									m_pxShipInv^.AddItem(iSelPas, pxNode^.GetName());
+									++m_axShips[iSel].m_iUsedSlots;
+									UpdateSpaceCnt();
+									return true;
+								endif;
+							endif;
+						endif;
+					endif;
+			
+					var ^CPassenger pxPas = ^(m_axShips[iSel].m_axPassengers.NewEntryRef());
+					pxPas^.m_pxNode = pxNode;
+					pxPas^.m_iLevel = m_pxLevel^.GetValueInt();
+					var int iItem = m_pxShipInv^.FindItem(0, "Ship");
+					m_pxShipInv^.AddItem(iItem, pxNode^.GetName());
+					++m_axShips[iSel].m_iUsedSlots;
+					UpdateSpaceCnt();
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc int FindPassenger(string p_sName, bool p_bShipOnly, ref int po_riSub)
+		var int iSel = m_pxShips^.GetSelectedItem();
+		if(iSel>=0) then
+			var ^CShipInfo pxShip = ^(m_axShips[iSel]);
+			var int i, iC=pxShip^.m_axPassengers.NumEntries();
+			for(i=0) cond(i<iC) iter(++i) do
+				var ^CPassenger pxPas = ^(pxShip^.m_axPassengers[i]);
+				if(pxPas^.m_axPassengers.NumEntries()>0 && !p_bShipOnly) then
+					var int j, iJC = pxPas^.m_axPassengers.NumEntries();
+					for(j=0) cond(j<iJC) iter(++j) do
+						var ^CTechTree.CNode pxTT = pxPas^.m_axPassengers[j].m_pxNode;
+						if(pxTT!=null && pxTT^.GetName()==p_sName) then
+							po_riSub = j;
+							return i;
+						endif
+					endfor;
+				endif;
+				var ^CTechTree.CNode pxTT = pxShip^.m_axPassengers[i].m_pxNode;
+				if(pxTT!=null && pxTT^.GetName()==p_sName) then
+					po_riSub=-1;
+					return i;
+				endif;
+			endfor;
+		endif;
+		return -1;
+	endproc;
+	
+	export proc bool OnDelObj()
+		var int iSelShip = m_pxShips^.GetSelectedItem();
+		if(iSelShip>=0) then
+			var ^CShipInfo pxShip = ^(m_axShips[iSelShip]);
+			var int iSelPas = m_pxShipInv^.GetSelectedItem();
+			var int iParent = m_pxShipInv^.GetParentItem(iSelPas);
+			
+			if(iParent == m_pxShipInv^.FindItem(0, "Ship")) then
+				KLog.LogSpam("MaZi", "ship passenger");
+				var int iPas, iSubPas;
+				iPas = FindPassenger(m_pxShipInv^.GetItemText(iSelPas), true, iSubPas);
+				if(iPas>=0)then
+					var int iSlots = pxShip^.m_axPassengers[iPas].m_axPassengers.NumEntries()+1;
+					pxShip^.m_axPassengers.DeleteEntry(iPas);
+					pxShip^.m_iUsedSlots-=iSlots;
+				endif;
+			else
+				KLog.LogSpam("MaZi", "passenger passenger");
+				var int iPas, iSubPas;
+				iPas = FindPassenger(m_pxShipInv^.GetItemText(iSelPas), false, iSubPas);
+				if(iPas>=0 && iSubPas>=0) then
+					var ^CPassenger pxPas = ^(pxShip^.m_axPassengers[iPas]);
+					pxPas^.m_axPassengers.DeleteEntry(iSubPas);
+					--pxShip^.m_iUsedSlots;
+				endif;
+			endif;
+			m_pxShipInv^.DeleteItem(iSelPas, false);
+			UpdateSpaceCnt();
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	export proc void Initialize(^CTriggerWizard p_pxParent)
+		super.Initialize(p_pxParent);
+		
+		var ^CPropDB.CNode pxNode = ^(m_pxParentWnd^.GetData().GetRoot());
+		if(pxNode!=null) then
+			m_iPlayer = pxNode^.GetValueI("Player", -1);
+			var int iNumShips = pxNode^.GetValueI("NumShips", 0);
+			m_axShips = iNumShips;
+			var string sTribe = pxNode^.GetValueS("Tribe", "");
+			
+			if(iNumShips!=m_iNumShips) then
+				m_pxShips^.Clear();
+				var int i, iC = iNumShips;
+				for(i=0) cond(i<iC) iter(++i) do
+					m_pxShips^.AddItem("Ship "+(i+1).ToString());
+				endfor;
+				m_iNumShips = iNumShips;
+				
+				InitShips();
+				m_pxShips^.Select(0);
+				UpdateSpaceCnt();
+			endif;
+	
+			if(sTribe!=m_sTribe) then
+				m_sTribe = sTribe;
+			
+				var bitset dwFlags = CObjectTreeCtrl.SHOW_ALL &~ CObjectTreeCtrl.SHOW_REST;
+				dwFlags &=~ CObjectTreeCtrl.SHOW_ALL_TRIBES;
+				
+				if(sTribe=="Hu") then
+					dwFlags |= CObjectTreeCtrl.SHOW_HU;
+				elseif(sTribe=="Aje") then
+					dwFlags |= CObjectTreeCtrl.SHOW_AJE;
+				elseif(sTribe=="Ninigi") then
+					dwFlags |= CObjectTreeCtrl.SHOW_NINIGI;
+				elseif(sTribe=="SEAS") then
+					dwFlags |= CObjectTreeCtrl.SHOW_SEAS;
+				endif;
+				
+				m_pxObjs^.FillTree(dwFlags | CObjectTreeCtrl.SHOW_SPECIAL);
+			endif;
+			
+			m_pxObjs^.m_xOnLBtnDblClick = OnAddObj;
+			m_pxShips^.m_xOnChange = UpdateShipInv;
+			m_pxShipInv^.m_xOnLBtnDblClick = OnDelObj;
+		endif;
+	endproc;
+	
+	proc void StoreData()
+		var ^CPropDB.CNode pxRoot = ^(m_pxParentWnd^.GetData().GetRoot());
+		var ^CPropDB.CNode pxNode = m_pxParentWnd^.GetData().FindNode("Ships", true);
+		if(pxNode!=null) then
+			var int i, iC = m_axShips.NumEntries();
+			for(i=0) cond(i<iC) iter(++i) do
+				var ^CShipInfo pxShip = ^(m_axShips[i]);
+				
+				var ^CPropDB.CNode pxShipNode;
+				pxShipNode = pxNode^.Get("Ship_"+i.ToString());
+				if(pxShipNode==null) then
+					var string sP = "_";
+					if(pxShip^.m_pxNode!=null) then
+						sP = pxShip^.m_pxNode^.GetAbsPath();
+					endif;
+					
+					pxShipNode = ^(pxNode^.AddValue("Ship_"+i.ToString(), sP));
+				endif;
+				
+				if(pxShipNode!=null) then
+					pxShipNode^.Clear();
+					
+					var int j, iJC = pxShip^.m_axPassengers.NumEntries();
+					for(j=0) cond(j<iJC) iter(++j) do
+						var ^CPassenger pxPassenger = ^(pxShip^.m_axPassengers[j]);
+						
+						var ^CPropDB.CNode pxPasNode = ^(pxShipNode^.AddValue(j.ToString(), pxPassenger^.m_pxNode^.GetAbsPath()));
+						pxPasNode^.AddValue("level", pxPassenger^.m_iLevel);
+						
+						var int k, iKC = pxPassenger^.m_axPassengers.NumEntries();
+						if(iKC>0) then
+							var ^CPropDB.CNode pxSubPasNode = ^(pxPasNode^.AddValue("Passengers", ""));
+							for(k=0) cond(k<iKC) iter(++k) do
+								var ^CPropDB.CNode pxN = ^(pxSubPasNode^.AddValue(k.ToString(), pxPassenger^.m_axPassengers[k].m_pxNode^.GetAbsPath()));
+								pxN^.AddValue("level", pxPassenger^.m_axPassengers[k].m_iLevel);
+							endfor;
+						endif;
+					endfor;
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	export proc void OnNext()
+		StoreData();
+	endproc;
+	
+	export proc void OnBack()
+		StoreData();
+	endproc;
+	
+	export proc bool IsLast()
+		return false;
+	endproc;
+endclass;
+
+class CSeaInvasion3 inherit CWizardStepWnd
+	
+	var ^CButton	m_pxEnable;
+	
+	var bool 		m_bWPCtrl;
+	var array vec3	m_avWaypoints;
+	
+	export constructor()
+		if (!InitFromResource("Trigger/WizardSeaInvasion", "SeaInvasion_Step3")) then
+			KLog.LogError("UI.TriggerWizard", "InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxEnable = cast<CButton>(GetControl("Btn_Enable"));
+		m_pxEnable^.m_xOnClick = OnActivateCtrl;
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	
+	proc bool OnActivateCtrl()
+		if(!m_bWPCtrl) then
+			m_bWPCtrl=true;
+			CWindowMgr.Get().ReleaseModal(m_pxParentWnd);
+			CMainController.Get().ActivateWaypointCtrl();
+			CMainController.Get().GetWaypointCtrl().m_xOnAddPoint = OnAddWaypoint;
+			CMainController.Get().GetWaypointCtrl().m_xOnRemPoint = OnRemWaypoint;
+		endif;
+		return true;
+	endproc;
+	
+	proc void DeactivateCtrl()
+		if(m_bWPCtrl) then
+			CWindowMgr.Get().SetModal(m_pxParentWnd);
+			CMainController.Get().GetWaypointCtrl().m_xOnAddPoint.Clear();
+			CMainController.Get().GetWaypointCtrl().m_xOnRemPoint.Clear();
+			CMainController.Get().DeactivateWaypointCtrl();
+			m_bWPCtrl=false;
+		endif;
+	endproc;
+
+	proc bool OnAddWaypoint(vec3 p_vP)
+		m_avWaypoints.AddEntry(p_vP);
+		return true;
+	endproc;
+	
+	proc bool OnRemWaypoint()
+		if(m_avWaypoints.NumEntries()>0) then
+			m_avWaypoints.DeleteEntry(m_avWaypoints.NumEntries()-1);
+		endif;
+		return true;
+	endproc;
+	
+	export proc void Initialize(^CTriggerWizard p_pxParent)
+	KLog.LogSpam("MaZi", "Init - Waypoint");
+		super.Initialize(p_pxParent);
+		m_avWaypoints=0;
+		var ^CPropDB.CNode pxNode = m_pxParentWnd^.GetData().FindNode("Waypoints", false);
+		if(pxNode!=null) then
+			var ^CObjMgr.CWaypointPath pxPath = CLevelEditorWrap.GetObjMgr().GetWaypointPath();
+			pxPath^.Clear();
+			var vec3 vPos;
+			var int i, iC = pxNode^.NumSubs();
+			for(i=0) cond(i<iC) iter(++i) do
+				vPos.FromString(pxNode^.Get(i).Value());
+				m_avWaypoints.AddEntry(vPos);
+				pxPath^.AddWaypoint(vPos);
+			endfor;
+		endif;
+	endproc;
+	
+	proc void StoreData()
+		DeactivateCtrl();
+		var ^CPropDB.CNode pxNode = m_pxParentWnd^.GetData().FindNode("Waypoints", true);
+		if(pxNode!=null) then
+			pxNode^.Clear();
+			var int i, iC = m_avWaypoints.NumEntries();
+			for(i=0) cond(i<iC) iter(++i) do
+				pxNode^.AddValue(i.ToString(), m_avWaypoints[i].ToString());
+			endfor;
+		endif;
+	endproc;
+	
+	export proc void OnNext()
+		StoreData();
+	endproc;
+	
+	export proc void OnBack()
+		StoreData();
+	endproc;
+	
+	export proc bool IsLast()
+		return false;
+	endproc;
+	
+endclass;
+
+class CSeaInvasion4 inherit CWizardStepWnd
+	
+	var CSeaInvasionCreator 	m_xCreator;
+	var ^CDropList	m_pxShip, 	m_pxPassenger;
+	
+	class CGroupItem inherit CItemData
+		export var CClntHndl m_xHndl;
+	endclass;
+	var array CGroupItem 	m_axItems;
+	
+	export constructor()
+		if (!InitFromResource("Trigger/WizardSeaInvasion", "SeaInvasion_Step4")) then
+			KLog.LogError("UI.TriggerWizard", "InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxShip = cast<CDropList>(GetControl("Drop_ShipGroup"));
+		m_pxPassenger = cast<CDropList>(GetControl("Drop_PassengerGroup"));
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	proc void FillLists()
+		m_pxShip^.Clear();
+		m_pxPassenger^.Clear();
+		m_axItems=0;
+		var CObjQueryCln xQ;
+		xQ.SetType("GROU");
+		
+		var CObjList xL;
+		xQ.Execute(xL);
+		
+		m_pxShip^.AddItem("No Group");
+		m_pxPassenger^.AddItem("No Group");
+		
+		var int i, iC = xL.NumEntries();
+		for(i=0) cond(i<iC) iter(++i) do
+			var ^CObj pxO = xL[i].GetObj();
+			if(pxO!=null) then
+				var ^CGroupItem pxGI = ^(m_axItems.NewEntryRef());
+				pxGI^.m_xHndl = xL[i];
+				m_pxShip^.AddItem(pxO^.GetName(), pxGI);
+				m_pxPassenger^.AddItem(pxO^.GetName(), pxGI);
+			endif;
+		endfor;
+	endproc;
+	
+	export proc void Initialize(^CTriggerWizard p_pxParent)
+		super.Initialize(p_pxParent);
+		FillLists();
+		var ^CPropDB.CNode pxRoot = ^(m_pxParentWnd^.GetData().GetRoot());
+		m_pxShip^.SetText(pxRoot^.GetValueS("ShipGroup"));
+		m_pxPassenger^.SetText(pxRoot^.GetValueS("PassengerGroup"));
+	endproc;
+	
+	proc void StoreData()
+		var ^CPropDB.CNode pxRoot = ^(m_pxParentWnd^.GetData().GetRoot());
+		pxRoot^.SetValue("ShipGroup", m_pxShip^.GetText());
+		pxRoot^.SetValue("PassengerGroup", m_pxPassenger^.GetText());
+	endproc;
+	
+	export proc void OnNext()
+		StoreData();
+	endproc;
+	
+	export proc void OnBack()
+		StoreData();
+	endproc;
+	
+	export proc bool IsLast()
+		return true;
+	endproc;
+	
+	export proc ^CWizardTriggerCreater GetTriggerCreater()
+		StoreData();
+		return ^m_xCreator;
+	endproc;
+	
+endclass;
+
+class CSeaInvasionCreator inherit CWizardTriggerCreater
+	
+	var int					m_iTriggerID;
+	var ^CTriggerDesc		m_pxSpawnTrigger;
+	var ^CTriggerDesc		m_pxGroupTrigger;
+	var ^CTriggerDesc		m_pxWaypointTrigger;
+	var ^CTriggerDesc 		m_pxDismountTrigger;
+	
+	var CGuid				m_xShipGroupG, m_xPasGroupG;
+	
+	var ^CRegionBase		m_pxSrcRgn, m_pxDstRgn;
+	var ^CPropDB			m_pxDB;
+	var ^CPropDB.CNode		m_pxRoot;
+	
+	export constructor()
+	endconstructor;
+	
+	export proc bool CreateTrigger(^CTriggerWizard p_pxWizard)
+		if(p_pxWizard==null) then return false; endif;
+		
+		m_iTriggerID = Random.GetInt();
+		
+		m_pxDB = ^(p_pxWizard^.GetData());
+		m_pxRoot = ^(p_pxWizard^.GetData().GetRoot());
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		
+		var CGuid xSrcRgnGuid = CLevelEditorWrap.GetRegionMgr()^.CreateRegion("__Ignore__QueryRegion_"+Random.GetInt().ToString());
+		var CGuid xDstRgnGuid = CLevelEditorWrap.GetRegionMgr()^.CreateRegion("__Ignore__QueryRegion_"+Random.GetInt().ToString());
+		
+		m_pxSrcRgn = CLevelEditorWrap.GetRegionMgr()^.GetRegion(xSrcRgnGuid);
+		m_pxDstRgn = CLevelEditorWrap.GetRegionMgr()^.GetRegion(xDstRgnGuid);
+		m_pxSrcRgn^.SetRendering(false);
+		m_pxDstRgn^.SetRendering(false);
+		
+		var vec3 vStart, vEnd;
+		var ^CPropDB.CNode pxWaypointNode = m_pxRoot^.Get("Waypoints");
+		if(pxWaypointNode!=null) then
+			vStart.FromString(pxWaypointNode^.GetValueS("0", ""));
+			vEnd.FromString(pxWaypointNode^.GetValueS((pxWaypointNode^.NumSubs()-1).ToString(), ""));
+		endif;
+				
+		if(m_pxSrcRgn^.NumSubs()==0) then
+			var vec3 vE = {20.0, 20.0f, 0.0f};
+			m_pxSrcRgn^.AddSubRegion(010b, vStart, vE);
+		else
+			var ^CSubRegion pxSub = m_pxSrcRgn^[0];
+			if(pxSub!=null) then
+				pxSub^.SetType(010b);
+				pxSub^.Translate(vStart-pxSub^.GetPos());
+				pxSub^.AdjustSize(20.0f, 20.0f);
+			endif;
+		endif;
+		
+		if(m_pxDstRgn^.NumSubs()==0) then
+			var vec3 vE = {20.0, 20.0f, 0.0f};
+			m_pxDstRgn^.AddSubRegion(010b, vEnd, vE);
+		else
+			var ^CSubRegion pxSub = m_pxDstRgn^[0];
+			if(pxSub!=null) then
+				pxSub^.SetType(010b);
+				pxSub^.Translate(vEnd-pxSub^.GetPos());
+				pxSub^.AdjustSize(20.0f, 20.0f);
+			endif;
+		endif;
+		
+		m_pxDismountTrigger = CreateDismountTrigger();
+		m_pxWaypointTrigger = CreateWaypointTrigger();
+		m_pxGroupTrigger    = CreateGroupTrigger();
+		m_pxSpawnTrigger	= CreateSpawnTrigger();
+		
+		var CTriggerDescMgr.CNode xRoot = pxTM^.GetHierarchyRoot();
+		var CTriggerDescMgr.CNode xMakroNode = xRoot.FindChild("MakroTrigger");
+		if(!xMakroNode.IsValid()) then
+			xMakroNode = pxTM^.CreateNewNode(xRoot, "MakroTrigger");
+		endif;
+		
+		pxTM^.MoveTrigger(m_pxSpawnTrigger, xRoot, xMakroNode);
+		pxTM^.MoveTrigger(m_pxGroupTrigger, xRoot, xMakroNode);
+		pxTM^.MoveTrigger(m_pxWaypointTrigger, xRoot, xMakroNode);
+		pxTM^.MoveTrigger(m_pxDismountTrigger, xRoot, xMakroNode);
+		return true;
+	endproc;
+	
+	proc ^CTriggerDesc CreateSpawnTrigger()
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		var CGuid xGuid = pxTM^.CreateTrigger("SeaInvasion_SpawnGroup_"+m_iTriggerID.ToString());
+		var int iTriggerIdx = pxTM^.FindTrigger(xGuid);
+		var ^CTriggerDesc pxTrigger=null;
+		if(iTriggerIdx>=0) then
+			pxTrigger = pxTM^.GetTrigger(iTriggerIdx);
+		endif;
+		
+		if(pxTrigger!=null) then
+			// Create Time condition to fire this Trigger 1sec after Activation
+			var CFourCC xT = "TIME";
+			var int iCondIdx = pxTrigger^.AddCondition(xT);
+			var ^CTriggerDesc.CCondition pxCond = pxTrigger^.GetCondition(iCondIdx);
+			if(pxCond!=null) then
+				var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("duration", 1);
+					pxAttr^.SetValue("repeat", 0);
+				endif;
+			endif;
+			
+			xT="CPLX";
+			var int i, iC = m_pxRoot^.GetValueI("NumShips", 0);
+			for(i=0) cond(i<iC) iter(++i) do
+				var ^CPropDB.CNode pxShipNode = m_pxDB^.FindNode("Ships/Ship_"+i.ToString(), false);
+				if(pxShipNode!=null) then
+					var int iActIdx = pxTrigger^.AddAction(xT);
+					var ^CTriggerDesc.CAction pxAct = pxTrigger^.GetAction(iActIdx);
+					if(pxAct!=null) then
+						var ^CAttribs pxA = ^(pxAct^.GetParams());
+						var string sShipClass = pxShipNode^.Value();
+						var int iP = sShipClass.FindRev('/');
+						sShipClass = sShipClass.Mid(iP+1);
+						pxA^.SetValue("obj_name", sShipClass);
+						pxA^.SetValue("obj_owner", m_pxRoot^.GetValueI("Player", -1));
+						
+						var string sPassengers;
+						var int j, iJC = pxShipNode^.NumSubs();
+						for(j=0) cond(j<iJC) iter(++j) do
+							var ^CPropDB.CNode pxPasNode = ^(pxShipNode^.Get(j));
+							if(pxPasNode!=null) then
+								var string sTTPath = pxPasNode^.Value();
+								iP = sTTPath.FindRev('/');
+								sPassengers += sTTPath.Mid(iP+1) + "/" + pxPasNode^.Get("level")^.Value();
+								
+								var ^CPropDB.CNode pxSubPasNode = pxPasNode^.Get("Passengers");
+								if(pxSubPasNode!=null) then
+									sPassengers += "/(";
+									var int k, iKC = pxSubPasNode^.NumSubs();
+									for(k=0) cond(k<iKC) iter(++k) do
+										var ^CPropDB.CNode pxSubPas = ^(pxSubPasNode^.Get(k));
+										if(pxSubPas!=null) then
+											var string sSubPas = pxSubPas^.Value();
+											var int iP = sSubPas.FindRev('/');
+											sPassengers+=sSubPas.Mid(iP+1)+":"+pxSubPas^.Get("level")^.Value();
+											if(k+1<iKC) then
+												sPassengers+="&";
+											endif;
+										endif;
+									endfor;
+									sPassengers+=")";
+								endif;
+								sPassengers+="|";							
+							endif;
+						endfor;
+						
+						pxA^.SetValue("passengers", sPassengers);
+						
+						var ^CPropDB.CNode pxWaypointNode = m_pxRoot^.Get("Waypoints");
+						if(pxWaypointNode!=null) then
+							var string sPos = pxWaypointNode^.GetValueS("0", "");
+							pxA^.SetValue("obj_pos", sPos);
+						endif;
+					endif;
+				endif;
+			endfor;					
+					
+			xT="TRIG";
+			var int iActIdx = pxTrigger^.AddAction(xT);
+			var ^CTriggerDesc.CAction pxAct = pxTrigger^.GetAction(iActIdx);
+			if(pxAct!=null) then
+				var ^CAttribs pxA = ^(pxAct^.GetParams());
+				pxA^.SetValue("guid", m_pxGroupTrigger^.GetGuid().ToString());
+				pxA^.SetValue("state", 1);
+			endif;
+				
+			pxTrigger^.SetEdgeType(CTriggerDesc.TF_RisingEdge | CTriggerDesc.TF_FireOnce);
+			var CTriggerDescMgr.CNode xRoot = pxTM^.GetHierarchyRoot();
+			
+			var CTriggerDescMgr.CNode xMakroNode = xRoot.FindChild("MakroTrigger");
+			if(!xMakroNode.IsValid()) then
+				xMakroNode = pxTM^.CreateNewNode(xRoot, "MakroTrigger");
+			endif;
+			pxTrigger^.SetEdgeType(CTriggerDesc.TF_RisingEdge | CTriggerDesc.TF_FireOnce);
+		endif;
+		return pxTrigger;
+	endproc;
+	
+	proc ^CTriggerDesc CreateGroupTrigger()
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		var CGuid xGuid = pxTM^.CreateTrigger("SeaInvasion_AddGroup_"+m_iTriggerID.ToString());
+		var int iTriggerIdx = pxTM^.FindTrigger(xGuid);
+		var ^CTriggerDesc pxTrigger=null;
+		if(iTriggerIdx>=0) then
+			pxTrigger = pxTM^.GetTrigger(iTriggerIdx);
+		endif;
+		
+		if(pxTrigger!=null) then
+			var CFourCC xT = "TIME";
+			var int iCondIdx = pxTrigger^.AddCondition(xT);
+			var ^CTriggerDesc.CCondition pxCond = pxTrigger^.GetCondition(iCondIdx);
+			if(pxCond!=null) then
+				var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("duration", 1);
+					pxAttr^.SetValue("repeat", 0);
+				endif;
+			endif;
+			
+			var string sShipG = m_pxRoot^.GetValueS("ShipGroup", "");
+			if(sShipG!="No Group") then
+				var CClntHndl xHndl = CObjHelper.GetObjByName(sShipG);
+				if(xHndl.IsValid())then
+					m_xShipGroupG = xHndl.GetObj()^.GetGuid();
+				endif;
+			/*else
+				var CGuid xG;
+				xG.Generate();
+				var vec3 vP={0.0f,0.0f,0.0f};
+				CEvt_CreateObj.Send("GroupObject", -1, xG, vP);
+				m_xShipGroupG = xG;*/
+			endif;
+			
+			var string sPasG = m_pxRoot^.GetValueS("PassengerGroup", "");
+			if(sPasG!="No Group") then
+				var CClntHndl xHndl = CObjHelper.GetObjByName(sPasG);
+				if(xHndl.IsValid())then
+					m_xPasGroupG = xHndl.GetObj()^.GetGuid();
+				endif;
+			/*else
+				var CGuid xG;
+				xG.Generate();
+				var vec3 vP={0.0f,0.0f,0.0f};
+				CEvt_CreateObj.Send("GroupObject", -1, xG, vP);
+				m_xPasGroupG = xG;*/
+			endif;
+			
+			if(m_pxSrcRgn!=null) then
+				xT = "ADGR";
+				var int iActIdx = pxTrigger^.AddAction(xT);
+				var ^CTriggerDesc.CAction pxAct = pxTrigger^.GetAction(iActIdx);
+				if(pxAct!=null) then
+					var ^CAttribs pxA = ^(pxAct^.GetParams());
+					pxA^.SetValue("rgn_guid", m_pxSrcRgn^.GetGUID().ToString());
+					pxA^.SetValue("obj_type", "SHIP");
+					pxA^.SetValue("obj_owner", m_pxRoot^.GetValueI("Player", -1));
+					pxA^.SetValue("group", m_xShipGroupG.ToString());
+				endif;
+				
+				iActIdx = pxTrigger^.AddAction(xT);
+				pxAct = pxTrigger^.GetAction(iActIdx);
+				if(pxAct!=null) then
+					var ^CAttribs pxA = ^(pxAct^.GetParams());
+					pxA^.SetValue("rgn_guid", m_pxSrcRgn^.GetGUID().ToString());
+					pxA^.SetValue("obj_type", "CHTR|ANML|VHCL");
+					pxA^.SetValue("obj_owner", m_pxRoot^.GetValueI("Player", -1));
+					pxA^.SetValue("group", m_xPasGroupG.ToString());
+				endif;
+			endif;
+			
+			xT="TRIG";
+			var int iActIdx = pxTrigger^.AddAction(xT);
+			var ^CTriggerDesc.CAction pxAct = pxTrigger^.GetAction(iActIdx);
+			if(pxAct!=null) then
+				var ^CAttribs pxA = ^(pxAct^.GetParams());
+				pxA^.SetValue("guid", m_pxWaypointTrigger^.GetGuid().ToString());
+				pxA^.SetValue("state", 1);
+			endif;
+			pxTrigger^.SetEdgeType(CTriggerDesc.TF_RisingEdge | CTriggerDesc.TF_FireOnce);
+		endif;
+		return pxTrigger;
+	endproc;
+	
+	proc  ^CTriggerDesc CreateWaypointTrigger()
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		var CGuid xGuid = pxTM^.CreateTrigger("SeaInvasion_Waypoints_"+m_iTriggerID.ToString());
+		var int iTriggerIdx = pxTM^.FindTrigger(xGuid);
+		var ^CTriggerDesc pxTrigger=null;
+		if(iTriggerIdx>=0) then
+			pxTrigger = pxTM^.GetTrigger(iTriggerIdx);
+		endif;
+		
+		if(pxTrigger!=null) then
+			var CFourCC xT = "TIME";
+			var int iCondIdx = pxTrigger^.AddCondition(xT);
+			var ^CTriggerDesc.CCondition pxCond = pxTrigger^.GetCondition(iCondIdx);
+			if(pxCond!=null) then
+				var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("duration", 1);
+					pxAttr^.SetValue("repeat", 0);
+				endif;
+			endif;
+			
+			xT = "WYPT";
+			var int iActIdx = pxTrigger^.AddAction(xT);
+			var ^CTriggerDesc.CAction pxAct = pxTrigger^.GetAction(iActIdx);
+			if(pxAct!=null) then
+				var ^CAttribs pxA = ^(pxAct^.GetParams());
+				pxA^.SetValue("rgn_guid", m_pxSrcRgn^.GetGUID().ToString());
+				pxA^.SetValue("obj_type", "SHIP");
+				pxA^.SetValue("obj_owner", m_pxRoot^.GetValueI("Player", -1));
+				
+				var string sWaypoints;
+				var ^CPropDB.CNode pxWaypointNode = m_pxRoot^.Get("Waypoints");
+				if(pxWaypointNode!=null) then
+					var int iCur, iCnt = pxWaypointNode^.NumSubs();
+					for(iCur=0) cond(iCur<iCnt) iter(++iCur) do
+						sWaypoints += pxWaypointNode^.Get(iCur).Value()+"|";
+					endfor;
+				endif;
+				pxA^.SetValue("waypoints", sWaypoints);
+				pxA^.SetValue("walkspeed", "4");
+				pxA^.SetValue("patrolmode", 0);
+			endif;
+					
+			xT="TRIG";
+			iActIdx = pxTrigger^.AddAction(xT);
+			pxAct = pxTrigger^.GetAction(iActIdx);
+			if(pxAct!=null) then
+				var ^CAttribs pxA = ^(pxAct^.GetParams());
+				pxA^.SetValue("guid", m_pxDismountTrigger^.GetGuid().ToString());
+				pxA^.SetValue("state", 1);
+			endif;
+			pxTrigger^.SetEdgeType(CTriggerDesc.TF_RisingEdge | CTriggerDesc.TF_FireOnce);
+		endif;
+		return pxTrigger;
+	endproc;
+	
+	proc ^CTriggerDesc CreateDismountTrigger()
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		var CGuid xGuid = pxTM^.CreateTrigger("SeaInvasion_DismountShips_"+m_iTriggerID.ToString());
+		var int iTriggerIdx = pxTM^.FindTrigger(xGuid);
+		var ^CTriggerDesc pxTrigger=null;
+		if(iTriggerIdx>=0) then
+			pxTrigger = pxTM^.GetTrigger(iTriggerIdx);
+		endif;
+		
+		if(pxTrigger!=null) then
+			if(m_pxSrcRgn!=null && m_pxDstRgn!=null) then
+				var CFourCC xT = "WAYR";
+				var int iCondIdx = pxTrigger^.AddCondition(xT);
+				var ^CTriggerDesc.CCondition pxCond = pxTrigger^.GetCondition(iCondIdx);
+				if(pxCond!=null) then
+					var ^CAttribs pxA = ^(pxCond^.GetParams());
+					pxA^.SetValue("rgn_guid", m_pxDstRgn^.GetGUID().ToString());
+					pxA^.SetValue("obj_type", "SHIP");
+					pxA^.SetValue("obj_owner", m_pxRoot^.GetValueI("Player", -1));
+				endif;
+				
+				xT = "TRSP";
+				var int iActIdx = pxTrigger^.AddAction(xT);
+				var ^CTriggerDesc.CAction pxAct = pxTrigger^.GetAction(iActIdx);
+				if(pxAct!=null) then
+					var ^CAttribs pxA = ^(pxAct^.GetParams());
+					pxA^.SetValue("rgn_guid", m_pxDstRgn^.GetGUID().ToString());
+					pxA^.SetValue("obj_type", "SHIP");
+					pxA^.SetValue("obj_owner", m_pxRoot^.GetValueI("Player", -1));
+					pxA^.SetValue("mount", 0);
+					//pxA^.SetValue("from_condition", 0);
+				endif;
+			endif;
+			pxTrigger^.SetEdgeType(CTriggerDesc.TF_RisingEdge);
+		endif;
+		return pxTrigger;
+	endproc;
+endclass;

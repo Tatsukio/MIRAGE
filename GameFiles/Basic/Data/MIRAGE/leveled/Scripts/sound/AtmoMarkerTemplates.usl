@@ -1,0 +1,235 @@
+class CAtmoTemplate
+
+	export constructor()
+		m_fPriority				= 5.0f;
+		m_iVolume				= 100;
+		m_fPitch					= 1.0;
+		m_fMinFadeDist			= 1.0;
+		m_fMaxFadeDist			= 1000000.0;
+		m_fMaxHearingDist			= 50.0;
+		m_iConeInnerAngle			= 35;
+		m_iConeOuterAngle		= 45;
+		m_iConeOutsideVolume		= 30;
+		m_dwFlags				= 0d;
+	endconstructor;
+
+
+	export var real 	m_fPriority;
+	export var int 		m_iVolume;
+	export var real 	m_fPitch;
+	export var real 	m_fMinFadeDist;
+	export var real 	m_fMaxFadeDist;
+	export var real 	m_fMaxHearingDist;
+	export var int  	m_iConeInnerAngle;
+	export var int  	m_iConeOuterAngle;
+	export var int  	m_iConeOutsideVolume;
+	export var string 	m_sWav1;
+	export var string 	m_sWav2;
+	export var string 	m_sWav3;
+	export var bitset	m_dwFlags;
+	export var string	m_sPlaylist;
+	export var string	m_sName;
+endclass;
+
+class CAtmoMarkerTemplates inherit CEnhancedFrameWindow
+
+	var ^CGroupBox 				m_pxPropsGroup;
+	var ^CAtmoProperties			m_pxAtmoProps;
+	var ^CPropDB					m_pxPropDB;
+	var ^CList					m_pxList;
+	var ^CEdit					m_pxEdit;
+	var ^CButton					m_pxCreateButton, m_pxDeleteButton;
+
+	export var array CAtmoTemplate	m_axTemplates;
+	export var procref<bool> 		m_xOnTemplatesChanged;
+
+	export constructor()
+		if(!InitFromResource("sound/AtmoMarkerTemplates","AtmoMarkerTemplates")) then
+			CLevelEditorWrap.LogError("UI.ViewAtmoMarkerTemplates","InitFromResource failed");
+			return;
+		endif;
+
+		m_xOnTemplatesChanged = DoNothing;
+
+		m_pxPropsGroup = cast<CGroupBox>(GetControl("Props_Group"));
+		m_pxAtmoProps = cast<CAtmoProperties>(GetControl("Props_Group/PropertiesDlg"));
+		m_pxAtmoProps^.m_xOnChange = OnPropertiesChanged;
+
+		m_pxCreateButton = cast<CButton>(GetControl("CreateButton"));
+		m_pxCreateButton^.m_xOnClick = OnCreate;
+		m_pxDeleteButton = cast<CButton>(GetControl("DeleteButton"));
+		m_pxDeleteButton^.m_xOnClick = OnDelete;
+
+		m_pxList = cast<CList>(GetControl("TemplatesList"));
+		m_pxList^.m_xOnSelect = OnListSelect;
+		m_pxEdit = cast<CEdit>(GetControl("NameEdit"));
+		m_pxEdit^.m_xOnChange = OnEditChange;
+
+		m_pxPropDB = new CPropDB("Cfg/atmomarkertemplates.txt");
+		ReadPropDB();
+
+		LoadPosition("AtmoMarkerTemplates");
+		OnListSelect();
+		SetSizable(true);
+	endconstructor;
+
+	export destructor()
+		WritePropDB();
+		var bool b = m_pxPropDB^.Save("Cfg/atmomarkertemplates.txt");
+		if(!b) then
+			CLevelEditorWrap.LogWarning("UI.ViewAtmoMarkerTemplates","could not save atmo templates");
+		endif;
+		
+		delete m_pxPropDB;
+
+	enddestructor;
+
+
+	proc void ReadPropDB()
+		m_axTemplates = 0;
+		var int i;
+		for(i=0)cond(i<m_pxPropDB^.GetRoot().NumSubs())iter(++i)do
+			m_axTemplates.NewEntry();
+			m_pxPropDB^.GetRoot().Get(i).GetValue("priority", m_axTemplates[i].m_fPriority);
+			m_pxPropDB^.GetRoot().Get(i).GetValue("volume", m_axTemplates[i].m_iVolume);
+			m_pxPropDB^.GetRoot().Get(i).GetValue("pitch", m_axTemplates[i].m_fPitch);
+			m_pxPropDB^.GetRoot().Get(i).GetValue("minfadedist", m_axTemplates[i].m_fMinFadeDist);
+			m_pxPropDB^.GetRoot().Get(i).GetValue("maxfadedist", m_axTemplates[i].m_fMaxFadeDist);
+			m_pxPropDB^.GetRoot().Get(i).GetValue("maxhearingdist", m_axTemplates[i].m_fMaxHearingDist);
+			m_pxPropDB^.GetRoot().Get(i).GetValue("innerconeangle", m_axTemplates[i].m_iConeInnerAngle);
+			m_pxPropDB^.GetRoot().Get(i).GetValue("outerconeangle", m_axTemplates[i].m_iConeOuterAngle);
+			m_pxPropDB^.GetRoot().Get(i).GetValue("coneoutsidevolume", m_axTemplates[i].m_iConeOutsideVolume);
+			m_pxPropDB^.GetRoot().Get(i).GetValue("wav1", m_axTemplates[i].m_sWav1);
+			m_pxPropDB^.GetRoot().Get(i).GetValue("wav2", m_axTemplates[i].m_sWav2);
+			m_pxPropDB^.GetRoot().Get(i).GetValue("wav3", m_axTemplates[i].m_sWav3);
+			m_pxPropDB^.GetRoot().Get(i).GetValue("playlist", m_axTemplates[i].m_sPlaylist);
+			m_pxPropDB^.GetRoot().Get(i).GetValue("name", m_axTemplates[i].m_sName);
+			var int iFlags;
+			m_pxPropDB^.GetRoot().Get(i).GetValue("flags", iFlags);
+			m_axTemplates[i].m_dwFlags = Math.IntToBitset(iFlags);
+
+			m_pxList^.AddItem(m_axTemplates[i].m_sName);
+		endfor;
+	endproc;
+
+	proc void WritePropDB()
+		m_pxPropDB^.GetRoot().Clear();
+		var int i;
+		for(i=0)cond(i<m_axTemplates.NumEntries())iter(++i)do
+			var ^CPropDB.CNode pxNode = ^(m_pxPropDB^.GetRoot().AddValue("template" + i.ToString(), ""));
+			pxNode^.AddValue("priority", m_axTemplates[i].m_fPriority);
+			pxNode^.AddValue("volume", m_axTemplates[i].m_iVolume);
+			pxNode^.AddValue("pitch", m_axTemplates[i].m_fPitch);
+			pxNode^.AddValue("minfadedist", m_axTemplates[i].m_fMinFadeDist);
+			pxNode^.AddValue("maxfadedist", m_axTemplates[i].m_fMaxFadeDist);
+			pxNode^.AddValue("maxhearingdist", m_axTemplates[i].m_fMaxHearingDist);
+			pxNode^.AddValue("innerconeangle", m_axTemplates[i].m_iConeInnerAngle);
+			pxNode^.AddValue("outerconeangle", m_axTemplates[i].m_iConeOuterAngle);
+			pxNode^.AddValue("coneoutsidevolume", m_axTemplates[i].m_iConeOutsideVolume);
+			pxNode^.AddValue("wav1", m_axTemplates[i].m_sWav1);
+			pxNode^.AddValue("wav2", m_axTemplates[i].m_sWav2);
+			pxNode^.AddValue("wav3", m_axTemplates[i].m_sWav3);
+			pxNode^.AddValue("playlist", m_axTemplates[i].m_sPlaylist);
+			pxNode^.AddValue("flags", Math.BitsetToInt(m_axTemplates[i].m_dwFlags));
+			pxNode^.AddValue("name", m_axTemplates[i].m_sName);
+		endfor;
+	endproc;
+
+
+	proc bool OnPropertiesChanged()
+		var int i = m_pxList^.GetSelectedItem();
+		if(i>=0) then
+			m_axTemplates[i].m_fPriority			= m_pxAtmoProps^.GetPriority();
+			m_axTemplates[i].m_iVolume				= m_pxAtmoProps^.GetVolume();
+			m_axTemplates[i].m_fPitch				= m_pxAtmoProps^.GetPitch();
+			m_axTemplates[i].m_fMinFadeDist			= m_pxAtmoProps^.GetMinFadeDist();
+			m_axTemplates[i].m_fMaxFadeDist			= m_pxAtmoProps^.GetMaxFadeDist();
+			m_axTemplates[i].m_fMaxHearingDist		= m_pxAtmoProps^.GetMaxHearingDist();
+			m_axTemplates[i].m_iConeInnerAngle		= m_pxAtmoProps^.GetConeInnerAngle();
+			m_axTemplates[i].m_iConeOuterAngle		= m_pxAtmoProps^.GetConeOuterAngle();
+			m_axTemplates[i].m_iConeOutsideVolume	= m_pxAtmoProps^.GetConeOutsideVolume();
+			m_axTemplates[i].m_sWav1				= m_pxAtmoProps^.GetWav1();
+			m_axTemplates[i].m_sWav2				= m_pxAtmoProps^.GetWav2();
+			m_axTemplates[i].m_sWav3				= m_pxAtmoProps^.GetWav3();
+			m_axTemplates[i].m_sPlaylist			= m_pxAtmoProps^.GetPlaylist();
+
+			m_axTemplates[i].m_dwFlags = 0b;
+			if(m_pxAtmoProps^.GetDirectional()) then
+				m_axTemplates[i].m_dwFlags |= 01b;
+			endif;
+		endif;
+
+		return true;
+	endproc;
+
+
+	proc bool OnCreate()
+		var int i = m_axTemplates.NewEntry();
+		m_pxList^.AddItem(CLocalizer.Get().Translate("_AtmoMarkerTemplates_L_NewTemplate"));
+		m_axTemplates[i].m_sName = "new template";
+		m_xOnTemplatesChanged.Call();
+		return true;
+	endproc;
+
+
+	proc bool OnDelete()
+		var int i = m_pxList^.GetSelectedItem();
+		if(i>=0) then
+			m_pxList^.DeleteItem(i);
+		endif;
+
+		m_axTemplates.DeleteEntry(i);
+		m_xOnTemplatesChanged.Call();
+
+		return true;
+	endproc;
+
+
+	proc bool OnListSelect()
+		var int i = m_pxList^.GetSelectedItem();
+		var bool b = i < 0;
+
+		m_pxDeleteButton^.SetDisabled(b);
+		m_pxEdit^.SetDisabled(b);
+		m_pxAtmoProps^.SetDisabled(b);
+		if(!b) then
+			m_pxEdit^.SetText(m_pxList^.GetSelectedItemAsString());
+
+			m_pxAtmoProps^.SetPriority(m_axTemplates[i].m_fPriority);
+			m_pxAtmoProps^.SetVolume(m_axTemplates[i].m_iVolume);
+			m_pxAtmoProps^.SetPitch(m_axTemplates[i].m_fPitch);
+			m_pxAtmoProps^.SetMinFadeDist(m_axTemplates[i].m_fMinFadeDist);
+			m_pxAtmoProps^.SetMaxFadeDist(m_axTemplates[i].m_fMaxFadeDist);
+			m_pxAtmoProps^.SetMaxHearingDist(m_axTemplates[i].m_fMaxHearingDist);
+			m_pxAtmoProps^.SetConeInnerAngle(m_axTemplates[i].m_iConeInnerAngle);
+			m_pxAtmoProps^.SetConeOuterAngle(m_axTemplates[i].m_iConeOuterAngle);
+			m_pxAtmoProps^.SetConeOutsideVolume(m_axTemplates[i].m_iConeOutsideVolume);
+			m_pxAtmoProps^.SetWav1(m_axTemplates[i].m_sWav1);
+			m_pxAtmoProps^.SetWav2(m_axTemplates[i].m_sWav2);
+			m_pxAtmoProps^.SetWav3(m_axTemplates[i].m_sWav3);
+			m_pxAtmoProps^.SetPlaylist(m_axTemplates[i].m_sPlaylist);
+			m_pxAtmoProps^.SetDirectional((m_axTemplates[i].m_dwFlags & 01b) != 0b);
+		endif;
+
+		return true;
+	endproc;
+
+
+	proc bool OnEditChange()
+		var int i = m_pxList^.GetSelectedItem();
+		if(i>=0) then
+			m_pxList^.ShowSelection(false);
+			m_pxList^.SetItemText(i, m_pxEdit^.GetText());
+			m_axTemplates[i].m_sName = m_pxEdit^.GetText();
+			m_xOnTemplatesChanged.Call();
+		endif;
+		return true;
+	endproc;
+
+
+	proc bool DoNothing()
+		return true;
+	endproc;
+
+endclass;
+

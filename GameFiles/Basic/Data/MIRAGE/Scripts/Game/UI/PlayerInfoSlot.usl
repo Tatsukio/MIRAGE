@@ -1,0 +1,1640 @@
+class CPlayerInfoSlot inherit CStaticCtrl
+
+	var ^CPlayerListWindow	m_pxOwner;
+	var ^CGoButton		m_pxGoButton;
+	var ^CDropList		m_pxNameDropList;
+	var ^CDropList		m_pxTribeDropList;
+	var ^CDropList		m_pxArmyDropList;
+	var ^CDropList		m_pxTeamDropList;
+	var ^CDropList		m_pxColorDropList;
+	var ^CDropList		m_pxHPDropList;
+	var ^CDropList		m_pxHQDropList;
+	var ^CDropList		m_pxDifficultyDropList;
+	
+	var ^CLevelInfo.CPlayerSlot		m_pxPlayerSlot;
+	var CPlayerSlotID				m_xPlayerSlotID;
+	
+	var int							m_iIndex;
+	var int							m_iType;
+	var int							m_iDifficulty;
+	export var int			m_iColor;
+	var int							m_iHP;
+	var int							m_iHeadQuater;
+	var int							m_iCredits;
+	var int							m_iSlotID;
+	var string					m_sName;
+	var string					m_sArmy;
+	var string					m_sTribe;
+	var string					m_sType;
+	var bool						m_bReady;
+	var bool						m_bIsSkirmishMode;
+	var array string		m_asAIPersonalities;
+	var array string		m_asRandomTribes;
+	
+	export var procref <bool>				m_xOnStartGame;
+	export var procref <bool,bool>	m_xOnDisableArmy;
+	export var procref <bool,bool>	m_xOnDisablePB;
+	
+	const int TYPE_OPEN		=0;
+	const int TYPE_HUMAN	=1;
+	const int TYPE_AI			=2;
+	const int TYPE_CLOSED	=3;
+	
+	export constructor()
+		if(!InitFromResource("UI/PlayerListWindow","PlayerSlot")) then
+			CGameWrap.LogError("UI.PlayerListWindow","InitFromResource failed");
+			return;
+		endif;
+		var bool bDef=false;
+		var bool bOff=false;
+		var bool bBal=false;
+		var bool bPas=false;
+		var bool bRand=false;
+		var int iMask;
+		CSettings.Get("AI/Personalities",iMask);
+		if(iMask>=9)then bRand=true; endif;
+		if(iMask>=8)then iMask-=8;bPas=true;endif;
+		if(iMask>=4)then iMask-=4;bOff=true;endif;
+		if(iMask>=2)then iMask-=2;bBal=true;endif;
+		if(iMask>=1)then iMask-=1;bDef=true;endif;
+		var int iIndex=0;
+		m_asAIPersonalities=0;
+		if(bRand)then
+			m_asAIPersonalities.AddEntry("Random");
+		endif;
+		if(bDef)then
+			m_asAIPersonalities.AddEntry("Defensive");
+		endif;
+		if(bBal)then
+			m_asAIPersonalities.AddEntry("Balanced");
+		endif;
+		if(bOff)then
+			m_asAIPersonalities.AddEntry("Offensive");
+		endif;
+		if(bPas)then
+			m_asAIPersonalities.AddEntry("Passive");
+		endif;
+		m_asRandomTribes.AddEntry("Random");
+		m_asRandomTribes.AddEntry("Aje_Ninigi_SEAS");
+		m_asRandomTribes.AddEntry("Ninigi_Hu_SEAS");
+		m_asRandomTribes.AddEntry("Aje_Hu_SEAS");
+		m_asRandomTribes.AddEntry("Aje_Ninigi_Hu");
+		m_asRandomTribes.AddEntry("Aje_Ninigi");
+		m_asRandomTribes.AddEntry("Ninigi_Hu");
+		m_asRandomTribes.AddEntry("Hu_SEAS");
+		m_asRandomTribes.AddEntry("SEAS_Aje");
+		m_asRandomTribes.AddEntry("Aje_Hu");
+		m_asRandomTribes.AddEntry("Ninigi_SEAS");
+	endconstructor;
+	
+	export destructor()
+		var int i,iC=m_pxTribeDropList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			delete m_pxTribeDropList^.GetItemData(i);
+		endfor;
+		iC=m_pxColorDropList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			delete m_pxColorDropList^.GetItemData(i);
+		endfor;
+		iC=m_pxHPDropList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			delete m_pxHPDropList^.GetItemData(i);
+		endfor;
+		iC=m_pxHQDropList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			delete m_pxHQDropList^.GetItemData(i);
+		endfor;
+	enddestructor;
+	
+	export proc void Init(^CPlayerListWindow p_pxOwner)
+		m_pxOwner=p_pxOwner;
+		m_pxGoButton=cast<CGoButton>(GetControl("ReadyButton"));
+		m_pxGoButton^.Init(this);
+		m_pxGoButton^.m_xOnStateChange=OnClickReady;
+		
+		m_pxNameDropList=cast<CDropList>(GetControl("NameDropList"));
+		m_pxNameDropList^.m_xOnChange=OnChangeName;
+		
+		m_pxDifficultyDropList=cast<CDropList>(GetControl("DifficultyDropList"));
+		m_pxDifficultyDropList^.AddItem("0");
+		m_pxDifficultyDropList^.AddItem("1");
+		m_pxDifficultyDropList^.AddItem("2");
+		m_pxDifficultyDropList^.AddItem("3");
+		m_pxDifficultyDropList^.AddItem("4");
+		m_pxDifficultyDropList^.AddItem("5");
+		m_pxDifficultyDropList^.AddItem("6");
+		m_pxDifficultyDropList^.AddItem("7");
+		m_pxDifficultyDropList^.AddItem("8");
+		m_pxDifficultyDropList^.AddItem("9");
+		
+		m_pxDifficultyDropList^.m_xOnChange=OnChangeDifficulty;
+		//m_pxDifficultyDropList^.Select(5);
+		
+		m_pxTribeDropList=cast<CDropList>(GetControl("TribeDropList"));
+		
+		m_pxArmyDropList=cast<CDropList>(GetControl("ArmyDropList"));
+		m_pxArmyDropList^.m_xOnChange=OnChangeArmy;
+		
+		m_pxTeamDropList=cast<CDropList>(GetControl("TeamDropList"));
+		m_pxTeamDropList^.m_xOnChange=OnChangeTeam;
+		
+		m_pxColorDropList=cast<CDropList>(GetControl("ColorDropList"));
+		CGameInst.GetBitmapMgr().AllocBlendSource("TeamCol");
+		var int i,iC=8;
+		var string sCI;
+		for(i=0)cond(i<iC)iter(i++)do
+			sCI=(i+1).ToString();
+			var ^CCardBitmap pxBmp=CGameInst.GetBitmapMgr().GetBlendBitmap("0 ,fill TeamCol "+i.ToString()+" 0 "+(38 * CGameInst.ms_iUIScaleFactor).ToString()+" "+(21 * CGameInst.ms_iUIScaleFactor).ToString());
+			if(pxBmp!=null)then
+				m_pxColorDropList^.AddItem(sCI,new CItemDataInt(i),pxBmp^.GetBitmap());
+			else
+				m_pxColorDropList^.AddItem(i.ToString(),new CItemDataInt(i));
+			endif;
+		endfor;
+		m_pxColorDropList^.m_xOnChange=OnChangeColor;
+		
+		begin fill_HP;
+			m_pxHPDropList=cast<CDropList>(GetControl("HPDropList"));
+			var int i,iC=16;
+			for(i=0)cond(i<iC)iter(i++)do
+				var int iValue=50+(i*10);
+				m_pxHPDropList^.AddItem(iValue.ToString()+"%",new CItemDataInt(iValue));
+			endfor;
+			m_pxHPDropList^.m_xOnChange=OnChangeHP;
+		end fill_HP;
+		
+		m_pxHQDropList=cast<CDropList>(GetControl("HQDropList"));		
+		m_bIsSkirmishMode = false;
+	endproc;
+	
+	export proc void SetSkirmishMode(bool p_bIsSkirmishMode) 
+		m_bIsSkirmishMode = p_bIsSkirmishMode;
+	endproc;
+	
+	export proc bool GetSkirmishMode() 
+		return m_bIsSkirmishMode;
+	endproc;
+	
+	export proc ^CLevelInfo.CPlayerSlot GetPlayerSlot()
+		return m_pxPlayerSlot;
+	endproc;
+	
+	export proc void GetInfoFromLevelInfo()
+		if(m_pxPlayerSlot!=null)then
+			var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
+			var bool bHost = (CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
+			var bool bAiPlayer = m_sType.Left(3)=="ai_";
+			var bool bResetArmy = false;
+			var int iNewCredits = CGameWrap.GetClient().GetGame().GetCredits();
+			if(m_iCredits != iNewCredits)then
+				m_iCredits = iNewCredits;
+				if(bOwn)then
+					bResetArmy = true;
+				endif;
+				if(bOwn || (bHost&&bAiPlayer))then
+					m_pxPlayerSlot^.SetReady(false);
+					OnClickReady(false);
+				endif;
+			endif;
+			if(m_sName!=m_pxPlayerSlot^.GetName())then
+				m_sName = m_pxPlayerSlot^.GetName();
+				if(bOwn)then
+					bResetArmy = true;
+				endif;
+			endif;
+			m_iDifficulty = m_pxPlayerSlot^.GetValueInt("Difficulty");
+			if(m_sTribe!=m_pxPlayerSlot^.GetTribe())then
+				m_sTribe = m_pxPlayerSlot^.GetTribe();
+				if(bOwn)then
+					CNewPyramid.ms_sPBTribe=m_sTribe;
+					bResetArmy = true;
+				endif;
+			endif;
+			if(m_sType!=m_pxPlayerSlot^.GetType()) then
+				m_sType = m_pxPlayerSlot^.GetType();
+				m_pxArmyDropList^.m_xOnChange.Clear();
+				ReloadArmyList();
+				m_pxArmyDropList^.m_xOnChange = OnChangeArmy;
+			endif;
+			m_iColor = m_pxPlayerSlot^.GetColor();
+			m_iHP = m_pxPlayerSlot^.GetHP();
+			if(m_iHP==0)then m_iHP=100; endif;
+			m_iHeadQuater = m_pxPlayerSlot^.GetHeadQuater();
+			begin check_HQ;
+				var int iMaxPlayers=0;
+				var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+				if(pxLevelInfo!=null)then
+					iMaxPlayers=(pxLevelInfo^.GetGenericData())["Base/MaxPlayers"].ValueI();
+				endif;
+				if(m_pxHQDropList^.NumItems()!=iMaxPlayers)then
+					m_pxHQDropList^.m_xOnChange.Clear();
+					var int i,iC=m_pxHQDropList^.NumItems();
+					for(i=0)cond(i<iC)iter(i++)do
+						delete m_pxHQDropList^.GetItemData(i);
+					endfor;
+					m_pxHQDropList^.Clear();
+					iC=iMaxPlayers;
+					for(i=0)cond(i<iC)iter(i++)do
+						m_pxHQDropList^.AddItem((i+1).ToString(),new CItemDataInt(i));
+					endfor;
+					m_pxHQDropList^.m_xOnChange=OnChangeHeadQuater;
+					m_pxHQDropList^.Select(m_iHeadQuater);
+				endif;
+			end check_HQ;
+			m_bReady = m_pxPlayerSlot^.IsReady();
+			m_pxGoButton^.SetVisible(true);
+			if(m_sType=="human")then
+				m_iType = TYPE_HUMAN;
+			elseif(m_sType.Left(3)=="ai_")then
+				m_iType = TYPE_AI;
+//				m_pxGoButton^.SetVisible(false);
+			elseif(m_sType=="closed")then
+				m_iType = TYPE_CLOSED;
+				m_sName=CLocalizer.Get().Translate("_UI_PlLiWind_Option_Closed");
+			else
+				m_iType = TYPE_OPEN;
+				m_sName=CLocalizer.Get().Translate("_UI_PlLiWind_Option_Open");
+				if(bHost)then
+					ClearID();
+				endif;
+			endif;
+			m_sArmy = m_pxPlayerSlot^.GetValue("Army");
+			UpdateAllEntries();
+			if(bOwn)then
+				SetID();
+			endif;
+		endif;
+	endproc;
+	
+	proc void SetID()
+		var string sTmp="new_id_"+m_iSlotID.ToString();
+		m_pxPlayerSlot^.SetValue(sTmp,CGameWrap.GetClientID());
+		sTmp="key_hash";
+		var CConfig xConf;
+		m_pxPlayerSlot^.SetValue(sTmp,xConf.GetS("Global/CDKeyHash",""));
+	endproc;
+	
+	proc void ClearID()
+		var string sTmp="new_id_"+m_iSlotID.ToString();
+		m_pxPlayerSlot^.SetValue(sTmp,-1);
+		sTmp="key_hash";
+		m_pxPlayerSlot^.SetValue(sTmp,"");
+	endproc;
+	
+	proc void UpdateAllEntries()
+		var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
+		var bool bHost = (CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
+		var bool bAiPlayer = m_sType.Left(3)=="ai_";
+		var int iIdx;
+		begin UpdateContent;
+			m_pxNameDropList^.m_xOnChange.Clear();
+			ReloadNameList();
+			var string sTmpName = "";
+			if(m_sName=="Open") then
+				sTmpName=CLocalizer.Get().Translate("_UI_PlLiWind_Option_Open");
+			elseif(m_sName=="AI") then
+				sTmpName=CLocalizer.Get().Translate("_UI_PlLiWind_Option_AI");
+			elseif(m_sName=="Closed") then
+				sTmpName=CLocalizer.Get().Translate("_UI_PlLiWind_Option_Closed");
+			else
+				sTmpName=m_sName;
+			endif;
+			iIdx = m_pxNameDropList^.FindItem(sTmpName);
+			if(iIdx==-1)then iIdx = 0; endif;
+			m_pxNameDropList^.Select(iIdx);
+			m_pxNameDropList^.m_xOnChange = OnChangeName;
+			
+			begin TeamUpdate;
+				var int iTeam=m_pxPlayerSlot^.GetTeam();
+				m_pxTeamDropList^.m_xOnChange.Clear();
+				m_pxTeamDropList^.Clear();
+				var int iNumTeams=CGameWrap.GetGame().GetAttribInt("NumTeams");
+				if(bOwn || (bHost&&bAiPlayer))then
+					var int i,iC=iNumTeams;
+					for(i=0)cond(i<iC)iter(i++)do
+						m_pxTeamDropList^.AddItem((i+1).ToString());
+					endfor;
+				else
+					m_pxTeamDropList^.AddItem(iTeam.ToString());
+				endif;
+				m_pxTeamDropList^.m_xOnChange = OnChangeTeam;
+				var int iItemIdx=m_pxTeamDropList^.FindItem(iTeam.ToString());
+				if(iItemIdx==-1)then
+					iItemIdx=0;
+				endif;
+				/*
+				if(iItemIdx==-1)then
+					if(iNumTeams>0)then
+						var array int aiTeamData;
+						var ^CLevelInfo pxLevelInfo=CMultiPlayerClientMgr.Get().GetLevelInfo();
+						System.Assert(pxLevelInfo!=null);
+						var int i,iC=pxLevelInfo^.GetNumPlayers();
+						System.Assert(iC>0);
+						for(i=0)cond(i<iC)iter(i++)do
+							var int iTmp=(i%iNumTeams)+1;
+							aiTeamData.AddEntry(iTmp);
+						endfor;
+						
+						var CPlayerSlotID xIter;
+						for(xIter=CPlayerSlotID.First())cond(xIter<=CPlayerSlotID.Last())iter(xIter.Incr())do
+							var ^CLevelInfo.CPlayerSlot pxPS=^(pxLevelInfo^.GetPlayerSlot(xIter));
+							if(pxPS^.IsFree())then continue; endif;
+							var int iTmp=pxPS^.GetTeam();
+							if(iTmp!=-1)then
+								aiTeamData.RemEntry(iTmp);
+							endif;
+						endfor;
+						
+						iC=aiTeamData.NumEntries();
+						if(iC>0)then
+							Random.Seed();
+							var int iNextTeam=aiTeamData[Random.GetInt()%iC];
+							iItemIdx=m_pxTeamDropList^.FindItem(iNextTeam.ToString());
+						endif;
+					endif;
+					
+					if(iItemIdx==-1)then
+						iItemIdx=0;
+					endif;
+				endif;
+				*/
+				m_pxTeamDropList^.Select(iItemIdx);
+				OnChangeTeam();
+			end TeamUpdate;
+			var int iOwnColor=-1;
+			if(bOwn)then
+				iOwnColor=CClientWrap.GetUserProfileValueI("Multiplayer/Color",m_pxPlayerSlot^.GetColor());
+				if(m_pxPlayerSlot^.GetValue("colortouse")!="")then
+					iOwnColor=m_pxPlayerSlot^.GetValue("colortouse").ToInt();
+					m_pxPlayerSlot^.SetValue("colortouse","");
+					CClientWrap.SetUserProfileValue("Multiplayer/Color",iOwnColor);
+				endif;
+			elseif(bAiPlayer && bHost)then
+				iOwnColor=m_pxPlayerSlot^.GetColor();
+			endif;
+			m_pxColorDropList^.m_xOnChange.Clear();
+			if(iOwnColor!=-1)then
+				m_iColor=iOwnColor;
+			endif;
+			m_pxColorDropList^.Select(m_iColor);
+			if(iOwnColor!=-1)then
+				OnChangeColor();
+			endif;
+			m_pxColorDropList^.m_xOnChange = OnChangeColor;
+			begin GAUpdate;
+				if(bHost)then
+					var ^CGame pxGame = ^(CGameWrap.GetGame());
+					var string sTrb;
+					var int iIdx=m_pxTribeDropList^.GetSelectedItem();
+					if(iIdx!=-1)then
+						var ^CItemDataString pxIDS=cast<CItemDataString>(m_pxTribeDropList^.GetItemData(iIdx));
+						sTrb=pxIDS^.m_sData;
+					else
+						sTrb="Hu";
+					endif;
+					pxGame^.SetAttrib("true_tribe_"+m_iSlotID.ToString(),sTrb);
+					m_pxPlayerSlot^.SetValue("tribe_filter",m_sTribe);
+				endif;
+			end GAUpdate;
+			begin HP;
+				m_pxHPDropList^.m_xOnChange.Clear();
+				var int i,iC=m_pxHPDropList^.NumItems();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CItemDataInt pxIDS=cast<CItemDataInt>(m_pxHPDropList^.GetItemData(i));	
+					if(pxIDS^.m_iData==m_iHP)then
+						m_pxHPDropList^.Select(i);
+					endif;
+				endfor;
+				m_pxHPDropList^.m_xOnChange = OnChangeHP;
+			end HP;
+			
+			begin HQ;
+				m_pxHQDropList^.m_xOnChange.Clear();
+				var int i,iC=m_pxHQDropList^.NumItems();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CItemDataInt pxIDS=cast<CItemDataInt>(m_pxHQDropList^.GetItemData(i));
+					if(pxIDS^.m_iData==m_iHeadQuater)then
+						m_pxHQDropList^.Select(i);
+					endif;
+				endfor;
+				m_pxHQDropList^.m_xOnChange = OnChangeHeadQuater;
+			end HQ;
+			
+			m_pxDifficultyDropList^.m_xOnChange.Clear();
+			iIdx = m_pxDifficultyDropList^.FindItem(m_iDifficulty.ToString());
+			/*if(iIdx==0) then 
+				iIdx = 9; 
+				m_iDifficulty = 9;
+			endif;*/
+			if(iIdx==-1)then
+				iIdx = 0;
+			endif;
+			m_pxDifficultyDropList^.Select(iIdx);
+			m_pxDifficultyDropList^.m_xOnChange = OnChangeDifficulty;
+			
+			/////////
+			begin fill_tribes;
+				var int iLast=-1;
+				var bool bLILoaded=false, bSetAI=false;
+				var string sLast=CClientWrap.GetUserProfileValue("Multiplayer/LastTribe",m_sTribe);
+				if(bOwn&&m_pxPlayerSlot^.GetValue("tribetouse")!="")then
+					sLast=m_pxPlayerSlot^.GetValue("tribetouse");
+					m_pxPlayerSlot^.SetValue("tribetouse","");
+					CClientWrap.SetUserProfileValue("Multiplayer/LastTribe",sLast);
+				endif;
+				if(bAiPlayer && bHost)then
+					sLast=CClientWrap.GetUserProfileValue("Multiplayer/LastAITribe_"+m_iSlotID.ToString(),m_sTribe);
+					bSetAI=true;
+				endif;
+				m_pxTribeDropList^.m_xOnChange.Clear();
+				m_pxTribeDropList^.Clear();
+				var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+				if(pxLevelInfo!=null)then
+					var array string asTribes;
+					var string sAllTribes=(pxLevelInfo^.GetGenericData())["PlayerSettings/Player_"+m_pxPlayerSlot^.GetHeadQuater().ToString()+"/Restrictions/Base/Tribes"].Value();
+					bLILoaded=sAllTribes!="";
+					sAllTribes.Split(asTribes,":",true);
+					iIdx=-1;
+					var int iMultiply=22;
+//					if(asTribes.NumEntries()>1||(CGameWrap.GetGame().GetAttribInt("ChooseHQ")==0 && bLILoaded))then
+					if(asTribes.NumEntries()>1)then
+						asTribes.AddEntry("Random");
+						if(asTribes.NumEntries()>3)then
+							var array string asRT;
+							asRT=m_asRandomTribes;
+							if(asTribes.NumEntries()<5)then
+								asRT.RemEntry("Aje_Hu_SEAS");
+								asRT.RemEntry("Aje_Ninigi_Hu");
+								asRT.RemEntry("Aje_Ninigi_SEAS");
+								asRT.RemEntry("Ninigi_Hu_SEAS");
+								iMultiply=20;
+							endif;
+							if(asTribes.FindEntry("Aje")==-1)then
+//								asRT.RemEntry("Ninigi_Hu_SEAS");
+								asRT.RemEntry("Aje_Ninigi");
+								asRT.RemEntry("Aje_Hu");
+								asRT.RemEntry("SEAS_Aje");
+							endif;
+							if(asTribes.FindEntry("Hu")==-1)then
+//								asRT.RemEntry("Aje_Ninigi_SEAS");
+								asRT.RemEntry("Aje_Hu");
+								asRT.RemEntry("Ninigi_Hu");
+								asRT.RemEntry("Hu_SEAS");
+							endif;
+							if(asTribes.FindEntry("Ninigi")==-1)then
+//								asRT.RemEntry("Aje_Hu_SEAS");
+								asRT.RemEntry("Aje_Ninigi");
+								asRT.RemEntry("Ninigi_Hu");
+								asRT.RemEntry("Ninigi_SEAS");
+							endif;
+							if(asTribes.FindEntry("SEAS")==-1)then
+//								asRT.RemEntry("Aje_Ninigi_Hu");
+								asRT.RemEntry("Hu_SEAS");
+								asRT.RemEntry("SEAS_Aje");
+								asRT.RemEntry("Ninigi_SEAS");
+							endif;
+							var int k, iK=asRT.NumEntries();
+							for(k=1)cond(k<iK)iter(k++)do
+								asTribes.AddEntry(asRT[k]);
+							endfor;
+						endif;
+					endif;
+					var int i,iC=asTribes.NumEntries();
+					if(iC>5)then
+						m_pxTribeDropList^.SetMaxPopUpListHeight(iC*iMultiply);
+					endif;
+					for(i=0)cond(i<iC)iter(i++)do
+						var string sTribe=asTribes[i];
+						//var string sIndex = sTribe.Left(1);
+//						var string sIndex = (i+1).ToString();
+						var string sIndex = GetHotkey(sTribe);
+						var ^CCardBitmap pxBmp=CGameInst.GetBitmapMgr().GetBlendBitmap("-1 ,layer tribeicon_"+sTribe);
+						if(pxBmp!=null)then
+							m_pxTribeDropList^.AddItem(sIndex,new CItemDataString(sTribe),pxBmp^.GetBitmap());
+						else
+							m_pxTribeDropList^.AddItem(CLocalizer.Get().Translate("_"+sTribe),new CItemDataString(sTribe));
+						endif;
+						if(sTribe==m_sTribe)then
+							iIdx=i;
+						endif;
+						if((bOwn || bSetAI) && sTribe==sLast)then
+							iLast=i;
+						endif;
+					endfor;
+				endif;
+				var bool bUpdate=false;
+				if((bOwn || bSetAI) && bLILoaded)then
+					if(iLast!=-1)then
+						iIdx=iLast;
+						bUpdate=true;
+					endif;
+				endif;
+				m_pxTribeDropList^.Select(iIdx);
+				if(bUpdate)then
+					OnChangeTribe();
+				endif;
+				m_pxTribeDropList^.m_xOnChange = OnChangeTribe;
+				if(iIdx==-1 && (bOwn || (bHost && bAiPlayer)))then
+					m_pxTribeDropList^.Select(0);
+				endif;
+			end fill_tribes;
+			
+			//////
+			m_pxArmyDropList^.m_xOnChange.Clear();
+			ReloadArmyList();
+			var int iArmyIdx=m_pxArmyDropList^.FindItem(m_sArmy);
+			if(iArmyIdx!=-1)then
+				m_pxArmyDropList^.Select(iArmyIdx);
+//			elseif(m_pxArmyDropList^.NumItems()>0&&bOwn)then
+//				m_pxArmyDropList^.Select(0);
+			endif;
+			m_pxArmyDropList^.m_xOnChange = OnChangeArmy;
+			if(bOwn)then
+				OnChangeArmy();
+			endif;
+			m_pxGoButton^.Init(this);
+			/*
+			m_pxReadyCheckBox^.m_xOnStateChange.Clear();
+			var int iState = 0;
+			if(m_bReady)then iState = 1; endif;
+			m_pxReadyCheckBox^.SetChecked(iState);
+			m_pxReadyCheckBox^.m_xOnStateChange=OnReady;
+			*/
+		end UpdateContent;
+		UpdatePermissions(m_bReady);
+	endproc;
+	
+	export proc void UpdatePermissions(bool p_bReady)
+		var bool bHost = (CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
+		var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
+		var bool bAiPlayer = m_sType.Left(3)=="ai_";
+		var int iGameType = CGameWrap.GetGame().GetType();
+		var int iCredits = CGameWrap.GetGame().GetCredits();
+		m_pxNameDropList^.SetDisabled(!bHost);
+		var bool bGeneralDisabled = p_bReady || !(bOwn || (bHost && bAiPlayer));
+		var int iChooseHQ = CGameWrap.GetGame().GetAttribInt("ChooseHQ");
+//		var int iChooseColor = CGameWrap.GetGame().GetAttribInt("ChooseColor");
+		var int iRandomColor = CGameWrap.GetGame().GetAttribInt("RandomColor");
+		var int iAllowHandicap = CGameWrap.GetGame().GetAttribInt("AllowHandicap");
+		//m_pxDifficultyDropList^.SetVisible(bAiPlayer);
+		if(!m_bIsSkirmishMode) then
+			//m_pxDifficultyDropList^.SetDisabled(bGeneralDisabled);
+			m_pxTeamDropList^.SetDisabled(bGeneralDisabled);
+//			m_pxColorDropList^.SetDisabled(bGeneralDisabled);
+//			if(bAiPlayer&&iChooseColor==0)then
+			if(bAiPlayer&&iRandomColor==1)then
+				m_pxColorDropList^.SetDisabled(true);
+				m_pxColorDropList^.SetVisible(false);
+			else
+				m_pxColorDropList^.SetDisabled(bGeneralDisabled);
+//				m_pxColorDropList^.SetVisible(iChooseColor!=0);
+				m_pxColorDropList^.SetVisible(iRandomColor==0);
+			endif;
+			if((bAiPlayer&&!bHost)||iAllowHandicap==0)then
+				m_pxHPDropList^.SetDisabled(true);
+			else
+				m_pxHPDropList^.SetDisabled(bGeneralDisabled);
+			endif;
+			m_pxHPDropList^.SetVisible(iAllowHandicap==1);
+			if(bAiPlayer&&iChooseHQ==0)then
+				m_pxHQDropList^.SetDisabled(true);
+				m_pxHQDropList^.SetVisible(false);
+			else
+				m_pxHQDropList^.SetDisabled(bGeneralDisabled);
+				m_pxHQDropList^.SetVisible(iChooseHQ!=0);
+			endif;
+			m_pxTribeDropList^.SetDisabled(bGeneralDisabled);
+			m_pxArmyDropList^.SetDisabled(bGeneralDisabled);
+			m_pxGoButton^.SetDisabled(!(bOwn || (bHost && bAiPlayer)));
+		else
+			//m_pxDifficultyDropList^.SetDisabled(false);
+			m_pxTeamDropList^.SetDisabled(false);
+//			m_pxColorDropList^.SetDisabled(false);
+//			if(iChooseColor==0)then
+			if(iRandomColor==1)then
+				m_pxColorDropList^.SetVisible(false);
+			else
+				m_pxColorDropList^.SetVisible(true);
+			endif;
+			m_pxHPDropList^.SetDisabled(false);
+			m_pxHQDropList^.SetDisabled(false);
+			if(iChooseHQ==0)then
+				m_pxHQDropList^.SetVisible(false);
+			else
+				m_pxHQDropList^.SetVisible(true);
+			endif;
+			m_pxTribeDropList^.SetDisabled(false);
+			m_pxArmyDropList^.SetDisabled(false);
+			m_pxGoButton^.SetDisabled(false);
+		endif;
+		var bool bAiHack=bAiPlayer||(m_iIndex==0&&CMirageClnMgr.HostDifficulty(CMultiPlayerClientMgr.Get().GetLevelInfo()));
+		if(m_pxPlayerSlot!=null && !bAiHack)then
+			m_pxDifficultyDropList^.Select(0);
+			m_pxPlayerSlot^.SetValue("Difficulty",0);
+		endif;
+		m_pxDifficultyDropList^.SetDisabled(!bAiHack || bGeneralDisabled);
+		if(bOwn)then
+			if(!m_xOnDisableArmy.IsNull())then
+//				m_xOnDisableArmy.Call(m_sTribe=="Random");
+				m_xOnDisableArmy.Call(m_asRandomTribes.FindEntry(m_sTribe)!=-1);
+			endif;
+			if(!m_xOnDisablePB.IsNull())then
+				m_xOnDisablePB.Call(p_bReady);
+			endif;
+			
+			//Choose Headquarter
+			if(iChooseHQ==0 || p_bReady) then
+				m_pxHQDropList^.SetDisabled(true);
+			else
+				m_pxHQDropList^.SetDisabled(false);
+			endif;
+			
+			//Choose Color
+//			if(iChooseColor==0 || p_bReady) then
+			if(iRandomColor==1 || p_bReady) then
+				m_pxColorDropList^.SetDisabled(true);
+			else
+				m_pxColorDropList^.SetDisabled(false);
+			endif;
+			
+			//Allow player handicap
+			if(iAllowHandicap==0 || p_bReady)then
+				m_pxHPDropList^.SetDisabled(true);
+			else
+				m_pxHPDropList^.SetDisabled(false);
+			endif;
+			
+			//check locked army
+			if(iCredits==-1 || p_bReady)then
+				m_pxArmyDropList^.SetDisabled(true);
+			else
+				m_pxArmyDropList^.SetDisabled(false);
+			endif;
+		endif;
+		if(bOwn ||(bHost && bAiPlayer))then
+			//Team
+			if(iGameType==2 || p_bReady)then
+				m_pxTeamDropList^.SetDisabled(true);
+			else
+				m_pxTeamDropList^.SetDisabled(false);
+			endif;
+		endif;
+		var bool bVisible=!m_pxPlayerSlot^.IsFree();
+		m_pxTeamDropList^.SetVisible(bVisible);
+//		m_pxColorDropList^.SetVisible(bVisible);
+//		if(iChooseColor==0)then
+		if(iRandomColor==1)then
+			m_pxColorDropList^.SetVisible(false);
+		else
+			m_pxColorDropList^.SetVisible(bVisible);
+		endif;
+		m_pxHPDropList^.SetVisible(bVisible&&iAllowHandicap==1);
+		if(iChooseHQ==0)then
+			m_pxHQDropList^.SetVisible(false);
+		else
+			m_pxHQDropList^.SetVisible(bVisible);
+		endif;
+		m_pxTribeDropList^.SetVisible(bVisible);
+		m_pxArmyDropList^.SetVisible(bVisible);
+		m_pxDifficultyDropList^.SetVisible(bVisible);
+		if(bOwn)then
+			SetID();
+		endif;
+	endproc;
+	
+	proc void ReloadNameList()
+		var bool bHost = (CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
+		if(m_bIsSkirmishMode) then
+			bHost=true;
+		endif;
+		var bool bFirst = m_iIndex==0;
+		m_pxNameDropList^.Clear();
+		if(m_iType==TYPE_HUMAN)then
+			m_pxNameDropList^.AddItem(m_sName);
+		endif;
+		if(bHost && !bFirst)then
+			if(!m_bIsSkirmishMode)then
+				m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Open"));
+			endif;
+			m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_AI"));
+			//m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Closed"));
+		endif;
+		if(!bHost && !bFirst) then
+			m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Open"));
+			m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_AI"));
+		endif;
+	endproc;
+	
+	proc void ReloadArmyList()
+		m_pxArmyDropList^.Clear();
+		if(m_iType==TYPE_OPEN||m_iType==TYPE_CLOSED)then
+			//m_pxArmyDropList^.AddItem(" ");
+		elseif(m_iType==TYPE_HUMAN)then
+			var int iCredits=CGameWrap.GetClient().GetGame().GetCredits();
+			var string sPreDef = CLocalizer.Get().Translate("_pb_locked");
+			sPreDef.Replace(" ","_");
+			var string sBoomer = CLocalizer.Get().Translate("_pb_boomer");
+			sBoomer.Replace(" ","_");
+			var string sRusher = CLocalizer.Get().Translate("_pb_rusher");
+			sRusher.Replace(" ","_");
+			var string sStandard = CLocalizer.Get().Translate("_pb_standard");
+			sStandard.Replace(" ","_");
+			var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
+//			if(m_sTribe=="Random")then
+			if(m_asRandomTribes.FindEntry(m_sTribe)!=-1)then
+				if(iCredits==-1)then
+					m_pxArmyDropList^.AddItem(sPreDef);
+				elseif(bOwn)then
+					m_pxArmyDropList^.AddItem(sBoomer);
+					m_pxArmyDropList^.AddItem(sRusher);
+					m_pxArmyDropList^.AddItem(sStandard);
+				endif;
+				if(bOwn)then
+					AutoSelectArmy(sStandard);
+				endif;
+				return;
+			endif;
+			if(iCredits==-1)then
+				m_pxArmyDropList^.AddItem(sPreDef);
+				m_pxArmyDropList^.Select(0);
+			else
+				var array string asPresets;
+				var ^CPresetWindow pxPresetWindow=m_pxOwner^.GetMultiPlayerPreGameWindow()^.GetPresetWindow();
+				System.Assert(pxPresetWindow!=null);
+				pxPresetWindow^.GetCurPresets(asPresets);
+				if(bOwn)then
+					var int i,iC=asPresets.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						m_pxArmyDropList^.AddItem(asPresets[i]);
+					endfor;
+					AutoSelectArmy(sStandard);
+				else
+					//m_pxArmyDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Custom"));
+				endif;
+			endif;
+			
+		elseif(m_iType==TYPE_AI)then
+			var bool bDef=false;
+			var bool bOff=false;
+			var bool bBal=false;
+			var bool bPas=false;
+			var bool bRand=false;
+			var int iMask;
+			CSettings.Get("AI/Personalities",iMask);
+			if(iMask>=9)then bRand=true;endif;
+			if(iMask>=8)then iMask-=8;bPas=true;endif;
+			if(iMask>=4)then iMask-=4;bOff=true;endif;
+			if(iMask>=2)then iMask-=2;bBal=true;endif;
+			if(iMask>=1)then iMask-=1;bDef=true;endif;
+			var int iIndex=0;
+			m_asAIPersonalities=0;
+			if(bRand)then
+				m_asAIPersonalities.AddEntry("Random");
+				m_pxArmyDropList^.AddItem(CLocalizer.Get().Translate("_Random"));
+			endif;
+			if(bDef)then
+				m_asAIPersonalities.AddEntry("Defensive");
+				m_pxArmyDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Defensive"));
+			endif;
+			if(bBal)then
+				m_asAIPersonalities.AddEntry("Balanced");
+				m_pxArmyDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Balanced"));
+			endif;
+			if(bOff)then
+				m_asAIPersonalities.AddEntry("Offensive");
+				m_pxArmyDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Offensive"));
+			endif;
+			if(bPas)then
+				m_asAIPersonalities.AddEntry("Passive");
+				m_pxArmyDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Passive"));
+			endif;
+			iIndex=m_asAIPersonalities.FindEntry(m_sArmy);
+//			if(iIndex==-1)then iIndex=0;endif;
+			if(iIndex==-1)then
+//				if(bBal)then
+//					iIndex = m_asAIPersonalities.FindEntry("Balanced");
+				if(bRand)then
+					iIndex = m_asAIPersonalities.FindEntry("Random");
+				else
+					iIndex=0;
+				endif;
+			endif;
+			m_pxArmyDropList^.Select(iIndex);
+//			m_pxPlayerSlot^.SetType(sNewType);
+			//m_sArmy=m_asAIPersonalities[0];
+			//m_pxPlayerSlot^.SetValue("Army",m_asAIPersonalities[0]);
+			OnChangeArmy();
+		endif;
+	endproc;
+	
+	proc void AutoSelectArmy(string p_sStandard)
+		var int iIndex=m_pxArmyDropList^.FindItem(m_sArmy);
+		if(iIndex==-1)then
+			iIndex = m_pxArmyDropList^.FindItem(p_sStandard);
+		endif;
+		if(iIndex==-1)then
+			iIndex=0;
+		endif;
+		m_pxArmyDropList^.Select(iIndex);
+	endproc;
+	
+	export proc bool UpdateNameDropList()
+		var bool bHost=(CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
+		if(m_bIsSkirmishMode) then
+			bHost=true;
+		endif;
+		m_pxNameDropList^.m_xOnChange.Clear();
+		if(m_iType==TYPE_OPEN)then
+			m_pxNameDropList^.Clear();
+			if(!m_bIsSkirmishMode)then
+				m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Open"));
+			endif;
+			if(bHost)then
+				m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_AI"));
+				m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Closed"));
+			endif;
+		elseif(m_iType==TYPE_HUMAN)then
+			m_pxNameDropList^.Clear();
+			if(m_sName!=("-1"))then
+				m_pxNameDropList^.AddItem(m_sName);
+			endif;
+			if(bHost&&m_iIndex!=0)then
+				if(!m_bIsSkirmishMode)then
+					m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Open"));
+				endif;
+				m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_AI"));
+				m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Closed"));
+			endif;
+		elseif(m_iType==TYPE_AI)then
+			m_pxNameDropList^.Clear();
+			if(!m_bIsSkirmishMode)then
+				m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Open"));
+			endif;
+			m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_AI"));
+			m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Closed"));
+			if(!m_bIsSkirmishMode)then
+				m_pxNameDropList^.Select(1);
+			else
+				m_pxNameDropList^.Select(0);
+			endif;
+		elseif(m_iType==TYPE_CLOSED)then
+			m_pxNameDropList^.Clear();
+			if(!m_bIsSkirmishMode)then
+				m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Open"));
+			endif;
+			m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_AI"));
+			m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Closed"));
+			if(!m_bIsSkirmishMode)then
+				m_pxNameDropList^.Select(2);
+			else
+				m_pxNameDropList^.Select(1);
+			endif;
+		endif;
+		m_pxNameDropList^.m_xOnChange=OnChangeName;
+		return(true);
+	endproc;
+	
+	export proc bool IsReady()
+		return (m_bReady)/*||(m_iType==TYPE_AI)*/;
+	endproc;
+	/*
+	export proc bool SetView(bool p_bHost)
+		m_pxNameDropList^.SetDisabled(true);
+		m_pxTribeDropList^.SetDisabled(true);
+		m_pxArmyDropList^.SetDisabled(true);
+		m_pxTeamDropList^.SetDisabled(true);
+		m_pxColorDropList^.SetDisabled(true);
+		m_pxDifficultyDropList^.SetDisabled(true);
+		m_pxDifficultyDropList^.SetVisible(false);
+		if(m_bIsSkirmishMode) then
+			p_bHost=true;
+		endif;
+		if(p_bHost)then
+			m_pxNameDropList^.SetDisabled(false);
+			if(m_iType==TYPE_AI)then
+				m_pxReadyCheckBox^.SetDisabled(true);
+				m_pxArmyDropList^.SetDisabled(false);
+				m_pxTribeDropList^.SetDisabled(false);
+				m_pxTeamDropList^.SetDisabled(false);
+				m_pxColorDropList^.SetDisabled(false);
+				m_pxDifficultyDropList^.SetVisible(true);
+				m_pxDifficultyDropList^.SetDisabled(false);
+				
+				m_pxReadyCheckBox^.m_xOnStateChange.Clear();
+				m_pxReadyCheckBox^.SetChecked(1);
+				m_pxReadyCheckBox^.m_xOnStateChange=OnReady;
+			elseif(m_iType==TYPE_CLOSED)then
+				m_pxReadyCheckBox^.m_xOnStateChange.Clear();
+				m_pxReadyCheckBox^.SetChecked(1);
+				m_pxReadyCheckBox^.m_xOnStateChange=OnReady;
+			endif;
+		endif;
+		return(true);
+	endproc;
+	*/
+	
+	export proc bool SetIndex(int p_iIndex)
+		m_iIndex=p_iIndex;
+		return(true);
+	endproc;
+	
+	export proc int GetIndex()
+		return(m_iIndex);
+	endproc;
+	
+	export proc void SetPlayerSlotID(CPlayerSlotID p_xPlayerSlotID, bool p_bSkirmishMode)
+		m_xPlayerSlotID = p_xPlayerSlotID;
+		m_pxPlayerSlot = ^(CGameWrap.GetClient().GetLevelPreview().GetPlayerSlot(m_xPlayerSlotID));
+		var CPlayerSlotID xIter;
+		var CPlayerSlotID xIterTmp;
+		var int iCnt=0;
+		for(xIter=CPlayerSlotID.First())cond(xIter<=CPlayerSlotID.Last())iter(xIter.Incr())do
+			if(xIter==m_xPlayerSlotID)then
+				m_iSlotID=iCnt;
+			endif;
+			iCnt++;
+		endfor;
+		var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
+		var bool bHost=(CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
+		if(p_bSkirmishMode && !bOwn)then
+			var string sArmy=m_sArmy;
+			if(sArmy=="")then
+				sArmy=m_asAIPersonalities[0];
+			endif;
+			if(sArmy=="Offensive")then
+				m_pxPlayerSlot^.SetType("ai_Dodo");
+			elseif(sArmy=="Balanced")then
+				m_pxPlayerSlot^.SetType("ai_Giraffe");
+			elseif(sArmy=="Passive")then
+				m_pxPlayerSlot^.SetType("ai_Mikrobe");
+			elseif(sArmy=="Defensive")then
+				m_pxPlayerSlot^.SetType("ai_Schnecke");
+			elseif(sArmy=="Random")then
+				m_pxPlayerSlot^.SetType("ai_Random");
+			else
+				m_pxPlayerSlot^.SetType("ai_Mikrobe");
+			endif;
+			m_pxPlayerSlot^.SetName("AI");
+			var int iIdx = m_pxDifficultyDropList^.FindItem(m_iDifficulty.ToString());
+			if(iIdx==-1)then iIdx = 0; endif;
+			m_pxDifficultyDropList^.Select(iIdx);
+			m_pxPlayerSlot^.SetReady(false);
+		elseif(p_bSkirmishMode && bOwn) then
+			m_pxPlayerSlot^.SetType("human");
+			var ^CUserProfileList pxList=^(CClientWrap.GetUserProfileList());
+			var string sTmp;
+			if(pxList!=null)then
+				sTmp=pxList^.GetCurrentProfile()^.GetUserName();
+				if(sTmp=="")then
+					sTmp=Windows.GetUserName();
+					CSettings.Set("Game/PlayerName",sTmp);
+				endif;
+			endif;
+			m_pxPlayerSlot^.SetName(sTmp);
+			m_pxPlayerSlot^.SetReady(false);
+		elseif(!p_bSkirmishMode && bOwn) then
+			/*var ^CPropDB pxUserProfile=^(CClientWrap.GetUserProfile());
+			var ^CPropDB.CNode pxNode = pxUserProfile^.FindNode("Multiplayer/Color",false);
+			if(pxNode==null) then 
+				m_iColor=0;
+				(pxUserProfile^)["Multiplayer/Color"].Value()=m_iColor.ToString();
+				CClientWrap.UpdateUserProfile();
+			else
+				m_iColor=(pxUserProfile^)["Multiplayer/Color"].ValueI();
+			endif;
+			var ^CItemDataInt pxItemData=cast<CItemDataInt>(m_pxColorDropList^.GetItemData(m_iColor));
+			if(pxItemData!=null)then
+				m_pxPlayerSlot^.SetColor(pxItemData^.m_iData);
+				m_pxColorDropList^.Select(m_iColor);
+			endif;
+			pxNode = pxUserProfile^.FindNode("Multiplayer/LastTribe",false);
+			if(pxNode==null) then
+				m_sTribe="Hu";
+				(pxUserProfile^)["Multiplayer/LastTribe"].Value()=m_sTribe;
+				CClientWrap.UpdateUserProfile();
+			else
+				m_sTribe=(pxUserProfile^)["Multiplayer/LastTribe"].Value();
+			endif;
+			m_pxPlayerSlot^.SetTribe(m_sTribe);
+			var int iIdx = -1;
+			var int i,iC=m_pxTribeDropList^.NumItems();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CItemDataString pxIDS=cast<CItemDataString>(m_pxTribeDropList^.GetItemData(i));
+				if(pxIDS^.m_sData==m_sTribe)then
+					iIdx=i;
+					break;
+				endif;
+			endfor;	
+			if(iIdx==-1)then iIdx = 0; endif;
+			m_pxTribeDropList^.Select(iIdx);*/
+		endif;
+	endproc;
+	
+	export proc CPlayerSlotID GetPlayerSlotID()
+		return m_xPlayerSlotID;
+	endproc;
+	
+	export proc int GetType()
+		return m_iType;
+	endproc;
+	
+	export proc string GetName()
+		return m_sName;
+	endproc;
+	
+	export proc int GetTeam()
+		return m_pxPlayerSlot^.GetTeam();
+	endproc;
+	
+	export proc string GetArmy()
+		return m_sArmy;
+	endproc;
+	
+	export proc string GetTribe()
+		return m_sTribe;
+	endproc;
+	
+	proc bool OnClickReady(bool p_bReady)
+		//Check PB
+		var bool bReady = p_bReady;
+		var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
+		var bool bHost = (CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
+		var bool bAiPlayer = m_sType.Left(3)=="ai_";
+		if(m_bIsSkirmishMode)then
+			bOwn=true;
+		endif;
+		var string sOthers;
+		if(bOwn)then
+			if(p_bReady)then
+				var bool bOkay=m_pxOwner^.IsHashOkay(m_iSlotID,m_pxPlayerSlot^.GetValue("key_hash"),sOthers);
+				if(!bOkay)then
+					CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Warning"),CLocalizer.Get().Translate("_MIRAGE_CDKEYHASH_CONFLICT")+sOthers);
+//					return false;
+				endif;
+			endif;
+//			m_pxOwner^.GetGameInfoWindow()^.EnablePointBuyPage(!bReady && m_sTribe!="Random");
+			m_pxOwner^.GetGameInfoWindow()^.EnablePointBuyPage(!bReady && m_asRandomTribes.FindEntry(m_sTribe) == -1);
+			m_pxOwner^.EnableSettingsPage(!bReady);
+			//m_pxOwner^.DisableBackButton(p_bReady);
+		endif;
+		if(bReady)then
+			if(bOwn || (bAiPlayer&&bHost))then
+				var string sType=m_pxPlayerSlot^.GetType();
+				var string sTribe=m_pxPlayerSlot^.GetTribe();
+//				if(sTribe=="Random")then
+				if(m_asRandomTribes.FindEntry(m_sTribe)!=-1)then
+					var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelPreview());
+					var int iRand=-1;
+					if(pxLevelInfo!=null) then
+						var string sAllTribes=(pxLevelInfo^.GetGenericData())["PlayerSettings/Player_"+m_iHeadQuater.ToString()+"/Restrictions/Base/Tribes"].Value();
+						var array string asTribes, asTemp;
+						var CConfig xConf;
+						sAllTribes.Split(asTribes,":",true);
+						var int i, iC=asTribes.NumEntries();
+						if(m_sTribe!="Random")then
+							var int iCnt=0;
+							asTemp=asTribes;
+							for(i=0)cond(i<iC)iter(i++)do
+								if(m_sTribe!="Random" && m_sTribe.Find(asTemp[i])==-1)then
+									asTribes.Exclude(asTemp[i]);
+									iCnt++;
+								endif;
+							endfor;
+							if(iCnt>=iC)then
+								asTribes=0; asTribes=asTemp;
+							endif;
+							iC=asTribes.NumEntries();
+						endif;
+						iRand=Random.GetInt()%iC;
+						if(iRand>=0 && iRand<asTribes.NumEntries())then
+							sTribe=asTribes[iRand];
+						else
+							sTribe="Hu";
+						endif;
+					else
+						sTribe="Hu";
+					endif;
+					m_pxPlayerSlot^.SetValue("army_id",m_pxArmyDropList^.GetSelectedItem());
+					if(bOwn)then
+						var ^CPresetWindow pxPresetWindow=m_pxOwner^.GetMultiPlayerPreGameWindow()^.GetPresetWindow();
+						System.Assert(pxPresetWindow!=null);
+						pxPresetWindow^.UpdateImmidiatly(sTribe, false);
+					endif;
+				endif;
+				if(!m_pxOwner^.GetGameInfoWindow()^.WriteResultToLevelInfo(m_pxPlayerSlot^.GetOwner(),sTribe))then
+					var ^CPresetWindow pxPresetWindow=m_pxOwner^.GetMultiPlayerPreGameWindow()^.GetPresetWindow();
+//					CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Warning"),CLocalizer.Get().Translate("_PointBuyMenu_PoinBuyIsEmpty"));
+					CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Warning"),CLocalizer.Get().Translate("_MIRAGE_PointBuyMenu_PoinBuyIsEmpty"));
+//					return false;
+				endif;
+			endif;
+			var int iEconomy = 0;
+			var int iDefense = 0;
+			var int iAttack = 0;
+			var string sTemp;
+			sTemp = "false";
+			if(CSettings.Get("Game/ControllerOptions/EconomySupport",sTemp))then
+				if(sTemp=="true")then
+					iEconomy = 1;
+				endif;
+			endif;
+			sTemp = "false";
+			if(CSettings.Get("Game/ControllerOptions/DefensiveSupport",sTemp))then
+				if(sTemp=="true")then
+					iDefense = 1;
+				endif;
+			endif;
+			sTemp = "false";
+			if(CSettings.Get("Game/ControllerOptions/OffensiveSupport",sTemp))then
+				if(sTemp=="true")then
+					iAttack = 1;
+				endif;
+			endif;
+			if(m_pxPlayerSlot!=null)then
+				m_pxPlayerSlot^.SetValue("ai_assist_economy", iEconomy);
+				m_pxPlayerSlot^.SetValue("ai_assist_defense", iDefense);
+				m_pxPlayerSlot^.SetValue("ai_assist_attack", iAttack);
+			endif;
+			UpdatePermissions(true);
+		else
+		endif;
+		if(m_pxPlayerSlot!=null)then
+			m_pxPlayerSlot^.SetReady(bReady);
+			if(m_bIsSkirmishMode)then
+				CMultiPlayerClientMgr.Get().OnLevelInfoUpdate();
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool OnExtClickReady()
+		if(!(m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID()))then return true; endif;
+		if(m_pxPlayerSlot^.IsReady())then return true; endif;
+		m_pxGoButton^.DoOnClick();
+		return true;
+	endproc;
+	
+	proc bool OnChangeTribe()
+		var string sTribe;
+		var bool bSelected=false;
+		var int iIdx=m_pxTribeDropList^.GetSelectedItem();
+		if(iIdx!=-1)then
+			var ^CItemDataString pxIDS=cast<CItemDataString>(m_pxTribeDropList^.GetItemData(iIdx));
+			sTribe=pxIDS^.m_sData;
+			bSelected=true;
+		else
+			sTribe="Hu";
+		endif;
+		m_sTribe=sTribe;
+		var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
+		if(bOwn)then
+			if(bSelected)then
+				CClientWrap.SetUserProfileValue("Multiplayer/LastTribe",sTribe);
+			endif;
+			var ^CPresetWindow pxPresetWindow=m_pxOwner^.GetMultiPlayerPreGameWindow()^.GetPresetWindow();
+			System.Assert(pxPresetWindow!=null);
+			pxPresetWindow^.UpdateImmidiatly(sTribe, false);
+//			m_pxOwner^.GetGameInfoWindow()^.EnablePointBuyPage(sTribe!="Random");
+			m_pxOwner^.GetGameInfoWindow()^.EnablePointBuyPage(!m_pxPlayerSlot^.IsReady() && m_asRandomTribes.FindEntry(m_sTribe)==-1);
+		endif;
+		var bool bAiPlayer = m_sType.Left(3)=="ai_";
+		if(bAiPlayer && CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID() && bSelected)then
+			CClientWrap.SetUserProfileValue("Multiplayer/LastAITribe_"+m_iSlotID.ToString(),sTribe);
+		endif;
+		if(m_pxPlayerSlot!=null)then
+			m_pxPlayerSlot^.SetTribe(sTribe);
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnChangeArmy()
+		if(m_pxPlayerSlot!=null)then
+			var string sArmy = m_pxArmyDropList^.GetSelectedItemAsString();
+			if(m_sType.Left(3)=="ai_")then
+				var int iSel=m_pxArmyDropList^.GetSelectedItem();
+				if(iSel!=-1)then 
+					sArmy=m_asAIPersonalities[iSel];
+					var string sNewType = "ai_";
+					if(sArmy=="Offensive")then
+						sNewType += "Dodo";
+					elseif(sArmy=="Defensive")then
+						sNewType += "Schnecke";
+					elseif(sArmy=="Balanced")then
+						sNewType += "Giraffe";
+					elseif(sArmy=="Passive")then
+						sNewType += "Mikrobe";
+					elseif(sArmy=="Random")then
+						sNewType += "Random";
+					endif;
+					if(sNewType!=m_sType)then
+						m_pxPlayerSlot^.SetType(sNewType);
+					endif;
+				endif;
+				m_sArmy=sArmy;
+			endif;
+			if(sArmy=="Custom")then
+				sArmy = "";
+			endif;
+			m_pxPlayerSlot^.SetValue("Army",sArmy);
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnChangeName()
+		var string sSelected=m_pxNameDropList^.GetSelectedItemAsString();
+		var int iType = 1;
+		if(sSelected==CLocalizer.Get().Translate("_UI_PlLiWind_Option_Open"))then
+			iType=0;
+		elseif(sSelected==CLocalizer.Get().Translate("_UI_PlLiWind_Option_AI"))then
+			iType=2;
+		elseif(sSelected==CLocalizer.Get().Translate("_UI_PlLiWind_Option_Closed"))then
+			iType=3;
+		endif;
+		/*if(m_bIsSkirmishMode)then
+			iType--;
+		endif;*/
+		if(m_pxPlayerSlot!=null)then
+			if(iType==0)then
+				m_pxDifficultyDropList^.Select(0);
+				m_pxPlayerSlot^.SetValue("Difficulty",0);
+				m_pxPlayerSlot^.SetType("invalid");
+				m_pxPlayerSlot^.SetName("Open");
+				m_pxPlayerSlot^.SetReady(false);
+				if(CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID())then
+					ClearID();
+				endif;
+			elseif(iType==1)then
+				m_pxPlayerSlot^.SetType("human");
+				m_pxDifficultyDropList^.Select(0);
+				OnChangeDifficulty();
+			elseif(iType==2)then
+				var string sArmy=m_sArmy;
+				if(sArmy=="")then
+					sArmy=m_asAIPersonalities[0];
+				endif;
+				if(sArmy=="Offensive")then
+					m_pxPlayerSlot^.SetType("ai_Dodo");
+				elseif(sArmy=="Balanced")then
+					m_pxPlayerSlot^.SetType("ai_Giraffe");
+				elseif(sArmy=="Passive")then
+					m_pxPlayerSlot^.SetType("ai_Mikrobe");
+				elseif(sArmy=="Defensive")then
+					m_pxPlayerSlot^.SetType("ai_Schnecke");
+				elseif(sArmy=="Random")then
+					m_pxPlayerSlot^.SetType("ai_Random");
+				else
+					m_pxPlayerSlot^.SetType("ai_Mikrobe");
+				endif;
+				m_pxPlayerSlot^.SetName("AI");
+				var CConfig xConf;
+				var int iDif = xConf.GetSetI("Server/GameplayOptions/DefAI",9);
+				if(iDif<0)then
+					iDif = 0;
+					xConf.SetI("Server/GameplayOptions/DefAI",iDif);
+				elseif(iDif>9)then
+					iDif = 9;
+					xConf.SetI("Server/GameplayOptions/DefAI",iDif);
+				endif;
+				m_pxPlayerSlot^.SetValue("Difficulty",iDif);
+				m_iDifficulty = iDif;
+				var int iIdx = 0;
+				iIdx = m_pxDifficultyDropList^.FindItem(m_iDifficulty.ToString());
+				m_pxDifficultyDropList^.Select(iIdx);
+				var int iNumTeams=CGameWrap.GetGame().GetAttribInt("NumTeams");
+				if(iNumTeams<=0)then
+					iNumTeams=1;
+				endif;
+				var int iTeam=(m_iIndex%iNumTeams)+1;
+				if(CGameWrap.GetGame().GetType()==2)then//Defender
+					if(m_pxPlayerSlot^.GetHeadQuater()==0)then
+						iTeam=1;
+					else
+						iTeam=2;
+					endif;
+					begin TeamCheck;
+						var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+						if(pxLevelInfo!=null)then
+							var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+							if(pxGenericDB!=null)then
+								var ^CPropDB.CNode pxTeams=pxGenericDB^.FindNode("ClientSettings/DefendTeams",false);
+								if(pxTeams!=null)then
+									var array string asTeams;
+									var string sTeams=pxTeams^.Value();
+									if(sTeams!="")then
+										sTeams.Split(asTeams,":",true);
+										if(asTeams.NumEntries()>m_iIndex)then
+											iTeam=Math.Clamp(asTeams[m_iIndex].ToInt(),1,2);
+										endif;
+									endif;
+								endif;
+							endif;
+						endif;
+					end TeamCheck;
+				endif;
+				m_pxPlayerSlot^.SetTeam(iTeam);
+				m_pxPlayerSlot^.SetReady(false);
+				var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+				var int iRandom = -1;
+				if(pxLevelInfo!=null)then
+					var array string asTribes;
+					var string sAllTribes=(pxLevelInfo^.GetGenericData())["PlayerSettings/Player_"+m_pxPlayerSlot^.GetHeadQuater().ToString()+"/Restrictions/Base/Tribes"].Value();
+					sAllTribes.Split(asTribes,":",true);
+					if(asTribes.NumEntries()>1)then
+						m_pxTribeDropList^.Select(asTribes.NumEntries());
+						OnChangeTribe();
+					endif;
+				endif;
+			elseif(iType==3)then
+				m_pxPlayerSlot^.SetType("closed");
+				m_pxPlayerSlot^.SetName("Closed");
+				m_pxPlayerSlot^.SetReady(true);
+			endif;
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnChangeDifficulty()
+		m_iDifficulty=m_pxDifficultyDropList^.GetSelectedItem();
+		if(m_pxPlayerSlot!=null)then
+			m_pxPlayerSlot^.SetValue("Difficulty",m_pxDifficultyDropList^.GetSelectedItem());
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnChangeTeam()
+		if(m_pxPlayerSlot!=null)then
+			var int iTeam=m_pxTeamDropList^.GetSelectedItemAsString().ToInt();
+			m_pxPlayerSlot^.SetTeam(iTeam);
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnChangeColor()
+		if(m_pxPlayerSlot!=null)then
+			var int iSelItem=m_pxColorDropList^.GetSelectedItem();
+			if(iSelItem!=-1)then
+				var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
+				var ^CItemDataInt pxItemData=cast<CItemDataInt>(m_pxColorDropList^.GetItemData(iSelItem));
+				if(pxItemData!=null)then
+					var int iColor=pxItemData^.m_iData;
+					var int iRandomColor = CGameWrap.GetGame().GetAttribInt("RandomColor");
+					if(iRandomColor==0)then
+						m_pxPlayerSlot^.SetColor(iColor);
+						if(bOwn)then
+							CClientWrap.SetUserProfileValue("Multiplayer/Color",iColor);
+						endif;
+					endif;
+				endif;
+//				if(bOwn && !m_bIsSkirmishMode) then
+			endif;
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnChangeHP()
+		if(m_pxPlayerSlot!=null)then
+			var int iSelItem=m_pxHPDropList^.GetSelectedItem();
+			if(iSelItem!=-1)then
+				var ^CItemDataInt pxItemData=cast<CItemDataInt>(m_pxHPDropList^.GetItemData(iSelItem));
+				if(pxItemData!=null)then
+					m_pxPlayerSlot^.SetHP(pxItemData^.m_iData);
+				endif;
+				var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
+				if(bOwn && !m_bIsSkirmishMode) then
+					var ^CPropDB pxUserProfile=^(CClientWrap.GetUserProfile());
+					(pxUserProfile^)["Multiplayer/HP"].Value() = pxItemData^.m_iData.ToString();
+					CClientWrap.UpdateUserProfile();
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnChangeHeadQuater()
+		if(m_pxPlayerSlot!=null)then
+			var int iSelItem=m_pxHQDropList^.GetSelectedItem();
+			if(iSelItem!=-1)then
+				var ^CItemDataInt pxItemData=cast<CItemDataInt>(m_pxHQDropList^.GetItemData(iSelItem));
+				if(pxItemData!=null)then
+					m_pxPlayerSlot^.SetHeadQuater(pxItemData^.m_iData);
+					var int iGameType = CGameWrap.GetGame().GetType();
+					if(iGameType==2)then//Defender
+//						if(pxItemData^.m_iData==0)then
+//							m_pxPlayerSlot^.SetTeam(1);
+//							//KLog.LogSpam("AnTr","a) PlayerSlot -> SetTeam 1");
+//						else
+//							m_pxPlayerSlot^.SetTeam(2);
+//							//KLog.LogSpam("AnTr","a) PlayerSlot -> SetTeam 2");
+//						endif;
+						var int iTeam=2;
+						if(pxItemData^.m_iData==0)then
+							iTeam=1;
+						endif;
+						begin TeamCheck;
+							var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+							if(pxLevelInfo!=null)then
+								var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+								if(pxGenericDB!=null)then
+									var ^CPropDB.CNode pxTeams=pxGenericDB^.FindNode("ClientSettings/DefendTeams",false);
+									if(pxTeams!=null)then
+										var array string asTeams;
+										var string sTeams=pxTeams^.Value();
+										if(sTeams!="")then
+											sTeams.Split(asTeams,":",true);
+											if(asTeams.NumEntries()>pxItemData^.m_iData)then
+												iTeam=Math.Clamp(asTeams[pxItemData^.m_iData].ToInt(),1,2);
+											endif;
+										endif;
+									endif;
+								endif;
+							endif;
+						end TeamCheck;
+						m_pxPlayerSlot^.SetTeam(iTeam);
+					endif;
+				endif;
+				var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
+				if(bOwn && !m_bIsSkirmishMode) then
+					var ^CPropDB pxUserProfile=^(CClientWrap.GetUserProfile());
+					(pxUserProfile^)["Multiplayer/HeadQuater"].Value() = pxItemData^.m_iData.ToString();
+					CClientWrap.UpdateUserProfile();
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool OnChangeMapExt()
+		if(m_pxPlayerSlot!=null)then
+			var int iSelItem=m_pxHQDropList^.GetSelectedItem();
+			if(iSelItem!=-1)then
+				var ^CItemDataInt pxItemData=cast<CItemDataInt>(m_pxHQDropList^.GetItemData(iSelItem));
+				if(pxItemData!=null)then
+//					m_pxPlayerSlot^.SetHeadQuater(pxItemData^.m_iData);
+					var int iGameType = CGameWrap.GetGame().GetType();
+					if(iGameType==2)then//Defender
+						var int iTeam=2;
+						if(pxItemData^.m_iData==0)then
+							iTeam=1;
+						endif;
+						begin TeamCheck;
+							var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+							if(pxLevelInfo!=null)then
+								var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+								if(pxGenericDB!=null)then
+									var ^CPropDB.CNode pxTeams=pxGenericDB^.FindNode("ClientSettings/DefendTeams",false);
+									if(pxTeams!=null)then
+										var array string asTeams;
+										var string sTeams=pxTeams^.Value();
+										if(sTeams!="")then
+											sTeams.Split(asTeams,":",true);
+											if(asTeams.NumEntries()>pxItemData^.m_iData)then
+												iTeam=Math.Clamp(asTeams[pxItemData^.m_iData].ToInt(),1,2);
+											endif;
+										endif;
+									endif;
+								endif;
+							endif;
+						end TeamCheck;
+						m_pxPlayerSlot^.SetTeam(iTeam);
+					endif;
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool Disable(bool p_bDisable)
+		if(m_iType==TYPE_AI)then
+			m_pxGoButton^.SetDisabled(true);
+		else
+			m_pxGoButton^.SetDisabled(false);
+		endif;
+		m_pxNameDropList^.SetDisabled(p_bDisable);
+		m_pxTribeDropList^.SetDisabled(p_bDisable);
+		m_pxArmyDropList^.SetDisabled(p_bDisable);
+		m_pxTeamDropList^.SetDisabled(p_bDisable);
+		m_pxColorDropList^.SetDisabled(p_bDisable);
+		m_pxHPDropList^.SetDisabled(p_bDisable);
+		m_pxHQDropList^.SetDisabled(p_bDisable);
+		m_pxDifficultyDropList^.SetDisabled(p_bDisable);
+		return(true);
+	endproc;
+	
+	proc string GetHotkey(string p_sTribe)
+		var string sHK="1";
+		if(p_sTribe=="Aje")then
+			sHK="2";
+		elseif(p_sTribe=="Ninigi")then
+			sHK="3";
+		elseif(p_sTribe=="SEAS")then
+			sHK="4";
+		elseif(p_sTribe=="Random")then
+			sHK="5";
+		elseif(p_sTribe=="Aje_Ninigi_SEAS")then
+			sHK="6";
+		elseif(p_sTribe=="Ninigi_Hu_SEAS")then
+			sHK="7";
+		elseif(p_sTribe=="Aje_Hu_SEAS")then
+			sHK="8";
+		elseif(p_sTribe=="Aje_Ninigi_Hu")then
+			sHK="9";
+		elseif(p_sTribe=="Aje_Ninigi")then
+			sHK="a";
+		elseif(p_sTribe=="Ninigi_Hu")then
+			sHK="s";
+		elseif(p_sTribe=="Hu_SEAS")then
+			sHK="d";
+		elseif(p_sTribe=="SEAS_Aje")then
+			sHK="f";
+		elseif(p_sTribe=="Aje_Hu")then
+			sHK="g";
+		elseif(p_sTribe=="Ninigi_SEAS")then
+			sHK="h";
+		endif;
+		return sHK;
+	endproc;
+	
+endclass;
+
+class CGoButton inherit CButton
+	
+	var ^CPlayerInfoSlot m_pxSlotInfo;
+	var ^CCardBitmap m_pxBmpWaiting;
+	var ^CCardBitmap m_pxBmpWaiting_Down;
+	var ^CCardBitmap m_pxBmpWaiting_Disabled;
+	var ^CCardBitmap m_pxBmpReady;
+	var ^CCardBitmap m_pxBmpReady_Down;
+	var ^CCardBitmap m_pxBmpReady_Disabled;
+	var ^CCardBitmap m_pxBmpClosed;
+	
+	export var procref<bool,bool> m_xOnStateChange;
+	
+	const int STATE_CLOSED=0;
+	const int STATE_READY=1;
+	const int STATE_UNREADY=2;
+	var int m_iState;
+	
+	export constructor()
+		m_pxBmpWaiting=CGameInst.GetBitmapMgr().GetBlendBitmap("-1, layer go_button_waiting");
+		m_pxBmpWaiting_Down=CGameInst.GetBitmapMgr().GetBlendBitmap("-1, layer go_button_waiting_down");
+		m_pxBmpWaiting_Disabled=CGameInst.GetBitmapMgr().GetBlendBitmap("-1, layer go_button_waiting_disabled");
+		m_pxBmpReady=CGameInst.GetBitmapMgr().GetBlendBitmap("-1, layer go_button_ready");
+		m_pxBmpReady_Down=CGameInst.GetBitmapMgr().GetBlendBitmap("-1, layer go_button_ready_down");
+		m_pxBmpReady_Disabled=CGameInst.GetBitmapMgr().GetBlendBitmap("-1, layer go_button_ready_disabled");
+		m_pxBmpClosed=CGameInst.GetBitmapMgr().GetBlendBitmap("-1, layer go_button_closed");
+		SetFrame(false);
+		SetState(STATE_CLOSED);
+		SetSpaceAvailable(false);
+	endconstructor;
+	
+	export proc void Init(^CPlayerInfoSlot p_pxSlotInfo)
+		m_pxSlotInfo=p_pxSlotInfo;
+		System.Assert(m_pxSlotInfo!=null,"m_pxSlotInfo!=null");
+		var int iState=STATE_CLOSED;
+		var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_pxSlotInfo^.GetPlayerSlot();
+		if(pxPlayerSlot!=null)then
+			if(!pxPlayerSlot^.IsFree())then
+				if(m_pxSlotInfo^.IsReady())then
+					iState=STATE_READY;
+				else
+					iState=STATE_UNREADY;
+				endif;
+			endif;
+		endif;
+		SetState(iState);
+	endproc;
+	
+	proc void SetState(int p_iState)
+		m_iState=p_iState;
+		if(m_iState==STATE_READY)then
+			if(m_pxBmpWaiting!=null && m_pxBmpWaiting_Down!=null)then
+				SetBitmap(m_pxBmpReady^.GetBitmap(),m_pxBmpReady_Down^.GetBitmap(), m_pxBmpReady^.GetBitmap(),m_pxBmpReady_Disabled^.GetBitmap());
+			endif;
+		elseif(m_iState==STATE_UNREADY)then
+			if(m_pxBmpWaiting!=null && m_pxBmpWaiting_Down!=null)then
+				SetBitmap(m_pxBmpWaiting^.GetBitmap(),m_pxBmpWaiting_Down^.GetBitmap(), m_pxBmpWaiting^.GetBitmap(),m_pxBmpWaiting_Disabled^.GetBitmap());
+			endif;
+		else
+			SetBitmap(m_pxBmpClosed^.GetBitmap());
+		endif;
+		InvalidateWindow();
+	endproc;
+	
+	proc bool OnClick()
+		if(!m_xOnStateChange.IsNull())then
+			var bool bReady=(m_iState==STATE_READY);
+			var bool bRes=m_xOnStateChange.Call(!bReady);
+			if(bRes==false)then
+				//no change state
+				return true;
+			endif;
+		endif;
+		if(m_iState==STATE_READY)then
+			SetState(STATE_UNREADY);
+		elseif(m_iState==STATE_UNREADY)then
+			SetState(STATE_READY);
+		endif;
+		return true;
+	endproc;
+	
+endclass;

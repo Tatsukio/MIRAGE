@@ -1,0 +1,521 @@
+class CIdleAnimMgr
+
+	static var ^CIdleAnimMgr ms_pxInst;
+	var array CIdleAnimMgr.CIdleAnimSet m_axStandardSets;
+	var array CIdleAnimMgr.CIdleAnimSet m_axRiderSets;
+	var array CIdleAnimMgr.CIdleTarget m_axObjects;
+	var int m_iUpdateTimer;
+	export static var bool ms_bTurnOnIAM;
+
+	constructor()
+		m_iUpdateTimer = -1;
+		var CConfig xConf;
+		CIdleAnimMgr.ms_bTurnOnIAM = xConf.GetSetI("Client/GameplayOptions/TurnOnIAM",1)==1;
+	endconstructor;
+	
+	destructor()
+		if(m_iUpdateTimer!=-1)then
+			CTimeMgr.Get().DeleteTimer(m_iUpdateTimer);
+		endif;
+	enddestructor;
+	
+	export static proc ref CIdleAnimMgr Get()
+		if(ms_pxInst==null)then
+			ms_pxInst = new CIdleAnimMgr;
+			ms_pxInst^.Init();
+		endif;
+		return(ms_pxInst^);
+	endproc;
+	
+	export static proc void Kill()
+		delete ms_pxInst;
+		ms_pxInst = null;
+	endproc;
+	
+	export proc void Init()
+		var CPropDB xDB, xRiderDB;
+		if(!xDB.Load(CClientWrap.GetUrsRelPath()+"/Data/Base/Scripts/Game/misc/IdleAnims.txt"))then
+			return;
+		elseif(!xRiderDB.Load(CClientWrap.GetUrsRelPath()+"/Data/Base/Scripts/Game/misc/RiderAnims.txt"))then
+			return;
+		endif;
+		//Parse IdleAnims.txt
+		var ^CPropDB.CNode pxRoot = ^(xDB.GetRoot());
+		var int i, iC = pxRoot^.NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CIdleAnimMgr.CIdleAnimSet xAnimSet;
+			var ^CPropDB.CNode pxAnimSet = ^((pxRoot^)[i]);
+			xAnimSet.m_sName = pxAnimSet^.Name();
+			var int j, iJC = pxAnimSet^.NumSubs();
+			for(j=0)cond(j<iJC)iter(j++)do
+				var ^CPropDB.CNode pxNode = ^((pxAnimSet^)[j]);
+				if(pxNode^.Name()=="users")then
+					//those who may use this animset
+					var int iL, iLC = pxNode^.NumSubs();
+					for(iL=0)cond(iL<iLC)iter(iL++)do
+						xAnimSet.m_asUsers.AddEntry((pxNode^)[iL].Name());
+					endfor;
+				elseif(pxNode^.Name()=="standanim")then
+					//special standanim, that is put on the end of each idle anim
+					if(!xAnimSet.m_xStandAnim.IsValid())then
+						if(xAnimSet.m_xStandAnim.CreateFromNode(pxNode))then
+							xAnimSet.m_iAllChance += xAnimSet.m_xStandAnim.m_iChance;
+						endif;
+					endif;
+				else
+					//standard anim to add
+					var CIdleAnimMgr.CIdleAnim xAnim;
+					if(xAnim.CreateFromNode(pxNode))then
+						xAnimSet.m_axAnims.AddEntry(xAnim);
+						xAnimSet.m_iAllChance += xAnim.m_iChance;
+					endif;
+				endif;
+			endfor;
+			m_axStandardSets.AddEntry(xAnimSet);
+		endfor;
+		//Parse RiderAnims.txt
+		pxRoot = ^(xRiderDB.GetRoot());
+		iC = pxRoot^.NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CIdleAnimMgr.CIdleAnimSet xAnimSet;
+			var ^CPropDB.CNode pxAnimSet = ^((pxRoot^)[i]);
+			xAnimSet.m_sName = pxAnimSet^.Name();
+			var int j, iJC = pxAnimSet^.NumSubs();
+			for(j=0)cond(j<iJC)iter(j++)do
+				var ^CPropDB.CNode pxNode = ^((pxAnimSet^)[j]);
+				if(pxNode^.Name()=="users")then
+					//those who may use this animset
+					var int iL, iLC = pxNode^.NumSubs();
+					for(iL=0)cond(iL<iLC)iter(iL++)do
+						xAnimSet.m_asUsers.AddEntry((pxNode^)[iL].Name());
+					endfor;
+				elseif(pxNode^.Name()=="standanim")then
+					//special standanim, that is put on the end of each idle anim
+					if(!xAnimSet.m_xStandAnim.IsValid())then
+						if(xAnimSet.m_xStandAnim.CreateFromNode(pxNode))then
+							xAnimSet.m_iAllChance += xAnimSet.m_xStandAnim.m_iChance;
+						endif;
+					endif;
+				else
+					//standard anim to add
+					var CIdleAnimMgr.CIdleAnim xAnim;
+					if(xAnim.CreateFromNode(pxNode))then
+						xAnimSet.m_axAnims.AddEntry(xAnim);
+						xAnimSet.m_iAllChance += xAnim.m_iChance;
+					endif;
+				endif;
+			endfor;
+			m_axRiderSets.AddEntry(xAnimSet);
+		endfor;
+		var ^CTimerObj pxTimer = CTimeMgr.Get().CreateTimer(CGameTimeSpan.OneSecond()*4.0, true);
+		if(pxTimer!=null)then
+			pxTimer^.m_xOnTimer = OnUpdateScreenObjs;
+			m_iUpdateTimer = pxTimer^.GetHndl();
+		endif;
+	endproc;
+	
+	export proc void OnUpdateScreenObjs(int p_iID)
+		if(!CIdleAnimMgr.ms_bTurnOnIAM)then
+			if(m_axObjects.NumEntries()>0)then
+				while(m_axObjects.NumEntries()>0)do
+					var ^CIdleAnimMgr.CIdleTarget pxTarget = ^(m_axObjects[0]);
+					pxTarget^.Stop();
+					m_axObjects.DeleteEntry(0);
+				endwhile;
+			endif;
+			return;
+		endif;
+		var CObjList xScreenObjs = CClientWrap.GetObjMgr().GetScreenObjs();
+		var int i, iC = xScreenObjs.NumEntries();
+		var array CIdleAnimMgr.CIdleTarget axTargets;
+		for(i=0)cond(i<iC)iter(i++)do
+			var CClntHndl xObj = xScreenObjs[i];
+			if(!xObj.IsValid())then continue; endif;
+			var ^CObj pxObj = xObj.GetObj();
+			var ^CIdleAnimMgr.CIdleTarget pxTarget = ^(axTargets.NewEntryRef());
+			pxTarget^.m_xObj = xObj;
+			if(m_axObjects.FindEntry(pxTarget^)==-1)then
+				AddObj(xObj);
+			endif;
+		endfor;
+		iC = m_axObjects.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CIdleAnimMgr.CIdleTarget pxTarget = ^(m_axObjects[i]);
+			if(axTargets.FindEntry(pxTarget^)==-1)then
+				pxTarget^.Stop();
+				m_axObjects.DeleteEntry(i);
+				i--; iC--;
+			endif;
+		endfor;
+	endproc;
+	
+	proc void AddObj(CClntHndl p_xHndl)
+		var ^CObj pxO = p_xHndl.GetObj();
+		if(pxO!=null)then
+			var CFourCC xT = pxO^.GetType();
+			if(xT=="CHTR")then
+				AddChar(p_xHndl);
+			elseif(xT=="ANML")then
+				AddAnimal(p_xHndl);
+			elseif(xT=="VHCL")then
+				AddVehicle(p_xHndl);
+			elseif(xT=="PROD")then
+				AddCaptain(p_xHndl);
+			endif;
+		endif;
+	endproc;
+	
+	proc void AddChar(CClntHndl p_xChar)
+		if(!p_xChar.IsValid())then return; endif;
+		var ^CObj pxObj = p_xChar.GetObj();
+		if(pxObj^.GetType()!="CHTR")then return; endif;
+		var CClntHndl xTransporter;
+		var string sClassName;
+		var bool bRider;
+		if(CGroupMgr.Get().IsRider(p_xChar,xTransporter) && xTransporter.IsValid())then
+			sClassName = xTransporter.GetObj()^.GetClassName();
+			bRider = true;
+		else
+			sClassName = pxObj^.GetClassName();
+		endif;
+		var int i, iC = m_axStandardSets.NumEntries();
+		var bool bFound = false;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_axStandardSets[i].m_asUsers.FindEntry(sClassName)!=-1)then
+				bFound = true;
+				break;
+			endif;
+		endfor;
+		if(bFound)then
+			var ^CIdleAnimMgr.CIdleTarget pxTarget = ^(m_axObjects.NewEntryRef());
+			pxTarget^.m_xObj = p_xChar;
+			pxTarget^.m_xAnimSet = m_axStandardSets[i];
+			if(bRider)then
+				pxTarget^.m_xTransporter = xTransporter;
+			endif;
+			pxTarget^.StartAnim(false);
+		else
+			KLog.LogWarn("CIdleAnimMgr","no animset found for "+sClassName);
+		endif;
+	endproc;
+	
+	proc void AddVehicle(CClntHndl p_xChar)
+		if(!p_xChar.IsValid())then return; endif;
+		var ^CObj pxObj = p_xChar.GetObj();
+		if(pxObj^.GetType()!="VHCL")then return; endif;
+		var CClntHndl xTransporter;
+		var string sClassName;
+		var bool bRider;
+		sClassName = pxObj^.GetClassName();
+		var int i, iC = m_axStandardSets.NumEntries();
+		var bool bFound = false;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_axStandardSets[i].m_asUsers.FindEntry(sClassName)!=-1)then
+				bFound = true;
+				break;
+			endif;
+		endfor;
+		if(bFound)then
+			var ^CIdleAnimMgr.CIdleTarget pxTarget = ^(m_axObjects.NewEntryRef());
+			pxTarget^.m_xObj = p_xChar;
+			pxTarget^.m_xAnimSet = m_axStandardSets[i];
+			pxTarget^.StartAnim(false);
+		else
+			KLog.LogWarn("CIdleAnimMgr","no animset found for "+sClassName);
+		endif;
+	endproc;
+
+	proc void AddAnimal(CClntHndl p_xAnml)
+		if(!p_xAnml.IsValid())then return; endif;
+		var ^CObj pxObj = p_xAnml.GetObj();
+		if(pxObj^.GetType()!="ANML")then return; endif;
+		var string sClassName = pxObj^.GetClassName();
+		var int i, iC = m_axStandardSets.NumEntries();
+		var bool bFound = false;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_axStandardSets[i].m_asUsers.FindEntry(sClassName)!=-1)then
+				var string sSetName = m_axStandardSets[i].m_sName;
+				if(pxObj^.GetType()!="CHTR" && sSetName.Find("_riders")>=0)then continue; endif;
+				bFound = true;
+				break;
+			endif;
+		endfor;
+		if(bFound)then
+			var ^CIdleAnimMgr.CIdleTarget pxTarget = ^(m_axObjects.NewEntryRef());
+			pxTarget^.m_xObj = p_xAnml;
+			pxTarget^.m_xAnimSet = m_axStandardSets[i];
+			pxTarget^.StartAnim(false);
+		else
+			KLog.LogWarn("CIdleAnimMgr","no animset found for "+sClassName);
+		endif;
+	endproc;
+	
+	proc void AddCaptain(CClntHndl p_xChar)
+		if(!p_xChar.IsValid())then return; endif;
+		var ^CObj pxObj = p_xChar.GetObj();
+		if(pxObj==null||pxObj^.GetClassName()!="universal_captain")then return; endif;
+		var ^CObj pxO=pxObj^.GetGroupedParentObj();
+//		if(pxO==null||!pxO^.GetRndInvMaskSingleFlagInv(6))then return; endif; // Henry: Saddle
+		if(pxO==null)then return; endif;
+		var CClntHndl xTransporter;
+		var string sClassName;
+		var bool bRider;
+		sClassName = pxObj^.GetCurrentGFXName()+"_"+pxO^.GetClassName();
+		var int i, iC = m_axRiderSets.NumEntries();
+		var bool bFound = false;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_axRiderSets[i].m_asUsers.FindEntry(sClassName)!=-1)then
+				bFound = true;
+				break;
+			endif;
+		endfor;
+		if(bFound)then
+			var ^CIdleAnimMgr.CIdleTarget pxTarget = ^(m_axObjects.NewEntryRef());
+			pxTarget^.m_xObj = p_xChar;
+			pxTarget^.m_xAnimSet = m_axRiderSets[i];
+			pxTarget^.m_xTransporter = pxO^.GetHandle();
+			pxTarget^.StartAnim(false);
+		endif;
+	endproc;
+
+	//INNER CLASSES
+
+	class CIdleAnim
+		
+		export constructor()
+		endconstructor;
+		
+		export destructor()
+		enddestructor;
+	
+		export var string	m_sAnim;
+		export var int		m_iMinLoops;
+		export var int		m_iMaxLoops;
+		export var int		m_iChance;
+		
+		export proc ref CIdleAnimMgr.CIdleAnim op_Assign(ref CIdleAnimMgr.CIdleAnim p_rxOther)
+			m_sAnim = p_rxOther.m_sAnim;
+			m_iMinLoops = p_rxOther.m_iMinLoops;
+			m_iMaxLoops = p_rxOther.m_iMaxLoops;
+			m_iChance = p_rxOther.m_iChance;
+			return this^;
+		endproc;
+		
+		export proc bool CreateFromNode(^CPropDB.CNode p_pxNode)
+			m_sAnim = p_pxNode^.Value();
+			m_iMinLoops = p_pxNode^.GetValueI("min_loops");
+			m_iMaxLoops = p_pxNode^.GetValueI("max_loops");
+			m_iChance = p_pxNode^.GetValueI("chance");
+			if(!IsValid())then return false; endif;
+			return true;
+		endproc;
+		
+		export proc bool IsValid()
+			return !(m_iMinLoops<=0 || m_iMaxLoops<m_iMinLoops || m_iChance<=0 || m_sAnim.IsEmpty());
+		endproc;
+		
+		export proc int GetRandomLoop()
+			return (Random.GetInt()%((m_iMaxLoops+1)-m_iMinLoops))+m_iMinLoops;
+		endproc;
+	
+	endclass;
+	
+	class CIdleAnimSet
+		
+		export constructor()
+		endconstructor;
+		
+		export destructor()
+		enddestructor;
+		
+		export var CIdleAnimMgr.CIdleAnim m_xStandAnim;
+		export var array CIdleAnimMgr.CIdleAnim m_axAnims;
+		export var array string m_asUsers;
+		export var string m_sName;
+		export var int m_iAllChance;
+		
+		export proc ref CIdleAnimMgr.CIdleAnimSet op_Assign(ref CIdleAnimMgr.CIdleAnimSet p_rxOther)
+			m_xStandAnim = p_rxOther.m_xStandAnim;
+			m_axAnims = p_rxOther.m_axAnims;
+			m_asUsers = p_rxOther.m_asUsers;
+			m_sName = p_rxOther.m_sName;
+			m_iAllChance = p_rxOther.m_iAllChance;
+			return this^;
+		endproc;
+		
+		export proc bool GetRandomAnim(ref CIdleAnimMgr.CIdleAnim p_rxAnim)
+			var int iChance = m_xStandAnim.m_iChance;
+			var int iIndex = 0;
+			var int iRandom = Random.GetInt()%m_iAllChance;
+			while(iIndex<m_axAnims.NumEntries() && iChance<iRandom)do
+				iChance += m_axAnims[iIndex].m_iChance;
+				iIndex++;
+			endwhile;
+			iIndex--;
+			if(iIndex<0)then
+				p_rxAnim = m_xStandAnim;
+				return false;
+			else
+				p_rxAnim = m_axAnims[iIndex];
+				return true;
+			endif;
+		endproc;
+		
+	endclass;
+	
+	class CIdleTarget
+		
+		export var CIdleAnimMgr.CIdleAnimSet		m_xAnimSet;
+		export var CClntHndl										m_xObj;
+		export var CClntHndl										m_xTransporter;
+		var ^CTimerObj													m_pxTimer;
+		var array string												m_asRiderAttackAnims;
+		
+		export constructor()
+			m_asRiderAttackAnims.AddEntry("bow_1");
+			m_asRiderAttackAnims.AddEntry("seas_marksman_0");
+			m_asRiderAttackAnims.AddEntry("tec_ride_bow_shoot");
+			m_asRiderAttackAnims.AddEntry("nat_throw");
+			m_asRiderAttackAnims.AddEntry("victory_0");
+			m_asRiderAttackAnims.AddEntry("ride_bow");
+			m_asRiderAttackAnims.AddEntry("seas_rocketman_0");
+			m_asRiderAttackAnims.AddEntry("aje_attack_ankylo");
+			m_asRiderAttackAnims.AddEntry("ride_bow");
+			m_asRiderAttackAnims.AddEntry("eusmilus_stina_sm");
+			m_asRiderAttackAnims.AddEntry("ride_attack_front");
+			m_asRiderAttackAnims.AddEntry("jans_anim_2");
+			m_asRiderAttackAnims.AddEntry("victory_2");
+			m_asRiderAttackAnims.AddEntry("victory_1");
+		endconstructor;
+		
+		export destructor()
+			if(m_pxTimer!=null)then
+				DeleteTimer();
+			endif;
+		enddestructor;
+	
+		export proc bool op_Equal(ref CIdleAnimMgr.CIdleTarget p_rxOther)
+			return m_xObj==p_rxOther.m_xObj;
+		endproc;
+	
+		export proc void StartAnim(bool p_bReset)
+			if(!CIdleAnimMgr.ms_bTurnOnIAM)then return; endif;
+			if(m_pxTimer!=null && !p_bReset)then return; endif;
+			var ^CObj pxObj = m_xObj.GetObj();
+			if(pxObj==null)then return; endif;
+			if(pxObj^.GetIcedFlag())then return; endif;
+			var CFourCC xType = pxObj^.GetType();
+			var ^CSequence pxSequence=CGameWrap.GetClient().GetSequence();
+			var bool bTransportBusy = false;
+			var bool bFighterBusy = false;
+			var string sCur=pxObj^.GetCurrentAnimName();
+			if(xType == "CHTR")then
+				if(pxObj^.GetCurrentAnimName()=="level_up")then bFighterBusy=true; endif;
+				if(m_xTransporter.IsValid())then
+					var ^CAttribs pxAttr = m_xTransporter.GetObj()^.GetAttribs();
+					//if(pxAttr==null || pxAttr^.GetValue("CurTask")=="Fight")then 
+						bTransportBusy = true;
+					//endif;
+				else
+					var ^CAttribs pxAttr = pxObj^.GetAttribs();
+					if(pxAttr==null || pxAttr^.GetValue("CurTask")!="Idle")then 
+						bFighterBusy = true;
+					endif;
+				endif;
+			elseif(xType=="ANML")then
+				var ^CAttribs pxAttr = pxObj^.GetAttribs();
+				var string sTask = "";
+				if(pxAttr!=null)then
+					sTask = pxAttr^.GetValue("CurTask");
+				endif;
+				bFighterBusy = bTransportBusy = sTask !="Idle";
+				if(pxObj^.GetOwner()==-1 && pxObj^.GetCurrentAnimName()=="standanim")then
+					bFighterBusy = bTransportBusy = false;
+				endif;
+			elseif(xType=="CAPN")then
+				bFighterBusy=false;
+				var string sCurAnim=pxObj^.GetCurrentAnimName();
+				if(m_asRiderAttackAnims.FindEntry(sCurAnim)!=-1)then
+					bFighterBusy=true;
+				endif;
+//				if(m_xTransporter.IsValid())then
+//					var ^CAttribs pxAttr = m_xTransporter.GetObj()^.GetAttribs();
+//					if(pxAttr!=null&&pxAttr^.GetValue("CurTask")=="Fight")then
+//						bTransportBusy = true;
+//					endif;
+//				endif;
+			endif;
+			if(p_bReset)then
+				if(!bFighterBusy && !bTransportBusy&&pxSequence==null)then
+					if(sCur=="sm_jump_01"||sCur=="fly")then
+						return;
+					else
+						pxObj^.SetAnim(m_xAnimSet.m_xStandAnim.m_sAnim,3,0);
+					endif;
+				endif;
+				return;
+			endif;
+			var real fDuration = 1.0;
+			var CIdleAnimMgr.CIdleAnim xAnim;
+			var bool bAnim = false;
+			var bool bIdleAnim = pxObj^.GetCurrentAnimName().Find("idle_")!=-1 || pxObj^.GetCurrentAnimName().Find("standanim")!=-1;
+			if(pxSequence!=null)then bIdleAnim=false; endif;
+			if(!bFighterBusy && !bTransportBusy && bIdleAnim)then
+				if(m_xAnimSet.GetRandomAnim(xAnim))then
+					//loopable anim
+					if(sCur=="sm_jump_01"||sCur=="fly")then
+						return;
+					else
+						pxObj^.SetSLEAnim(xAnim.m_sAnim, xAnim.GetRandomLoop(), true, true, fDuration);
+					endif;
+					bAnim = fDuration > 0.0;
+				endif;
+				if(!bAnim)then
+					//none loopable anim
+					if(sCur=="sm_jump_01"||sCur=="fly")then
+						return;
+					else
+						pxObj^.SetAnim(xAnim.m_sAnim,1,0);
+					endif;
+					fDuration = pxObj^.GetCurrentAnimLength();
+				endif;
+			else
+				fDuration = 6.0;
+			endif;
+			if(fDuration <= 0.0)then
+				fDuration = 6.0;
+			endif;
+			m_pxTimer = CTimeMgr.Get().CreateTimer(CGameTimeSpan.OneSecond()*fDuration, false);
+			if(m_pxTimer==null)then return; endif;
+			m_pxTimer^.m_xOnTimer = OnAnimEnd;
+		endproc;
+		
+		proc void OnAnimEnd(int p_iID)
+			DeleteTimer();
+			if(!m_xObj.IsValid())then return; endif;
+			var ^CSequence pxSequence=CGameWrap.GetClient().GetSequence();
+			if(pxSequence==null)then
+				var string sClassName=m_xObj.GetObj()^.GetClassName();
+				if(m_xAnimSet.m_sName=="Animset_Idle_HC_Citizen" && sClassName!="hc_citizen_01_animal")then
+					m_xObj.GetObj()^.SetAnim("standanim",1,0);
+				endif;
+			endif;
+			StartAnim(false);
+		endproc;
+		
+		export proc void Stop()
+			StartAnim(true);
+			DeleteTimer();
+		endproc;
+		
+		proc void DeleteTimer()
+			if(m_pxTimer!=null)then
+				m_pxTimer^.m_xOnTimer.Clear();
+				CTimeMgr.Get().DeleteTimer(m_pxTimer);
+				m_pxTimer = null;
+			endif;
+		endproc;
+		
+	endclass;
+	
+endclass;

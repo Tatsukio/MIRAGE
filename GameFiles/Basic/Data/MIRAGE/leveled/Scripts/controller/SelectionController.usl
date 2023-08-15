@@ -1,0 +1,94 @@
+class CSelectionController inherit CInputController
+
+	var ^CObjMgr			m_pxObjMgr;
+	var ^CObjSelection		m_pxSelection;
+	var point				m_xMousePos;
+	var point				m_xDragBoxBegin;
+
+	var int 				m_iState;
+
+	var bool				m_bLMB;
+	var bool				m_bRMB;
+
+
+
+	export constructor()
+		m_iState		=	-1;	// -1	->	RegionController off
+								//	0	->	DragBox-Mode
+
+		m_pxObjMgr=^(CClientWrap.GetObjMgr());
+		m_pxSelection=^(CClientWrap.GetSelection());
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc bool SetState(int p_iState);
+		m_iState=p_iState;
+		return(true);
+	endproc;
+
+
+	export proc bool HandleMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+		CLevelEditorWrap.LogSpam("Controller.Selection","HandleMsg"+p_dwType.ToString()+" | "+p_iKey.ToString());
+		var bool bCtrl	= ((p_dwFlags&Msg.KM_CONTROL)!=0d);
+		var bool bShift	= ((p_dwFlags&Msg.KM_SHIFT)!=0d);
+		var bool bAlt	= ((p_dwFlags&Msg.KM_ALT)!=0d);
+
+		if(p_dwType==CInputController.MT_MouseLBtnDown)then m_bLMB=true;
+		elseif(p_dwType==CInputController.MT_MouseLBtnUp)then m_bLMB=false;
+		elseif(p_dwType==CInputController.MT_MouseRBtnDown)then m_bRMB=true;
+		elseif(p_dwType==CInputController.MT_MouseRBtnUp)then m_bRMB=false;
+		endif;
+
+		if(p_dwType==CInputController.MT_MouseLBtnDown) then
+			m_xDragBoxBegin.SetX(p_iX);
+			m_xDragBoxBegin.SetY(p_iY);
+		elseif(p_dwType==CInputController.MT_MouseMove)then
+			var ^CDragBox pxDragBox=^(CClientWrap.GetDragBox());
+			if(pxDragBox^.IsActive() && m_bLMB)then
+				m_xMousePos.SetX(p_iX);
+				m_xMousePos.SetY(p_iY);
+				pxDragBox^.DragUpdate(m_xMousePos);
+			elseif((m_bLMB) && (!pxDragBox^.IsActive())) then
+				var vec2 vWuff;
+				vWuff.SetX((p_iX-m_xDragBoxBegin.GetX()).ToReal());
+				vWuff.SetY((p_iY-m_xDragBoxBegin.GetY()).ToReal());
+ 				if(vWuff.AbsSquare()>16.0f)then
+					m_xMousePos.SetX(p_iX);
+					m_xMousePos.SetY(p_iY);
+					pxDragBox^.DragBegin(m_xDragBoxBegin);
+					pxDragBox^.DragUpdate(m_xMousePos);
+				endif;
+			endif;
+		elseif(p_dwType==CInputController.MT_MouseLBtnUp) then
+			var ^CDragBox pxDragBox=^(CClientWrap.GetDragBox());
+			if(pxDragBox!=null && pxDragBox^.IsActive()) then
+				pxDragBox^.DragEnd(m_xMousePos);
+			endif;
+			if(bAlt)then
+				return(false);
+			endif;
+			var CObjList xHoveredObjects=m_pxObjMgr^.GetHoveredObjs();
+			if(bCtrl)then
+				var ^CObjList pxSoWasDummes=m_pxSelection;
+				var CObjList xTmpSel=(pxSoWasDummes^);
+				var CObjList xTmpHov=xHoveredObjects;
+				m_pxSelection^.Exclude(xHoveredObjects);
+				xHoveredObjects.Exclude(xTmpSel);
+				xHoveredObjects.Include(pxSoWasDummes^);
+			endif;
+			(m_pxSelection^)=xHoveredObjects;
+		elseif(p_dwType==CInputController.MT_MouseRBtnDown) then
+			var ^CDragBox pxDragBox=^(CClientWrap.GetDragBox());
+			if(pxDragBox^.IsActive()) then //DragBox beenden
+				var point xPos;
+				xPos.SetX(p_iX);
+				xPos.SetY(p_iY);
+				pxDragBox^.DragEnd(xPos);
+			endif;
+		endif;
+
+		return(true);
+	endproc;
+endclass;

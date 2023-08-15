@@ -1,0 +1,598 @@
+//ViewScapeTemplates.usl
+//
+//To transfer your local scape templates to another computer copy
+//the '*.sic' files from the scape subfolders to the according folders
+//on the destination computer.
+
+class CViewScapeTemplates inherit CEnhancedFrameWindow
+
+	var ^CTemplateTreeCtrl		m_pxTree;
+	var CPropDB 				m_xDB;
+
+	var rect					m_xSelectedBlocks;
+	var ^CViewAddTemplate		m_pxViewAddTemplate;
+
+	//Temporary template variables
+	export var CLevelTemplate	m_xLevelTemplate;
+	
+	var string					m_sInfoName;
+	var string					m_sInfoSize;
+	var string					m_sInfoObjects;
+	
+	const int ROTSTATE_NONE		=0;
+	const int ROTSTATE_90		=1;
+	const int ROTSTATE_180		=2;
+	const int ROTSTATE_270		=3;
+	const int ROTSTATE_H		=4;
+	const int ROTSTATE_V		=5;
+	
+	var int m_iRotState;
+	var bool m_bShowTMPInfo;
+
+	export constructor()
+		if(!InitFromResource("scape/ViewScapeTemplates","ViewScapeTemplates")) then
+			CLevelEditorWrap.LogError("UI.ViewScapeTemplates","InitFromResource failed");
+			return;
+		endif;
+		//Scape Template PropDB
+		//TreeControl for template categories
+		m_pxTree= cast<CTemplateTreeCtrl>(GetControl("Tree"));
+		m_pxTree^.Init(this);
+		//Read the Template DB and initalize the treecontrol
+		if(!InitScapeTemplateDB())then
+			KLog.LogError("ScapeTemplates","ScapeTemplatesDB.txt could not be opened!");
+			return();
+		endif;
+		//Template List
+		UpdateTemplateList();
+		//Buttons
+		var ^CButton pxCreateButton = cast<CButton>(GetControl("Bottom/Create"));
+		pxCreateButton^.m_xOnClick = OnCreateButton;
+		var ^CButton pxAddButton = cast<CButton>(GetControl("Bottom/Add"));
+		pxAddButton^.m_xOnClick = OnAddButton;
+		var ^CButton pxRotate90=cast<CButton>(GetControl("Rotate_Mirror/Rotate90"));
+		pxRotate90^.m_xOnClick = OnRotate90;
+		var ^CButton pxMirrorV=cast<CButton>(GetControl("Rotate_Mirror/MirrorV"));
+		pxMirrorV^.m_xOnClick = OnMirrorV;
+		var ^CButton pxMirrorH=cast<CButton>(GetControl("Rotate_Mirror/MirrorH"));
+		pxMirrorH^.m_xOnClick = OnMirrorH;
+		//Checkboxes
+		m_bShowTMPInfo=false;
+		var ^CCheckBox pxShowTMPInfo = cast<CCheckBox>(GetControl("Bottom/ShowTMPInfo"));
+		pxShowTMPInfo^.m_xOnStateChange=OnShowTMPInfo;
+		pxShowTMPInfo^.SetChecked(0);
+		LoadPosition("ScapeTemplates",false);
+		if(CLevelEditorWrap.GetScapeMgr().HasMap())then
+			SetDisabled(false);
+		else
+			SetDisabled(true);
+		endif;
+		CMainController.Get().GetBlockCtrl().SetViewBlock(this);
+	endconstructor;
+
+	export destructor();
+	enddestructor;
+	
+	proc bool OnSelectTreeItem()
+		/*
+		m_pxTemplateList^.Clear();
+		DisableAllButtons(true);
+		var int iSelection=m_pxCategories^.GetSelectedItem();
+		if(iSelection==0)then return(false);endif;
+		var int iSelectionParent=m_pxCategories^.GetParentItem(iSelection);
+		if(iSelectionParent!=0)then
+			UpdateTemplateList();
+		endif;
+		//Update Buttons
+		if(m_pxTemplateList^.NumItems()>0)then
+			var ^CButton	pxInsertButton = cast<CButton>(GetControl("Bottom/Insert"));
+			var ^CButton	pxDeleteButton = cast<CButton>(GetControl("Bottom/Delete"));
+			pxInsertButton^.SetDisabled(false);
+			pxDeleteButton^.SetDisabled(false);
+		endif;
+		*/
+		return(true);
+	endproc;
+
+	proc bool OnRotate90()
+		m_xLevelTemplate.Rotate90();
+		return true;
+	endproc;
+	
+	proc bool OnMirrorV()
+		m_xLevelTemplate.Mirror(false);
+		return true;
+	endproc;
+	
+	proc bool OnMirrorH()
+		m_xLevelTemplate.Mirror(true);
+		return true;
+	endproc;
+	/*
+	proc bool OnRotButton()
+		if(++m_iRotState>ROTSTATE_V) then m_iRotState=ROTSTATE_NONE; endif;
+		var ^CButton pxRotButton = cast<CButton>(GetControl("RotButton"));
+		if(m_iRotState==ROTSTATE_NONE) then
+			pxRotButton^.SetText("---");
+		elseif(m_iRotState==ROTSTATE_90) then
+			pxRotButton^.SetText("R 90");
+		elseif(m_iRotState==ROTSTATE_180) then
+			pxRotButton^.SetText("R 180");
+		elseif(m_iRotState==ROTSTATE_270) then
+			pxRotButton^.SetText("R 270");
+		elseif(m_iRotState==ROTSTATE_H) then
+			pxRotButton^.SetText("M H");
+		elseif(m_iRotState==ROTSTATE_V) then
+			pxRotButton^.SetText("M V");
+		else
+			KLog.LogError("UI.ViewScapeTemplates","Invalid RotState:"+m_iRotState.ToString());
+		endif;
+		return(true);
+	endproc;
+	*/
+
+	//If UserTemplatesDB.txt is not existing, it will be created.
+	proc bool InitScapeTemplateDB()
+		/*
+		if(!m_xDB.Load(CSettings.GetUserSettingsDir()+"UserTemplatesDB.txt")) then
+			m_xDB.Load(CLevelEditorWrap.GetUrsRelPath()+"/Data/LevelEd/Scripts/scape/ScapeTemplates/ScapeTemplatesDB.txt");
+			m_xDB.Save(CSettings.GetUserSettingsDir()+"UserTemplatesDB.txt");
+		endif;
+		var Filesystem.CFileList xFileList;
+		var string sPath=CClientWrap.GetUrsRelPath()+"/Data/LevelEd/Scripts/scape/ScapeTemplates";
+		var int i,j;
+		var array string asTemplates;
+		var int iNumFiles=xFileList.ReadListEx(sPath,"*.sic",true,true);
+		for(i=0)cond(i<iNumFiles)iter(i++)do
+			if(i>xFileList.NumEntries()-1)then break;endif;
+			if(xFileList[i].m_sName.Right(4)!=".sic")then
+				xFileList.DeleteEntry(i);
+				i--;
+			else
+				var string sTemp=xFileList[i].m_sName;
+				sTemp.Replace(CClientWrap.GetUrsRelPath()+"/Data/LevelEd/Scripts/scape/ScapeTemplates/","");
+				asTemplates.AddEntry(sTemp);
+			endif;
+		endfor;
+		iNumFiles=asTemplates.NumEntries();
+		for(i=0)cond(i<iNumFiles)iter(i++)do
+			//Empty template file. Not to be considered.
+			if(asTemplates[i]=="Blank.sic")then continue;endif;
+			var array string asFile;
+			//Splitted into Setting/ScapeType/Filename
+			asTemplates[i].Split(asFile,"/",true);
+			var string sCategory=asFile[0];
+			var string sSubCategory=asFile[1];
+			var string sFileName=asFile[2];
+			if(m_xDB.GetRoot().Find(sCategory)!=(-1))then
+				var ^CPropDB.CNode pxNode=^(m_xDB.GetRoot().Get(m_xDB.GetRoot().Find(sCategory)));
+				var ^CPropDB.CNode pxSubNode=^(pxNode^.Get(pxNode^.Find(sSubCategory)));
+				var int iLast=pxSubNode^.NumSubs();
+				var ^CPropDB.CNode pxNewEntry=^(pxSubNode^.AddValue("Entry_"+iLast.ToString(),""));
+				var string sEntryName=sFileName;
+				sEntryName.Replace(".sic","");
+				pxNewEntry^.AddValue("name",sEntryName);
+				pxNewEntry^.AddValue("file",sFileName);
+			else
+				KLog.LogInfo("ScapeTemplates","Category==(-1)");
+			endif;
+		endfor;
+		if(!m_xDB.Save(CSettings.GetUserSettingsDir()+"UserTemplatesDB.txt"))then
+			KLog.LogError("ScapeTemplates","UserTemplatesDB.txt could not be saved!");
+		endif;
+		//TreeCtrl is beeing initialized from UserTemplatesDB.txt
+		for(i=0)cond(i<m_xDB.GetRoot().NumSubs())iter(i++)do
+			var ^CPropDB.CNode pxNode=^(m_xDB.GetRoot().Get(i));
+			if(pxNode!=null)then
+				m_pxCategories^.AddItem(0,pxNode^.Name());
+				if(pxNode^.NumSubs()>0)then
+					var ^CPropDB.CNode pxSubNode;
+					for(j=0)cond(j<pxNode^.NumSubs())iter(j++)do
+						pxSubNode=^(pxNode^.Get(j));
+						if(pxSubNode!=null)then
+							m_pxCategories^.AddItem(m_pxCategories^.FindItem(0,pxNode^.Name()),pxSubNode^.Name());
+						endif;
+					endfor;
+				endif;
+			endif;
+		endfor;
+		m_pxCategories^.InvalidateWindow();
+		*/
+		return(true);
+	endproc;
+
+	export proc void UpdateTemplateList();
+		/*
+		m_pxTemplateList^.Clear();
+		DisableAllButtons(true);
+		var int iSelection=m_pxCategories^.GetSelectedItem();
+		if(iSelection==0)then return();endif;
+		var int iSelectionParent=m_pxCategories^.GetParentItem(iSelection);
+		var string sSubCategory=m_pxCategories^.GetItemText(iSelection);
+		var string sCategory=m_pxCategories^.GetItemText(iSelectionParent);
+		var ^CPropDB.CNode pxNode=^(m_xDB.GetRoot().Get(m_xDB.GetRoot().Find(sCategory)));
+		var ^CPropDB.CNode pxSubNode=^(pxNode^.Get(pxNode^.Find(sSubCategory)));
+		var int i;
+		var ^CPropDB.CNode pxEntry;
+		var string sName;
+		for(i=0)cond(i<pxSubNode^.NumSubs())iter(i++)do
+			pxEntry=^(pxSubNode^.Get(i));
+			sName=pxEntry^.GetValueS("name");
+			m_pxTemplateList^.AddItem(sName);
+		endfor;
+		//Update Buttons
+		var ^CButton	pxCreateButton = cast<CButton>(GetControl("Bottom/Create"));
+		pxCreateButton^.SetDisabled(false);
+		if(m_pxTemplateList^.NumItems()>0)then
+			var ^CButton	pxInsertButton = cast<CButton>(GetControl("Bottom/Insert"));
+			var ^CButton	pxDeleteButton = cast<CButton>(GetControl("Bottom/Delete"));
+			pxInsertButton^.SetDisabled(false);
+			pxDeleteButton^.SetDisabled(false);
+		endif;
+		*/
+	endproc;
+
+	proc bool OnSelectTemplate()
+		/*
+		var int iSelection=m_pxCategories^.GetSelectedItem();
+		if(iSelection==0)then return(false);endif;
+		var int iSelectionParent=m_pxCategories^.GetParentItem(iSelection);
+		var string sSubCategory=m_pxCategories^.GetItemText(iSelection);
+		var string sCategory=m_pxCategories^.GetItemText(iSelectionParent);
+		if(sCategory=="")then
+			return(false);
+		endif;
+		var ^CPropDB.CNode pxNode=^(m_xDB.GetRoot().Get(m_xDB.GetRoot().Find(sCategory)));
+		var ^CPropDB.CNode pxSubNode=^(pxNode^.Get(pxNode^.Find(sSubCategory)));
+		var int iIndex=m_pxTemplateList^.GetSelectedItem();
+		var ^CPropDB.CNode pxEntry=pxSubNode^.Get("Entry_"+iIndex.ToString());
+		var ^CStaticCtrl	pxName =cast<CStaticCtrl>(GetControl("GroupBoxInfo/Name"));
+		var ^CStaticCtrl	pxSize =cast<CStaticCtrl>(GetControl("GroupBoxInfo/Size"));
+		var ^CStaticCtrl	pxObjects =cast<CStaticCtrl>(GetControl("GroupBoxInfo/Objects"));
+		if(pxEntry==null)then
+			pxName^.SetText("");
+			pxSize^.SetText("");
+			pxObjects^.SetText("");
+			return(false);
+		endif;
+		var string sFileName=pxEntry^.GetValueS("file");
+		var string sPath=CLevelEditorWrap.GetUrsRelPath()+"/Data/LevelEd/Scripts/scape/ScapeTemplates/";
+		var string sFilePath=sPath+pxNode^.Name()+"/"+pxSubNode^.Name()+"/"+sFileName;
+		///////////
+		var CLevelTemplate	xTmp;
+		if(xTmp.Load(sFilePath))then
+			pxName^.SetText("Name: "+m_pxTemplateList^.GetSelectedItemAsString());
+			pxSize^.SetText("Size: "+xTmp.GetWidth().ToString()+"x"+xTmp.GetHeight().ToString());
+			pxObjects^.SetText("Objects: "+xTmp.GetNumObjects().ToString());
+		else
+			pxName^.SetText("invalid template");
+		endif;
+			//////////////
+		if ( CMainController.Get().GetBlockCtrl().GetState() == 1 ) then			
+			OnInsertButton();
+		endif;
+		*/
+		return(true);
+	endproc;
+
+	proc bool OnCreateButton()
+		CMainController.Get().ActivateBlockCtrl();
+		CMainController.Get().GetBlockCtrl().SetViewBlock(this);
+		return true;
+	endproc;
+
+	proc bool OnAddButton()
+		CMainController.Get().GetTerrainCtrl().SetState(-1);
+		var int iWidthInBlocks=m_xSelectedBlocks.GetRight()-m_xSelectedBlocks.GetLeft();
+		var int iHeightInBlocks=m_xSelectedBlocks.GetBottom()-m_xSelectedBlocks.GetTop();
+		m_xLevelTemplate.Init(m_xSelectedBlocks.GetLeft(),m_xSelectedBlocks.GetTop(),iWidthInBlocks,iHeightInBlocks);
+		m_pxViewAddTemplate=new CViewAddTemplate(this);
+		CClientWrap.GetDesktop()^.AddChild(m_pxViewAddTemplate);
+		return(true);
+	endproc;
+	
+	export proc void LoadTemplate(string p_sPath)
+		if(m_xLevelTemplate.Load(p_sPath))then
+			CMainController.Get().ActivateBlockCtrl();
+			CMainController.Get().GetBlockCtrl().SetState(1);
+			CWindowMgr.Get().BringWindowToTop(this,true);
+			m_xLevelTemplate.Show();
+			if(m_bShowTMPInfo)then
+				CMessageBox.MsgBox("Template informations","tmp-height: "+(m_xLevelTemplate.GetHeight()*32).ToString()+" | tmp-width: "+(m_xLevelTemplate.GetWidth()*32).ToString()+" | number of objects on it: "+m_xLevelTemplate.GetNumObjects().ToString());
+			endif;
+		endif;
+	endproc;
+	
+	export proc bool PlaceTemplate(int p_iX, int p_iY)
+		m_xLevelTemplate.Apply(p_iX,p_iY);
+		m_xLevelTemplate.Hide();
+		return(true);
+	endproc;
+
+	export proc bool DisableAddButton(bool p_bParam)
+		var ^CButton pxAddButton = cast<CButton>(GetControl("Bottom/Add"));
+		pxAddButton^.SetDisabled(p_bParam);
+		return(true);
+	endproc;
+
+	export proc void SetSelectedBlocks(rect p_xSelBlocks)
+		m_xSelectedBlocks=p_xSelBlocks;
+		var int iX=m_xSelectedBlocks.GetRight()-m_xSelectedBlocks.GetLeft();
+		var int iY=m_xSelectedBlocks.GetBottom()-m_xSelectedBlocks.GetTop();
+		var ^CButton pxAddButton = cast<CButton>(GetControl("Bottom/Add"));
+		if(!(iX==0 || iY==0))then
+			pxAddButton^.SetDisabled(false);
+		else
+			pxAddButton^.SetDisabled(true);
+		endif;
+	endproc;
+
+	export proc void CreateTemplate(string p_sTemplateName)
+		m_pxTree^.CreateTemplate(p_sTemplateName);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CMainController.Get().GetBlockCtrl().Deactivate();
+	endproc;
+
+	export proc bool OnShowTMPInfo();
+		var ^CCheckBox pxBox= cast<CCheckBox>(GetControl("Bottom/ShowTMPInfo"));
+		m_bShowTMPInfo=pxBox^.GetCheckMark();
+		return true;
+	endproc;
+
+endclass;
+
+class CViewAddTemplate inherit CEnhancedFrameWindow;
+
+	var ^CViewScapeTemplates m_pxOwner;
+
+	export constructor(^CViewScapeTemplates p_pxOwner)
+		if(!InitFromResource("scape/ViewScapeTemplates","AddDialog")) then
+			CLevelEditorWrap.LogError("UI.AddDialog","InitFromResource failed");
+			return;
+		endif;
+		m_pxOwner=p_pxOwner;
+		var ^CButton pxOkButton = cast<CButton>(GetControl("OkButton"));
+		pxOkButton^.m_xOnClick=OnOk;
+		var ^CButton pxCancelButton = cast<CButton>(GetControl("CancelButton"));
+		pxCancelButton^.m_xOnClick=OnCancel;
+		var ^CEdit pxNameEdit = cast<CEdit>(GetControl("NameEdit"));
+		pxNameEdit^.SetSelection(0,10000);
+		SetPos((CClientWrap.GetDesktop()^.GetSize().GetX()/2)-GetSize().GetX()/2,(CClientWrap.GetDesktop()^.GetSize().GetY()/2)-GetSize().GetY()/2);
+		CWindowMgr.Get().BringWindowToTop(pxNameEdit,true); //this gives focus to edit
+		CWindowMgr.Get().SetModal(this);
+	endconstructor;
+
+	proc bool OnOk()
+		var ^CEdit pxNameEdit = cast<CEdit>(GetControl("NameEdit"));
+		var string sText=pxNameEdit^.GetText();
+		if(sText.IsEmpty())then
+			CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Error"),"invalid name");
+			return true;
+		endif;
+		m_pxOwner^.CreateTemplate(sText);
+		Destroy();
+		return(true);
+	endproc;
+
+	proc bool OnCancel()
+		Destroy();
+		return(true);
+	endproc;
+
+endclass;
+
+class CViewFolderName inherit CEnhancedFrameWindow;
+
+	var ^CTemplateTreeCtrl m_pxOwner;
+
+	export constructor(^CTemplateTreeCtrl p_pxOwner)
+		if(!InitFromResource("scape/ViewScapeTemplates","AddDialog")) then
+			CLevelEditorWrap.LogError("UI.AddDialog","InitFromResource failed");
+			return;
+		endif;
+		m_pxOwner=p_pxOwner;
+		var ^CButton pxOkButton = cast<CButton>(GetControl("OkButton"));
+		pxOkButton^.m_xOnClick=OnOk;
+		var ^CButton pxCancelButton = cast<CButton>(GetControl("CancelButton"));
+		pxCancelButton^.m_xOnClick=OnCancel;
+		var ^CEdit pxNameEdit = cast<CEdit>(GetControl("NameEdit"));
+		pxNameEdit^.SetSelection(0,10000);
+		SetPos((CClientWrap.GetDesktop()^.GetSize().GetX()/2)-GetSize().GetX()/2,(CClientWrap.GetDesktop()^.GetSize().GetY()/2)-GetSize().GetY()/2);
+		CWindowMgr.Get().BringWindowToTop(pxNameEdit,true); //this gives focus to edit
+		CWindowMgr.Get().SetModal(this);
+	endconstructor;
+
+	proc bool OnOk()
+		var ^CEdit pxNameEdit = cast<CEdit>(GetControl("NameEdit"));
+		var string sText=pxNameEdit^.GetText();
+		if(sText.IsEmpty())then
+			CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Error"),"invalid name");
+			return true;
+		endif;
+		m_pxOwner^.CreateFolder(sText);
+		Destroy();
+		return(true);
+	endproc;
+
+	proc bool OnCancel()
+		Destroy();
+		return(true);
+	endproc;
+
+endclass;
+
+class CTemplateTreeCtrl inherit CTreeCtrl2
+	
+	var ^CViewScapeTemplates m_pxOwner;
+	
+	export class CTemplateItemData inherit CItemData
+	
+		export var bool m_bDir;
+		export var string m_sPath;
+		
+		export constructor(bool p_bDir,string p_sPath)
+			m_bDir=p_bDir;
+			m_sPath=p_sPath;
+		endconstructor;
+		
+	endclass;
+	
+	export constructor()
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	export proc void Init(^CViewScapeTemplates p_pxOwner)
+		m_pxOwner=p_pxOwner;
+		var string sPath=CClientWrap.GetUrsRelPath()+"/Data/LevelEd/Scripts/scape/ScapeTemplates";
+		InitTreeRec(sPath,null);
+	endproc;
+		
+	proc void InitTreeRec(string p_sPath,^CTreeCtrl2.CNode p_pxParent)
+		var Filesystem.CFileList xFileList;
+//		var int iNumFiles=xFileList.ReadListEx(p_sPath,"*.*",false,false,false);
+		var int iNumFiles=xFileList.ReadListExNoMod(p_sPath,"*.*",false,false,false);
+		var int i,iC=iNumFiles;
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sName=xFileList[i].m_sName;
+			var bool bDir=xFileList[i].m_bDir;
+			if(bDir)then
+				//m_pxTreeIcon=CBitmapPtr.Create("menue/controls/treedefaultimg.tga");
+				var CBitmapPtr pxIcon=CBitmapPtr.Create("folder.tga");
+				var ^CTreeCtrl2.CNode pxNewNode=AddItem(p_pxParent,sName,new CTemplateItemData(bDir,p_sPath+"/"+sName),pxIcon);
+				InitTreeRec(p_sPath+"/"+sName,pxNewNode);
+			else
+				var CIOPath xPath;
+				xPath.Init(sName);
+				if(xPath.Extension()=="ltd")then
+					var CBitmapPtr pxIcon=CBitmapPtr.Create("treedefaultimg.tga");
+					AddItem(p_pxParent,sName,new CTemplateItemData(bDir,p_sPath+"/"+sName),pxIcon);
+				endif;
+			endif;
+		endfor;
+	endproc;
+	
+	proc bool OnRButtonDown()
+		super.OnRButtonDown();
+		var ^CTreeCtrl2.CNode pxSelItem=GetSelectedItem();
+		if(pxSelItem==null)then return true; endif;
+		var ^CTemplateItemData pxData=cast<CTemplateItemData>(GetItemData(pxSelItem));
+		if(pxData==null)then return true; endif;
+		var ^CContextMenu pxMenu=new CContextMenu(GetSHWND());
+		if(pxData^.m_bDir)then
+			pxMenu^.AddItem("create folder",0);
+		endif;
+		pxMenu^.AddItem("delete",1);
+		pxMenu^.AddItem("cancel",2);
+		pxMenu^.Show();
+		return true;
+	endproc;
+	
+	proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+		var string sClass=p_rxEvt.GetClass().ToString();
+		if(sClass=="sCtxBtnC")then
+			var int iID=p_rxEvt.GetInt16A();
+			if(iID==0)then//create folder
+				var ^CTreeCtrl2.CNode pxSelItem=GetSelectedItem();
+				if(pxSelItem!=null)then 
+					var ^CTemplateItemData pxData=cast<CTemplateItemData>(GetItemData(pxSelItem));
+					if(pxData!=null && pxData^.m_bDir)then
+						CClientWrap.GetDesktop()^.AddChild(new CViewFolderName(this));
+					endif;
+				endif;
+			elseif(iID==1)then//Delete
+				var ^CTreeCtrl2.CNode pxSelItem=GetSelectedItem();
+				if(pxSelItem!=null)then
+					DeleteItem(pxSelItem);
+				endif;
+			elseif(iID==2)then//Cancel
+				return true;
+			endif;
+		endif;
+		return super.HandleMessage(p_rxEvt);
+	endproc;
+	
+	proc void DeleteItem(^CTreeCtrl2.CNode p_pxItem)
+		DeleteItemRec(p_pxItem);
+	endproc;
+	
+	proc void DeleteItemRec(^CTreeCtrl2.CNode p_pxItem)
+		if(p_pxItem==null)then return; endif;
+		var ^CTemplateItemData pxData=cast<CTemplateItemData>(GetItemData(p_pxItem));
+		if(pxData!=null)then
+			while(p_pxItem^.NumChildren()>0)do
+				DeleteItemRec(p_pxItem^.GetChild(0));
+			endwhile;
+			if(pxData^.m_bDir)then
+				var bool bRes=Filesystem.DeleteDir(pxData^.m_sPath);
+			else
+				var bool bRes=Filesystem.Delete(pxData^.m_sPath);
+			endif;
+			delete pxData;
+		endif;
+		super.DeleteItem(p_pxItem);
+		InvalidateContent();
+	endproc;
+	
+	proc bool OnLButtonDoubleClick()
+		var ^CTreeCtrl2.CNode pxSelItem=GetSelectedItem();
+		if(pxSelItem!=null)then 
+			var ^CTemplateItemData pxData=cast<CTemplateItemData>(GetItemData(pxSelItem));
+			if(pxData!=null)then
+				if(!pxData^.m_bDir)then
+					m_pxOwner^.LoadTemplate(pxData^.m_sPath);
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	export proc void CreateTemplate(string p_sTemplateName)
+		if(p_sTemplateName.IsEmpty())then return; endif;
+		var ^CTreeCtrl2.CNode pxParent=null;
+		var ^CTreeCtrl2.CNode pxSelItem=GetSelectedItem();
+		if(pxSelItem!=null)then 
+			var ^CTemplateItemData pxData=cast<CTemplateItemData>(GetItemData(pxSelItem));
+			if(pxData!=null)then
+				if(pxData^.m_bDir)then
+					pxParent=pxSelItem;
+				else
+					pxParent=pxSelItem^.GetParent();
+				endif;
+			endif;
+		endif;
+		var ^CTemplateItemData pxData=cast<CTemplateItemData>(GetItemData(pxParent));
+		if(pxParent==null || pxData==null)then
+			pxParent=GetRootItem();
+		endif;
+		pxData=cast<CTemplateItemData>(GetItemData(pxParent));
+		var string sFileName=p_sTemplateName+".ltd";
+		var string sPath=CClientWrap.GetUrsRelPath()+"/Data/LevelEd/Scripts/scape/ScapeTemplates/"+sFileName;
+		if(pxData!=null)then
+			System.Assert(pxData^.m_bDir);
+			sPath=pxData^.m_sPath+"/"+sFileName;
+		endif;
+		System.Assert(pxParent!=null);
+		if(m_pxOwner^.m_xLevelTemplate.Save(sPath))then
+			var CBitmapPtr pxIcon=CBitmapPtr.Create("treedefaultimg.tga");
+			var ^CTreeCtrl2.CNode pxNewItem=AddItem(pxParent,sFileName,new CTemplateItemData(false,sPath),pxIcon);
+			Select(pxNewItem);
+		endif;
+	endproc;
+	
+	export proc void CreateFolder(string p_sName)
+		var ^CTreeCtrl2.CNode pxSelItem=GetSelectedItem();
+		if(pxSelItem!=null)then
+			var ^CTemplateItemData pxData=cast<CTemplateItemData>(GetItemData(pxSelItem));
+			if(pxData!=null && pxData^.m_bDir)then
+				var string sFolderPath=pxData^.m_sPath+"/"+p_sName;
+				if(Filesystem.MkDir(sFolderPath))then
+					var CBitmapPtr pxIcon=CBitmapPtr.Create("folder.tga");
+					AddItem(pxSelItem,p_sName,new CTemplateItemData(true,sFolderPath),pxIcon);
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+endclass;

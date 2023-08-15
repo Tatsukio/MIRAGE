@@ -1,0 +1,286 @@
+///class CAiGoalKillEnclosedWorker.usl
+
+/// CWorkedObj represents a working worker on an obj
+class CWorkedObj
+	export var int m_iWorkedObjHndl;
+	export var int m_iWorkerHndl;	
+	
+	export proc bool op_Equal(ref CWorkedObj p_rxOtherWorkedObj)
+		return (m_iWorkedObjHndl==p_rxOtherWorkedObj.m_iWorkedObjHndl&&m_iWorkerHndl==p_rxOtherWorkedObj.m_iWorkerHndl);
+	endproc;	
+endclass;
+
+
+class CAiGoalKillEnclosedWorker inherit CAiGoal
+		
+	export var array CWorkedObj m_axWorkedObjs;
+	export var array string 	m_asWalls;
+
+	var CAiTaskTimer 			m_xDataResetTimer;
+	var ^CAiBrain 				m_pxBrain;
+	var ^CAiSensor				m_pxSensor;
+	var string					m_sPlayerID;
+	var int						m_iPlayerID;
+	
+	
+	
+	///constructor
+	export constructor()
+		m_asWalls.AddEntry("hu_palisade");
+		m_asWalls.AddEntry("hu_palisade_gate");
+		m_asWalls.AddEntry("hu_small_wall");
+		m_asWalls.AddEntry("hu_small_wall_gate");
+		m_asWalls.AddEntry("hu_re_enforced_wall");
+		m_asWalls.AddEntry("hu_re_enforced_wall_gate");
+		m_asWalls.AddEntry("aje_bone_palisade");
+		m_asWalls.AddEntry("aje_bone_palisade_gate");
+		m_asWalls.AddEntry("aje_clay_wall");
+		m_asWalls.AddEntry("aje_clay_wall_gate");
+		m_asWalls.AddEntry("ninigi_defense_skewer");
+		m_asWalls.AddEntry("ninigi_defense_skewer_gate");
+		m_asWalls.AddEntry("ninigi_palisade");
+		m_asWalls.AddEntry("ninigi_palisade_gate");
+		//Henry. adding seas to array
+		m_asWalls.AddEntry("seas_fence");
+		m_asWalls.AddEntry("seas_gate");
+		m_asWalls.AddEntry("seas_wall");
+		m_asWalls.AddEntry("seas_wall_gate");
+	endconstructor;
+	
+	
+	///destructor
+	export destructor()
+	enddestructor;
+		
+		
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		if(super.Init(p_pxBrain)==false)then return false; endif;
+		
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		
+//		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(74+iType);
+		
+		m_xDataResetTimer.Init(this);
+		RemoveTask(^m_xDataResetTimer);
+		AddTask(^m_xDataResetTimer);
+		
+		m_xDataResetTimer.m_xOnTimeAlert = OnTimeOut;
+		m_xDataResetTimer.Set(0, 180, false);
+		m_xDataResetTimer.Start();
+		return true;
+	endproc;
+
+
+	///Shut
+	export proc void Shut()
+		if(^m_xDataResetTimer!=null)then
+			m_xDataResetTimer.Shut();
+			RemoveTask(^m_xDataResetTimer);
+		endif;
+	endproc;
+	
+	
+	///think
+	export proc void Think()
+		if(m_pxBrain==null)then return; endif;	
+		if(m_pxSensor==null)then return; endif;			
+				
+		var string sTribe=m_pxSensor^.GetTechTree().GetTribe();
+		
+		var CAiObjQuery	xQuery;
+		var CAiObjWrapList xList;
+		
+		xQuery.SetOwner(m_iPlayerID);
+		if(sTribe=="Hu")then						
+			xQuery.SetClass("hu_worker");
+			xQuery.SetClass("hu_mammoth_lumber_upgrade",true);
+			xQuery.SetClass("tesla_s0", true);
+			xQuery.Execute(xList);
+		elseif(sTribe=="Aje")then					
+			xQuery.SetType("CHTR");
+			xQuery.Execute(xList);
+		elseif(sTribe=="SEAS")then					
+			xQuery.SetClass("seas_worker");
+			xQuery.Execute(xList);				
+		elseif(sTribe=="Ninigi")then
+			xQuery.SetType("CHTR");
+			xQuery.Execute(xList);					
+			
+			var CAiObjQuery	xQueryMore;
+			var CAiObjWrapList xListMore;
+			xQueryMore.SetClass("ninigi_harvester");
+			xQueryMore.SetClass("tesla_s0",true);
+			xQueryMore.Execute(xListMore);			
+			xList.Include(xListMore);			
+		endif;
+				
+		var int i,iC=xList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!xList[i].IsValid())then continue; endif;
+		endfor;
+				
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!xList[i].IsValid())then continue; endif;
+					
+			var string sCurTask=xList[i].GetCurrentTask();
+			if(sCurTask!="BuildUp"&& (!HadBuildUpJob(xList[i].GetHandle())) )then
+			
+				var int iCurHndl=xList[i].GetHandle();
+				var int iW,iWC=m_axWorkedObjs.NumEntries();
+				for(iW=0)cond(iW<iWC)iter(iW++)do
+					if(m_axWorkedObjs[iW].m_iWorkerHndl==iCurHndl)then
+						continue;
+					endif;
+				endfor;
+																			
+				xList.RemEntry(xList[i]);
+				i--;
+				iC--;
+			endif;
+		endfor;		
+		
+		iC=xList.NumEntries();		
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!xList[i].IsValid())then continue; endif;
+			
+			var string sWorkObjHndl=xList[i].GetAttribValue("CurProcessObj");
+			var int iWorkObjHndl=sWorkObjHndl.ToInt();
+			var CAiObjWrap xCurWorkObj;					
+			xCurWorkObj.FromInt(iWorkObjHndl);					
+			
+			if(xCurWorkObj.IsValid())then
+			else
+				continue;
+			endif;
+			
+			var string sBuildingClass=xCurWorkObj.GetName();
+			var int iWall, iWallCount=m_asWalls.NumEntries();
+			for(iWall=0)cond(iWall<iWallCount)iter(iWall++)do
+				if(sBuildingClass.Find(m_asWalls[iWall])!=-1)then
+					break;
+				endif;
+			endfor;
+			if(iWall>=iWallCount)then
+				if(!(HadBuildUpJob(xList[i].GetHandle())))then				
+					continue;
+				endif;
+			endif;
+							
+			if(m_pxSensor^.IsEnclosed(xList[i]))then	
+				var bool bKillNow=true;
+				
+				begin CheckForKill;
+					var bool bKnowWorker;
+					var bool bChangedWorkObj=false;
+					var int iW,iWC=m_axWorkedObjs.NumEntries();
+					for(iW=0)cond(iW<iWC)iter(iW++)do
+
+						var CAiObjWrap xWorkerObj;
+						xWorkerObj.FromInt(m_axWorkedObjs[iW].m_iWorkerHndl);
+						if(m_axWorkedObjs[iW].m_iWorkerHndl==xList[i].GetHandle())then														
+							if(iWorkObjHndl!=m_axWorkedObjs[iW].m_iWorkedObjHndl)then
+								bChangedWorkObj=true;
+								break;
+							endif;
+							
+							bKnowWorker=true;
+							break;
+						endif;
+					endfor;
+																																
+					if(!bChangedWorkObj)then																		
+						var int iWorkObjHitpoints=-1;
+						var int iWorkObjMaxHitpoints=-1;
+						var CAiObjWrap xWorkObj;
+						xWorkObj.FromInt(iWorkObjHndl);	
+						
+						if(xWorkObj.IsValid())then															
+							iWorkObjHitpoints=xWorkObj.GetAttribValueInt("hitpoints");
+							iWorkObjMaxHitpoints=xWorkObj.GetAttribValueInt("maxhitpoints");
+							if(iWorkObjHitpoints<iWorkObjMaxHitpoints)then									
+								bKillNow=false;
+								
+								if(!bKnowWorker)then
+									var CWorkedObj xNew;
+									xNew.m_iWorkedObjHndl=iWorkObjHndl;
+									xNew.m_iWorkerHndl=xList[i].GetHandle();
+									m_axWorkedObjs.Include(xNew);
+								endif;						
+							endif;								
+						endif;																	
+					endif;
+				end CheckForKill;
+				
+				if(bKillNow==true)then
+					KillWorker(xList[i].GetHandle());
+					xList.RemEntry(xList[i]);
+					i--;
+					iC--;					
+				endif;
+			endif;						
+		endfor;								
+	endproc;
+	
+	
+	/// OnTimeOut
+	export proc void OnTimeOut(int p_iTimerId)
+		m_xDataResetTimer.Set(0, 180, false);		
+		if(m_axWorkedObjs.NumEntries()>0)then			
+			var int i,iC=m_axWorkedObjs.NumEntries();			
+			for(i=0)cond(i<iC)iter(i++)do								
+				var CAiObjWrap xWorkerObj;
+				xWorkerObj.FromInt(m_axWorkedObjs[i].m_iWorkerHndl);
+				
+				if(!xWorkerObj.IsValid())then continue; endif;			
+				
+				var int iWorkObjHndl=(xWorkerObj.GetAttribValue("CurProcessObj")).ToInt();				
+				if(iWorkObjHndl!=m_axWorkedObjs[i].m_iWorkedObjHndl)then					
+					m_axWorkedObjs.DeleteEntry(i);					
+					i--;
+					iC--;					
+				endif;		
+			endfor;			
+		endif;				
+	endproc;
+	
+	
+	/// returns true, if the worker buildup a wall/gate, but was not killed, because the wall was not ready
+	export proc bool HadBuildUpJob(int p_iWorkerHndl)
+		var int i,iC=m_axWorkedObjs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(p_iWorkerHndl==m_axWorkedObjs[i].m_iWorkerHndl)then
+				return true;
+			endif;
+		endfor;	
+		return false;
+	endproc;
+	
+	
+	/// kill a worker	
+	export proc void KillWorker(int p_iWorkerHndl)
+		if(m_pxSensor==null)then return; endif;
+		var int iW,iWC=m_axWorkedObjs.NumEntries();
+		for(iW=0)cond(iW<iWC)iter(iW++)do
+			if(m_axWorkedObjs[iW].m_iWorkerHndl==p_iWorkerHndl)then
+				m_axWorkedObjs.RemEntry(m_axWorkedObjs[iW]);
+				iW--;
+				iWC--;
+			endif;
+		endfor;
+		m_pxSensor^.ExecuteGamePlayCommand(p_iWorkerHndl, "Action", -1, {0.0, 0.0, 0.0}, "/Kill");	
+	endproc;
+
+endclass;

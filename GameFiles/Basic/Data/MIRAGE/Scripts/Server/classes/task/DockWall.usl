@@ -1,0 +1,1729 @@
+class CDockInfo
+	var bool												m_bDocked; ///< indicates docking state
+	var CObjHndl										m_xDockSite; ///< object docked to
+	var procref<real,CObjHndl,bool>	m_xMoveCallback;
+
+	export proc bool GetDocked()
+		return m_bDocked;
+	endproc;
+
+	export proc CObjHndl GetDockSite()
+		return m_xDockSite;
+	endproc;
+
+	export static proc bool GetEntryPos(CObjHndl p_xDocker,bool p_bWorld,bool p_bUp,ref vec3 po_rvPos)
+		var ^CGameObj pxDocker=p_xDocker.GetObj();
+		if(pxDocker==null)then return false; endif;
+		begin Brachio;
+			var ^CTransportObj pxTO=cast<CTransportObj>(pxDocker);
+			if(pxTO!=null)then
+				if(!pxTO^.HasBuildUp(CBuildUpBase.TYPE_SIEGE))then return false; endif;
+				var ^CGameObj pxBuildUp=pxTO^.GetBuildUp()^.GetPrimaryLinkedObj().GetObj();
+				if(pxBuildUp==null)then return false; endif;
+				var CFourCC xE="psh1";
+				if(p_bUp)then
+					xE="psh2";
+				endif;
+				if(p_bWorld)then
+					return pxBuildUp^.GetLinkPosWorld(xE,po_rvPos);
+				else
+					return pxBuildUp^.GetLinkPosObj(xE,po_rvPos);
+				endif;
+			endif;
+		end Brachio;
+		var CFourCC xE="Wo_1";
+		if(p_bUp)then
+			xE="Wo_2";
+		endif;
+		if(p_bWorld)then
+			return pxDocker^.GetLinkPosWorld(xE,po_rvPos);
+		else
+			return pxDocker^.GetLinkPosObj(xE,po_rvPos);
+		endif;
+	endproc;
+
+	export proc bool SetDockedDocker(bool p_bDocked,CObjHndl p_xDocker)
+		if(p_bDocked==m_bDocked)then return false; endif;
+		m_bDocked=p_bDocked;
+		var ^CWall pxWall=cast<CWall>(m_xDockSite.GetObj());
+		if(m_bDocked)then
+			var vec3 vEntry;
+			if(!GetEntryPos(p_xDocker,false,false,vEntry))then
+			endif;
+			if(pxWall!=null)then
+				pxWall^.SetDockerObj(p_xDocker);
+			endif;
+			return CSrvWrap.GetObjMgr()^.GetObjPlaceChecker()^.GetWallMap()^.AddAdditionalEntrance(p_xDocker, m_xDockSite, vEntry, m_xMoveCallback);
+		else
+			if(pxWall!=null)then
+				pxWall^.SetDockerObj(CObjHndl.Invalid());
+			endif;
+			CSrvWrap.GetObjMgr()^.GetObjPlaceChecker()^.GetWallMap()^.RemoveAdditionalEntrance(p_xDocker,m_xDockSite);
+			return true;
+		endif;
+	endproc;
+
+	export proc void SetDocked(bool p_bDocked,CObjHndl p_xDockSite)
+		m_bDocked=p_bDocked;
+		m_xDockSite=p_xDockSite;
+	endproc;
+
+	export proc void SetMoveCallback(procref<real,CObjHndl,bool> p_xMove)
+		m_xMoveCallback=p_xMove;
+	endproc;
+
+	export proc void DoKArc(ref CArc p_rxArc)
+		p_rxArc << m_bDocked;
+		m_xDockSite.DoKArc(p_rxArc);
+	endproc;
+endclass;
+
+class CDockWall inherit CTask
+	
+	var CObjHndl		m_xDocker;
+	var CObjHndl		m_xWall;
+	var CGameTime		m_xDockStart;
+	var string			m_sState;
+	var vec3				m_vCurDest;
+	var int					m_iFindCnt;
+	var bool				m_bBroken;
+	var ^CDockInfo	m_pxDockInfo;
+	var string			m_sAnim;
+	
+	export constructor()
+		SetName("DockWall");
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="DoWa";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,3);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xDocker.DoKArc(pxArc^);
+		m_xDockStart.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_vCurDest;
+		(pxArc^) << m_iFindCnt;
+		(pxArc^) << m_bBroken;
+		m_xWall.DoKArc(pxArc^);
+		(pxArc^) << m_sAnim;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="DoWa")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xDocker.DoKArc(pxArc^);
+			m_xDockStart.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_vCurDest;
+			(pxArc^) << m_iFindCnt;
+			(pxArc^) << m_bBroken;
+			if(pxArc^.GetVersion()>=2)then m_xWall.DoKArc(pxArc^); endif;
+			if(pxArc^.GetVersion()>=3)then (pxArc^) << m_sAnim; endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xDocker,^CDockInfo p_pxDockInfo,CObjHndl p_xWall)
+		if(!p_xDocker.IsValid()||!p_xWall.IsValid())then
+			return false;
+		endif;
+		m_xDocker=p_xDocker;
+		m_xWall=p_xWall;
+		var ^CWall pxWall=cast<CWall>(p_xWall.GetObj());
+		if(pxWall==null)then return false; endif;
+		if(pxWall^.GetDockerObj().IsValid()&&!(pxWall^.GetDockerObj()==p_xDocker))then return false; endif;
+		m_pxDockInfo = p_pxDockInfo;
+		if(m_pxDockInfo!=null)then
+			if(m_pxDockInfo^.GetDocked()&&m_pxDockInfo^.GetDockSite()==m_xWall)then
+				m_sState="dock_wall";
+				return true;
+			endif;
+		endif;
+		m_sState="find_pos";
+		return true;
+	endproc;
+	
+	export proc ^CDockInfo GetDockInfo()
+		return m_pxDockInfo;
+	endproc;
+	
+	export proc void SetDockInfo(^CDockInfo p_pxDockInfo)
+		m_pxDockInfo=p_pxDockInfo;
+	endproc;
+	
+	export proc void SetAnim(string p_sAnim)
+		m_sAnim=p_sAnim;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_pxDockInfo==null)then
+			EndTask();
+			return;
+		elseif(m_pxDockInfo^.GetDocked())then
+			m_sState="dock_wall";
+		endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		if(m_pxDockInfo==null)then
+			EndTask();
+			return;
+		endif;
+		var ^CWall pxWall=cast<CWall>(m_xWall.GetObj());
+		var ^CFightingObj pxDocker=cast<CFightingObj>(m_xDocker.GetObj());
+		var ^CAttribs pxAttr = pxDocker^.GetAttribs();
+		if(pxDocker==null)then EndTask(); return; endif;
+		if(pxWall==null)then
+			if(m_sState!="undock_wall"&&m_sState!="undocking"&&m_sState!="End")then
+				m_sState="undock_wall";
+			endif;
+		endif;
+		if(m_sState=="find_pos")then
+			var vec3 vCurDest=pxWall^.GetPos();
+			m_vCurDest=vCurDest;
+			if(!CSrvWrap.GetObjMgr()^.GetObjPlaceChecker()^.GetWallMap()^.GetFreeDockPos(pxDocker^.GetOwner(),m_vCurDest,pxDocker^.GetPos()))then
+				m_sState="End";
+				return;
+			endif;
+			if(cast<CBrachiosaurus>(pxDocker)!=null)then
+				vCurDest-=m_vCurDest;
+				vCurDest.Normalize();
+				vCurDest*=2.0f;
+				m_vCurDest-=vCurDest;
+			endif;
+			if(cast<CSiegeTower>(pxDocker)!=null)then
+//				var vec3 vDir=m_vCurDest-pxWall^.GetPos();
+//				var real fDist=vDir.Abs();
+//				vDir.Normalize();
+//				m_vCurDest=pxWall^.GetPos()+(vDir*(fDist-2.0f));
+				vCurDest-=m_vCurDest;
+				vCurDest.Normalize();
+				vCurDest*=3.0f;
+				m_vCurDest+=vCurDest;
+			endif;
+			//CSrvWrap.GetObjMgr()^.GetFreePos(m_vCurDest,pxDocker,m_vCurDest);
+			m_iFindCnt++;
+			m_sState="goto_wall";
+		elseif(m_sState=="goto_wall")then
+			pxDocker^.WalkAction(m_vCurDest,pxDocker^.GetMaxSpeed());
+			//pxDocker^.SetPos(m_vCurDest);
+			m_sState="rotate_to_wall";
+		elseif(m_sState=="rotate_to_wall")then
+			if((m_vCurDest-pxDocker^.GetPos()).Abs2S()>4.0f)then
+				if(m_iFindCnt>4)then
+					EndTask();
+					return;
+				else
+					m_sState="find_pos";
+				endif;
+			else
+				var vec3 vDir=pxWall^.GetPos()-pxDocker^.GetPos();
+//				if(cast<CSiegeTower>(pxDocker)!=null)then
+					vDir=pxWall^.GetPos()-m_vCurDest;
+//				endif;
+				vDir.SetZ(0.0f);
+				var Quat qRot;
+				qRot.FromXYDir(vDir.GetX(),vDir.GetY());
+				// there is no rotate anim
+				if(cast<CBrachiosaurus>(pxDocker)!=null)then
+					pxDocker^.RotateAction(qRot);
+				elseif(cast<CSiegeTower>(pxDocker)!=null)then
+					pxDocker^.RotateAction(qRot);
+				else
+					pxDocker^.SetRot(qRot);
+				endif;
+				m_sState="dock_wall";
+			endif;
+		elseif(m_sState=="dock_wall")then
+			if(cast<CSiegeTower>(pxDocker)!=null)then
+				m_sAnim = "opengate_moveup";
+				if((pxWall^.GetGfxName().Find("palisade")!=-1 && pxWall^.GetGfxName().Find("ninigi_palisade")==-1) || pxWall^.GetGfxName().Find("defense_skewer")!=-1 || pxWall^.GetGfxName().Find("fence")!=-1)then
+					m_sAnim = "opengate";
+				endif;
+				if(pxDocker^.HasAnim(m_sAnim))then
+					pxDocker^.SetAnim(m_sAnim,1);
+				endif;
+			else
+				var ^CTransportObj pxTO = cast<CTransportObj>(pxDocker);
+				if(pxTO!=null)then
+					if(pxTO^.HasAnim("siege"))then
+						pxTO^.SetSLEAnim("siege", 1, true, false);
+					endif;
+					if(pxTO^.HasBuildUp(CBuildUpBase.TYPE_SIEGE))then
+						var ^CGameObj pxSiege = pxTO^.GetBuildUp()^.GetPrimaryLinkedObj().GetObj();
+						if(pxSiege!=null)then
+							if(pxSiege^.HasAnim("siege_down"))then
+								pxSiege^.SetAnim("siege_down", 1);
+							endif;
+						endif;
+					endif;
+				endif;
+			endif;
+			m_xDockStart=CTimeMgr.Get().GetTime();
+			m_sState="docking";
+		elseif(m_sState=="docking")then
+			if((CTimeMgr.Get().GetTime()-m_xDockStart).GetSecondsF()>=2.0f)then
+				if(m_bBroken)then
+					m_sState="undock_wall";
+				else
+					m_pxDockInfo^.SetDocked(false,m_xWall);
+					if(pxWall!=null)then
+						pxWall^.SetDockerObj(CObjHndl.Invalid());
+					endif;
+					if(m_pxDockInfo^.SetDockedDocker(true,m_xDocker))then
+						m_sState="docked";
+					else
+						m_sState="undock_wall";
+					endif;
+				endif;
+			endif;
+		elseif(m_sState=="docked")then
+			// don't tick while docked
+			if(pxAttr!=null)then
+				pxAttr^.SetValue("IsDockingWall", 1);
+			endif;
+			GetFSM()^.Enable(false);
+		elseif(m_sState=="undock_wall")then
+			if(pxAttr!=null)then
+				pxAttr^.SetValue("IsDockingWall", 0);
+			endif;
+			if(cast<CSiegeTower>(pxDocker)!=null)then
+				if(pxDocker^.HasAnim(m_sAnim))then
+					pxDocker^.SetAnim(m_sAnim,2);
+				endif;
+			else
+				var ^CTransportObj pxTO = cast<CTransportObj>(pxDocker);
+				if(pxTO!=null)then
+					if(pxTO^.HasAnim("siege"))then
+						pxTO^.SetSLEAnim("siege", 1, false, true);
+					endif;
+					if(pxTO^.HasBuildUp(CBuildUpBase.TYPE_SIEGE))then
+						var ^CGameObj pxSiege = pxTO^.GetBuildUp()^.GetPrimaryLinkedObj().GetObj();
+						if(pxSiege!=null)then
+							if(pxSiege^.HasAnim("siege_up"))then
+								pxSiege^.SetAnim("siege_up", 1);
+							endif;
+						endif;
+					endif;
+				endif;
+			endif;
+			m_xDockStart=CTimeMgr.Get().GetTime();
+			m_sState="undocking";
+		elseif(m_sState=="undocking")then
+			if((CTimeMgr.Get().GetTime()-m_xDockStart).GetSecondsF()>=2.0f)then
+				if(pxWall!=null)then
+					pxWall^.SetDockerObj(CObjHndl.Invalid());
+				endif;
+				m_pxDockInfo^.SetDockedDocker(false,m_xDocker);
+				m_sState="End";
+			endif;
+		elseif(m_sState=="End")then
+			if(pxAttr!=null)then
+				pxAttr^.SetValue("IsDockingWall", 0);
+			endif;
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+	
+	export proc void UpdateBrach()
+		if(m_sState=="docked")then
+			var ^CTransportObj pxTO = cast<CTransportObj>(m_xDocker.GetObj());
+			if(pxTO!=null)then
+				if(pxTO^.HasAnim("siege"))then
+					pxTO^.SetSLEAnim("siege", 1, true, false);
+				endif;
+//				if(pxTO^.HasBuildUp(CBuildUpBase.TYPE_SIEGE))then
+//					var ^CGameObj pxSiege = pxTO^.GetBuildUp()^.GetPrimaryLinkedObj().GetObj();
+//					if(pxSiege!=null)then
+//						if(pxSiege^.HasAnim("siege_down"))then
+//							pxSiege^.SetAnim("siege_down", 1);
+//						endif;
+//					endif;
+//				endif;
+			endif;
+		endif;
+	endproc;
+	
+	export proc void UpdateTower()
+		if(m_sState=="docked")then
+			var ^CTransportObj pxTO = cast<CTransportObj>(m_xDocker.GetObj());
+			if(pxTO!=null)then
+				if(pxTO^.GetCurrentAnimName()!=m_sAnim)then
+					pxTO^.SetAnim(m_sAnim,1);
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	export proc bool Break()
+		m_bBroken=true;
+		var ^CFightingObj pxDocker=cast<CFightingObj>(m_xDocker.GetObj());
+		if(pxDocker!=null)then
+			if(m_sState=="docked")then
+				// undock from wall
+				GetFSM()^.Enable(true);
+				m_sState="undock_wall";
+				return false;
+			elseif((m_sState=="docking")||(m_sState=="undock_wall")||(m_sState=="undocking"))then
+				// wait til undocked
+				return false;
+			endif;
+		endif;
+		m_sState="End";
+		return true;
+	endproc;
+	
+	export proc void Skip()
+	endproc;
+	
+	proc void EndTask()
+		UpdateAggressionPos(m_xDocker);
+		super.EndTask();
+	endproc;
+	
+endclass;
+
+class CBuildLadder inherit CTask
+	
+	var CObjHndl	m_xWorker;		///< worker, who build the ladder
+	var CObjHndl	m_xDockSite;	///< wall to build ladder to
+	var string		m_sState;
+	var vec3			m_vBuildPos;
+	var vec3			m_vCurDest;
+	var int				m_iFindCnt;
+	var int				m_iCommandID;
+	
+	var CFourCC 	m_xFCCWeaponLink;
+	
+	export constructor()
+		SetName("BuildUp"/*"BuildUpLadder"*/);
+		m_iCommandID=-1;
+		m_xFCCWeaponLink="HndR";
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="BuLa";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xWorker.DoKArc(pxArc^);
+		m_xDockSite.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_vBuildPos;
+		(pxArc^) << m_vCurDest;
+		(pxArc^) << m_iFindCnt;
+		(pxArc^) << m_iCommandID;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="BuLa")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xWorker.DoKArc(pxArc^);
+			m_xDockSite.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_vBuildPos;
+			(pxArc^) << m_vCurDest;
+			(pxArc^) << m_iFindCnt;
+			(pxArc^) << m_iCommandID;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xWorker,CObjHndl p_xDocksite)
+		if(!p_xWorker.IsValid()||!p_xDocksite.IsValid())then return false; endif;
+		m_xWorker = p_xWorker;
+		m_xDockSite = p_xDocksite;
+		m_sState="find_pos";
+		return true;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CWall pxWall=cast<CWall>(m_xDockSite.GetObj());
+		var ^CFightingObj pxWorker=cast<CFightingObj>(m_xWorker.GetObj());
+		if((pxWall==null)||(pxWorker==null))then EndTask(); return; endif;
+		var ^CGameObj pxS=CSrvWrap.GetPathfinder().GetWallSiege(pxWall);
+		if(pxS!=null)then
+			KLog.LogWarn("CHP","Wall already sieged by: "+pxS^.GetName());
+			EndTask();
+			return;
+		endif;
+		if(m_sState=="find_pos")then
+			m_iCommandID=pxWorker^.GetOwner();
+			m_vBuildPos=pxWall^.GetPos();
+			CSrvWrap.GetObjMgr()^.GetObjPlaceChecker()^.GetWallMap()^.GetFreeDockPos(m_iCommandID,m_vBuildPos,pxWorker^.GetPos());
+			m_vCurDest=m_vBuildPos;
+			CSrvWrap.GetObjMgr()^.GetFreePos(m_vCurDest,pxWorker,m_vCurDest);
+			m_iFindCnt++;
+			m_sState="goto_wall";
+		elseif(m_sState=="goto_wall")then
+			pxWorker^.RemLinkGFX(m_xFCCWeaponLink);
+			pxWorker^.SetLinkGFX(m_xFCCWeaponLink,"Hu_Clerk");
+			var CFourCC xType="sldr";
+			if(pxWorker^.GetOnWall())then
+				pxWorker^.WallWalkAction(m_vCurDest,true,pxWorker^.GetMaxSpeed(),true,true,xType,false);
+			else
+				pxWorker^.WalkAction(m_vCurDest,pxWorker^.GetMaxSpeed(),true,true,null,xType);
+			endif;
+			m_sState="place_ladder";
+		elseif(m_sState=="place_ladder")then
+			if((m_vCurDest-pxWorker^.GetPos()).Abs2()>2.0f)then
+				if(m_iFindCnt>4)then
+					EndTask();
+					return;
+				else
+					m_sState="find_pos";
+				endif;
+			else
+				var ^CGameObj pxLadder=CLadder.GetLadderBuildUp(m_iCommandID,m_xDockSite).GetObj();
+				if(pxLadder!=null)then
+					pxWorker^.HandleGamePlayCommand("Q_Build",pxLadder,pxLadder^.GetPos(),"");
+				else
+					var vec3 vBuildPos=m_vBuildPos;
+					var CObjList xWorker;
+					xWorker.Include(pxWorker^.GetHandle());
+					var real fHeight=CSrvWrap.GetScapeMgr().GetHeight(vBuildPos.GetX(), vBuildPos.GetY());
+					vBuildPos.SetZ(fHeight);
+					pxLadder=CPlaceMgr.Get().PlaceObj(m_iCommandID,"hu_ladder",vBuildPos,{0.0,0.0,0.0},xWorker,true,true).GetObj();
+					if(pxLadder!=null)then
+						CLadder.RegisterLadderBuildUp(m_iCommandID,pxLadder^.GetHandle(),m_xDockSite);
+						var vec3 vDir=pxWall^.GetPos()-vBuildPos;
+						vDir.SetZ(0.0f);
+						var Quat qRot;
+						qRot.FromXYDir(vDir.GetX(),vDir.GetY());
+						pxLadder^.SetRot(qRot);
+						var ^CLadder pxL = cast<CLadder>(pxLadder);
+						if(pxL!=null)then
+							if(pxWall!=null)then
+								pxWall^.SetDockerObj(pxLadder^.GetHandle());
+							endif;
+							pxL^.GetDockInfo().SetDocked(true, pxWall^.GetHandle());
+						endif;
+					endif;
+				endif;
+				EndTask();
+				return;
+			endif;
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		if(p_pxTo!=GetParent())then return; endif;
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker==null)then return; endif;
+		pxWorker^.RemLinkGFX(m_xFCCWeaponLink);
+	endproc;
+	
+endclass;
+	
+class CClimbLadder inherit CTargetTask
+	
+	var CObjHndl	m_xWorker;
+	var CObjHndl	m_xLadder;
+	var bool			m_bClimbUp;
+	var bool			m_bClimbForward;
+	var bool			m_bJumpOff;
+	var string		m_sState;
+	var vec3			m_vEntry;
+	var vec3			m_vExit;
+	var vec3			m_vTop;
+	var vec3			m_vTop2;
+	var bool			m_bUnStoppable;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="ClLa";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,4);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xWorker.DoKArc(pxArc^);
+		m_xLadder.DoKArc(pxArc^);
+		(pxArc^) << m_bClimbUp;
+		(pxArc^) << m_sState;
+		(pxArc^) << m_bClimbForward;
+		(pxArc^) << m_vEntry;
+		(pxArc^) << m_vExit;
+		(pxArc^) << m_bJumpOff;
+		(pxArc^) << m_vTop;
+		(pxArc^) << m_vTop2;
+		(pxArc^) << m_bUnStoppable;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="ClLa")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xWorker.DoKArc(pxArc^);
+			m_xLadder.DoKArc(pxArc^);
+			(pxArc^) << m_bClimbUp;
+			(pxArc^) << m_sState;
+			if(pxArc^.GetVersion()>=2)then
+				(pxArc^) << m_bClimbForward;
+				(pxArc^) << m_vEntry;
+				(pxArc^) << m_vExit;
+			endif;
+			if(pxArc^.GetVersion()>=3)then
+				(pxArc^) << m_bJumpOff;
+				(pxArc^) << m_vTop;
+			endif;
+			if(pxArc^.GetVersion()>=4)then
+				(pxArc^) << m_vTop2;
+				(pxArc^) << m_bUnStoppable;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export constructor()
+		m_bUnStoppable = false;
+		SetName("ClimbLadder");
+	endconstructor;
+	
+	export proc bool GetUnStoppable()
+		return m_bUnStoppable;
+	endproc;
+	
+	export proc void SetUnStoppable(bool p_bValue)
+		m_bUnStoppable = p_bValue;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xWorker,CObjHndl p_xLadder,bool p_bClimbUp,bool p_bJumpOff)
+		if(!p_xWorker.IsValid()||!p_xLadder.IsValid())then return false; endif;
+		m_xWorker=p_xWorker;
+		m_xLadder=p_xLadder;
+		m_bClimbUp=p_bClimbUp;
+		m_bClimbForward=true;
+		m_bJumpOff=p_bJumpOff;
+		m_sState="start";
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker==null)then EndTask();return; endif;
+		SetMaxCounter(25);
+//		pxWorker^.PauseAction();
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		if(m_sState=="fall")then
+			return;
+		endif;
+		var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+		var ^CLadder pxLadder=cast<CLadder>(m_xLadder.GetObj());
+		if((pxWorker==null)||(pxLadder==null))then SetUnStoppable(false); EndTask();return; endif;
+		if(pxWorker^.HasSecondaryAction())then return; endif;
+		//KLog.LogWarn("CHP","CClimbLadder::Tick State:"+m_sState);
+		if(m_sState=="start")then
+			var vec3 vDest;
+			CDockInfo.GetEntryPos(m_xLadder,true,false,vDest);
+			CDockInfo.GetEntryPos(m_xLadder,true,true,m_vTop);
+			vDest.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vDest.GetX(), vDest.GetY()));
+			var vec3 vExit, vDir, vTop;
+			var bool bFrontSide=true;
+			if(GetExitPoint(pxWorker,pxLadder,vExit,bFrontSide,vDir,vTop))then
+				var vec3 vP=pxWorker^.GetPos();
+				if(!bFrontSide)then
+					m_bClimbForward=false;
+					m_vEntry=vExit;
+					m_vExit=vDest;
+					m_vTop2=m_vTop;
+					m_vTop.SetX(m_vEntry.GetX());
+					m_vTop.SetY(m_vEntry.GetY());
+				else
+					m_vTop2 = vTop;
+//					m_vTop2 = m_vTop + (vDir*2.5);
+//					m_vTop2.SetX(vExit.GetX());
+//					m_vTop2.SetY(vExit.GetY());
+					m_vTop2.SetZ(m_vTop.GetZ());
+					m_vEntry=vDest;
+					m_vExit=vExit;
+				endif;
+				m_sState="trip";
+			endif;
+			if(m_sState=="start")then m_sState="end"; endif;
+		endif;
+		if(m_sState=="trip")then
+			var vec3 vDest=m_vEntry;
+			SetCurrentTarget(vDest);
+			m_sState="rotate_0";
+			if(!IsAlreadyAtTargetPos(pxWorker^.GetPos(), 7.5))then
+				if(pxWorker^.GetOnWall())then
+					pxWorker^.WallWalkAction(vDest,true,pxWorker^.GetMaxSpeed(),false);
+				else
+					pxWorker^.WalkAction(vDest,pxWorker^.GetMaxSpeed());
+				endif;
+			else
+				USLOnTick(0);
+				return;
+			endif;
+		elseif(m_sState=="rotate_0")then
+			if(!HasArrivedTarget(pxWorker^.GetPos(),7.5))then
+				if(!CanFollow())then
+					ResetCounter();
+					m_sState="end";
+					return;
+				else
+					m_sState="trip";
+					return;
+				endif;
+			else
+				if(!pxLadder^.RegisterClimber(m_xWorker))then
+					EndTask();
+					return;
+				endif;
+				SetUnStoppable(true);
+				m_sState="trip_2";
+				if(!IsAlreadyAtTargetPos(pxWorker^.GetPos(), 1.5))then
+					var Quat qRot=GetAngleToQ(GetCurrentTarget(),pxWorker^.GetPos());
+					pxWorker^.RotateAction(qRot);
+				else
+					USLOnTick(0);
+					return;
+				endif;
+			endif;
+		elseif(m_sState=="trip_2")then
+			var vec3 vDest=m_vEntry;
+			pxWorker^.SetAnim("walk_3",3);
+			pxWorker^.SecondaryMoveAction(vDest,7.5f);
+			m_sState="rotate";
+		elseif(m_sState=="rotate")then
+			var Quat qRot=pxLadder^.GetRot();
+			if(!m_bClimbForward)then
+				qRot.RotateZ(Math.Pi());
+			endif;
+			pxWorker^.SecondaryRotateAction(qRot);
+			m_sState="move";
+		elseif(m_sState=="move")then
+			var vec3 vDest=m_vTop;
+			if(!m_bClimbForward)then
+//				pxWorker^.SetSLEAnim("hu_high_ladder_climb_up",2,true,true);
+				pxWorker^.SetSLEAnim("climb_up_ladder",4,true,true);
+			else
+				pxWorker^.SetSLEAnim("climb_down_ladder",4,true,true);
+			endif;
+			pxWorker^.SecondaryMoveAction(vDest,5.0f);
+			m_sState="trip_top";
+		elseif(m_sState=="trip_top")then
+			var vec3 vDest=m_vTop2;
+			pxWorker^.SetAnim("walk_2",3);
+			pxWorker^.SecondaryMoveAction(vDest,7.5f);
+			if(m_bJumpOff)then
+				m_sState="jump";
+			else
+				m_sState="rotate_end";
+			endif;
+		elseif(m_sState=="rotate_end")then
+			var Quat qRot=pxLadder^.GetRot();
+			if(m_bClimbForward)then
+				qRot.RotateZ(Math.Pi());
+			endif;
+			pxWorker^.SetAnim("standrotate_right",1);
+			pxWorker^.SecondaryRotateAction(qRot);
+			m_sState="trip_end";
+		elseif(m_sState=="trip_end")then
+			var vec3 vDest=m_vExit;
+			vDest.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vDest.GetX(), vDest.GetY()));
+//			if(!m_bClimbForward)then
+//				pxWorker^.SetSLEAnim("climb_down_ladder",1,true,true);
+//			else
+//				pxWorker^.SetSLEAnim("hu_high_ladder_climb_up",3,true,true);
+//			endif;
+			pxWorker^.SetAnim("climb_down_ladder",3);
+			pxWorker^.SecondaryMoveAction(vDest,5.0f);
+			m_sState="find_new_pos";
+		elseif(m_sState=="find_new_pos")then
+			var vec3 vDest=pxWorker^.GetPos();
+			CSrvWrap.GetObjMgr()^.GetFreePos(vDest, pxWorker, vDest);
+			pxWorker^.WalkAction(vDest,pxWorker^.GetMaxSpeed());
+			m_sState="end";
+		elseif(m_sState=="jump")then
+			var vec3 vDest=m_vExit;
+			if(pxWorker^.GetOnWall())then EndTask(); return; endif;
+			var real fMaxDist=1.0f;
+//			var ^CGameObj pxWall=pxLadder^.GetDockInfo().GetDockSite().GetObj();
+//			if(pxWall!=null)then
+//				var vec3 vDirection;
+//				if(m_bClimbForward)then
+//					vDirection = m_vExit - pxWall^.GetPos();
+//					var real fDist= vDirection.Abs();
+//					vDirection.Normalize();
+//					vDest=m_vExit+(vDirection*2.5f);
+//				endif;
+//				vDirection = pxWall^.GetPos()-vDest;
+//				fMaxDist= vDirection.Abs()-(pxWall^.GetRadius()+1.0f);
+//			endif;
+			CSrvWrap.GetObjMgr()^.GetFreePos(vDest,pxWorker,vDest,null,true,false,false,pxWorker^.GetRadius(),010b,fMaxDist);
+			vDest.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vDest.GetX(), vDest.GetY()));
+			pxWorker^.JumpAction("climb_up_ladder", vDest, pxWorker^.GetRot(), 0.0f, 20.0f);
+			m_sState="find_new_pos";
+		elseif(m_sState=="find_new_pos")then
+			var vec3 vDest=pxWorker^.GetPos();
+			CSrvWrap.GetObjMgr()^.GetFreePos(vDest, pxWorker, vDest);
+			pxWorker^.WalkAction(vDest,pxWorker^.GetMaxSpeed());
+			m_sState="end";
+		elseif(m_sState=="end")then
+			pxLadder^.UnregisterClimber(m_xWorker);
+			SetUnStoppable(false);
+			EndTask();
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker==null)then EndTask();return; endif;
+//		pxWorker^.UnpauseAction();
+	endproc;
+	
+	proc void EndTask()
+		UpdateAggressionPos(m_xWorker);
+		GetFSM()^.Enable(false);
+		super.EndTask();
+	endproc;
+	
+	proc bool GetExitPoint(^CGameObj p_pxWorker,^CLadder p_pxLadder,ref vec3 po_rvPos,ref bool po_rbFrontside,ref vec3 po_rvDir,ref vec3 po_rvTop)
+		if(p_pxLadder==null)then return false; endif;
+		var ^CGameObj pxWall=p_pxLadder^.GetDockInfo().GetDockSite().GetObj();
+		if(pxWall==null)then return false; endif;
+		var CFourCC xE="Wo_1";
+		var vec3 vNew;
+		var bool bDone=p_pxLadder^.GetLinkPosWorld(xE,vNew);
+		var vec3 vPWorker=p_pxWorker^.GetPos();
+		var vec3 vPWall=pxWall^.GetPos();
+		var vec3 vPLadder=p_pxLadder^.GetPos();
+		var vec3 vND = (vPWall-vPLadder).GetNormalized();
+		po_rvDir=vND;
+//		po_rvDir.Normalize();
+		var real fDB=((vPWall+vND)-vPWorker).AbsSquare();
+		var real fDF=((vPWall-vND)-vPWorker).AbsSquare();
+		po_rbFrontside=fDF<fDB;
+		po_rvPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(po_rvPos.GetX(), po_rvPos.GetY()));
+		if(bDone)then
+//			vND = (vPWall-vNew).GetNormalized();
+			po_rvDir = vPWall-vNew;
+			var real fDist= po_rvDir.Abs();
+			po_rvDir.Normalize();
+//			po_rvPos = pxWall^.GetPos() + (vND*(pxWall^.GetRadius()+1.0f));
+			po_rvPos = pxWall^.GetPos() + (vND*(fDist-5.6f));
+			po_rvTop = pxWall^.GetPos() + (vND*(fDist-6.5f));
+		else
+			po_rvPos = pxWall^.GetPos() + (vND * 4.0f);
+			po_rvTop = pxWall^.GetPos() + (vND * 3.5f);
+		endif;
+//		po_rvPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(po_rvPos.GetX(), po_rvPos.GetY()));
+		return true;
+	endproc;
+	
+	proc Quat GetAngleToQ(vec3 p_vTarget, vec3 p_vOwn)
+		var vec3 vDir=p_vTarget - p_vOwn;
+		vDir.SetZ(0.0f);
+		vDir.Normalize();
+		var Quat qRot;
+		qRot.FromXYDir(vDir.GetX(), vDir.GetY());
+		return qRot;
+	endproc;
+	
+	export proc bool Break()
+		if(GetUnStoppable())then
+			return false;
+		endif;
+		return true;
+	endproc;
+	
+	export proc void BreakExt()
+		m_sState="fall";
+		GetFSM()^.Enable(true);
+		var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+		if(pxWorker!=null)then
+			pxWorker^.SiegeFall();
+		endif;
+		SetUnStoppable(false);
+		EndTask();
+	endproc;
+	
+endclass;
+
+class CClimbBrachio inherit CTargetTask
+	
+	var CObjHndl	m_xWorker;
+	var CObjHndl	m_xBrachio;
+	var bool			m_bClimbUp;
+	var bool			m_bClimbForward;
+	var bool			m_bJumpOff;
+	var string		m_sState;
+	var vec3			m_vEntry;
+	var vec3			m_vExit;
+	var vec3			m_vTop2;
+	var vec3			m_vTop;
+	var bool			m_bUnStoppable;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="ClBr";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,3);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xWorker.DoKArc(pxArc^);
+		m_xBrachio.DoKArc(pxArc^);
+		(pxArc^) << m_bClimbUp;
+		(pxArc^) << m_sState;
+		(pxArc^) << m_bJumpOff;
+		(pxArc^) << m_bClimbForward;
+		(pxArc^) << m_vEntry;
+		(pxArc^) << m_vExit;
+		(pxArc^) << m_vTop;
+		(pxArc^) << m_vTop2;
+		(pxArc^) << m_bUnStoppable;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="ClBr")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xWorker.DoKArc(pxArc^);
+			m_xBrachio.DoKArc(pxArc^);
+			(pxArc^) << m_bClimbUp;
+			(pxArc^) << m_sState;
+			if(pxArc^.GetVersion()>=2)then
+				(pxArc^) << m_bJumpOff;
+				(pxArc^) << m_bClimbForward;
+				(pxArc^) << m_vEntry;
+				(pxArc^) << m_vExit;
+				(pxArc^) << m_vTop;
+				(pxArc^) << m_vTop2;
+			endif;
+			if(pxArc^.GetVersion()>=3)then
+				(pxArc^) << m_bUnStoppable;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export constructor()
+		m_bUnStoppable = false;
+		SetName("ClimbBrachio");
+	endconstructor;
+	
+	export proc bool GetUnStoppable()
+		return m_bUnStoppable;
+	endproc;
+	
+	export proc void SetUnStoppable(bool p_bValue)
+		m_bUnStoppable = p_bValue;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xWorker,CObjHndl p_xBrachio,bool p_bClimbUp,bool p_bJumpOff)
+		if(!p_xWorker.IsValid()||!p_xBrachio.IsValid())then return false; endif;
+		m_xWorker=p_xWorker;
+		m_xBrachio=p_xBrachio;
+		m_bClimbUp=p_bClimbUp;
+		m_bJumpOff=p_bJumpOff;
+		m_sState="start";
+		m_bClimbForward=true;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker==null)then EndTask();return; endif;
+		SetMaxCounter(25);
+//		pxWorker^.PauseAction();
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		if(m_sState=="fall")then
+			return;
+		endif;
+		var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+		var ^CBrachiosaurus pxBrachio = cast<CBrachiosaurus>(m_xBrachio.GetObj());
+		if((pxWorker==null)||(pxBrachio==null))then SetUnStoppable(false); EndTask();return; endif;
+		var CObjHndl xWall;
+		if(!pxBrachio^.IsDocked())then SetUnStoppable(false); EndTask(); return; endif;
+		xWall = pxBrachio^.GetDockInfo().GetDockSite();
+		if(pxWorker^.HasSecondaryAction())then return; endif;
+		var ^CGameObj pxWall=xWall.GetObj();
+		if(m_sState=="start")then
+			var vec3 vDest;
+			CDockInfo.GetEntryPos(m_xBrachio,true,false,vDest);
+			vDest.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vDest.GetX(), vDest.GetY()));
+			m_vEntry=vDest;
+			var vec3 vExit, vTop;
+			var bool bFrontSide=true;
+			if(GetExitPoint(pxWorker,pxBrachio,vExit,bFrontSide,m_vTop))then
+				var vec3 vP=pxWorker^.GetPos();
+				if(!bFrontSide)then
+					m_bClimbForward=false;
+					m_vEntry=vExit;
+					m_vExit=vDest;
+					m_vTop2=m_vTop;
+					m_vTop.SetX(m_vEntry.GetX());
+					m_vTop.SetY(m_vEntry.GetY());
+				else
+//					m_vEntry=vDest;
+					m_vExit=vExit;
+					m_vTop2.SetX(m_vExit.GetX());
+					m_vTop2.SetY(m_vExit.GetY());
+					m_vTop2.SetZ(m_vTop.GetZ());
+				endif;
+			endif;
+			m_sState="trip";
+		endif;
+		if(m_sState=="trip")then
+			var vec3 vDest=m_vEntry;
+			SetCurrentTarget(vDest);
+			m_sState="rotate_0";
+			if(!IsAlreadyAtTargetPos(pxWorker^.GetPos(), 7.5))then
+				if(pxWorker^.GetOnWall())then
+					pxWorker^.WallWalkAction(vDest,true,pxWorker^.GetMaxSpeed(),false);
+				else
+					pxWorker^.WalkAction(vDest,pxWorker^.GetMaxSpeed());
+				endif;
+			else
+				USLOnTick(0);
+				return;
+			endif;
+		elseif(m_sState=="rotate_0")then
+			if(!HasArrivedTarget(pxWorker^.GetPos(),7.5))then
+				if(!CanFollow())then
+					ResetCounter();
+					m_sState="end";
+					return;
+				else
+					m_sState="trip";
+					return;
+				endif;
+			else
+				if(!pxBrachio^.RegisterClimber(m_xWorker))then
+					EndTask();
+					return;
+				endif;
+				SetUnStoppable(true);
+				m_sState="trip_2";
+				if(!IsAlreadyAtTargetPos(pxWorker^.GetPos(), 1.5))then
+					var Quat qRot=GetAngleToQ(GetCurrentTarget(),pxWorker^.GetPos());
+					pxWorker^.RotateAction(qRot);
+				else
+					USLOnTick(0);
+					return;
+				endif;
+			endif;
+		elseif(m_sState=="trip_2")then
+			var vec3 vDest=m_vEntry;
+			pxWorker^.SetAnim("walk_3",3);
+			pxWorker^.SecondaryMoveAction(vDest,5.0f);
+			m_sState="rotate";
+		elseif(m_sState=="rotate")then
+			var Quat qRot=pxBrachio^.GetRot();
+			if(!m_bClimbForward)then
+				qRot.RotateZ(Math.Pi());
+			endif;
+			pxWorker^.SecondaryRotateAction(qRot);
+			m_sState="move1";
+		elseif(m_sState=="move1")then
+			if(m_bJumpOff&&m_vTop2.GetX()>=0.0)then
+				if(m_bClimbForward)then
+					var real fSpeed=(m_vExit-m_vEntry).Abs()/3.0f;
+					var string sAnim="brachio_siege_up";
+					if(pxWorker^.GetCaste()=="nat")then
+						fSpeed+=3.6f;
+						sAnim="hu_palisade_climb_up_nat";
+					endif;
+					pxWorker^.SetAnim(sAnim,1);
+					pxWorker^.SecondaryMoveAction(m_vExit, fSpeed);
+				else
+					var real fSpeed=(m_vExit-m_vEntry).Abs()/3.6f;
+					pxWorker^.SetAnim("brachio_siege_back",1);
+					pxWorker^.SecondaryMoveAction(m_vExit, fSpeed);
+				endif;
+				m_sState="find_new_pos";
+				return;
+			endif;
+			var vec3 vDest=m_vTop;
+			var real fSpeed=5.0f;
+			if(m_bClimbForward)then
+				pxWorker^.SetAnim("walk_3",3);
+				fSpeed=12.0f;
+			else
+				pxWorker^.SetAnim("climb_up_ladder",3);
+			endif;
+			pxWorker^.SecondaryMoveAction(vDest, fSpeed);
+			if(m_vTop2.GetX()>=0.0)then
+				m_sState="move2";
+			else
+				m_sState="trip_end";
+			endif;
+		elseif(m_sState=="move2")then
+			pxWorker^.SetPos(m_vTop);
+			var vec3 vDest=m_vTop2;
+			pxWorker^.SetAnim("walk_3",3);
+			pxWorker^.SecondaryMoveAction(vDest, 12.0);
+			if(m_bJumpOff)then
+				m_sState="jump";
+			else
+				m_sState="trip_end";
+			endif;
+		elseif(m_sState=="jump")then
+			var vec3 vDest=m_vExit;
+			if(!m_bClimbForward)then
+				pxWorker^.SetAnim("climb_down_brachio",3);
+				pxWorker^.SecondaryMoveAction(vDest, 3.65f);
+				m_sState="end";
+			else
+				if(pxWorker^.GetOnWall())then EndTask(); return; endif;
+				var real fMaxDist=5.0f;
+				var ^CGameObj pxWall=xWall.GetObj();
+				if(pxWall!=null)then
+					var vec3 vDirection = pxWall^.GetPos()-m_vExit;
+					fMaxDist= vDirection.Abs()-(pxWall^.GetRadius()+1.0f);
+				endif;
+				CSrvWrap.GetObjMgr()^.GetFreePos(vDest,pxWorker,vDest,null,true,false,false,pxWorker^.GetRadius(),010b,fMaxDist);
+				vDest.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vDest.GetX(), vDest.GetY()));
+				pxWorker^.JumpAction("climb_up_ladder", vDest, pxWorker^.GetRot(), 0.0f, 20.0f);
+				m_sState="end";
+			endif;
+		elseif(m_sState=="trip_end")then
+			pxWorker^.SetPos(m_vTop2);
+			if(!m_bClimbForward)then
+				var vec3 vDest=m_vExit;
+				var real fSpeed=12.0f;
+				pxWorker^.SetAnim("walk_3",3);
+				pxWorker^.SecondaryMoveAction(vDest,fSpeed);
+				m_sState="find_new_pos";
+			else
+				var Quat qRot=pxBrachio^.GetRot();
+				qRot.RotateZ(Math.Pi());
+				pxWorker^.SecondaryRotateAction(qRot);
+				m_sState="after_rotation";
+			endif;
+		elseif(m_sState=="after_rotation")then
+			var vec3 vDest=m_vExit;
+			var real fSpeed=5.0f;
+			pxWorker^.SetAnim("climb_down_ladder",3);
+			pxWorker^.SecondaryMoveAction(vDest,fSpeed);
+			m_sState="find_new_pos";
+		elseif(m_sState=="find_new_pos")then
+			pxWorker^.SetPos(m_vExit);
+			var vec3 vDest=pxWorker^.GetPos();
+			CSrvWrap.GetObjMgr()^.GetFreePos(vDest, pxWorker, vDest);
+			pxWorker^.WalkAction(vDest,pxWorker^.GetMaxSpeed());
+			m_sState="end";
+		elseif(m_sState=="end")then
+			pxBrachio^.UnregisterClimber(m_xWorker);
+			SetUnStoppable(false);
+			EndTask();
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker==null)then EndTask();return; endif;
+//		pxWorker^.UnpauseAction();
+	endproc;
+	
+	proc void EndTask()
+		UpdateAggressionPos(m_xWorker);
+		GetFSM()^.Enable(false);
+		super.EndTask();
+	endproc;
+	
+	proc bool GetExitPoint(^CGameObj p_pxWorker,^CBrachiosaurus p_pxBrachio,ref vec3 po_rvPos,ref bool po_rbFrontside, ref vec3 po_rvTop)
+		if(p_pxBrachio==null)then return false; endif;
+		var ^CGameObj pxWall=p_pxBrachio^.GetDockInfo().GetDockSite().GetObj();
+		if(pxWall==null)then return false; endif;
+		if(!p_pxBrachio^.HasBuildUp(CBuildUpBase.TYPE_SIEGE))then return false; endif;
+		var ^CGameObj pxBuildUp=p_pxBrachio^.GetBuildUp()^.GetPrimaryLinkedObj().GetObj();
+		if(pxBuildUp==null)then return false; endif;
+		po_rvTop = pxBuildUp^.GetPos();
+		po_rvTop.SetZ(po_rvTop.GetZ()+1.0f);
+//		po_rvTop = p_pxBrachio^.GetPos();
+//		po_rvTop.SetZ(po_rvTop.GetZ()+5.0f);
+		var vec3 vPWorker=p_pxWorker^.GetPos();
+		var vec3 vPWall=pxWall^.GetPos();
+		var vec3 vPLadder=p_pxBrachio^.GetPos();
+		var vec3 vND = (vPWall-vPLadder).GetNormalized();
+		var real fDB=((vPWall+vND)-vPWorker).AbsSquare();
+		var real fDF=((vPWall-vND)-vPWorker).AbsSquare();
+		po_rbFrontside=fDF<fDB;
+		var CFourCC xE="psh2";
+		var vec3 vNew;
+		if(pxBuildUp^.GetLinkPosWorld(xE,vNew))then
+			vND = vNew-vPWall;
+			var real fDist= vND.Abs();
+			vND.Normalize();
+			po_rvPos = (vPWall+(vND * (fDist+2.8f)));
+		else
+			po_rvPos = pxWall^.GetPos() + (vND * 4.0f);
+		endif;
+		po_rvPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(po_rvPos.GetX(), po_rvPos.GetY()));
+		return true;
+	endproc;
+	
+	proc Quat GetAngleToQ(vec3 p_vTarget, vec3 p_vOwn)
+		var vec3 vDir=p_vTarget - p_vOwn;
+		vDir.SetZ(0.0f);
+		vDir.Normalize();
+		var Quat qRot;
+		qRot.FromXYDir(vDir.GetX(), vDir.GetY());
+		return qRot;
+	endproc;
+	
+	export proc bool Break()
+		if(GetUnStoppable())then
+			return false;
+		endif;
+		return true;
+	endproc;
+	
+	export proc void BreakExt()
+		m_sState="fall";
+		GetFSM()^.Enable(true);
+		var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+		if(pxWorker!=null)then
+			pxWorker^.SiegeFall();
+		endif;
+		SetUnStoppable(false);
+		EndTask();
+	endproc;
+	
+endclass;
+
+class CClimbSiegeTower inherit CTargetTask
+	
+	var CObjHndl	m_xWorker;
+	var CObjHndl	m_xTower;
+	var bool			m_bClimbForward;
+	var string		m_sState;
+	var vec3			m_vEntry0;
+	var vec3			m_vEntry;
+	var vec3			m_vExit;
+	var vec3			m_vTop;
+	var vec3			m_vTop2;
+	var bool			m_bUnStoppable;
+	var bool			m_bClimbUp;
+	var bool			m_bJumpOff;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="ClSt";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xWorker.DoKArc(pxArc^);
+		m_xTower.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_bClimbForward;
+		(pxArc^) << m_vEntry;
+		(pxArc^) << m_vExit;
+		(pxArc^) << m_vTop;
+		(pxArc^) << m_vTop2;
+		(pxArc^) << m_bUnStoppable;
+		(pxArc^) << m_vEntry0;
+		(pxArc^) << m_bClimbUp;
+		(pxArc^) << m_bJumpOff;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="ClSt")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xWorker.DoKArc(pxArc^);
+			m_xTower.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_bClimbForward;
+			(pxArc^) << m_vEntry;
+			(pxArc^) << m_vExit;
+			(pxArc^) << m_vTop;
+			(pxArc^) << m_vTop2;
+			if(pxArc^.GetVersion()>=2)then
+				(pxArc^) << m_bUnStoppable;
+				(pxArc^) << m_vEntry0;
+				(pxArc^) << m_bClimbUp;
+				(pxArc^) << m_bJumpOff;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export constructor()
+		m_bUnStoppable = false;
+		SetName("ClimbTower");
+	endconstructor;
+	
+	export proc bool GetUnStoppable()
+		return m_bUnStoppable;
+	endproc;
+	
+	export proc void SetUnStoppable(bool p_bValue)
+		m_bUnStoppable = p_bValue;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xWorker,CObjHndl p_xTower,bool p_bClimbUp,bool p_bJumpOff)
+		if(!p_xWorker.IsValid()||!p_xTower.IsValid())then return false; endif;
+		m_xWorker=p_xWorker;
+		m_xTower=p_xTower;
+		m_bClimbUp=p_bClimbUp;
+		m_bJumpOff=p_bJumpOff;
+		m_sState="start";
+		m_bClimbForward=true;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker==null)then EndTask();return; endif;
+		SetMaxCounter(25);
+//		pxWorker^.PauseAction();
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		if(m_sState=="fall")then
+			return;
+		endif;
+		var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+		var ^CSiegeTower pxTower = cast<CSiegeTower>(m_xTower.GetObj());
+		if((pxWorker==null)||(pxTower==null))then SetUnStoppable(false); EndTask();return; endif;
+		var CObjHndl xWall;
+		xWall = pxTower^.GetDockInfo().GetDockSite();
+		if(!pxTower^.IsDocked())then SetUnStoppable(false); EndTask(); return; endif;
+		var ^CGameObj pxWall=xWall.GetObj();
+		if((pxWorker==null)||(pxTower==null))then EndTask();return; endif;
+		if(pxWorker^.HasSecondaryAction())then return; endif;
+		if(m_sState=="start")then
+			var vec3 vDest=pxTower^.GetPos();
+			var vec3 vWall;
+			m_vEntry=vDest;
+			m_vTop=vDest;
+			m_vTop.SetZ(m_vTop.GetZ()+7.8f);
+			var vec3 vExit, vTop;
+			var bool bFront=true;
+			if(GetExitPoint(pxWorker,pxTower,vExit,bFront,vWall,m_vEntry0,vTop))then
+				var vec3 vP=pxWorker^.GetPos();
+				if(!bFront)then
+					m_bClimbForward=false;
+					m_vEntry=vExit;
+					m_vExit=vDest+(m_vExit-m_vEntry).GetNormalized()*3.0f;
+					m_vTop2=m_vTop;
+					m_vTop.SetX(m_vEntry.GetX());
+					m_vTop.SetY(m_vEntry.GetY());
+				else
+					m_vEntry=vDest;
+					m_vExit=vExit;
+					m_vTop2=vTop;
+					m_vTop2.SetZ(m_vTop.GetZ());
+				endif;
+			endif;
+			m_sState="trip";
+		endif;
+		if(m_sState=="trip")then
+			var vec3 vDest=m_vEntry;
+			if(m_bClimbForward)then
+				vDest=m_vEntry0;
+			endif;
+			SetCurrentTarget(vDest);
+			m_sState="rotate_0";
+			if(!IsAlreadyAtTargetPos(pxWorker^.GetPos(), 7.5))then
+				if(pxWorker^.GetOnWall())then
+					pxWorker^.WallWalkAction(vDest,true,pxWorker^.GetMaxSpeed(),false);
+				else
+					pxWorker^.WalkAction(vDest,pxWorker^.GetMaxSpeed());
+				endif;
+			else
+				USLOnTick(0);
+				return;
+			endif;
+		elseif(m_sState=="rotate_0")then
+			if(!HasArrivedTarget(pxWorker^.GetPos(),7.5))then
+				if(!CanFollow())then
+					ResetCounter();
+					m_sState="end";
+					return;
+				else
+					m_sState="trip";
+					return;
+				endif;
+			else
+				if(!pxTower^.RegisterClimber(m_xWorker))then
+					EndTask();
+					return;
+				endif;
+				SetUnStoppable(true);
+				m_sState="trip_2";
+				if(!IsAlreadyAtTargetPos(pxWorker^.GetPos(), 1.5))then
+					var Quat qRot=GetAngleToQ(GetCurrentTarget(),pxWorker^.GetPos());
+					pxWorker^.RotateAction(qRot);
+				else
+					USLOnTick(0);
+					return;
+				endif;
+			endif;
+		elseif(m_sState=="trip_2")then
+			var vec3 vDest=m_vEntry;
+			if(m_bClimbForward)then
+				vDest=m_vEntry0;
+			endif;
+			vDest.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vDest.GetX(), vDest.GetY()));
+			pxWorker^.SetAnim("walk_3",3);
+			pxWorker^.SecondaryMoveAction(vDest,5.0f);
+			m_sState="rotate_1";
+		elseif(m_sState=="rotate_1")then
+			var Quat qRot=pxTower^.GetRot();
+			if(!m_bClimbForward)then
+				qRot.RotateZ(Math.Pi());
+			endif;
+			pxWorker^.SecondaryRotateAction(qRot);
+			m_sState="trip_3";
+		elseif(m_sState=="trip_3")then
+			var vec3 vDest=m_vEntry;
+			vDest.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vDest.GetX(), vDest.GetY()));
+			pxWorker^.SetAnim("walk_3",3);
+			pxWorker^.SecondaryMoveAction(vDest,5.0f);
+			m_sState="move1";
+		elseif(m_sState=="move1")then
+			var vec3 vDest=m_vTop;
+			if(pxWall!=null)then
+				if(!((pxWall^.GetGfxName().Find("palisade")!=-1 && pxWall^.GetGfxName().Find("ninigi_palisade")==-1) || pxWall^.GetGfxName().Find("defense_skewer")!=-1 || pxWall^.GetGfxName().Find("fence")!=-1))then
+					vDest.SetZ(vDest.GetZ()+4.1f);
+				endif;
+			endif;
+			pxWorker^.SetAnim("climb_down_ladder",3);
+			pxWorker^.SecondaryMoveAction(vDest,7.0f);
+			m_sState="move2";
+		elseif(m_sState=="move2")then
+			var vec3 vDest=m_vTop2;
+			if(pxWall!=null)then
+				if(!((pxWall^.GetGfxName().Find("palisade")!=-1 && pxWall^.GetGfxName().Find("ninigi_palisade")==-1) || pxWall^.GetGfxName().Find("defense_skewer")!=-1 || pxWall^.GetGfxName().Find("fence")!=-1))then
+					vDest.SetZ(vDest.GetZ()+4.1f);
+				endif;
+			endif;
+			pxWorker^.SetSLEAnim("walk_3",3,true,true);
+			pxWorker^.SecondaryMoveAction(vDest,6.0f);
+			if(m_bJumpOff)then
+				m_sState="jump";
+			else
+				m_sState="rotate_end";
+			endif;
+		elseif(m_sState=="jump")then
+			var vec3 vDest=m_vExit;
+			if(pxWorker^.GetOnWall())then EndTask(); return; endif;
+			var real fMaxDist=1.0f;
+//			var ^CGameObj pxWall=xWall.GetObj();
+//			if(pxWall!=null)then
+//				var vec3 vDirection = pxWall^.GetPos()-m_vExit;
+//				fMaxDist= vDirection.Abs()-(pxWall^.GetRadius()+1.0f);
+//			endif;
+//			CSrvWrap.GetObjMgr()^.GetFreePos(vDest, pxWorker, vDest);
+			CSrvWrap.GetObjMgr()^.GetFreePos(vDest,pxWorker,vDest,null,true,false,false,pxWorker^.GetRadius(),010b,fMaxDist);
+			vDest.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vDest.GetX(), vDest.GetY()));
+			pxWorker^.JumpAction("climb_up_ladder", vDest, pxWorker^.GetRot(), 0.0f, 20.0f);
+			m_sState="find_new_pos";
+		elseif(m_sState=="rotate_end")then
+			var Quat qRot=pxTower^.GetRot();
+			if(m_bClimbForward)then
+				qRot.RotateZ(Math.Pi());
+			endif;
+			pxWorker^.SetAnim("standrotate_right",1);
+			pxWorker^.SecondaryRotateAction(qRot);
+			m_sState="trip_end";
+		elseif(m_sState=="trip_end")then
+			var vec3 vDest=m_vExit;
+			vDest.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vDest.GetX(), vDest.GetY()));
+			pxWorker^.SetAnim("climb_down_ladder",3);
+			pxWorker^.SecondaryMoveAction(vDest,5.0f);
+			m_sState="find_new_pos";
+		elseif(m_sState=="find_new_pos")then
+			var vec3 vDest=pxWorker^.GetPos();
+			CSrvWrap.GetObjMgr()^.GetFreePos(vDest, pxWorker, vDest);
+			pxWorker^.WalkAction(vDest,pxWorker^.GetMaxSpeed());
+			m_sState="end";
+		elseif(m_sState=="end")then
+			pxTower^.UnregisterClimber(m_xWorker);
+			SetUnStoppable(false);
+			EndTask();
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+//		var ^CGameObj pxWorker=m_xWorker.GetObj();
+//		if(pxWorker==null)then EndTask();return; endif;
+		var ^CFightingObj pxChar=cast<CFightingObj>(m_xWorker.GetObj());
+		if(pxChar==null)then EndTask(); return; endif;
+		pxChar^.SetTaskDescription("");
+//		pxWorker^.UnpauseAction();
+	endproc;
+	
+	proc void EndTask()
+		UpdateAggressionPos(m_xWorker);
+		GetFSM()^.Enable(false);
+		super.EndTask();
+	endproc;
+	
+	proc bool GetExitPoint(^CGameObj p_pxWorker,^CSiegeTower p_pxTower,ref vec3 po_rvPos,ref bool po_rbFrontside,ref vec3 po_rvWall,ref vec3 po_rvEntry0,ref vec3 po_rvTop)
+		if(p_pxTower==null)then return false; endif;
+		var ^CGameObj pxWall=p_pxTower^.GetDockInfo().GetDockSite().GetObj();
+		if(pxWall==null)then return false; endif;
+		var vec3 vPWorker=p_pxWorker^.GetPos();
+		po_rvWall=pxWall^.GetPos();
+		var vec3 vPLadder=p_pxTower^.GetPos();
+		var vec3 vND = (po_rvWall-vPLadder).GetNormalized();
+		var real fDB=((po_rvWall+vND)-vPWorker).AbsSquare();
+		var real fDF=((po_rvWall-vND)-vPWorker).AbsSquare();
+		po_rbFrontside=fDF<fDB;
+		po_rvPos = pxWall^.GetPos() + (vND * 4.0f);
+		po_rvTop = pxWall^.GetPos() + (vND * 2.9f);
+		po_rvPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(po_rvPos.GetX(), po_rvPos.GetY()));
+		var vec3 vDirection=vPLadder - po_rvWall;
+		var real fDist= vDirection.Abs();
+		vDirection.Normalize();
+		po_rvEntry0=vPLadder+(vDirection * fDist);
+		return true;
+	endproc;
+	
+	proc Quat GetAngleToQ(vec3 p_vTarget, vec3 p_vOwn)
+		var vec3 vDir=p_vTarget - p_vOwn;
+		vDir.SetZ(0.0f);
+		vDir.Normalize();
+		var Quat qRot;
+		qRot.FromXYDir(vDir.GetX(), vDir.GetY());
+		return qRot;
+	endproc;
+	
+	export proc bool Break()
+		if(GetUnStoppable())then
+			return false;
+		endif;
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker!=null)then pxWorker^.TerminateAction(); endif;
+		return true;
+	endproc;
+	
+	export proc void BreakExt()
+		m_sState="fall";
+		GetFSM()^.Enable(true);
+		var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+		if(pxWorker!=null)then
+			pxWorker^.SiegeFall();
+		endif;
+		SetUnStoppable(false);
+		EndTask();
+	endproc;
+	
+endclass;
+
+class CLeaveSiegeTower inherit CTask
+	
+	var CObjHndl	m_xWorker;
+	var CObjHndl	m_xSiege;
+	var string		m_sState;
+	var vec3			m_vTop;
+	var vec3			m_vTop2;
+	var vec3			m_vDest;
+	var bool			m_bUnStoppable;
+	var bool			m_bClimbUp;
+	var bool			m_bJumpOff;
+	
+	export constructor()
+		m_bUnStoppable = false;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="LeST";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xWorker.DoKArc(pxArc^);
+		m_xSiege.DoKArc(pxArc^);
+		pxArc^ << m_sState;
+		pxArc^ << m_vTop;
+		pxArc^ << m_vTop2;
+		pxArc^ << m_vDest;
+		pxArc^ << m_bUnStoppable;
+		pxArc^ << m_bClimbUp;
+		pxArc^ << m_bJumpOff;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="LeST")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xWorker.DoKArc(pxArc^);
+			m_xSiege.DoKArc(pxArc^);
+			pxArc^ << m_sState;
+			pxArc^ << m_vTop;
+			pxArc^ << m_vTop2;
+			pxArc^ << m_vDest;
+			pxArc^ << m_bUnStoppable;
+			pxArc^ << m_bClimbUp;
+			pxArc^ << m_bJumpOff;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xWorker,CObjHndl p_xSiege,bool p_bClimbUp,bool p_bJumpOff)
+		if(!p_xWorker.IsValid()||!p_xSiege.IsValid())then return false; endif;
+		m_xWorker=p_xWorker;
+		m_xSiege=p_xSiege;
+		m_bClimbUp=p_bClimbUp;
+		m_bJumpOff=p_bJumpOff;
+		m_sState = "start";
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker==null)then EndTask();return; endif;
+//		pxWorker^.PauseAction();
+	endproc;
+	
+	export proc bool GetUnStoppable()
+		return m_bUnStoppable;
+	endproc;
+	
+	export proc void SetUnStoppable(bool p_bValue)
+		m_bUnStoppable = p_bValue;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		if(m_sState=="fall")then
+			return;
+		endif;
+		var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+		var ^CSiegeTower pxSiege = cast<CSiegeTower>(m_xSiege.GetObj());
+		if((pxWorker==null)||(pxSiege==null))then SetUnStoppable(false); EndTask();return; endif;
+		if(pxWorker^.HasSecondaryAction())then return; endif;
+		if(!pxSiege^.IsDocked())then SetUnStoppable(false); EndTask(); return; endif;
+		var CObjHndl xWall = pxSiege^.GetDockInfo().GetDockSite();
+		var ^CGameObj pxWall=xWall.GetObj();
+		if(pxWall==null)then SetUnStoppable(false); EndTask(); return; endif;
+		if(m_sState=="start")then
+			if(!GetExitPoint(pxSiege,pxWall,m_vDest,m_vTop2))then SetUnStoppable(false); EndTask(); return; endif;
+			var vec3 vDest;
+			// set pos and rot
+			m_sState="move";
+		elseif(m_sState=="move")then
+			var vec3 vDest;
+			// move to ramp-tip
+			m_sState="trip_top";
+		elseif(m_sState=="trip_top")then
+			if(!pxSiege^.RegisterClimber(m_xWorker))then EndTask();return; endif;
+			SetUnStoppable(true);
+			m_vTop=pxSiege^.GetPos();
+			var real fHeight=7.8f;
+			if(pxWall!=null)then
+				if(!((pxWall^.GetGfxName().Find("palisade")!=-1 && pxWall^.GetGfxName().Find("ninigi_palisade")==-1) || pxWall^.GetGfxName().Find("defense_skewer")!=-1 || pxWall^.GetGfxName().Find("fence")!=-1))then
+					fHeight+=4.1f;
+				endif;
+			endif;
+//			m_vTop2.SetX(m_vDest.GetX());
+//			m_vTop2.SetY(m_vDest.GetY());
+			m_vTop.SetZ(m_vTop.GetZ()+fHeight);
+			m_vTop2.SetZ(m_vTop.GetZ());
+			pxWorker^.SetPos(m_vTop);
+			m_sState="move2";
+		elseif(m_sState=="move2")then
+			var vec3 vDest=m_vTop2;
+			pxWorker^.SetSLEAnim("walk_3",3,true,true);
+			pxWorker^.SecondaryMoveAction(vDest,6.0f);
+			// jump down
+			if(m_bJumpOff)then
+				m_sState="jump";
+			else
+				m_sState="rotate_end";
+			endif;
+		elseif(m_sState=="jump")then
+			var vec3 vDest=m_vDest;
+			var real fMaxDist=1.0f;
+//			var ^CGameObj pxWall=xWall.GetObj();
+//			if(pxWall!=null)then
+//				var vec3 vND = (pxWall^.GetPos()-pxSiege^.GetPos()).GetNormalized();
+//				vDest = pxWall^.GetPos() + (vND * (pxWall^.GetRadius()+1.0f));
+//				var vec3 vDirection = pxWall^.GetPos()-vDest;
+//				fMaxDist= vDirection.Abs()-(pxWall^.GetRadius()+1.0f);
+//			endif;
+//			CSrvWrap.GetObjMgr()^.GetFreePos(vDest, pxWorker, vDest);
+//			vDest.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vDest.GetX(), vDest.GetY()));
+			CSrvWrap.GetObjMgr()^.GetFreePos(vDest,pxWorker,vDest,null,true,false,false,pxWorker^.GetRadius(),010b,fMaxDist);
+			pxWorker^.JumpAction("climb_up_ladder", vDest, pxWorker^.GetRot(), 0.0f, 20.0f);
+//			pxWorker^.SetPos(vDest);
+//			pxWorker^.JumpAction(pxWorker^.GetCaste()+"_climb_up_ladder", vDest, pxWorker^.GetRot(), 0.0f, 20.0f);
+			m_sState="find_new_pos";
+		elseif(m_sState=="rotate_end")then
+			var Quat qRot=pxSiege^.GetRot();
+			qRot.RotateZ(Math.Pi());
+			pxWorker^.SetAnim("standrotate_right",1);
+			pxWorker^.SecondaryRotateAction(qRot);
+			m_sState="trip_end";
+		elseif(m_sState=="trip_end")then
+			var vec3 vDest=m_vDest;
+			vDest.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vDest.GetX(), vDest.GetY()));
+			pxWorker^.SetAnim("climb_down_ladder",3);
+			pxWorker^.SecondaryMoveAction(vDest,5.0f);
+			m_sState="find_new_pos";
+		elseif(m_sState=="find_new_pos")then
+			var vec3 vDest=pxWorker^.GetPos();
+			CSrvWrap.GetObjMgr()^.GetFreePos(vDest, pxWorker, vDest);
+			pxWorker^.WalkAction(vDest,pxWorker^.GetMaxSpeed());
+			m_sState="end";
+		elseif(m_sState=="end")then
+			pxSiege^.UnregisterClimber(m_xWorker);
+			SetUnStoppable(false);
+			EndTask();
+		endif;
+	endproc;
+	
+	proc bool GetExitPoint(^CSiegeTower p_pxTower,^CGameObj p_pxWall,ref vec3 po_rvPos,ref vec3 po_rvTop)
+		if(p_pxTower==null||p_pxWall==null)then return false; endif;
+		var vec3 vWall=p_pxWall^.GetPos();
+		var vec3 vPLadder=p_pxTower^.GetPos();
+		var vec3 vND = (vWall-vPLadder).GetNormalized();
+		po_rvPos = vWall + (vND * 4.0f);
+		po_rvTop = vWall + (vND * 2.9f);
+		po_rvPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(po_rvPos.GetX(), po_rvPos.GetY()));
+		return true;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker==null)then EndTask();return; endif;
+//		pxWorker^.UnpauseAction();
+	endproc;
+	
+	export proc bool Break()
+		if(GetUnStoppable())then
+			return false;
+		endif;
+		return true;
+	endproc;
+	
+	proc void EndTask()
+		UpdateAggressionPos(m_xWorker);
+		GetFSM()^.Enable(false);
+		super.EndTask();
+	endproc;
+	
+	export proc void BreakExt()
+		m_sState="fall";
+		GetFSM()^.Enable(true);
+		var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+		if(pxWorker!=null)then
+			pxWorker^.SiegeFall();
+		endif;
+		SetUnStoppable(false);
+		EndTask();
+	endproc;
+	
+endclass;

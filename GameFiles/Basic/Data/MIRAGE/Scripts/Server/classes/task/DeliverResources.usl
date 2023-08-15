@@ -1,0 +1,140 @@
+class CDeliverResources inherit CTask
+
+	var CObjHndl m_xWorker; ///< character
+	var CObjHndl m_xDelivery;
+	var vec3 m_vCurDelivery;
+	var string m_sState;
+	var real m_fTargetRadius;
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="DeRe";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xWorker.DoKArc(pxArc^);
+		m_xDelivery.DoKArc(pxArc^);
+		(pxArc^) << m_vCurDelivery;
+		(pxArc^) << m_sState;
+		(pxArc^) << m_fTargetRadius;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="DeRe")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xWorker.DoKArc(pxArc^);
+			m_xDelivery.DoKArc(pxArc^);
+			(pxArc^) << m_vCurDelivery;
+			(pxArc^) << m_sState;
+			(pxArc^) << m_fTargetRadius;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xWorker,CObjHndl p_xTarget)
+		if(!p_xWorker.IsValid()||!p_xTarget.IsValid())then
+			return false;
+		endif;
+		SetName("DelRes");
+		m_xWorker=p_xWorker;
+		m_xDelivery=p_xTarget;
+		m_sState="goto_deliver";
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if (pxWorker == null) then return false; endif;
+		var ^CAttribs pxAttr = pxWorker^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+		endif;
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker==null)then EndTask();return; endif;
+		if(pxWorker^.GetType()!="CHTR")then EndTask();return; endif;
+		var ^CGameObj pxDelivery=m_xDelivery.GetObj();
+		if (pxDelivery == null) then EndTask();return; endif;
+		// RT#8432
+		var ^CAttribs pxAttr = pxWorker^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+		endif;
+		(cast<CFightingObj>(pxWorker)^.HideWeapons());
+//		pxWorker^.SetLinkGFX(m_xFCCWeaponLink,"Hu_Hammer");
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxWorker;
+		begin CheckWorker;
+			var ^CGameObj pxTmp=m_xWorker.GetObj();
+			if(pxTmp==null)then EndTask();return; endif;
+			pxWorker=cast<CCharacter>(pxTmp);
+			if(pxWorker==null)then EndTask();return; endif;
+		end CheckWorker;
+		var ^CGameObj pxDelivery=m_xDelivery.GetObj();
+		if (pxDelivery == null) then EndTask();return; endif;
+		if(m_sState=="goto_deliver")then
+			m_vCurDelivery = pxDelivery^.GetPos();
+//			var CFourCC xType="cary";
+			m_fTargetRadius = pxDelivery^.GetRadius();
+			var CGameObj.CAdvanceActionParams xAWAP;
+			xAWAP.m_fMinDistance=0.0f; // m_fTargetRadius;
+			xAWAP.m_iPrefSpeed=pxWorker^.GetDefaultSpeed();
+			if(pxWorker^.GetOnWall())then
+				pxWorker^.AdvanceWallAction(pxDelivery^.GetHandle(),xAWAP,true,false);
+			else
+				pxWorker^.AdvanceAction(pxDelivery^.GetHandle(),xAWAP);
+			endif;
+			m_sState="drop_resources";
+		elseif(m_sState=="drop_resources")then
+			if((pxWorker^.GetPos()-m_vCurDelivery).Abs()>=m_fTargetRadius*1.3)then
+				m_sState="goto_deliver";
+			else
+				var bool bPutSomethingDown = false;
+				if (pxWorker^.CheckInResInvAllPossible(pxDelivery)) then
+					bPutSomethingDown = true;
+				endif;
+				//L CSrvWrap.LogSpam("DeliverResources","bPutSomethingDown="+bPutSomethingDown.ToString());
+				if(bPutSomethingDown)then
+					var ^CFightingObj pxDelivery = cast<CFightingObj>(m_xDelivery.GetObj());
+					if(pxDelivery!=null)then
+						pxDelivery^.AcceptDeliveries();
+					endif;
+					var string sSetting=CSrvWrap.GetCurLevel()^.GetLevelInfo().GetAttribs().GetValue("Setting");
+					pxWorker^.AnimAction("belly_put_down");
+					m_sState="unlink_resources";
+				else
+//					pxWorker^.RemLinkGFX(m_xFCCWeaponLink);
+					pxWorker^.WaitAction(2.0f); //wait 2 secs for free checkin
+					return;
+				endif;
+			endif;
+		elseif(m_sState=="unlink_resources")then
+//			pxWorker^.RemLinkGFX(m_xFCCWeaponLink);
+			EndTask();
+		else
+			//L CSrvWrap.LogWarning("DeliverResources","invalid state: "+m_sState);
+			EndTask();
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+//		if(pxWorker!=null) then pxWorker^.RemLinkGFX(m_xFCCWeaponLink); endif;
+		(cast<CFightingObj>(pxWorker)^.ShowWeapons());
+	endproc;
+
+	export proc bool Break()
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker!=null)then pxWorker^.TerminateAction(); endif;
+		return true;
+	endproc;
+
+	export proc void EndTask()
+		UpdateAggressionPos(m_xWorker);
+		super.EndTask();
+	endproc;
+	
+endclass;

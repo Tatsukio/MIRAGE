@@ -1,0 +1,360 @@
+class CEndScreen inherit CStateUIWnd
+	
+	const int EST_CAMPAIGN_LOSE			= 0;
+	const int EST_CAMPAIGN_WIN			= 1;
+	const int EST_SKIRMISH_LOSE			= 2;
+	const int EST_SKIRMISH_WIN			= 3;
+	const int EST_SKIRMISH_DRAW			= 4;
+	const int EST_MULTIPLAYER_LOSE		= 5;
+	const int EST_MULTIPLAYER_WIN		= 6;
+	const int EST_MULTIPLAYER_DRAW		= 7;
+	const int EST_INVALID				= 8;
+
+	var ^CDesktop						m_pxDesktop;
+	var ^CMenuButton					m_pxBtnSwitchToIS;
+	var ^CMenuButton					m_pxBtnRetryContinue;
+	var ^CMenuButton					m_pxBtnLoadGame;
+	var ^CMenuButton					m_pxBtnViewStats;
+	var ^CMenuButton					m_pxBtnBack2Menu;
+	var ^CMenuButton					m_pxBtnQuit2Win;
+	var ^CMenuButton					m_pxBtnSaveReplay;
+	var ^CMenuButton					m_pxBtnOptions;
+
+	var ^CStaticCtrlEx					m_pxPic;
+
+	var ^CStaticCtrl					m_pxWinLoseText;
+	var ^CStaticCtrlEx					m_pxReason;
+
+	var int 							m_iEndScreenType;
+	var	int								m_iStatisticsTimer;
+
+	//var string						m_sReason;
+	//var int							m_iShutDelay;
+	//var int							m_iContinueState;
+	
+	var string							m_sPath; //store init path for menu changes during endgame screen
+
+	export constructor(string p_sPath)
+		m_sPath = p_sPath;
+		if(!InitFromResource("UI/EndScreen","EndScreen")) then
+			return;
+		endif;
+		var ^CSpiritMgr pxS=^(CSpiritMgr.GetSimple());
+		if(pxS!=null)then
+			pxS^.SetActive(false);
+		endif;
+		m_pxDesktop=CClientWrap.GetDesktop();
+		SetPos(m_pxDesktop^.GetWidth()/2 - GetWidth()/2,m_pxDesktop^.GetHeight()/2 - GetHeight()/2);
+
+		m_pxBtnSwitchToIS=cast<CMenuButton>(GetControl("SwitchToIS"));
+		m_pxBtnRetryContinue=cast<CMenuButton>(GetControl("RetryContinue"));
+		m_pxBtnLoadGame=cast<CMenuButton>(GetControl("LoadGame"));
+		m_pxBtnViewStats=cast<CMenuButton>(GetControl("ViewStats"));
+		m_pxBtnBack2Menu=cast<CMenuButton>(GetControl("Back2Menu"));
+		m_pxBtnQuit2Win=cast<CMenuButton>(GetControl("Quit2Win"));
+		m_pxBtnSaveReplay=cast<CMenuButton>(GetControl("SaveReplay"));
+		m_pxBtnOptions=cast<CMenuButton>(GetControl("Options"));
+		m_pxPic=cast<CStaticCtrlEx>(GetControl("Pic"));
+
+		m_pxBtnSwitchToIS^.m_xOnClick=OnSwitchToIS;
+		m_pxBtnRetryContinue^.m_xOnClick=OnRetryContinue;
+		m_pxBtnLoadGame^.m_xOnClick=OnLoadGame;
+		m_pxBtnViewStats^.m_xOnClick=OnViewStats;
+		m_pxBtnBack2Menu^.m_xOnClick=OnBack2Menu;
+		m_pxBtnQuit2Win^.m_xOnClick=OnQuit2Win;
+		m_pxBtnSaveReplay^.m_xOnClick=OnSaveReplay;
+		m_pxBtnOptions^.m_xOnClick=OnOptions;
+		
+		m_pxBtnSwitchToIS^.SetText(CLocalizer.Get().Translate("_EndScreen_SwitchToIS"));
+		m_pxBtnRetryContinue^.SetText(CLocalizer.Get().Translate("_EndScreen_Retry"));
+		m_pxBtnLoadGame^.SetText(CLocalizer.Get().Translate("_EndScreen_LoadGame"));
+		m_pxBtnViewStats^.SetText(CLocalizer.Get().Translate("_EndScreen_ViewStatistics"));
+		m_pxBtnBack2Menu^.SetText(CLocalizer.Get().Translate("_EndScreen_BackToMenu"));
+		m_pxBtnQuit2Win^.SetText(CLocalizer.Get().Translate("_EndScreen_QuitToWindows"));
+		m_pxBtnSaveReplay^.SetText(CLocalizer.Get().Translate("_EndScreen_SaveReplay"));
+		m_pxBtnOptions^.SetText(CLocalizer.Get().Translate("_IngameScreen_Options"));
+
+		SetCmd("OnRetryContinue", OnRetryContinue );
+		AddAccelerator("1,NONE,OnRetryContinue");
+		SetCmd("OnSaveReplay", OnSaveReplay );
+		AddAccelerator("2,NONE,OnSaveReplay");
+		SetCmd("OnViewStats", OnViewStats );
+		AddAccelerator("3,NONE,OnViewStats");
+		SetCmd("OnLoadGame", OnLoadGame );
+		AddAccelerator("4,NONE,OnLoadGame");
+		SetCmd("OnBack2Menu", OnBack2Menu );
+		AddAccelerator("5,NONE,OnOptions");
+		SetCmd("OnOptions", OnOptions );
+		AddAccelerator("6,NONE,OnBack2Menu");
+		SetCmd("OnQuit2Win", OnQuit2Win );
+		AddAccelerator("7,NONE,OnQuit2Win");
+		SetCmd("OnSwitchToIS", OnSwitchToIS );
+		AddAccelerator("F10,SHIFT,OnSwitchToIS");
+		
+		var CConfig xConf;
+		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+		m_pxBtnSaveReplay^.SetDisabled(true);
+		m_pxBtnRetryContinue^.SetVisible(false);
+		if(pxLevelInfo!=null && CClientWrap.HasServer() && CGameWrap.GetClientID()==0)then
+			if(xConf.GetB("Pest/Global/RecordReplay",false))then
+				m_pxBtnSaveReplay^.SetDisabled(false);
+			endif;
+			if(pxLevelInfo^.GetNumHumanPlayers()<2 && CMirageClnMgr.AllowRetry(pxLevelInfo))then
+				m_pxBtnRetryContinue^.SetVisible(true);
+			endif;
+		endif;
+
+		var string sPic="menue/decoration/gameover_defeat.tga";
+
+		m_iEndScreenType=CEndScreen.EST_INVALID;
+		var string sTribe = CGameWrap.GetClient().GetPlayer().GetPlayerSlot()^.GetTribe();
+		sTribe.MakeLower();
+		var string sReason = "";
+		var array string asTokens;
+		p_sPath.Split(asTokens,"\t",true);
+		// Fix by AyCe: Moved this up
+		// ---------------------------
+		if(asTokens.NumEntries()>=4)then
+			sReason=asTokens[3];
+		endif;
+		// ---------------------------
+		// Fix by AyCe: Added command, Fix #2: Added Accomplished fix, Fix #3 checked entries
+		var bool bWinReason = CMirageClnMgr.IsWinReason(sReason);
+		CMusicMgr.Get().OnGameEnd((asTokens.NumEntries()>=3 && asTokens[2]=="Win") || bWinReason);
+		//System.Assert(asTokens.NumEntries()>=3,"asTokens.NumEntries()>=3, p_sPath: '"+p_sPath+"'");
+		if(asTokens.NumEntries()>=3)then
+			//System.Assert(asTokens[0]=="GameOver","asTokens[0]=='GameOver', p_sPath: '"+p_sPath+"'");
+			var string sLevelType=asTokens[1];
+			var string sState=asTokens[2];
+			if(sLevelType=="Campaign")then
+				if(!CMirageClnMgr.IsCustomMap(pxLevelInfo))then
+					m_pxBtnSaveReplay^.SetVisible(false);
+				endif;
+				if(sState=="Win")then
+					m_iEndScreenType=EST_CAMPAIGN_WIN;
+					sPic="menue/decoration/gameover_victory.tga";
+					if(!CCampaignMgr.Get().OnLevelWin())then
+						m_pxBtnRetryContinue^.SetDisabled(true);
+					endif;
+				// Fix by AyCe
+				elseif(sState=="Lose" && bWinReason)then
+					//m_pxBtnSaveReplay^.SetVisible(true);
+					m_iEndScreenType=EST_SKIRMISH_WIN;
+					sPic="menue/decoration/gameover_victory.tga";
+				// Fix end
+				elseif(sState=="Lose")then
+					m_iEndScreenType=EST_CAMPAIGN_LOSE;
+				endif;
+			elseif(sLevelType=="Skirmish")then
+				if(sState=="Win" || bWinReason)then
+					m_iEndScreenType=EST_SKIRMISH_WIN;
+					sPic="menue/decoration/gameover_victory.tga";
+				elseif(sState=="Draw")then
+					m_iEndScreenType=EST_SKIRMISH_DRAW;
+					sPic="menue/decoration/gameover_draw.tga";
+				else//sState=="Lose"
+					//System.Assert(sState=="Lose","sState=='Lose', p_sPath: '"+p_sPath+"'");
+					m_iEndScreenType=EST_SKIRMISH_LOSE;
+				endif;
+			else//sLevelType=="Multiplayer"
+				//System.Assert(sLevelType=="Multiplayer","sLevelType=='Multiplayer', p_sPath: '"+p_sPath+"'");
+				if(sState=="Win" || bWinReason)then
+					m_iEndScreenType=EST_MULTIPLAYER_WIN;
+					sPic="menue/decoration/gameover_victory.tga";
+				elseif(sState=="Draw")then
+					m_iEndScreenType=EST_MULTIPLAYER_DRAW;
+					sPic="menue/decoration/gameover_draw.tga";
+				else//sState=="Lose"
+					//System.Assert(sState=="Lose","sState=='Lose', p_sPath: '"+p_sPath+"'");
+					m_iEndScreenType=EST_MULTIPLAYER_LOSE;
+				endif;
+			endif;
+		endif;
+		m_pxPic^.SetBitmap(sPic);
+		m_pxReason=cast<CStaticCtrlEx>(GetControl("Pic/Reason"));
+		m_pxReason^.SetText(CLocalizer.Get().Translate(sReason));
+		m_pxWinLoseText=cast<CStaticCtrl>(GetControl("Pic/WinLoseText"));
+		//m_sReason="MultiplayerLost"; // so its at least a valid value.
+		var bool bWin = false, bLost = false;
+		if(m_iEndScreenType==EST_CAMPAIGN_LOSE)then
+			bLost = true;
+			SetCaption(CLocalizer.Get().Translate("_EndScreen_Campaign"));
+			m_pxWinLoseText^.SetText(CLocalizer.Get().Translate("_EndScreen_YouLose"));
+			m_pxWinLoseText^.SetTextColor({{255,0,0,255}});
+//			m_pxReason^.SetTextColor({{255,0,0,255}});
+		elseif(m_iEndScreenType==EST_CAMPAIGN_WIN)then
+			bWin = true;
+			SetCaption(CLocalizer.Get().Translate("_EndScreen_Campaign"));
+			m_pxWinLoseText^.SetText(CLocalizer.Get().Translate("_EndScreen_YouWin"));
+			m_pxWinLoseText^.SetTextColor({{0,255,0,255}});
+//			m_pxReason^.SetTextColor({{0,255,0,255}});
+			m_pxBtnRetryContinue^.SetText(CLocalizer.Get().Translate("_EndScreen_Continue"));
+		elseif(m_iEndScreenType==EST_SKIRMISH_LOSE) then
+			bLost = true;
+			SetCaption(CLocalizer.Get().Translate("_EndScreen_Skirmish"));
+			m_pxWinLoseText^.SetText(CLocalizer.Get().Translate("_EndScreen_YouLose"));
+			m_pxWinLoseText^.SetTextColor({{255,0,0,255}});
+//			m_pxReason^.SetTextColor({{255,0,0,255}});
+			//m_pxBtnRetryContinue^.SetVisible(true);
+		elseif(m_iEndScreenType==EST_SKIRMISH_WIN)then
+			bWin = true;
+			SetCaption(CLocalizer.Get().Translate("_EndScreen_Skirmish"));
+			m_pxWinLoseText^.SetText(CLocalizer.Get().Translate("_EndScreen_YouWin"));
+			m_pxWinLoseText^.SetTextColor({{0,255,0,255}});
+//			m_pxReason^.SetTextColor({{0,255,0,255}});
+			//m_pxBtnRetryContinue^.SetVisible(false);
+		elseif(m_iEndScreenType==EST_SKIRMISH_DRAW)then
+			SetCaption(CLocalizer.Get().Translate("_EndScreen_Skirmish"));
+			m_pxWinLoseText^.SetText(CLocalizer.Get().Translate("_MIRAGE_EndScreen_Draw"));
+			m_pxWinLoseText^.SetTextColor({{132,32,255,255}});
+			m_pxReason^.SetText(CLocalizer.Get().Translate("_MIRAGE_EndScreen_TimeOver"));
+//			m_pxReason^.SetTextColor({{132,32,255,255}});
+			//m_pxBtnRetryContinue^.SetVisible(false);
+		elseif(m_iEndScreenType==EST_MULTIPLAYER_LOSE) then
+			bLost = true;
+			SetCaption(CLocalizer.Get().Translate("_EndScreen_Multiplayer"));
+			m_pxWinLoseText^.SetText(CLocalizer.Get().Translate("_EndScreen_YouLose"));
+			m_pxWinLoseText^.SetTextColor({{255,0,0,255}});
+//			m_pxReason^.SetTextColor({{255,0,0,255}});
+			//m_pxBtnRetryContinue^.SetVisible(false);
+			m_pxBtnLoadGame^.SetVisible(false);
+		elseif(m_iEndScreenType==EST_MULTIPLAYER_WIN)then
+			bWin = true;
+			SetCaption(CLocalizer.Get().Translate("_EndScreen_Multiplayer"));
+			m_pxWinLoseText^.SetText(CLocalizer.Get().Translate("_EndScreen_YouWin"));
+			m_pxWinLoseText^.SetTextColor({{0,255,0,255}});
+//			m_pxReason^.SetTextColor({{0,255,0,255}});
+			//m_pxBtnRetryContinue^.SetVisible(false);
+			m_pxBtnLoadGame^.SetVisible(false);
+		elseif(m_iEndScreenType==EST_MULTIPLAYER_DRAW)then
+			SetCaption(CLocalizer.Get().Translate("_EndScreen_Multiplayer"));
+			m_pxWinLoseText^.SetText(CLocalizer.Get().Translate("_MIRAGE_EndScreen_Draw"));
+			m_pxWinLoseText^.SetTextColor({{132,32,255,255}});
+			m_pxReason^.SetText(CLocalizer.Get().Translate("_MIRAGE_EndScreen_TimeOver"));
+//			m_pxReason^.SetTextColor({{132,32,255,255}});
+			//m_pxBtnRetryContinue^.SetVisible(false);
+			m_pxBtnLoadGame^.SetVisible(false);
+		else//(m_iEndScreenType==EST_INVALID)
+			SetCaption("");
+			//m_pxBtnRetryContinue^.SetVisible(false);
+			//m_pxBtnLoadGame^.SetVisible(false);
+			//m_pxBtnViewStats^.SetVisible(false);
+		endif;
+		if(CMirageClnMgr.Get().GetFeedback(CMirageClnMgr.FB_ENDSCREEN))then
+			if(bWin)then
+				CGameInputController.ms_xUISoundMgr.InvokeFeedbackSoundEvent("voice_"+sTribe+"_endscreen_win",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+			elseif(bLost)then
+				CGameInputController.ms_xUISoundMgr.InvokeFeedbackSoundEvent("voice_"+sTribe+"_endscreen_lost",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+			endif;
+		endif;
+		//noch nicht implementierte buttons
+		m_pxBtnViewStats^.SetDisabled( true );
+		m_iStatisticsTimer = SetTimer( 250, true );
+		CGameWrap.GetStatisticMgr().RequestStatistics();
+		CGameWrap.Pause();
+	endconstructor;
+
+	export destructor()
+		//CWindowMgr.Get().ReleaseModal(this);
+//L		KLog.LogSpam("MaSc","destructor EndScreen");
+		CGameWrap.Unpause();
+	enddestructor;
+	
+	export proc string GetPath()
+		return m_sPath;
+	endproc;
+
+	proc bool OnRetryContinue()
+		if(m_pxBtnRetryContinue!=null&&(!m_pxBtnRetryContinue^.GetVisible()||m_pxBtnRetryContinue^.GetDisabled()))then
+			return true;
+		endif;
+		if(m_iEndScreenType==EST_CAMPAIGN_WIN)then
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_CONTINUECAMPAIGN);
+			return true;
+		endif;
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_RELOADGAME);
+		return true;
+		/*
+		if(m_iEndScreenType==EST_CAMPAIGN_LOSE)then
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_RELOADGAME);
+		elseif(m_iEndScreenType==EST_CAMPAIGN_WIN)then
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_CONTINUECAMPAIGN);
+		else//if(m_iEndScreenType==EST_MULTIPLAYER_LOSE || m_iEndScreenType==EST_MULTIPLAYER_WIN)then
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_RELOADGAME);
+		endif;
+		return true;
+		*/
+	endproc;
+
+	proc bool OnLoadGame()
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_LOADGAMEMENU);
+		return true;
+	endproc;
+	
+	proc bool OnViewStats()
+		var ^CStatisticScreen pxSS=new CStatisticScreen(this);
+		var ^CDesktop pxDesktop = CClientWrap.GetDesktop();
+		pxDesktop^.AddChild(pxSS);
+		CWindowMgr.Get().BringWindowToTop(pxSS,true);
+		CWindowMgr.Get().SetModal(pxSS);
+		SetVisible(false);
+		return true;
+	endproc;
+	
+	proc bool OnOptions()
+		if(!GetVisible())then return true; endif;
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_OPTIONSMENU,m_sPath);
+		return true;
+	endproc;
+	
+	export proc void OnCloseStats()
+		SetVisible(true);
+	endproc;
+
+	proc bool OnBack2Menu()
+		if(!GetVisible())then return true; endif;
+		/*
+		if(m_iEndScreenType==EST_CAMPAIGN_LOSE)then
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_RELOADGAME);
+			return true;
+		elseif(m_iEndScreenType==EST_CAMPAIGN_WIN)then
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_LOADCAMPAIGNLEVEL);
+			return true;
+		endif;*/
+		CSoundMgrCln.SetGameIsRunning(false);
+		CEvt_CloseGame.Send();
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_MAINMENU);
+		return true;
+	endproc;
+	
+	proc bool OnQuit2Win()
+		if(!GetVisible())then return true; endif;
+		CGameWrap.Quit();
+		return true;
+	endproc;
+	
+	proc bool OnSaveReplay()
+		if(!GetVisible())then return true; endif;
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_SAVEGAMEMENU,m_sPath);
+		return true;
+	endproc;
+	
+	proc bool OnSwitchToIS()
+		if(!GetVisible())then return true; endif;
+		CGameWrap.Unpause();
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_LURKER,m_sPath);
+		CMusicMgr.Get().OnLurker();
+		return true;
+	endproc;
+	
+	proc bool OnTimer( int p_iID )
+		if ( p_iID == m_iStatisticsTimer ) then
+			if ( CGameWrap.GetStatisticMgr().HasData() ) then
+				m_pxBtnViewStats^.SetDisabled( false );
+			endif;
+		endif;
+		return( true );
+	endproc;
+
+endclass;
+

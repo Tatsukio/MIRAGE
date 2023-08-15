@@ -1,0 +1,180 @@
+class CRegionController inherit CTransformController
+
+	var int		m_iState;
+	var vec3	m_vStartPos;
+	var CGuid	m_xRegion;
+	var int		m_iSubRegionID;
+	var bool	m_bShifting;
+
+	const int STATE_OFF			= -1;
+	const int STATE_CREATE		= 0;
+
+	// in this states we are like transformcontroller
+	const int STATE_EDITPOS		= 1;
+	const int STATE_EDITSIZE	= 2;
+
+	export constructor()
+		m_bShifting=false;
+		Disable();
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc void EditRegion(CGuid p_xBaseRegion,int p_iSubRegion)
+		m_iState=STATE_EDITPOS;
+		m_xRegion=p_xBaseRegion;
+		var ^CRegionBase pxRgn=CLevelEditorWrap.GetRegionMgr()^.GetRegion(m_xRegion);
+		if((pxRgn!=null) && (p_iSubRegion>=0) && (p_iSubRegion<pxRgn^.NumSubs()))then
+			pxRgn^.SetRendering(true);
+			m_iSubRegionID=p_iSubRegion;
+			SetDefaultState();
+			Activate(true);
+		else
+			Disable();
+		endif;
+	endproc;
+
+	proc void SetDefaultState()
+		SetTransformState(0);
+		SetDisabledAxis(MA_Z);
+		SetTranslateAxis(MA_XY);
+	endproc;
+
+	export proc bool HandleMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+		if(m_iState==STATE_OFF)then return false; endif;
+		var ^CRegionBase pxRgn=CLevelEditorWrap.GetRegionMgr()^.GetRegion(m_xRegion);
+		if(pxRgn==null)then return false; endif;
+
+		var bool bCtrl = false;
+		if( (p_dwFlags&0010b) == 00010b )then
+			bCtrl=true;
+		endif;
+		m_bShifting=(p_dwFlags&0001b) == 00001b;
+		if((m_iState==STATE_EDITPOS)||(m_iState==STATE_EDITSIZE))then
+			if(bCtrl)then
+				m_iState=STATE_EDITSIZE;
+			else
+				m_iState=STATE_EDITPOS;
+			endif;
+			if(super.HandleMsg(p_dwType,p_dwFlags,p_iKey,p_iX,p_iY))then
+				return true;
+			endif;
+			if(p_dwType==CInputController.MT_MouseRBtnDown)then
+				Disable();
+			endif;
+		else
+			var vec3 vPick=CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+			if(p_dwType==CInputController.MT_MouseLBtnDown)then
+				if(m_iState==STATE_CREATE)then // edit
+					StartDragging(vPick);
+				endif;
+			elseif(p_dwType==CInputController.MT_MouseMove)then
+				if(m_vStartPos!={0.0,0.0,0.0})then
+					if(m_iState==STATE_CREATE)then // edit
+						UpdateDragging(vPick);
+					endif;
+				endif;
+			elseif(p_dwType==CInputController.MT_MouseLBtnUp)then
+				if(m_vStartPos!={0.0,0.0,0.0})then
+					if(m_iState==STATE_CREATE)then // edit
+						EndDragging(vPick);
+					endif;
+				endif;
+			elseif(p_dwType==CInputController.MT_MouseRBtnDown)then
+				if(m_iState==STATE_CREATE)then // edit
+					ClearRgn();
+				endif;
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+	export proc void Render()
+		if((m_iState==STATE_EDITPOS)||(m_iState==STATE_EDITSIZE))then
+			super.Render();
+		endif;
+	endproc;
+
+	proc vec3 GetPos()
+		var ^CRegionBase pxRgn=CLevelEditorWrap.GetRegionMgr()^.GetRegion(m_xRegion);
+		if(pxRgn==null)then return super.GetPos(); endif;
+		return pxRgn^[m_iSubRegionID]^.GetPos();
+	endproc;
+
+	proc void OnTranslate(vec3 p_vDiff)
+		var ^CRegionBase pxRgn=CLevelEditorWrap.GetRegionMgr()^.GetRegion(m_xRegion);
+		if(pxRgn!=null)then
+			var bitset dwAxis=GetTranslateAxis();
+			if(m_iState==STATE_EDITPOS)then
+				var vec3 vDiff=p_vDiff;
+				if(m_bShifting)then
+					if(dwAxis==00010b)then
+						vDiff.SetX(vDiff.GetY());
+					elseif(dwAxis==00001b)then
+						vDiff.SetY(vDiff.GetX()*-1.0f);
+					endif;
+				endif;
+				pxRgn^[m_iSubRegionID]^.Translate(vDiff);
+			elseif(m_iState==STATE_EDITSIZE)then
+				if(m_bShifting&&(dwAxis==00010b||dwAxis==00001b))then
+					var real fOffset=p_vDiff.GetX()*2.0f;
+					if(dwAxis==00010b)then
+						fOffset=p_vDiff.GetY()*2.0f;
+					endif;
+					pxRgn^[m_iSubRegionID]^.AdjustSize(fOffset,fOffset);
+				else
+					pxRgn^[m_iSubRegionID]^.AdjustSize(p_vDiff.GetX()*2.0f,p_vDiff.GetY()*2.0f);
+				endif;
+			endif;
+		endif;
+	endproc;
+
+	proc void OnEndDrag()
+		CEnhancedMenu.Get().GetViewZoneCreate()^.UpdateRegion(m_xRegion);
+		SetDefaultState();
+	endproc;
+
+	proc void ClearRgn()
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		var ^CRegionBase pxRgn=pxRM^.GetRegion(m_xRegion);
+		if(pxRgn!=null) then
+			pxRgn^.RemSubRegion(m_iSubRegionID);
+			if(pxRgn^.NumSubs()==0)then
+				pxRM^.DeleteRegion(m_xRegion);
+			endif;
+		endif;
+		Disable();
+	endproc;
+
+	proc void StartDragging(vec3 p_vPick)
+		var ^CRegionBase pxRgn=CClientWrap.GetRegionMgr()^.GetRegion(m_xRegion);
+		if(pxRgn!=null)then
+			pxRgn^[m_iSubRegionID]^.Translate(p_vPick);
+		endif;
+		m_vStartPos=p_vPick;
+	endproc;
+
+	proc void UpdateDragging(vec3 p_vPick)
+		var ^CRegionBase pxRgn=CClientWrap.GetRegionMgr()^.GetRegion(m_xRegion);
+		if(pxRgn!=null)then
+			var vec3 vDiff=p_vPick-m_vStartPos;
+			pxRgn^[m_iSubRegionID]^.AdjustSize(vDiff.GetX(),vDiff.GetY());
+		endif;
+		m_vStartPos=p_vPick;
+	endproc;
+
+	proc void EndDragging(vec3 p_vPick)
+		UpdateDragging(p_vPick);
+		OnEndDrag();
+		Disable();
+	endproc;
+
+	export proc void Disable()
+		Activate(false);
+		m_vStartPos.Clear();
+		m_xRegion.Generate();
+		m_iSubRegionID=-1;
+		m_iState=STATE_OFF;
+	endproc;
+endclass;

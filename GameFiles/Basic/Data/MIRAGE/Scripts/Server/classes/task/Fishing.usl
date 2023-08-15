@@ -1,0 +1,529 @@
+class CFishing inherit CGenericHarvest
+
+	// return values for CheckInFood()
+	const int RES_SUCCESS = 0;
+	const int RES_FOOD_FULL = -1;
+	const int RES_NO_MORE_FISH = -2;
+	const int RES_GENERIC_ERROR = -3;
+
+	// value for statistics
+//	export const int	COLLECTED_FOOD		= 19;
+
+	var real		m_fTargetRadius;
+	var int			m_iTick;
+	var real		m_fPendingFood;
+
+	var CObjQuery	m_xDeliverSearch;
+	var CObjQuery	m_xFishSearch;
+
+	destructor()
+	enddestructor;
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Fish";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		(pxArc^) << m_fTargetRadius;
+		(pxArc^) << m_iTick;
+		(pxArc^) << m_fPendingFood;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Fish")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			(pxArc^) << m_fTargetRadius;
+			(pxArc^) << m_iTick;
+			(pxArc^) << m_fPendingFood;
+			InitQueries();
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xWorker,CObjHndl p_xTarget)
+		if(!p_xWorker.IsValid()||!p_xTarget.IsValid())then
+			return false;
+		endif;
+		//L KLog.LogSpam("MaZi","Enter Init()");
+		SetName("Fishing");
+		m_xWorker=p_xWorker;
+		m_xHarvestSite=p_xTarget;
+		m_sState="goto_fish";
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker == null)then m_sState="end_task"; return false; endif;
+		var ^CFishingBoat pxShip=cast<CFishingBoat>(pxWorker);
+		if(pxShip == null)then
+			if(cast<CSwimmingHarbour>(pxWorker)==null)then
+				m_sState="end_task";
+				return false;
+			endif;
+		endif;
+		var ^CAttribs pxAttr = pxWorker^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+		endif;
+		InitQueries();
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel!=null)then
+			var ^CPlayer pxPlayer = pxLevel^.GetPlayer(pxWorker^.GetOwner());
+			var ^CPropDB pxRes;
+			var ^CPropDB.CNode pxResTable;
+			if(pxPlayer!=null)then
+				//If Player exists, take its DB
+				var ^CBasePlayer pxBasePlayer = cast<CBasePlayer>(pxPlayer);
+				if(pxBasePlayer!=null)then
+					pxRes = pxBasePlayer^.GetResourceTable();
+				endif;
+			endif;
+			if(pxRes!=null)then
+				pxResTable = pxRes^.GetRoot().Get("FRUI");
+			endif;
+			//get all available resources for this tribe
+			m_asResources=0;
+			var int i;
+			if(pxResTable!=null)then
+				for(i=0)cond(i<pxResTable^.NumSubs())iter(i++)do
+					m_asResources.AddEntry((pxResTable^)[i].Name());
+					//KLog.LogError("Fishing","MineRes: "+(pxResTable^)[i].Name());
+				endfor;
+			endif;
+			m_afMineVal=m_asResources.NumEntries();
+		endif;
+		m_vCurDelivery = pxWorker^.GetPos();
+		//L KLog.LogSpam("Fishing","Exit Init()");
+		return true;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xWorker, vec3 p_vPos)
+		if(!p_xWorker.IsValid()||p_vPos=={0.0,0.0,0.0})then m_sState="end_task"; return false; endif;
+		SetName("Fishing");
+		m_xWorker=p_xWorker;
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker == null)then; return false; endif;
+		var ^CFishingBoat pxShip=cast<CFishingBoat>(pxWorker);
+		if(pxShip==null)then
+			if(cast<CSwimmingHarbour>(pxWorker)==null)then
+				m_sState="end_task";
+				return false;
+			endif;
+		endif;
+		var ^CAttribs pxAttr = pxWorker^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+		endif;
+		InitQueries();
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel!=null)then
+			var ^CPlayer pxPlayer = pxLevel^.GetPlayer(pxWorker^.GetOwner());
+			var ^CPropDB pxRes;
+			var ^CPropDB.CNode pxResTable;
+			if(pxPlayer!=null)then
+				var ^CBasePlayer pxBasePlayer = cast<CBasePlayer>(pxPlayer);
+				if(pxBasePlayer!=null)then
+					pxRes = pxBasePlayer^.GetResourceTable();
+				endif;
+			endif;
+			if(pxRes!=null)then
+				pxResTable = pxRes^.GetRoot().Get("FRUI");
+			endif;
+			m_asResources=0;
+			var int i;
+			if(pxResTable!=null)then
+				for(i=0)cond(i<pxResTable^.NumSubs())iter(i++)do
+					m_asResources.AddEntry((pxResTable^)[i].Name());
+				endfor;
+			endif;
+			m_afMineVal=m_asResources.NumEntries();
+		endif;
+		m_vCurDelivery = pxWorker^.GetPos();
+		var CObjList xFish;
+		m_xFishSearch.RegionCircle(p_vPos,400.0);
+		if(m_xFishSearch.Execute(xFish))then
+			xFish.SortDistance(p_vPos);
+			m_xHarvestSite = xFish[0];
+			m_sState = "goto_fish";
+		else
+			CSrvWrap.SendGenericEvtToPlayer(pxWorker^.GetOwner(), "NoMoreFish");
+			m_sState="end_task";
+		endif;
+		return true;
+	endproc;
+
+	proc void InitQueries()
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker==null)then return; endif;
+		m_xDeliverSearch.SetOwner(pxWorker^.GetOwner());
+		m_xDeliverSearch.SetAttribsNeg("CurTask","BuildUpB");
+		m_xDeliverSearch.SetAttribsNeg("ReadyForWork",0);
+		m_xDeliverSearch.SetType("BLDG");
+		m_xDeliverSearch.SetAttribsPos("fishDelivery",true);
+		m_xFishSearch.SetType("FRUI",false);
+		m_xFishSearch.SetType("FOOD",true);
+		m_xFishSearch.SetAttribsPos("fish",true);
+		m_xFishSearch.SetAttribsNeg("inactive","1");
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="end_task")then EndTask(); return; endif;
+		var ^CFightingObj pxWorker=cast<CFightingObj>(m_xWorker.GetObj());
+		if(pxWorker==null)then EndTask();return; endif;
+		if(pxWorker^.GetType()!="SHIP" && pxWorker^.GetType()!="BLDG")then EndTask();return; endif;
+		var ^CAttribs pxAttribs = pxWorker^.GetAttribs();
+		if(pxAttribs==null)then EndTask();return; endif;
+		if(pxAttribs^.GetValueInt("fishingBoat")==0 && cast<CSwimmingHarbour>(pxWorker)==null)then
+			CSrvWrap.SendGenericEvtToPlayer(pxWorker^.GetOwner(), "Feedback\tThis is not a fishing boat!");
+			EndTask();
+			return;
+		endif;
+		var ^CGameObj pxFishShoal=m_xHarvestSite.GetObj();
+		if(pxFishShoal==null)then EndTask();return; endif;
+		if(pxFishShoal^.GetType()!="FRUI"&&!(pxFishShoal^.GetType()=="FOOD"&&pxFishShoal^.IsInWater()))then EndTask();return; endif;
+//		var ^CFishShoal pxFishShoal2 = cast<CFishShoal>(pxFishShoal);
+		var ^CFood pxFishShoal2 = cast<CFood>(pxFishShoal);
+		if(pxFishShoal2==null)then EndTask(); return; endif;
+		if(pxFishShoal2^.Inactive())then EndTask(); return; endif;
+		// RT#8432
+		var ^CAttribs pxAttr = pxWorker^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+		endif;
+		if(m_asResources.NumEntries()>0)then
+			pxWorker^.SetTaskDescription(m_asResources[0]);
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CGameObj pxWorker;
+		var ^CFishingBoat pxShip;
+		var ^CSwimmingHarbour pxHarbour;
+		begin CheckWorker;
+			pxWorker=m_xWorker.GetObj();
+			if(pxWorker==null)then EndTask();return; endif;
+			pxShip=cast<CFishingBoat>(pxWorker);
+			pxHarbour=cast<CSwimmingHarbour>(pxWorker);
+			if(pxShip==null && pxHarbour==null)then EndTask(); return; endif;
+		end CheckWorker;
+//		var ^CFishShoal pxFishShoal;
+		var ^CFood pxFishShoal;
+		begin CheckFish;
+			var ^CGameObj pxTmp=m_xHarvestSite.GetObj();
+			if(pxTmp!=null)then
+//				pxFishShoal=cast<CFishShoal>(pxTmp);
+				pxFishShoal=cast<CFood>(pxTmp);
+			else
+				pxFishShoal=null;
+			endif;
+		end CheckFish;
+		var int i;
+		begin CheckInventory;
+			if(pxShip!=null)then
+				if(m_sState!="drop_fishes" && m_sState!="unlink_fish" )then
+					var bool bResFull = true;
+					var bool bResEmpty = true;
+					for(i=0)cond(i<m_asResources.NumEntries())iter(i++)do
+						if(!(pxShip^.ResInvIsFull(m_asResources[i])))then
+							bResFull = false;
+						endif;
+						if(!pxShip^.ResInvIsEmpty(m_asResources[i]))then
+							bResEmpty = false;
+						endif;
+					endfor;
+					if(m_sState!="goto_deliver" && m_sState!="goto_fish")then
+						if(bResFull)then
+							m_sState="pickup_fish";  //add_fish_to_inv
+						endif;
+					endif;
+					if(pxFishShoal==null || pxFishShoal^.Inactive())then
+						if(bResEmpty)then
+							if(m_sState != "find_next_fish")then
+								pxShip^.PickUpNet();
+								m_sState="find_next_fish";
+							else
+								EndTask();
+								return;
+							endif;
+						else
+							m_sState="goto_deliver";
+						endif;
+					endif;
+				endif;
+			endif;
+			if(pxHarbour!=null)then
+				if(m_sState!="drop_fishes" && m_sState!="unlink_fish" )then
+					var bool bResFull = true;
+					var bool bResEmpty = true;
+					for(i=0)cond(i<m_asResources.NumEntries())iter(i++)do
+						if(!(pxHarbour^.ResInvIsFull(m_asResources[i])))then
+							bResFull = false;
+						endif;
+						if(!pxHarbour^.ResInvIsEmpty(m_asResources[i]))then
+							bResEmpty = false;
+						endif;
+					endfor;
+					if(m_sState!="goto_deliver" && m_sState!="goto_fish")then
+						if(bResFull)then
+							m_sState="pickup_fish";  //add_fish_to_inv
+						endif;
+					endif;
+					if(pxFishShoal==null || pxFishShoal^.Inactive())then
+						if(bResEmpty)then
+							if(m_sState != "find_next_fish")then
+								m_sState="find_next_fish";
+							else
+								EndTask();
+								return;
+							endif;
+						endif;
+					endif;
+				endif;
+			endif;
+		end CheckInventory;
+		//L CSrvWrap.LogSpam("Fishing","state: "+m_sState);
+		if(m_sState=="goto_fish")then
+			m_vCurTarget = pxFishShoal^.GetPos();
+			if(cast<CSwimmingHarbour>(pxWorker)!=null)then
+				var vec3 vDir = (m_vCurTarget-pxWorker^.GetPos()).GetNormalized();
+				m_vCurTarget -= vDir * (pxWorker^.GetRadius()*0.5f);
+			endif;
+			var int iSpeed = 2;
+			var ^CFightingObj pxFO = cast<CFightingObj>(pxWorker);
+			if(pxFO!=null)then
+				iSpeed = pxFO^.GetMaxSpeed();
+			endif;
+			pxWorker^.WalkAction(m_vCurTarget, iSpeed, true);
+			m_sState="sailing_to_fish";
+		elseif(m_sState=="sailing_to_fish")then
+			if((pxWorker^.GetPos()-m_vCurTarget).Abs2()<=6.0)then
+				m_sState="rotate_to_target";
+			else
+				m_sState="goto_fish";
+			endif;
+		elseif(m_sState=="rotate_to_target")then
+			if((pxWorker^.GetPos()-m_vCurTarget).Abs2()>=6.0)then
+				m_sState="goto_fish";
+			else
+				var vec3 vDir=pxFishShoal^.GetPos()-pxWorker^.GetPos();
+				var Quat qTRot;
+				qTRot.FromXYDir(vDir.GetX(),vDir.GetY());
+//				pxWorker^.SetLinkGFX(m_xFCCWeaponLink,"Hu_Hammer");
+				pxWorker^.RotateAction(qTRot);
+				if(pxShip!=null)then
+					m_fProgressStep=pxShip^.GetResourceInventorySize("food") / (5.0 * pxShip^.GetSelfTimeFactor()); //<-number of loops per full charge
+				elseif(pxHarbour!=null)then
+					m_fProgressStep=pxHarbour^.GetResourceInventorySize("food") / (5.0 * pxHarbour^.GetSelfTimeFactor()); //<-number of loops per full charge
+				else
+					m_fProgressStep=10.0f;
+				endif;
+				m_sState="mine_fish";
+			endif;
+		elseif(m_sState=="mine_fish")then
+			if((pxWorker^.GetPos()-m_vCurTarget).Abs2()>=6.0)then
+				m_sState="goto_fish";
+			else
+				if(pxShip!=null)then
+					var real fFishAll;
+					for(i=0)cond(i<m_asResources.NumEntries())iter(i++)do
+						m_afMineVal[i]=pxShip^.GetResInvSpace(m_asResources[i]);
+						fFishAll+=m_afMineVal[i];
+					endfor;
+					var int iNumSteps=Math.F2I(fFishAll/m_fProgressStep);
+					m_sState="add_fish_to_inv";
+					if(fFishAll==0.0f)then
+						//L CSrvWrap.LogWarning("Fishing","fFishAll==0");
+						m_sState="pickup_fish";
+						return;
+					endif;
+					pxShip^.ThrowNet( m_vCurTarget );
+				elseif(pxHarbour!=null)then
+					var real fFishAll;
+					for(i=0)cond(i<m_asResources.NumEntries())iter(i++)do
+						m_afMineVal[i]=pxHarbour^.GetResInvSpace(m_asResources[i]);
+						fFishAll+=m_afMineVal[i];
+					endfor;
+					var int iNumSteps=Math.F2I(fFishAll/m_fProgressStep);
+					pxHarbour^.OnWork();
+					m_sState="add_fish_to_inv";
+					if(fFishAll==0.0f)then
+						//L CSrvWrap.LogWarning("Fishing","fFishAll==0");
+						m_sState="pickup_fish";
+						return;
+					endif;
+				endif;
+				var CGameTime xNow=CTimeMgr.Get().GetTime();
+				m_xLastTick=xNow;
+			endif;
+		elseif(m_sState=="add_fish_to_inv")then
+			if(pxFishShoal!=null)then
+				var real fMinedAll=0.0f;
+				for(i=0)cond(i<m_asResources.NumEntries())iter(i++)do
+					if(pxShip!=null)then
+						var real fMined=pxFishShoal^.Mine(m_afMineVal[i]);
+						//L CSrvWrap.LogSpam("Fishing","Mined:"+fMined.ToString());
+						pxShip^.ResInvAdd(m_asResources[i],fMined);
+					elseif(pxHarbour!=null)then
+						var real fMined=pxFishShoal^.Mine(m_afMineVal[i]);
+						var int iRes = CheckInFood(fMined);
+						if(iRes==RES_FOOD_FULL)then
+							m_sState="try_deliver";
+							m_fPendingFood=fMined;
+						elseif(iRes==RES_NO_MORE_FISH)then
+							m_sState="find_next_fish";
+						else
+							m_sState="wait";
+						endif;
+						return;
+					endif;
+				endfor;
+			else
+				if(pxShip==null && pxHarbour!=null)then
+					m_sState="find_next_fish";
+				endif;
+			endif;
+			m_sState="pickup_fish";
+		elseif(m_sState=="try_deliver")then
+			var int iRes = CheckInFood(m_fPendingFood);
+			if(iRes==RES_SUCCESS)then
+				m_fPendingFood=0.0f;
+				m_sState="mine_fish";
+			elseif(iRes==RES_FOOD_FULL)then
+				pxWorker^.WaitAction(5.0f);
+			endif;
+		elseif(m_sState=="wait")then
+			pxWorker^.WaitAction(5.0f);
+			m_sState="mine_fish";
+		elseif(m_sState=="find_next_fish")then
+			var CObjList xFish;
+			m_xFishSearch.RegionCircle(m_vCurDelivery,400.0);
+			if(m_xFishSearch.Execute(xFish))then
+				xFish.SortDistance(pxWorker^.GetPos());
+				m_xHarvestSite = xFish[0];
+				m_sState = "goto_fish";
+			else
+				CSrvWrap.SendGenericEvtToPlayer(pxWorker^.GetOwner(), "NoMoreFish");
+				//L CSrvWrap.LogWarning("Fishing","no fish, nothing to deliver, no nothing. bye bye!");
+				EndTask();
+				return;
+//				m_sState = "goto_deliver";
+			endif;
+		elseif(m_sState=="pickup_fish")then
+//			pxWorker^.RemLinkGFX(m_xFCCWeaponLink);
+//			pxWorker^.AnimAction("fish_pick_up");
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			if( (xNow-m_xLastTick).GetSecondsF() > 7.0)then   //wait a bit here...
+				m_sState="goto_deliver";
+				if(pxShip!=null)then
+					pxShip^.PickUpNet();
+				endif;
+			endif;
+		elseif(m_sState=="goto_deliver")then
+			if(pxShip==null)then
+				m_sState="try_deliver";
+				return;
+			endif;
+			var string sSetting=CSrvWrap.GetCurLevel()^.GetLevelInfo().GetAttribs().GetValue("Setting");
+//			pxWorker^.SetLinkGFX(m_xFCCWeaponLink,"Product_Stone_"+sSetting.Left(3));
+			var CObjList xDeliveries;
+			if(m_xDeliverSearch.Execute(xDeliveries))then
+				xDeliveries.SortDistance(pxWorker^.GetPos());
+				var ^CGameObj pxDel=xDeliveries[0].GetObj();
+				m_xCurDelivery = xDeliveries[0];
+				var ^CHarbour pxHarbour = cast<CHarbour>(pxDel);
+				if(pxHarbour!=null)then
+					var vec3 vDockPos;
+					var Quat qDockRot;
+					if(!pxHarbour^.GetDockPos(vDockPos, qDockRot))then
+						vDockPos = pxHarbour^.GetPos();
+						qDockRot = pxHarbour^.GetRot();
+					endif;
+					m_vCurDelivery = vDockPos;
+				else
+					m_vCurDelivery = pxDel^.GetPos();
+				endif;
+				m_vCurTarget=m_vCurDelivery;
+				//L CSrvWrap.LogSpam("Fishing","new delivery "+m_vCurTarget.ToString()+" found");
+				m_fTargetRadius = pxDel^.GetRadius();
+				var real fSeaLevel = CSrvWrap.GetScapeMgr().GetSeaLevel();
+				var vec3 vDest = m_vCurTarget;
+				vDest.SetZ(fSeaLevel);
+				pxShip^.WalkAction(vDest, pxShip^.GetDefaultSpeed(), true);
+				m_sState="drop_fishes";
+			else
+				//L CSrvWrap.LogWarning("Fishing","no delivery target found!");
+				EndTask();
+				return;
+			endif;
+		elseif(m_sState=="drop_fishes")then
+			if((pxWorker^.GetPos()-m_vCurTarget).Abs2()>=m_fTargetRadius*1.3)then
+				//L CSrvWrap.LogSpam("Fishing","Pos "+pxWorker^.GetPos().ToString()+" to far away from delivery "+m_vCurTarget.ToString()+" walking more.");
+				m_sState="goto_deliver";
+			else
+				var bool bPutSomethingDown = false;
+				for(i=0)cond(i<m_asResources.NumEntries())iter(i++)do
+					if(pxShip^.CheckInResInv(m_asResources[i]))then
+						bPutSomethingDown = true;
+					endif;
+				endfor;
+				//L CSrvWrap.LogInfo("Fishing","bPutSomethingDown="+bPutSomethingDown.ToString());
+				if(bPutSomethingDown)then
+					var ^CFightingObj pxDelivery = cast<CFightingObj>(m_xCurDelivery.GetObj());
+					if(pxDelivery!=null)then
+						pxDelivery^.AcceptDeliveries();
+					endif;
+					var string sSetting=CSrvWrap.GetCurLevel()^.GetLevelInfo().GetAttribs().GetValue("Setting");
+//					pxWorker^.SetLinkGFX(m_xFCCWeaponLink,"Product_Stone_"+sSetting.Left(3));
+//					pxWorker^.AnimAction("fish_put_down");
+					m_sState="unlink_fishes";
+				else
+//					pxWorker^.RemLinkGFX(m_xFCCWeaponLink);
+					pxWorker^.WaitAction(2.0f); //wait 2 secs for free checkin
+					return;
+				endif;
+			endif;
+		elseif(m_sState=="unlink_fishes")then
+//			pxWorker^.RemLinkGFX(m_xFCCWeaponLink);
+			m_sState="goto_fish";
+		else
+			//L CSrvWrap.LogWarning("Fishing","invalid state: "+m_sState);
+			EndTask();
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CFightingObj pxWorker=cast<CFightingObj>(m_xWorker.GetObj());
+		if(pxWorker!=null)then
+			pxWorker^.SetTaskDescription("");
+		endif;
+//		if(pxWorker!=null)then pxWorker^.RemLinkGFX(m_xFCCWeaponLink); endif;
+//		(cast<CFightingObj>(pxWorker)^.ShowWeapons());
+	endproc;
+
+	export proc bool Break()
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker!=null)then pxWorker^.TerminateAction(); endif;
+		return true;
+	endproc;
+
+	proc int CheckInFood(real p_fAmount)
+		var bool bUnlimited = CMirageSrvMgr.Get().ResourcesUnlimited();
+		var string sType = "food";
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CPlayer pxPlayer=pxLevel^.GetPlayer(m_xWorker.GetObj()^.GetOwner());
+		if(pxPlayer==null)then return RES_GENERIC_ERROR; endif;
+		var ^CAttribs pxAttr=pxPlayer^.GetAttribs();
+		if(pxAttr==null)then return RES_GENERIC_ERROR; endif;
+		if(p_fAmount==0.0)then return RES_NO_MORE_FISH; endif;
+		var real fResValue=pxAttr^.GetValueInt(sType).ToReal();
+		var real fResLimit=pxAttr^.GetValueInt("max_"+sType).ToReal();
+		var real fStatisticValue=0.0f;
+		if(fResValue>=fResLimit && !bUnlimited)then return RES_FOOD_FULL; endif;
+		if((fResValue+p_fAmount)>fResLimit && !bUnlimited)then
+			p_fAmount-=(fResLimit-fResValue);
+		endif;
+		pxPlayer^.AddFood((p_fAmount+0.5).ToInt());
+		return RES_SUCCESS;
+	endproc;
+
+endclass;

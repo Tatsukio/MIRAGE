@@ -1,0 +1,334 @@
+class CViewObjGoatGraphicSet inherit CEnhancedFrameWindow
+    export var ^CViewObjGoat m_pxParent;
+    export var ^CEdit       	m_pxSetEdit;
+    export var ^CEdit       	m_pxObjectEdit;
+    var ^CButton            	m_pxButAdd;
+    var ^CButton            	m_pxButRem;
+    var ^CButton            	m_pxButRen;
+
+    var ^CList              		m_pxSetList;
+    var ^CList              		m_pxSetContentList;
+    export var ^CList       	m_pxGraphicObjList;
+
+    var CPropDB             	m_xDB;
+    var CPropDB             	m_xDBActualSetOrig;
+    var CPropDB             	m_xDBActualSet;
+
+    export var string       	m_sMainPath;
+    export var string       	m_sGraphicPath;
+    export var string       	m_sAnimPath;
+
+    var string              		m_sPDBFileName;
+    var string              		m_sPDBActualSetFileName;
+
+    export var array string 	m_asFileName;
+
+    export var ^CGraphicObjectMgr m_pxGraphicObjMgr;
+
+    export constructor()
+		if(!InitFromResource("objects/ViewObjGoatGraphicSet","ObjGoatGraphicSet")) then
+		    CLevelEditorWrap.LogError("UI.ViewObjGoatGraphicSet","InitFromResource failed");
+			return;
+		endif;
+
+		m_pxGraphicObjMgr = CGraphicObjectMgr.Get();
+
+    	// edit set group box ctrls ======================================
+    	m_pxSetEdit = cast<CEdit>(GetControl("CEditSetGroupBox/CSetNameEdit"));
+    	m_pxButAdd = cast<CButton>(GetControl("CEditSetGroupBox/CSetEditButAdd"));
+    	m_pxButAdd^.m_xOnClick = OnAddNewSet;
+    	m_pxButRem = cast<CButton>(GetControl("CEditSetGroupBox/CSetEditButRemove"));
+    	m_pxButRem^.m_xOnClick = OnRemoveSet;
+    	m_pxButRen = cast<CButton>(GetControl("CEditSetGroupBox/CSetEditButRename"));
+    	m_pxButRen^.m_xOnClick = OnRenameSet;
+
+    	// edit object group box ctrls ===================================
+    	m_pxObjectEdit = cast<CEdit>(GetControl("CEditObjectGroupBox/CObjectEdit"));
+    	m_pxButAdd = cast<CButton>(GetControl("CEditObjectGroupBox/CObjEditButEdit"));
+    	m_pxButAdd^.m_xOnClick = OnEditObj;
+    	m_pxButRem = cast<CButton>(GetControl("CEditObjectGroupBox/CObjEditButRemove"));
+    	m_pxButRem^.m_xOnClick = OnRemoveObj;
+    	m_pxButRen = cast<CButton>(GetControl("CEditObjectGroupBox/CObjEditButRename"));
+    	m_pxButRen^.m_xOnClick = OnRenameObj;
+
+    	m_pxSetList = cast<CList>(GetControl("CSetList"));
+    	m_pxSetList^.m_xOnSelect = OnSetSelect;
+    	m_pxSetContentList = cast<CList>(GetControl("CSetContentList"));
+    	m_pxSetContentList^.m_xOnSelect = OnSetContentSelect;
+    	m_pxGraphicObjList = cast<CList>(GetControl("CGraphicObjList"));
+
+    	var ^CButton pxAddBut = cast<CButton>(GetControl("CArrowLeftBut"));
+    	pxAddBut^.m_xOnClick = OnArrowLeft_AddToContent;
+    	var ^CButton pxRemBut = cast<CButton>(GetControl("CArrowRightBut"));
+    	pxRemBut^.m_xOnClick = OnArrowRight_GetFromContent;
+    	var ^CButton pxClearBut = cast<CButton>(GetControl("CClearBut"));
+    	pxClearBut^.m_xOnClick = OnClear;
+    	var ^CButton pxSaveBut = cast<CButton>(GetControl("CSaveBut"));
+    	pxSaveBut^.m_xOnClick = OnSave;
+
+    	m_sMainPath = "../../../UrsRel/Data/Base/";
+    	m_sPDBFileName = m_sMainPath +"Scripts/Server/init/graphicsets.txt";
+    	if(!m_xDB.Load(m_sPDBFileName)) then
+    	    CLevelEditorWrap.LogWarning("UI.ViewObjGoatGraphicSet","graphicsets.txt nicht gefunden");
+    	    return;
+    	endif;
+
+    	var int i;
+    	m_asFileName = 0;
+    	for (i=0) cond(i<m_xDB.GetRoot().NumSubs()) iter(i++) do
+    	    var string sTmpName = m_xDB.GetRoot()[i].Name();
+    	    var string sTmpValue = m_xDB.GetRoot()[i].Value();
+    	    if (sTmpName.GetLength()>1) then
+    	        m_pxSetList^.AddItem(sTmpName);
+    	        m_asFileName.AddEntry(sTmpValue);
+    	    endif;
+    	endfor;
+
+    	LoadPosition("ObjGoatGraphicSet");
+	endconstructor;
+
+    // ===================================================================
+    // edit set group box ctrls methods
+    // ===================================================================
+	proc bool OnAddNewSet()
+		var string sTmp = m_pxSetEdit^.GetText();
+		if (sTmp.GetLength()>1) then
+		    m_pxSetList^.AddItem(sTmp);
+		    m_asFileName.AddEntry(sTmp +".txt");
+		endif;
+		return(true);
+	endproc;
+
+	proc bool OnRemoveSet()
+		var string sTmp = m_pxSetList^.GetSelectedItemAsString();
+		if (sTmp.GetLength()>1) then
+		    var int i = m_pxSetList^.FindItem(sTmp);
+		    if (i != -1) then
+		        m_pxSetList^.DeleteItem(i);
+		        m_asFileName.DeleteEntry(i);
+		    endif;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool OnRenameSet()
+		var string sTmpList = m_pxSetList^.GetSelectedItemAsString();
+		var string sTmpEdit = m_pxSetEdit^.GetText();
+		if (sTmpList.GetLength()>1 && sTmpEdit.GetLength()>1) then
+		    var int i = m_pxSetList^.FindItem(sTmpList);
+		    m_pxSetList^.DeleteItem(i);
+		    m_pxSetList^.AddItem(sTmpEdit);
+		    m_asFileName.DeleteEntry(i);
+		    m_asFileName.AddEntry(sTmpEdit);
+		endif;
+		return(true);
+	endproc;
+
+	// ===================================================================
+    // edit object group box ctrls methods
+    // ===================================================================
+	proc bool OnEditObj()
+		var string sTmp = m_pxGraphicObjList^.GetSelectedItemAsString();
+
+		if (sTmp != "") then
+		    var int i = -1;
+		    i = m_pxGraphicObjMgr^.FindObject(sTmp);
+
+    		if (i != -1) then
+        		m_pxParent^.m_pxVOGGraO^.m_pxEditObjectName^.SetText(m_pxGraphicObjMgr^.GetObject(i).m_sObjectName);
+        		m_pxParent^.m_pxVOGGraO^.m_pxEditMain^.SetText(m_pxGraphicObjMgr^.GetObject(i).m_sGraphicFileValue);
+        		m_pxParent^.m_pxVOGGraO^.m_pxAnimList^.Clear();
+
+        		var int j;
+        		for (j=0) cond (j<m_pxGraphicObjMgr^.NumEntries()) iter (j++) do
+        		    m_pxParent^.m_pxVOGGraO^.m_pxAnimList^.AddItem(m_pxGraphicObjMgr^.GetObject(i).m_asAnimFilesValue[j]);
+        		endfor;
+        	else
+                // aktuelles object in entspr. datei mit propdb auslesen
+                // ...
+        	endif;
+        endif;
+
+		m_pxParent^.m_pxVOGGraO^.SetVisible(true);
+		SetVisible(false);
+		return(true);
+	endproc;
+
+	proc bool OnRemoveObj()
+		var string sTmp = m_pxSetContentList^.GetSelectedItemAsString();
+		if (sTmp.GetLength()>1) then
+		    var int i = m_pxSetContentList^.FindItem(sTmp);
+		    if (i != -1) then
+		        m_pxSetContentList^.DeleteItem(i);
+		    endif;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool OnRenameObj()
+		var string sTmpList = m_pxSetContentList^.GetSelectedItemAsString();
+		var string sTmpEdit = m_pxObjectEdit^.GetText();
+		if (sTmpList.GetLength()>1 && sTmpEdit.GetLength()>1) then
+		    var int i = m_pxSetContentList^.FindItem(sTmpList);
+		    m_pxSetContentList^.DeleteItem(i);
+		    m_pxSetContentList^.AddItem(sTmpEdit);
+		endif;
+		return(true);
+	endproc;
+
+	// ===================================================================
+    // graphic set list item selection
+    // ===================================================================
+	proc bool OnSetSelect()
+	    m_pxSetContentList^.Clear();
+
+	    var string sSet = m_pxSetList^.GetSelectedItemAsString();
+	    if (m_xDB.GetRoot().Find(sSet) != -1) then
+    	    var string sTmp = m_xDB[sSet].Value();
+
+    	    m_sPDBActualSetFileName = "../../../UrsRel/Data/Base/Scripts/Server/init/" +sTmp;
+    	    if(!m_xDBActualSetOrig.Load(m_sPDBActualSetFileName)) then
+        	    CLevelEditorWrap.LogWarning("UI.ViewObjGoatGraphicSet",sTmp +" nicht gefunden");
+        	    return true;
+        	endif;
+        	m_xDBActualSet.Load(m_sPDBActualSetFileName);
+
+        	m_sGraphicPath = m_xDBActualSetOrig["GraphicPath"].Value();
+	        m_sAnimPath = m_xDBActualSetOrig["AnimPath"].Value();
+
+	        if (m_sGraphicPath.GetLength()>4) then              // falls pfad nicht "obj/" ist
+    	        m_sGraphicPath = m_sGraphicPath.Mid(4);
+        	    m_sAnimPath = m_sAnimPath.Mid(4);
+        	else
+        	    m_sGraphicPath = "";
+        	    m_sAnimPath = "";
+        	endif;
+
+    	    var int iIdx = m_xDBActualSetOrig.GetRoot().Find("GfxClasses");
+    	    var int i;
+    	    for (i=0) cond(i<m_xDBActualSetOrig.GetRoot()[iIdx].NumSubs()) iter(i++) do
+    	        sTmp = (m_xDBActualSetOrig.GetRoot())[iIdx][i].Name();
+        	    if (sTmp.GetLength()>1) then
+        	        m_pxSetContentList^.AddItem(sTmp);
+        	    endif;
+        	endfor;
+        endif;
+
+    	m_pxSetEdit^.SetText(m_pxSetList^.GetSelectedItemAsString());
+
+		return(true);
+	endproc;
+
+	// ===================================================================
+    // graphic set content list item selection
+    // ===================================================================
+	proc bool OnSetContentSelect()
+	    var string sTmp = m_pxSetContentList^.GetSelectedItemAsString();
+	    if (sTmp.GetLength()>1) then
+    	    m_pxObjectEdit^.SetText(sTmp);
+    	endif;
+		return(true);
+	endproc;
+
+	// ===================================================================
+    // button actions
+    // ===================================================================
+	proc bool OnArrowLeft_AddToContent()
+	    var string sTmp = m_pxGraphicObjList^.GetSelectedItemAsString();
+	    var int iIdx = m_pxGraphicObjList^.GetSelectedItem();
+
+	    CLevelEditorWrap.LogSpam("UI.ViewObjGoatGraphicSet","AddToContent");
+
+	    if (sTmp.GetLength()>1 && iIdx != -1) then
+	        if (m_pxSetContentList^.FindItem(sTmp) == -1) then
+                var CGraphicObject xGO = m_pxGraphicObjMgr^.GetObject(iIdx);
+
+		        m_xDBActualSetOrig["GfxClasses/"+sTmp].AddValue("graphic",xGO.m_sGraphicFileValue);
+		        var int i;
+
+		        for (i=0) cond (i<xGO.NumAnims()) iter (i++) do
+		            m_xDBActualSetOrig["GfxClasses/" +sTmp +"/" +"anims"].AddValue(xGO.m_asAnimFilesName[i],xGO.m_asAnimFilesValue[i]);
+		        endfor;
+		        m_pxSetContentList^.AddItem(sTmp);
+		    endif;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool OnArrowRight_GetFromContent()
+		var string sTmp = m_pxSetContentList^.GetSelectedItemAsString();
+		if (sTmp.GetLength()>1) then
+		    CLevelEditorWrap.LogSpam("UI.ViewObjGoatGraphicSet","jetzt find item");
+		    if (m_pxGraphicObjList^.FindItem(sTmp) == -1) then
+		        var CGraphicObject xGO;
+		        xGO.m_sObjectName = sTmp;                                                                   // get object name
+		        xGO.m_sGraphicFileValue = m_xDBActualSetOrig["GfxClasses" +"/" +sTmp].Get("graphic")^.Value();  // get graphic file
+		        CLevelEditorWrap.LogSpam("UI.ViewObjGoatGraphicSet","GraphicFile " +xGO.m_sGraphicFileValue);
+
+		        var int i;
+		        var string sAnimNode = "GfxClasses" +"/" +sTmp +"/" +"anims";
+		        CLevelEditorWrap.LogSpam("UI.ViewObjGoatGraphicSet","AnimNode " +sAnimNode);
+		        for (i=0) cond (i<m_xDBActualSetOrig[sAnimNode].NumSubs()) iter (i++) do
+		            xGO.m_asAnimFilesValue.AddEntry(m_xDBActualSetOrig[sAnimNode][i].Value());              // get anim files
+		        endfor;
+
+		        m_pxGraphicObjMgr^.AddItem(xGO);
+		    endif;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool OnClear()
+		m_pxGraphicObjList^.Clear();
+		m_pxGraphicObjMgr^.Clear();
+		return(true);
+	endproc;
+
+	proc bool OnSave()
+		var int i;
+		// graphicsets.txt speichern
+		m_xDB.Reset();
+		for (i=0) cond (i<m_pxSetList^.NumItems()) iter (i++) do
+		    m_xDB.GetRoot().SetValue(m_pxSetList^.GetItem(i), m_asFileName[i]);
+		endfor;
+
+		// aufgelistetes graphicset speichern
+		m_xDBActualSet.Reset();
+		m_xDBActualSet["GraphicPath"] = "Obj";
+		m_xDBActualSet["AnimPath"] = "Obj";
+
+		for (i=0) cond (i<m_xDBActualSetOrig["GfxClasses"].NumSubs()) iter (i++) do
+		    var string sObjNode = "GfxClasses" +"/" +m_pxSetContentList^.GetItem(i);
+		    m_xDBActualSet[sObjNode].AddValue(  "graphic",
+		                                        m_sGraphicPath +m_xDBActualSetOrig[sObjNode].Get("graphic")^.Value());
+
+            var string sAnimNode = sObjNode +"/" +"anims";
+            //if (m_xDBActualSet.GetRoot().Find(sAnimNode) != -1) then          // damit funzts ned
+                if (m_xDBActualSet[sAnimNode].NumSubs() != -1) then
+                    var int j;
+                    for (j=0) cond (j<m_xDBActualSetOrig[sAnimNode].NumSubs()) iter (j++) do
+        		        m_xDBActualSet[sAnimNode].AddValue( m_xDBActualSetOrig[sAnimNode][j].Name(),
+        		                                            m_sAnimPath +m_xDBActualSetOrig[sAnimNode][j].Value());
+        		    endfor;
+        		endif;
+            //endif;
+		endfor;
+
+		m_xDB.Save(m_sPDBFileName);
+		m_xDBActualSet.Save(m_sPDBActualSetFileName);
+		return(true);
+	endproc;
+
+	/*
+    proc bool OnRemoveObj()
+		var string sTmp = m_pxSetContentList^.GetSelectedItemAsString();
+		if (sTmp.GetLength()>1) then
+		    var int i = m_pxSetContentList^.FindItem(sTmp);
+		    if (i != -1) then
+    		    m_pxSetContentList^.DeleteItem(i);
+		    endif;
+		endif;
+		return(true);
+	endproc;
+    */
+endclass;

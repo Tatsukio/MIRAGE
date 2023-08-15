@@ -1,0 +1,1059 @@
+
+class CTabActors inherit CSeqTab
+	var ^CSequenceEditor	m_pxSeqEditor;
+	var ^CButton			m_pxCreateActor;
+	var ^CButton			m_pxCreateCamera;
+	var ^CSequenceBrowser	m_pxSequenceBrowser;
+	var ^CGroupBox			m_pxPropertieBox1;
+	var ^CGroupBox			m_pxPropertieBox2;
+	var ^CGroupBox			m_pxPropertieBox3;
+	var ^CGroupBox			m_pxPropertieBox4;
+
+	class CCameraItemData inherit CItemData
+		var ^CSeqCamera	m_pxSeqCamera;
+		export constructor(^CSeqCamera	p_pxSeqCamera)
+			m_pxSeqCamera=p_pxSeqCamera;
+		endconstructor;
+
+		export proc CGuid GetGuid()
+			return (m_pxSeqCamera^.GetCameraInfo())^.GetIdent();
+		endproc;
+	endclass;
+
+	export constructor(^CSequenceEditor p_pxSeqEditor)
+		if(!InitFromResource("sequencer/SequenceEditor","Tab_Actors"))then
+			CLevelEditorWrap.LogError("UI.SequenceEditor","Tab_Actors InitFromRessource() failed");
+			return;
+		endif;
+
+		m_pxSeqEditor=p_pxSeqEditor;
+		m_pxPropertieBox1=cast<CGroupBox>(GetControl("PropertieBox1"));
+		m_pxPropertieBox2=cast<CGroupBox>(GetControl("PropertieBox2"));
+		m_pxPropertieBox3=cast<CGroupBox>(GetControl("PropertieBox3"));
+		m_pxPropertieBox4=cast<CGroupBox>(GetControl("PropertieBox4"));
+		m_pxSequenceBrowser=cast<CSequenceBrowser>(GetControl("Group_SequenceBrowser/SequenceBrowser"));
+		m_pxSequenceBrowser^.Init(m_pxPropertieBox1,m_pxPropertieBox2,m_pxPropertieBox3,m_pxPropertieBox4);
+		m_pxCreateActor=cast<CButton>(GetControl("Group_SequenceBrowser/CreateActor"));
+		m_pxCreateActor^.m_xOnClick=OnCreateActor;
+		m_pxCreateCamera=cast<CButton>(GetControl("Group_SequenceBrowser/CreateCamera"));
+		m_pxCreateCamera^.m_xOnClick=OnCreateCamera;
+		Update();
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc void Update()
+		m_pxSequenceBrowser^.Update(m_pxSeqEditor);
+		m_pxCreateActor^.SetDisabled(true);
+	endproc;	
+	
+
+	export proc void OnSelectionChanged()
+		var ^CSequence pxSequence=m_pxSeqEditor^.GetSequence();
+		if(pxSequence==null)then return; endif;
+
+		m_pxCreateActor^.SetDisabled(true);
+		m_pxCreateActor^.m_xOnClick.Clear();
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		var int i,iC=pxSel^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CObj pxWalk=pxSel^[i].GetObj();
+			if(pxWalk!=null)then
+				var CGuid xGuid=pxWalk^.GetGuid();
+				if(pxSequence^.FindActor(xGuid)==-1)then
+					m_pxCreateActor^.SetDisabled(false);
+					m_pxCreateActor^.m_xOnClick=OnCreateActor;
+				endif;
+			endif;
+		endfor;	
+		m_pxSequenceBrowser^.UpdateSelection();
+				
+	endproc;
+
+	proc bool OnCreateActor()
+		var ^CUSLTrackCtrl pxTrackCtrl=m_pxSeqEditor^.GetTrackCtrl();
+		var ^CSequence pxSequence=m_pxSeqEditor^.GetSequence();
+		if(pxSequence==null)then return true; endif;
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		var int i,iC=pxSel^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CObj pxWalk=pxSel^[i].GetObj();
+			if(pxWalk!=null)then
+				var CGuid xGuid=pxWalk^.GetGuid();
+				if(pxSequence^.FindActor(xGuid)==-1)then
+					var ^CActor pxActor=pxSequence^.AddActor(xGuid);
+					if(pxActor!=null) then
+						pxTrackCtrl^.AddActor(pxActor);
+						m_pxSequenceBrowser^.AddActor(pxActor);
+					endif;
+				endif;
+			endif;
+		endfor;
+		OnSelectionChanged();
+		return true;
+	endproc;
+
+
+
+	proc bool OnCreateCamera()
+		var ^CSequence pxSequence=m_pxSeqEditor^.GetSequence();
+		if(pxSequence==null)then
+			CMessageBox.MsgBox("Error","no sequence available");
+			return true;
+		endif;
+		var ^CCamera pxCamera=CClientWrap.GetCamera();
+		var string sCameraName="NewCamera";
+		var int iCount=0;
+		while(true)do
+			var string sTmp=sCameraName+"_"+iCount.ToString();
+			if(pxSequence^.GetCamera(sTmp)==null)then
+				sCameraName=sTmp;
+				break;
+			endif;
+			iCount++;
+		endwhile;		
+		var ^CSeqCamera pxSeqCamera=pxSequence^.AddCamera(sCameraName,pxCamera^);
+		m_pxSequenceBrowser^.AddCamera(pxSeqCamera);
+		return true;
+	endproc;
+	
+	export proc void DeleteActor(CGuid p_xObjGuid)
+		m_pxSequenceBrowser^.DeleteActor(p_xObjGuid,true);
+	endproc;
+	
+endclass;
+
+
+class CSequenceBrowser inherit CTreeCtrl
+
+	class CSBItemData inherit CItemData
+		export proc string GetType() return ""; endproc;
+		export proc ^CPropCtrl GetPropCtrl1()
+			return null;
+		endproc;
+		export proc ^CPropCtrl GetPropCtrl2()
+			return null;
+		endproc;
+		export proc ^CPropCtrl GetPropCtrl3()
+			return null;
+		endproc;		
+		export proc ^CPropCtrl GetPropCtrl4()
+			return null;
+		endproc;
+	endclass;
+	
+	class CActorGroupItemData inherit CSBItemData
+		var string m_sGroupName;
+		export constructor(string p_sGroupName)
+			m_sGroupName=p_sGroupName;
+		endconstructor;
+
+		export proc string GetType()
+			return "actorgroup";
+		endproc;
+		
+		export proc string GetGroupName()
+			return m_sGroupName;
+		endproc;
+	endclass;
+
+	class CActorItemData inherit CSBItemData
+		var ^CActor m_pxActor;
+		export constructor(^CActor p_pxActor)
+			m_pxActor=p_pxActor;
+		endconstructor;
+
+		export proc string GetType()
+			return "actor";
+		endproc;
+
+		export proc CGuid GetGuid()
+			return m_pxActor^.GetActorGuid();
+		endproc;
+
+		export proc ^CActor GetActor()
+			return m_pxActor;
+		endproc;
+		
+		export proc bool GetVisible()
+			return m_pxActor^.GetEditorVisible();
+		endproc;
+		
+		export proc void SetVisible(bool p_bValue)
+			m_pxActor^.SetEditorVisible(p_bValue);
+		endproc;
+
+		export proc ^CPropCtrl GetPropCtrl1()
+			return m_pxActor^.GetPropCtrlFlags();
+		endproc;
+		export proc ^CPropCtrl GetPropCtrl2()
+			return m_pxActor^.GetPropCtrlLinks();
+		endproc;
+		export proc ^CPropCtrl GetPropCtrl3()
+			return m_pxActor^.GetPropCtrlObjQuery();
+		endproc;
+		export proc ^CPropCtrl GetPropCtrl4()
+			return m_pxActor^.GetPropCtrlMisc();
+		endproc;
+	endclass;
+	
+	class CActorPresetItemData inherit CSBItemData
+		var string m_sPresetPath;
+		export constructor(string p_sPresetPath)
+			m_sPresetPath=p_sPresetPath;
+		endconstructor;
+
+		export proc string GetType()
+			return "actor_preset";
+		endproc;
+		
+		export proc string GetPresetPath()
+			return m_sPresetPath;
+		endproc;
+	endclass;
+
+	class CCameraItemData inherit CSBItemData
+		var ^CSeqCamera m_pxCamera;
+		export constructor(^CSeqCamera p_pxCamera)
+			m_pxCamera=p_pxCamera;
+		endconstructor;
+
+		export proc string GetType()
+			return "camera";
+		endproc;
+
+		export proc CGuid GetGuid()
+			return m_pxCamera^.GetCameraInfo()^.GetIdent();
+		endproc;
+
+		export proc ^CSeqCamera GetCamera()
+			return m_pxCamera;
+		endproc;
+
+		export proc ^CPropCtrl GetPropCtrl1()
+			return m_pxCamera^.GetPropCtrl();
+		endproc;
+		export proc ^CPropCtrl GetPropCtrl2()
+			return null;
+		endproc;
+		export proc ^CPropCtrl GetPropCtrl3()
+			return null;
+		endproc;
+		export proc ^CPropCtrl GetPropCtrl4()
+			return null;
+		endproc;
+	endclass;
+
+	export constructor()
+		m_pxCheckBmp=CBitmapPtr.Create("btnradioselected.tga");
+		m_pxUncheckBmp=CBitmapPtr.Create("btnradioclear.tga");
+		m_pxUndefBmp=CBitmapPtr.Create("btnradioselecteddn.tga");
+	endconstructor;
+
+	export destructor()		
+		m_pxPropBox1=null;
+		m_pxPropBox2=null;
+		m_pxPropBox3=null;
+		m_pxPropBox4=null;
+		Clear();
+	enddestructor;
+
+	export proc void Init(^CGroupBox p_pxPropBox1,^CGroupBox p_pxPropBox2,^CGroupBox p_pxPropBox3,^CGroupBox p_pxPropBox4)
+		m_pxPropBox1=p_pxPropBox1;
+		m_pxPropBox2=p_pxPropBox2;
+		m_pxPropBox3=p_pxPropBox3;
+		m_pxPropBox4=p_pxPropBox4;
+		Update(null);
+	endproc;
+
+	proc void Clear()
+		var int iIterator=0;
+		StartIterate();
+		while(Iterate(iIterator))do
+			var ^CSBItemData pxData=cast<CSBItemData>(GetItemData(iIterator));
+			if(pxData!=null)then
+				delete pxData;
+			endif;
+		endwhile;
+		super.Clear();
+		m_iSequenceItemID=-1;
+		m_iActorsItemID=-1;
+		m_iCamerasItemID=-1;
+		m_iPresetsItemID=-1;
+	endproc;
+	
+	export proc void Update(^CSequenceEditor p_pxSeqEditor)
+		Clear();
+		m_pxSeqEditor=p_pxSeqEditor;
+		m_pxSequence=null;
+		if(m_pxSeqEditor==null)then
+			return;
+		endif;
+		m_pxSequence=m_pxSeqEditor^.GetSequence();
+		if(m_pxSequence==null)then
+			return;
+		endif;
+		m_iSequenceItemID=AddItem(0,"Sequence", null);
+		m_iActorsItemID=AddItem(m_iSequenceItemID,"Actors",null);
+		m_iCamerasItemID=AddItem(m_iSequenceItemID,"Cameras");
+		m_iPresetsItemID=-1;
+		var int i,iC=m_pxSequence^.NumActors();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CActor pxActor=m_pxSequence^.GetActor(i);
+			AddActor(pxActor);
+		endfor;
+
+		iC=m_pxSequence^.NumCameras();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CSeqCamera pxCamera=m_pxSequence^.GetCamera(i);
+			AddCamera(pxCamera);
+		endfor;
+		
+		LoadPresets();
+	endproc;
+	
+	proc void LoadPresets()
+		//Windows.DbgBreak();
+		if(m_iPresetsItemID!=-1)then
+			var int iIterator=m_iPresetsItemID;			
+			while(Iterate(iIterator))do
+				var ^CSBItemData pxData=cast<CSBItemData>(GetItemData(iIterator));
+				if(pxData!=null)then
+					delete pxData;
+				endif;
+			endwhile;
+			DeleteItem(m_iPresetsItemID,true);
+			m_iPresetsItemID=-1;
+		endif;
+		var string sPresetPath=CSettings.GetUserSettingsDir()+"ActorPresets";
+		if(!Filesystem.DirExists(sPresetPath))then
+			Filesystem.MkDir(sPresetPath);
+		endif;		
+		m_iPresetsItemID=LoadPresetsRec(sPresetPath,m_iSequenceItemID);
+	endproc;
+	
+	proc int LoadPresetsRec(string p_sPath, int p_iParentItem)
+		var CIOPath xPath;
+		xPath.Init(p_sPath);
+		var string sFilePart=xPath.FilePart();
+		
+		var int iItem=AddItem(p_iParentItem,sFilePart);		
+		
+		var Filesystem.CFileList xFileList;
+		var int i,iC=xFileList.ReadListEx(p_sPath,"*",false,false,false);
+		//var int i,iC=xFileList.ReadList(p_sPath);
+		for(i=0)cond(i<iC)iter(i++)do			
+			var string sName = xFileList[i].m_sName;
+			if(!xFileList[i].m_bDir && sName.Right(3)!="sap")then continue;	endif;
+			if(xFileList[i].m_bDir)then
+				LoadPresetsRec(p_sPath+"/"+sName,iItem);				
+			else
+				if(sName.Right(3)=="sap")then
+					var ^CActorPresetItemData pxItemData=new CActorPresetItemData(p_sPath+"/"+sName);
+					AddItem(iItem,sName,pxItemData);
+				endif;
+			endif;	
+
+		endfor;
+		return iItem;
+	endproc;
+
+	export proc ^CSequence GetSequence()
+		return m_pxSequence;
+	endproc;
+	
+	export proc ^CUSLTrackCtrl GetTrackCtrl()
+		return m_pxSeqEditor^.GetTrackCtrl();
+	endproc;
+
+	proc bool OnSelect()
+		if(m_pxPropBox1==null || m_pxPropBox2==null || m_pxPropBox3==null || m_pxPropBox4==null)then
+			return true;
+		endif;
+		var int iSelItem=GetSelectedItem();
+		var ^CPropCtrl pxPVCtrl1=null;
+		var ^CPropCtrl pxPVCtrl2=null;
+		var ^CPropCtrl pxPVCtrl3=null;
+		var ^CPropCtrl pxPVCtrl4=null;
+		if(m_pxSequence!=null)then
+			if(iSelItem!=-1)then
+				var ^CSBItemData pxData=cast<CSBItemData>(GetItemData(iSelItem));
+				if(pxData!=null)then
+					pxPVCtrl1=pxData^.GetPropCtrl1();
+					pxPVCtrl2=pxData^.GetPropCtrl2();
+					pxPVCtrl3=pxData^.GetPropCtrl3();
+					pxPVCtrl4=pxData^.GetPropCtrl4();
+				endif;
+			endif;
+		endif;
+		var ^CItemPropView pxPropView1=cast<CItemPropView>(m_pxPropBox1^.GetControl("PropView"));
+		var ^CItemPropView pxPropView2=cast<CItemPropView>(m_pxPropBox2^.GetControl("PropView"));
+		var ^CItemPropView pxPropView3=cast<CItemPropView>(m_pxPropBox3^.GetControl("PropView"));
+		var ^CItemPropView pxPropView4=cast<CItemPropView>(m_pxPropBox4^.GetControl("PropView"));
+		pxPropView1^.Init(pxPVCtrl1);
+		pxPropView2^.Init(pxPVCtrl2);
+		pxPropView3^.Init(pxPVCtrl3);
+		pxPropView4^.Init(pxPVCtrl4);
+		m_pxPropBox1^.SetVisible(pxPVCtrl1!=null);	
+		m_pxPropBox2^.SetVisible(pxPVCtrl2!=null);	
+		m_pxPropBox3^.SetVisible(pxPVCtrl3!=null);	
+		m_pxPropBox4^.SetVisible(pxPVCtrl4!=null);	
+		return true;
+	endproc;
+	
+	export proc void AddActor(^CActor p_pxActor)		
+		var CFourCC xType=p_pxActor^.GetGODClass();
+		var string sType=TypeToString(xType);
+		var int iTypeItem=FindItem(m_iActorsItemID,sType);
+		if(iTypeItem==0)then
+			iTypeItem=AddItem(m_iActorsItemID,sType,new CActorGroupItemData(sType));
+		endif;
+		AddItem(iTypeItem,p_pxActor^.GetName(),new CActorItemData(p_pxActor));
+		UpdateActorIcons();
+	endproc;
+
+	export proc void AddCamera(^CSeqCamera p_pxCamera)
+		AddItem(m_iCamerasItemID,p_pxCamera^.GetName(),new CCameraItemData(p_pxCamera));
+	endproc;
+
+	proc string TypeToString(CFourCC p_xType)
+		if(p_xType=="Bldg")then
+			return "Buildings";
+		elseif(p_xType=="Towe")then
+			return "Towers";
+		elseif(p_xType=="Misc")then
+			return "Misc";
+		elseif(p_xType=="Wall")then
+			return "Walls";
+		elseif(p_xType=="Deko")then
+			return "Dekos";
+		elseif(p_xType=="Char")then
+			return "Characters";
+		elseif(p_xType=="Ship")then
+			return "Ships";
+		elseif(p_xType=="Anim")then
+			return "Animals";
+		elseif(p_xType=="Vehi")then
+			return "Vehicles";
+		elseif(p_xType=="Vgtn")then
+			return "Vegitation";
+		elseif(p_xType=="Fiel")then
+			return "Fields";
+		elseif(p_xType=="Ress")then
+			return "Ressources";
+		endif;		
+		return p_xType.AsString();
+	endproc;
+
+	proc bool OnControlKey(int p_iKey, bitset p_dwModifier)
+		if(p_iKey==281)then//Entf
+			var int iSelItem=GetSelectedItem();
+			if(iSelItem!=-1)then
+				var ^CSBItemData pxData=cast<CSBItemData>(GetItemData(iSelItem));
+				if(pxData!=null)then
+					var string sType=pxData^.GetType();
+					if(sType=="actor")then
+						var CGuid xActorGuid=(cast<CActorItemData>(pxData))^.GetGuid();
+						DeleteActor(xActorGuid,false);						
+						return true;
+					elseif(sType=="camera")then
+						var ^CUSLTrackCtrl pxTrackCtrl=m_pxSeqEditor^.GetTrackCtrl();
+						m_pxSequence^.DelCamera((cast<CCameraItemData>(pxData))^.GetGuid());
+						delete pxData;
+						DeleteItem(iSelItem,true);
+						return true;
+					endif;
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	var CGuid m_xDeleteActorGuid;
+	export proc void DeleteActor(CGuid p_xGuid,bool p_bIgnoreLinkReferences)
+		m_xDeleteActorGuid=p_xGuid;
+		var ^CUSLTrackCtrl pxTrackCtrl=m_pxSeqEditor^.GetTrackCtrl();
+		var ^CSequence pxSequence=pxTrackCtrl^.GetSequence();
+		if(pxSequence==null)then return; endif;
+		var ^CActor pxActor=pxSequence^.GetActor(p_xGuid);
+		if(pxActor==null)then return; endif;
+		if(!p_bIgnoreLinkReferences)then
+			var CStringArray asOutput;
+			if(pxActor^.HasLinkReference(asOutput))then
+				var string sMsg;
+				var int i,iC=asOutput.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					sMsg+=asOutput[i];
+					if(i<(iC-1))then sMsg+="\t"; endif;
+				endfor;				
+				CMessageBox.MsgBox_YESNO(CLocalizer.Get().Translate("_Game_Warning"),sMsg,0b,DeleteActorEnd);
+			else
+				DeleteActorEnd((CMessageBox.SID_YES).ToInt());
+			endif;
+		else
+			DeleteActorEnd((CMessageBox.SID_YES).ToInt());
+		endif;
+	endproc;
+	
+	proc void DeleteActorEnd(int p_iResult)
+		var ^CUSLTrackCtrl pxTrackCtrl=m_pxSeqEditor^.GetTrackCtrl();
+		//var ^CSequence pxSequence=pxTrackCtrl^.GetSequence();		
+		if(p_iResult==(CMessageBox.SID_YES).ToInt())then
+			var int iIterator=0;
+			StartIterate();
+			while(Iterate(iIterator))do
+				var ^CSBItemData pxData=cast<CSBItemData>(GetItemData(iIterator));
+				if(pxData!=null)then
+					var string sType=pxData^.GetType();
+					if(sType=="actor")then
+						if(m_xDeleteActorGuid==(cast<CActorItemData>(pxData))^.GetGuid())then				
+							pxTrackCtrl^.DelActor(m_xDeleteActorGuid);
+							delete pxData;
+							DeleteItem(iIterator,true);
+							OnSelect();
+							UpdateActorIcons();
+							break;
+						endif;
+					endif;
+				endif;
+			endwhile;		
+		endif;
+	endproc;
+
+	proc bool OnLButtonDoubleClick()
+		var int iSelItem=GetSelectedItem();
+		if(iSelItem!=-1)then
+			var ^CSBItemData pxData=cast<CSBItemData>(GetItemData(iSelItem));
+			if(pxData!=null)then
+				var string sType=pxData^.GetType();
+				if(sType=="actor")then
+					var ^CActor pxActor=(cast<CActorItemData>(pxData))^.GetActor();
+					var ^CObj pxObj=pxActor^.GetObj();
+					var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+					pxSel^.Select(pxObj^.GetHandle());
+					var vec3 vPos=pxObj^.GetPos();
+					CMainController.Get().SetCameraTarget(vPos);
+				elseif(sType=="camera")then
+					var ^CSeqCamera pxSeqCamera=(cast<CCameraItemData>(pxData))^.GetCamera();
+					var ^CCamera pxCamera=pxSeqCamera^.GetCameraInfo()^.GetCamera();
+					if(pxCamera!=null)then
+						CMainController.Get().UpdateCameraPosition(pxCamera);
+					endif;
+				elseif(sType=="actor_preset")then
+					var string sPath=(cast<CActorPresetItemData>(pxData))^.GetPresetPath();
+					var CArc xArc;
+					if(xArc.OpenRead(sPath))then					
+						var ^CActorPreset pxActorPreset=new CActorPreset;
+						pxActorPreset^.DoKArc(xArc);
+						//xArc << (pxActorPreset^);
+						CMainController.Get().GetObjCreator()^.CreateActorGhost(pxActorPreset);
+					endif;					
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnRButtonDown()
+		super.OnRButtonDown();
+		if(m_pxSequence==null)then return true; endif;		
+		var int iSelItem=GetSelectedItem();
+		if(iSelItem==-1)then return true; endif;
+		var ^CSBItemData pxData=cast<CSBItemData>(GetItemData(iSelItem));
+		if(pxData==null)then return true; endif;		
+		var string sType=pxData^.GetType();
+		if(sType=="actor")then
+			var ^CActorItemData pxActorData=cast<CActorItemData>(pxData);
+			var ^CContextMenu pxMenu=new CContextMenu(GetSHWND());
+			pxMenu^.AddItem("rename",0);
+			pxMenu^.AddItem("create preset",1);
+			pxMenu^.AddItem("delete",2);
+			if(pxActorData^.GetVisible())then
+				pxMenu^.AddItem("actor hide",3);
+			else
+				pxMenu^.AddItem("actor show",3);
+			endif;
+			pxMenu^.AddItem("replace",6);
+			pxMenu^.Show();
+		elseif(sType=="actorgroup")then
+			var ^CContextMenu pxMenu=new CContextMenu(GetSHWND());
+			pxMenu^.AddItem("group hide",4);
+			pxMenu^.AddItem("group show",5);
+			pxMenu^.Show();
+		elseif(sType=="camera")then
+			var ^CContextMenu pxMenu=new CContextMenu(GetSHWND());
+			pxMenu^.AddItem("rename",0);
+			pxMenu^.AddItem("delete",2);
+			pxMenu^.AddItem("import path",7);
+			var ^CSeqCamera pxSeqCamera=(cast<CCameraItemData>(pxData))^.GetCamera();
+			System.Assert(pxSeqCamera!=null);
+			if(pxSeqCamera^.IsImported())then
+				//pxMenu^.AddItem("reset start pos",8);
+			endif;
+			pxMenu^.Show();
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+		var string sClass = p_rxEvt.GetClass().ToString();
+		//right mouse down
+		if(sClass=="sCtxBtnC")then
+			var int iSelItem=GetSelectedItem();
+			var ^CSBItemData pxItemData=null;
+			if(iSelItem!=-1)then 
+				pxItemData=cast<CSBItemData>(GetItemData(iSelItem));
+			endif;				
+			var int iID=p_rxEvt.GetInt16A();			
+			if(iID==0)then//rename
+				if(pxItemData!=null)then
+					var string sType=pxItemData^.GetType();
+					if(sType=="camera")then
+						var ^CSeqCamera pxSeqCamera=(cast<CCameraItemData>(pxItemData))^.GetCamera();
+						RenameCamera(pxSeqCamera^.GetCameraInfo()^.GetIdent());
+					elseif(sType=="actor")then
+						var ^CActor pxActor=(cast<CActorItemData>(pxItemData))^.GetActor();
+						RenameActor(pxActor^.GetActorGuid());							
+					endif;						
+				endif;			
+			elseif(iID==1)then//create actor preset
+				var int iSelItem=GetSelectedItem();
+				if(iSelItem!=-1)then 
+					var ^CSBItemData pxData=cast<CSBItemData>(GetItemData(iSelItem));
+					if(pxData!=null)then
+						var string sType=pxData^.GetType();
+						if(sType=="actor")then
+							var ^CActor pxActor=(cast<CActorItemData>(pxData))^.GetActor();
+							CreateActorPreset(pxActor^.GetActorGuid());							
+						endif;
+					endif;		
+				endif;				
+			elseif(iID==2)then//delete
+				var int iSelItem=GetSelectedItem();
+				if(iSelItem!=-1)then 
+					var ^CSBItemData pxData=cast<CSBItemData>(GetItemData(iSelItem));
+					if(pxData!=null)then
+						var string sType=pxData^.GetType();
+						if(sType=="actor")then
+							var CGuid xActorGuid=(cast<CActorItemData>(pxData))^.GetGuid();
+							DeleteActor(xActorGuid,false);						
+						elseif(sType=="camera")then
+							var ^CUSLTrackCtrl pxTrackCtrl=m_pxSeqEditor^.GetTrackCtrl();
+							m_pxSequence^.DelCamera((cast<CCameraItemData>(pxData))^.GetGuid());
+							delete pxData;
+							DeleteItem(iSelItem,true);
+						endif;
+					endif;
+				endif;
+			elseif(iID==3)then//"actor hide" or "actor show"
+				var ^CActorItemData pxActorData=cast<CActorItemData>(pxItemData);
+				var bool bVisible=!pxActorData^.GetVisible();
+				pxActorData^.SetVisible(bVisible);
+				var ^CUSLTrackCtrl pxTrackCtrl=m_pxSeqEditor^.GetTrackCtrl();
+				pxTrackCtrl^.SetActorVisible(pxActorData^.GetGuid(),bVisible);				
+				UpdateActorIcons();				
+			elseif(iID==4)then//group hide
+				ActorGroupShowHide(iSelItem,false);				
+			elseif(iID==5)then//group show
+				ActorGroupShowHide(iSelItem,true);
+			elseif(iID==6)then//replace
+				//ActorGroupShowHide(iSelItem,true);
+				var ^CActorItemData pxActorData=cast<CActorItemData>(pxItemData);
+				new CReplaceActorDialog(pxActorData^.GetGuid(),m_pxSequence);
+			elseif(iID==7)then//import path
+				if(pxItemData!=null)then
+					var string sType=pxItemData^.GetType();
+					if(sType=="camera")then
+						var ^CSeqCamera pxSeqCamera=(cast<CCameraItemData>(pxItemData))^.GetCamera();						
+						ImportCameraPath(pxSeqCamera^.GetCameraInfo()^.GetIdent());
+					endif;						
+				endif;
+			elseif(iID==8)then//reset start pos
+				if(pxItemData!=null)then
+					var string sType=pxItemData^.GetType();
+					if(sType=="camera")then
+						var ^CSeqCamera pxSeqCamera=(cast<CCameraItemData>(pxItemData))^.GetCamera();						
+						//pxSeqCamera^.ResetStartPos();
+					endif;						
+				endif;
+			endif;
+			return true;
+		endif;
+		return super.HandleMessage(p_rxEvt);
+	endproc;
+	
+	proc void ActorGroupShowHide(int p_iItem,bool p_bShow)
+		ActorGroupShowHideRec(p_iItem,p_bShow);		
+		UpdateActorIcons();		
+	endproc;
+	
+	proc void ActorGroupShowHideRec(int p_iItem,bool p_bShow)
+		var ^CSBItemData pxData=cast<CSBItemData>(GetItemData(p_iItem));
+		if(pxData!=null)then
+			var string sType=pxData^.GetType();
+			if(	sType=="actor")then
+				var ^CActorItemData pxActorData=cast<CActorItemData>(pxData);				
+				pxActorData^.SetVisible(p_bShow);
+				var ^CUSLTrackCtrl pxTrackCtrl=m_pxSeqEditor^.GetTrackCtrl();
+				pxTrackCtrl^.SetActorVisible(pxActorData^.GetGuid(),p_bShow);
+			endif;
+		endif;
+		var int i,iC=ItemNumChildren(p_iItem);
+		for(i=0)cond(i<iC)iter(i++)do
+			var int iChild=GetChildItem(p_iItem,i);
+			ActorGroupShowHideRec(iChild,p_bShow);			
+		endfor;		
+	endproc;
+	
+	proc void UpdateActorIcons()
+		if(m_iActorsItemID!=-1)then
+			UpdateActorIconsRec(m_iActorsItemID);
+		endif;		
+	endproc;
+	
+	proc int UpdateActorIconsRec(int p_iItem)
+		var array int aiRes;
+		var int i,iC=ItemNumChildren(p_iItem);
+		for(i=0)cond(i<iC)iter(i++)do
+			aiRes.Include(UpdateActorIconsRec(GetChildItem(p_iItem,i)));
+		endfor;
+		var int iRes=0;
+		var int iNumRes=aiRes.NumEntries();
+		if(iNumRes==1)then iRes=aiRes[0]; endif;
+		if(iNumRes>1) then iRes=2; endif;
+		
+		var ^CSBItemData pxData=cast<CSBItemData>(GetItemData(p_iItem));
+		if(pxData!=null)then
+			var string sType=pxData^.GetType();
+			if(sType=="actor")then
+				var ^CActorItemData pxActorData=cast<CActorItemData>(pxData);				
+				iRes=0;
+				if(!pxActorData^.GetVisible())then
+					iRes=1;					
+				endif;				
+			endif;
+		endif;
+		if(iRes==0)then
+			SetItemBitmap(p_iItem,m_pxCheckBmp);
+		elseif(iRes==1)then
+			SetItemBitmap(p_iItem,m_pxUncheckBmp);
+		else
+			SetItemBitmap(p_iItem,m_pxUndefBmp);
+		endif;		
+		return iRes;
+	endproc;
+	
+	var CGuid m_xRenamedCamera;
+	export proc void RenameCamera(CGuid p_xCameraGuid)
+		m_xRenamedCamera=p_xCameraGuid;
+		var ^CRenameDialog pxDlg=new CRenameDialog("");
+		pxDlg^.m_xOnOK=OnRenameCameraOK;
+		pxDlg^.m_xOnCancel=OnRenameCameraCancel;
+		pxDlg^.Show();
+	endproc;
+	
+	proc void OnRenameCameraOK(string p_sNewName)
+		var ^CSeqCamera pxCamera=m_pxSequence^.GetCamera(m_xRenamedCamera);
+		if(pxCamera==null)then return; endif;
+		if(m_pxSequence^.GetCamera(p_sNewName)!=null)then
+			CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Error"),"'"+p_sNewName+"' is already used");			
+			return;
+		endif;
+		pxCamera^.SetName(p_sNewName);
+		var int iIterator=0;
+		StartIterate();
+		while(Iterate(iIterator))do
+			var ^CSBItemData pxData=cast<CSBItemData>(GetItemData(iIterator));
+			if(pxData!=null)then
+				var string sType=pxData^.GetType();
+				if(sType=="camera")then
+					if(m_xRenamedCamera==(cast<CCameraItemData>(pxData))^.GetGuid())then	
+						SetItemText(iIterator,p_sNewName);							
+						break;
+					endif;
+				endif;
+			endif;
+		endwhile;
+	endproc;
+	proc void OnRenameCameraCancel()
+		var CGuid xInvalid;
+		m_xRenamedCamera=xInvalid;
+	endproc;	
+	
+	
+	var CGuid m_xRenamedActor;
+	export proc void RenameActor(CGuid p_xActorGuid)
+		m_xRenamedActor=p_xActorGuid;
+		var ^CRenameDialog pxDlg=new CRenameDialog("");
+		pxDlg^.m_xOnOK=OnRenameActorOK;
+		pxDlg^.m_xOnCancel=OnRenameActorCancel;
+		pxDlg^.Show();
+	endproc;
+	
+	proc void OnRenameActorOK(string p_sNewName)
+		var ^CActor pxActor=m_pxSequence^.GetActor(m_xRenamedActor);
+		if(pxActor==null)then return; endif;
+				
+		if(m_pxSequence^.GetActor(p_sNewName)!=null)then
+			CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Error"),"'"+p_sNewName+"' is already used");			
+			return;
+		endif;
+		pxActor^.SetName(p_sNewName);
+		var int iIterator=0;
+		StartIterate();
+		while(Iterate(iIterator))do
+			var ^CSBItemData pxData=cast<CSBItemData>(GetItemData(iIterator));
+			if(pxData!=null)then
+				var string sType=pxData^.GetType();
+				if(sType=="actor")then
+					if(m_xRenamedActor==(cast<CActorItemData>(pxData))^.GetGuid())then	
+						SetItemText(iIterator,p_sNewName);							
+						break;
+					endif;
+				endif;
+			endif;
+		endwhile;	
+	endproc;
+	proc void OnRenameActorCancel()
+		var CGuid xInvalid;
+		m_xRenamedActor=xInvalid;
+	endproc;
+	
+	var CGuid m_xPresetActor;
+	export proc void CreateActorPreset(CGuid p_xActorGuid)
+		m_xPresetActor=p_xActorGuid;
+		/*
+		var ^CRenameDialog pxDlg=new CRenameDialog("");
+		pxDlg^.m_xOnOK=OnActorPresetOK;
+		pxDlg^.m_xOnCancel=OnActorPresetCancel;
+		pxDlg^.Show();
+		*/
+		var ^CEnhancedLoadSaveDialog pxTmp = new CEnhancedLoadSaveDialog(1,"ActorPreset");
+		pxTmp^.ClearFilters();
+		pxTmp^.AddFilter("Seq. Actor Preset Files","*.sap");
+		var string sBasePath=CSettings.GetUserSettingsDir()+"ActorPresets";		
+		pxTmp^.SetBasePath(sBasePath);
+		pxTmp^.SetUniqueSettingName("SeqActorPresetLoadSaveDlg");
+		pxTmp^.m_xReturnFileString=OnActorPresetOK;
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp, true);
+		CWindowMgr.Get().SetModal(pxTmp);
+	endproc;
+	
+	proc bool OnActorPresetOK(string p_sPresetFile)
+		var ^CActor pxActor=m_pxSequence^.GetActor(m_xPresetActor);
+		if(pxActor==null)then return true; endif;
+		var ^CUSLTrackCtrl pxTrackCtrl=GetTrackCtrl();
+		if(pxTrackCtrl!=null)then
+			if(pxTrackCtrl^.SaveActorPreset(m_xPresetActor,p_sPresetFile))then
+				LoadPresets();
+			endif;
+		endif;
+		return true;
+	endproc;
+	/*
+	proc void OnActorPresetCancel()
+		var CGuid xInvalid;
+		m_xPresetActor=xInvalid;
+	endproc;
+	*/
+	
+	export proc void UpdateSelection()		
+		RemoveSelection();
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());		
+		if(pxSel^.NumEntries()==0)then return; endif;
+		var ^CObj pxObj=(pxSel^)[0].GetObj();
+		if(pxObj==null)then return; endif;
+		var CGuid xSelObj=pxObj^.GetGuid();
+		
+		var int iIterator=0;
+		StartIterate();
+		while(Iterate(iIterator)) do
+			var ^CSBItemData pxData=cast<CSBItemData>(GetItemData(iIterator));
+			if(pxData==null)then continue; endif;
+			var CGuid xTestGuid;
+			var string sType=pxData^.GetType();
+			if(sType=="actor")then
+				xTestGuid=(cast<CActorItemData>(pxData))^.GetGuid();				
+			elseif(sType=="camera")then
+				xTestGuid=(cast<CCameraItemData>(pxData))^.GetGuid();				
+			endif;
+			if(xSelObj==xTestGuid)then				
+				Select(iIterator);
+				InvalidateWindow();
+				return;
+			endif;
+		endwhile;		
+	endproc;
+	//////
+	var CGuid m_xImportCamera;
+	export proc void ImportCameraPath(CGuid p_xCameraGuid)
+		m_xImportCamera=p_xCameraGuid;
+		
+		
+		//
+		var ^CEnhancedLoadSaveDialog pxTmp = new CEnhancedLoadSaveDialog(0,"custom");
+		pxTmp^.ClearFilters();
+		pxTmp^.AddFilter("CameraExport Files","*.ccs");
+		//var string sBasePath=CClientWrap.GetUrsRelPath()+"/Data/Base/Sequences";
+		//pxTmp^.SetBasePath(sBasePath);
+		pxTmp^.SetUniqueSettingName("SeqCamLoadSaveDlg");
+		pxTmp^.m_xReturnFileString=OnImportCameraPathOK;
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp, true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		/*
+		var ^CRenameDialog pxDlg=new CRenameDialog("");
+		pxDlg^.m_xOnOK=OnImportCameraPathOK;
+		pxDlg^.m_xOnCancel=OnImportCameraPathCancel;
+		pxDlg^.Show();
+		*/
+	endproc;
+	
+	proc bool OnImportCameraPathOK(string p_sNewName)
+		var ^CSeqCamera pxCamera=m_pxSequence^.GetCamera(m_xImportCamera);
+		if(pxCamera==null)then return true; endif;
+		pxCamera^.ImportCameraPath(p_sNewName);
+		return true;		
+	endproc;
+	
+	//////	
+		
+	var ^CSequenceEditor	m_pxSeqEditor;
+	var ^CSequence 			m_pxSequence;
+	var int m_iSequenceItemID;
+	var int m_iActorsItemID;
+	var int m_iCamerasItemID;
+	var int m_iPresetsItemID;
+	var ^CGroupBox m_pxPropBox1;
+	var ^CGroupBox m_pxPropBox2;
+	var ^CGroupBox m_pxPropBox3;
+	var ^CGroupBox m_pxPropBox4;
+	
+	var CBitmapPtr		m_pxCheckBmp;
+	var CBitmapPtr		m_pxUncheckBmp;	
+	var CBitmapPtr		m_pxUndefBmp;	
+endclass;
+
+
+class CReplaceActorDialog inherit CFrameWindow
+	var CGuid 		m_xActorGuid;
+	var ^CSequence	m_pxSequence;
+	var ^CTabCtrl 	m_pxTabCtrl;
+	var ^CTreeCtrl	m_pxObjClassTree;
+	var ^CList		m_pxExistObjects;
+	
+	class CObjItemData inherit CItemData
+		var CClntHndl m_xObjHandle;
+		export constructor(CClntHndl p_xObj)
+			m_xObjHandle=p_xObj;
+		endconstructor;
+		
+		export proc CClntHndl GetObjHandle()
+			return m_xObjHandle;
+		endproc;
+	endclass;
+	
+	export constructor(CGuid p_xActor,^CSequence p_pxSequence)
+		if(!InitFromResource("sequencer/SequenceEditor","ReplaceActorDialog"))then
+			CLevelEditorWrap.LogError("UI.SequenceEditor","CReplaceActorDialog InitFromRessource() failed");
+			return;
+		endif;
+		m_xActorGuid=p_xActor;
+		m_pxSequence=p_pxSequence;
+		var ^CObjMgr pxObjMgr = ^(CClientWrap.GetObjMgr());
+		var ^CObj pxActorObj=pxObjMgr^.GetObj(p_xActor);
+		if(pxActorObj==null)then			
+			return; 
+		endif;
+			
+		m_pxObjClassTree=new CTreeCtrl;
+		m_pxExistObjects=new CList;
+		m_pxTabCtrl=cast<CTabCtrl>(GetControl("TabCtrl"));
+		m_pxTabCtrl^.AddTab(" new object ",m_pxObjClassTree);
+		//m_pxTabCtrl^.AddTab(" exist object ",m_pxExistObjects);
+				
+		var ^CWindowMgr pxWM=^(CWindowMgr.Get());
+		var ^CDesktop pxDesktop=CClientWrap.GetDesktop();
+		var point xPos;
+		xPos.SetX((pxDesktop^.GetWidth()-GetWidth())/2);
+		xPos.SetY((pxDesktop^.GetHeight()-GetHeight())/2);
+		SetPos(xPos);
+		pxDesktop^.AddChild(this);			
+		pxWM^.BringWindowToTop(this, true);
+		pxWM^.SetModal(this);
+		
+		begin FillObjectClassTree;
+			var ^CObjClassMgrBase pxObjClassMgr=^(CLevelEditorWrap.GetObjClassMgr());
+			var ^CClassNode pxRoot=pxObjClassMgr^.GetRoot();
+			if(pxRoot!=null)then
+				var int i,iC=pxRoot^.m_axSubs.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CClassNode pxWalk=pxRoot^.m_axSubs[i];
+					FillObjectClassTreeRec(pxWalk,0);
+				endfor;
+			endif;
+		end FillObjectClassTree;
+		m_pxObjClassTree^.m_xOnLBtnDblClick=OnReplaceWithObjClass;
+		
+		begin FillExistObjects;
+			var CFourCC xActorType=pxActorObj^.GetType();
+			
+			var int i,iC=pxObjMgr^.NumObjects();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CObj pxWalk=pxObjMgr^.GetObjByID(i);
+				if(pxWalk==null)then continue; endif;
+				if(pxWalk^.GetType()!=xActorType)then continue; endif;
+				if(pxWalk^.GetGuid()!=p_xActor)then
+					m_pxExistObjects^.AddItem(pxWalk^.GetName(),new CObjItemData(pxWalk^.GetHandle()));				
+				endif;
+			endfor;			
+		end FillExistObjects;
+		m_pxExistObjects^.m_xOnLBtnDblClick=OnReplaceWithObj;
+						
+	endconstructor;
+	
+	export destructor()
+		CWindowMgr.Get().ReleaseModal(this);
+	enddestructor;
+	
+	proc void FillObjectClassTreeRec(^CClassNode p_pxWalk, int p_iItem)
+		if(p_pxWalk!=null) then
+			var int iItem=m_pxObjClassTree^.AddItem(p_iItem,p_pxWalk^.m_sName);
+			var int i,iC=p_pxWalk^.m_axSubs.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CClassNode pxWalk=p_pxWalk^.m_axSubs[i];
+				FillObjectClassTreeRec(p_pxWalk^.m_axSubs[i],iItem);
+			endfor;
+		endif;
+	endproc;
+	
+	proc bool OnReplaceWithObjClass()
+		var int iSelItem=m_pxObjClassTree^.GetSelectedItem();
+		if(m_pxObjClassTree^.ItemNumChildren(iSelItem)==0)then
+			var string sObjClass=m_pxObjClassTree^.GetItemText(iSelItem);
+			var ^CActor pxActor=m_pxSequence^.GetActor(m_xActorGuid);
+			if(pxActor!=null)then
+				pxActor^.Replace(sObjClass);
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnReplaceWithObj()
+		var int iSelItem=m_pxExistObjects^.GetSelectedItem();
+		var ^CObjItemData pxItemData=cast<CObjItemData>(m_pxExistObjects^.GetItemData(iSelItem));
+		if(pxItemData!=null)then
+			var CClntHndl xObjHandle=pxItemData^.GetObjHandle();
+			var ^CActor pxActor=m_pxSequence^.GetActor(m_xActorGuid);
+			if(pxActor!=null)then
+				//pxActor^.Replace(xObjHandle);
+			endif;			
+		endif;
+		return true;
+	endproc;
+	
+endclass;
+
+

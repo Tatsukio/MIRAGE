@@ -1,0 +1,1702 @@
+/*?
+	?group		URS.Scripts.Server.Misc
+	?item		CItem
+	?desc		Represents a takeable and usable Object in the Gameworld
+	?prefix		CItem
+?*/
+class CItem inherit CProduct
+
+		var CObjHndl	m_xOwner;
+		var string		m_sItemType;
+		var string		m_sFeedback;
+		var bool			m_bSkipLinking;
+		var bool			m_bSkipPosition;
+		
+		export var string m_sItemData;
+		
+		var CTechTree	m_xTechTree;
+		var string		m_sObjPath;
+		
+		export var CEvtSource	m_xEvtSource;
+		
+		export var bitset		m_dwFlags;
+		export var real			m_fDuration, m_fReload;
+		export var real			m_fRadius;
+		export var string		m_sEffectName;
+		export var real			m_fBonus;
+		export var vec3			m_vReturnPos;
+		export var int			m_iCurOwner;
+		
+		var ^CRegionSink		m_pxSink;
+		
+		const int RELOAD_TIMER_ID			= 72347;
+		const int DIE_TIMER_ID				= 80980;
+		
+		const bitset EFFECT_IN_INV		= 001b;
+		const bitset EFFECT_OUT_INV		= 010b;
+		const bitset EFFECT_USE				= 0100b;
+		
+	constructor()
+		m_vReturnPos = {0.0,0.0,0.0};
+		m_iCurOwner = -1;
+		m_bSkipPosition=false;
+	endconstructor;
+	
+//	destructor()
+//		CArtifactMgr.Get().RemoveArtifact(GetHandle());
+//	enddestructor;
+	
+		//////////////////////////////////////////////////////////
+		// OnInit()
+		//////////////////////////////////////////////////////////
+		export proc void OnInit(bool p_bLoad)
+			if(!p_bLoad)then
+				SetType("ITEM");
+				var ^CAttribs pxAttr = InitAttribs();
+				if (pxAttr == null) then return; endif;
+				pxAttr^.SetValue("item_type", m_sItemType);
+				pxAttr^.SetValue("item_data", m_sItemData);
+				m_vReturnPos = GetPos();
+			else
+				var ^CAttribs pxAttr = InitAttribs();
+				if(pxAttr == null)then return; endif;
+				m_sItemType = pxAttr^.GetValue("item_type");
+				m_sItemData = pxAttr^.GetValue("item_data");
+//				if(!m_xOwner.IsValid())then
+				if(!m_xOwner.IsValid()&&m_vReturnPos=={0.0,0.0,0.0})then
+					m_vReturnPos = GetPos();
+				endif;
+			endif;
+//			if(!CArtifactMgr.Get().AddArtifact(GetHandle()))then
+//				Delete();
+//				return;
+//			endif;
+			m_xTechTree = GetTechTree();
+			UpdateObjPath();
+			SetHitable(true);
+			SetSelectable(true);
+			InitEvents();
+			var int iEffect = m_xTechTree.GetValueI(m_sObjPath+"/effect",-1);
+			//L KLog.LogSpam("MaZi", GetName() + " ... iEffect == " + iEffect.ToString());
+			m_dwFlags = 0b;
+			if(iEffect==0)then
+				m_dwFlags |= EFFECT_USE;
+			elseif(iEffect==1) then
+				m_dwFlags |= EFFECT_IN_INV;
+			else
+				m_dwFlags |= EFFECT_OUT_INV;
+			endif;
+			if ((m_dwFlags&EFFECT_USE)!=0b||(m_dwFlags&EFFECT_IN_INV)!=0b) then
+				m_fDuration = m_xTechTree.GetValueR(m_sObjPath+"/duration", -1.0f);
+				m_fReload = m_xTechTree.GetValueR(m_sObjPath+"/reload", -1.0f);
+			endif;
+			m_fRadius = m_xTechTree.GetValueR(m_sObjPath+"/range", 0.0f);
+			if(m_fRadius > 0.0f)then
+				m_pxSink = new CRegionSink();
+				m_pxSink^.m_xOnObjAdd = OnObjAdd;
+				m_pxSink^.m_xOnObjRem = OnObjRem;
+			endif;
+			m_sEffectName = m_xTechTree.GetValueS(m_sObjPath+"/EffectName", "");
+			m_fBonus = m_xTechTree.GetValueR(m_sObjPath+"/bonus", 0.0f);
+			//this prevents unreachable islands from being closed when containing this item
+			//(item could be reachable by jetpack_warrior)
+			CSrvWrap.GetPathfinder().SetPFPreserveIsland(this);
+		endproc;
+	
+	export proc void OnPostLoad()
+		super.OnPostLoad();
+		CItemEffectInvoker.Get().Invoke(m_sEffectName, this, m_xOwner, true);
+	endproc;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xRide="ITba";
+		var int iVersion=4;
+		if(CMirageSrvMgr.SDK())then
+			iVersion=2;
+		endif;
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xRide,iVersion);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		var CGuid xG;
+		if(m_pxSink!=null&&m_pxSink^.HasRegion())then
+			xG = m_pxSink^.GetRegion()^.GetGUID();
+		endif;
+		pxArc^ << xG;
+		m_xOwner.DoKArc(pxArc^);
+		if(iVersion>=3)then
+			pxArc^ << m_vReturnPos;
+			pxArc^ << m_iCurOwner;
+			pxArc^ << m_sFeedback;
+		endif;
+		if(iVersion>=4)then
+			pxArc^ << m_bSkipLinking;
+			pxArc^ << m_bSkipPosition;
+		endif;
+		pxWalk^.Close();
+	endproc;
+//
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="ITba")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			if(p_pxReaderNode^.GetVersion()>=1)then
+				var CGuid xG;
+				pxArc^ << xG;
+				var int iIdx = CSrvWrap.GetRegionMgr().FindRegion(xG);
+				if (iIdx>=0) then
+					var ^CRegion pxRegion = CSrvWrap.GetRegionMgr().GetRegion(iIdx);
+					if (m_pxSink!=null) then
+						m_pxSink^.SetRegion(pxRegion);
+					endif;
+				endif;
+			endif;
+			if(p_pxReaderNode^.GetVersion()>=2)then
+				m_xOwner.DoKArc(pxArc^);
+			endif;
+			if(p_pxReaderNode^.GetVersion()>=3)then
+				pxArc^ << m_vReturnPos;
+				pxArc^ << m_iCurOwner;
+				pxArc^ << m_sFeedback;
+			endif;
+			if(p_pxReaderNode^.GetVersion()>=4)then
+				pxArc^ << m_bSkipLinking;
+				pxArc^ << m_bSkipPosition;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	proc void UpdateObjPath()
+		var ^CTechTree.CNode pxNode=m_xTechTree.FindNode("Items/Objects/");
+		if(pxNode==null) then return; endif;
+		var ^CTechTree.CNode pxObj=pxNode^.FindNodeRecursiveByName(GetClassName());
+		if(pxObj==null) then return; endif;
+		m_sObjPath=pxObj^.GetAbsPath();
+		var ^CAttribs pxAttr = GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("ObjPath",m_sObjPath);
+		endif;
+	endproc;
+
+	export proc CObjHndl GetItemOwner()
+		return m_xOwner;
+	endproc;
+
+	export proc string GetObjPath()
+		return m_sObjPath;
+	endproc;
+
+	//////////////////////////////////////////////////////////
+	// SetItemType()
+	//////////////////////////////////////////////////////////
+	export proc void SetItemType(string p_sType)
+		m_sItemType = m_sItemType;
+	endproc;
+
+	//////////////////////////////////////////////////////////
+	// GetItemType()
+	//////////////////////////////////////////////////////////
+	export proc string GetItemType()
+		return m_sItemType;
+	endproc;
+
+	export proc bool OnObjAdd(CObjHndl p_xObj)
+		if(!p_xObj.IsValid()) then return false; endif;
+		var ^CGameObj pxObj = p_xObj.GetObj();
+		var ^CTechTreeDef pxTTDef = pxObj^.GetTechTreeDef();
+		if (pxTTDef!=null) then
+			var string sTTPath = m_xTechTree.GetValueS(GetObjPath()+"/LocalTT", "");
+			pxTTDef^.EnableFilter(sTTPath);
+		endif;
+		if (!m_sEffectName.IsEmpty()) then
+			CItemEffectInvoker.Get().Invoke(m_sEffectName, this, p_xObj, true);
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool OnObjRem(CObjHndl p_xObj)
+		if(!p_xObj.IsValid()) then return false; endif;
+		var ^CGameObj pxObj = p_xObj.GetObj();
+		var ^CTechTreeDef pxTTDef = pxObj^.GetTechTreeDef();
+		if (pxTTDef!=null) then
+			var string sTTPath = m_xTechTree.GetValueS(GetObjPath()+"/LocalTT", "");
+			pxTTDef^.DisableFilter(sTTPath);
+		endif;
+		if(!m_sEffectName.IsEmpty())then
+			CItemEffectInvoker.Get().Invoke(m_sEffectName, this, p_xObj, false);
+		endif;
+		return true;
+	endproc;
+	
+	export proc void OnTakeItem(^CGameObj p_pxUser,string p_sFeedback)
+		m_bSkipLinking=false;
+		m_sFeedback=p_sFeedback;
+		OnTaken(p_pxUser);
+	endproc;
+	
+	export proc void OnTakeItem(^CGameObj p_pxUser,string p_sFeedback,bool p_bSkipLinking)
+		m_bSkipLinking=p_bSkipLinking;
+		m_sFeedback=p_sFeedback;
+		OnTaken(p_pxUser);
+	endproc;
+	
+		//////////////////////////////////////////////////////////
+		// OnTaken()
+		//////////////////////////////////////////////////////////
+		export proc void OnTaken(^CGameObj p_pxUser)
+			if (p_pxUser==null) then return; endif;
+			if(m_vReturnPos=={0.0,0.0,0.0})then
+				//m_vReturnPos = p_pxUser^.GetPos();
+				m_vReturnPos = GetPos();
+			endif;
+			if(m_sFeedback!="Silent!")then
+				var int iPlayer=p_pxUser^.GetOwner();
+				var ^CBasePlayer pxBPl = CBasePlayer.GetPlayer(iPlayer);
+				if(pxBPl!=null)then
+					CSrvWrap.SendGenericEvtToPlayer(iPlayer,"ItemTaken");
+				endif;
+				if(m_sFeedback=="Steal")then
+					CFeedback.Print(iPlayer, CFeedback.INFO, "_MIRAGE_NT_ItemFilched\t"+CServerUtils.GetObjHelpitemKey(this),p_pxUser^.GetPos());
+				else
+					CFeedback.Print(iPlayer, CFeedback.INFO, "_NT_Artefact_Gain\t"+CServerUtils.GetObjHelpitemKey(this),p_pxUser^.GetPos());
+				endif;
+			endif;
+			var CEvtPointer xEvt;
+			xEvt = CEvtPointer.CreateEvent("ITEMTAKE");
+			xEvt.SetInt(0, p_pxUser^.GetHandle().AsInt());
+			m_xEvtSource.Broadcast(xEvt);
+			SetVisible(false);
+			SetSelectable(false);
+			SetHitable(false);
+			SetVisInFOW(false);
+			m_xOwner = p_pxUser^.GetHandle();
+			SetOwner(p_pxUser^.GetOwner());
+			m_iCurOwner = p_pxUser^.GetOwner();
+			if(!m_bSkipLinking)then
+				var CFourCC xLink = "INVE";
+				LinkAction(m_xOwner, xLink);
+			endif;
+			if((m_dwFlags&EFFECT_USE)==0b)then
+				// Object do not effect on use ...
+				var ^CTechTreeDef pxTTDef = p_pxUser^.GetTechTreeDef();
+				if (pxTTDef!=null) then
+					if ((m_dwFlags&EFFECT_IN_INV)!=0b) then
+						// Object effects if in Inventory
+						if (m_fRadius > 0.0f && m_pxSink!=null) then
+							// if item has an effect radius it has an effect on nearby Units
+							if (m_fRadius == 999999.0f) then
+								// if the radius is set to maximum the item effects units in the WorldRegion
+								var int iHndl = CSrvWrap.GetRegionMgr().GetWorldRgnHndl();
+								m_pxSink^.SetRegion(CSrvWrap.GetRegionMgr().GetRegion(iHndl));
+							else
+								// Effect inside an own region
+								if (!m_pxSink^.HasRegion()) then 
+									var vec3 vP;
+									vP.SetXYZ(m_fRadius, m_fRadius, 0.0f);
+									var int iIdx = CSrvWrap.GetRegionMgr().CreateRegion("ItemRegion_" + Random.GetInt().ToString(), 2.ToBitset(), GetPos(), vP);
+									m_pxSink^.SetRegion(CSrvWrap.GetRegionMgr().GetRegion(iIdx));
+								endif;
+							endif;
+							// we have valid Region and Sink, so let's go
+							if (m_pxSink!=null && m_pxSink^.HasRegion()) then
+								m_pxSink^.GetRegion()^.BindToObj(GetItemOwner());
+								m_pxSink^.Subscribe();
+							endif;
+						else
+							// if no radius is set item effects only the owning unit
+							pxTTDef^.EnableFilter(m_xTechTree.GetValueS(GetObjPath()+"/LocalTT", ""));
+							var int iOwner=p_pxUser^.GetOwner();
+							//CMirageSrvMgr.Get().DiploLocked()&&CSrvWrap.GetDiplomacyMgr().GetIsFriend(GetOwner(), p_pxTarget^.GetOwner())
+							var bool bShare=CMirageSrvMgr.Get().DiploLocked()&&CMirageSrvMgr.Get().TreasureSharing();
+							var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+							var string sGF=m_xTechTree.GetValueS(GetObjPath()+"/GlobalTT", "");
+							var ^CPlayer pxPlayer = pxLevel^.GetPlayer(iOwner);
+							if(pxPlayer!=null)then
+								//L KLog.LogSpam("MaZi", "playertt set");
+								pxPlayer^.GetPlayerTechTreeDef().EnableFilter(sGF);
+							endif;
+							if(bShare)then
+								var int j, jC=CGameBase.GetMaxPlayers();
+								for(j=0)cond(j<jC)iter(j++)do
+									if(j==iOwner)then continue; endif;
+									if(!CSrvWrap.GetDiplomacyMgr().GetIsFriend(iOwner, j))then continue; endif;
+									var ^CPlayer pxPlyr=pxLevel^.GetPlayer(j);
+									if(pxPlyr==null)then continue; endif;
+									var ^CTechTreeDef pxTTDef=^(pxPlyr^.GetPlayerTechTreeDef());
+									if(pxTTDef!=null)then
+										pxTTDef^.EnableFilter(sGF);
+									endif;
+								endfor;
+							endif;
+							/*
+							if(CMirageSrvMgr.Get().ShareTreasures()&&CMirageSrvMgr.Get().DiploLocked())then
+								var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+								if(pxLevel!=null)then
+									var int i;
+									for(i=0)cond(i<8)iter(i++)do
+										if(i==iOwner)then continue; endif;
+										if(!(CSrvWrap.GetDiplomacyMgr().GetIsFriend(i, iOwner)&&CSrvWrap.GetDiplomacyMgr().GetIsFriend(iOwner, i)))then continue; endif;
+										var ^CPlayer pxOther=pxLevel^.GetPlayer(i);
+										if(pxOther!=null)then
+											pxPlayer^.GetPlayerTechTreeDef().EnableFilter(m_xTechTree.GetValueS(GetObjPath()+"/GlobalTT", ""));
+										endif;
+									endfor;
+								endif;
+							endif;
+							*/
+							CItemEffectInvoker.Get().Invoke(m_sEffectName, this, GetItemOwner(), true);
+							if(m_fReload > 0.0)then
+								if(!HasTimer(RELOAD_TIMER_ID))then
+									CreateTimer(RELOAD_TIMER_ID, CGameTimeSpan.OneSecond()*m_fReload, true);
+								endif;
+							endif;
+						endif;
+					else
+						// Item effects if out of Inventory
+						if(m_fRadius > 0.0f ) then
+							// Item effects nearby units 
+							if (m_pxSink!=null) then
+								m_pxSink^.Unsubscribe();
+								m_pxSink^.DeleteRegion();
+							endif;
+						endif;
+						// Item effects only owning unit
+						pxTTDef^.DisableFilter(m_xTechTree.GetValueS(GetObjPath()+"/LocalTT", ""));
+						var ^CPlayer pxPlayer = CSrvWrap.GetCurLevel()^.GetPlayer(p_pxUser^.GetOwner());
+						if (pxPlayer!=null) then
+							pxPlayer^.GetPlayerTechTreeDef().DisableFilter(m_xTechTree.GetValueS(GetObjPath()+"/GlobalTT", ""));
+						endif;
+							/*
+							if(CMirageSrvMgr.Get().ShareTreasures()&&CMirageSrvMgr.Get().DiploLocked())then
+								var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+								if(pxLevel!=null)then
+									var int i;
+									for(i=0)cond(i<8)iter(i++)do
+										if(i==iOwner)then continue; endif;
+										if(!(CSrvWrap.GetDiplomacyMgr().GetIsFriend(i, iOwner)&&CSrvWrap.GetDiplomacyMgr().GetIsFriend(iOwner, i)))then continue; endif;
+										var ^CPlayer pxOther=pxLevel^.GetPlayer(i);
+										if(pxOther!=null)then
+											pxPlayer^.GetPlayerTechTreeDef().DisableFilter(m_xTechTree.GetValueS(GetObjPath()+"/GlobalTT", ""));
+										endif;
+									endfor;
+								endif;
+							endif;
+							*/
+						CItemEffectInvoker.Get().Invoke(m_sEffectName, this, GetItemOwner(), false);
+					endif;
+				endif;
+			endif;
+		endproc;
+		
+		//////////////////////////////////////////////////////////
+		// OnDropped()
+		//////////////////////////////////////////////////////////
+		export proc void OnDropped(^CGameObj p_pxUser)
+			m_bSkipPosition=false;
+			OnDroppedItem(p_pxUser, false, "normal");
+		endproc;
+	
+		export proc void OnDroppedItem(^CGameObj p_pxUser, bool p_bManual, string p_sFeedback, bool p_bSkipPos)
+			m_bSkipPosition=p_bSkipPos;
+			OnDroppedItem(p_pxUser, p_bManual,p_sFeedback);
+		endproc;
+	
+		export proc void OnDroppedItem(^CGameObj p_pxUser, bool p_bManual, string p_sFeedback)
+			if(p_pxUser == null)then return; endif;
+			TerminateAction();
+			if(p_sFeedback!="Silent!")then
+				var int iPlayer=p_pxUser^.GetOwner();
+				var ^CBasePlayer pxBPl = CBasePlayer.GetPlayer(iPlayer);
+				if(pxBPl!=null)then
+					CSrvWrap.SendGenericEvtToPlayer(iPlayer,"ItemLost");
+				endif;
+				if(p_sFeedback=="Steal")then
+					CFeedback.Print(iPlayer, CFeedback.ATTACK, "_MIRAGE_NT_ItemStolen\t"+CServerUtils.GetObjHelpitemKey(this),p_pxUser^.GetPos());
+				elseif(p_bManual)then
+					CFeedback.Print(iPlayer, CFeedback.INFO, "_MIRAGE_NT_ItemDropped\t"+CServerUtils.GetObjHelpitemKey(this),p_pxUser^.GetPos());
+				else
+					CFeedback.Print(iPlayer, CFeedback.INFO, "_NT_Artefact_Lost\t"+CServerUtils.GetObjHelpitemKey(this),p_pxUser^.GetPos());
+				endif;
+			endif;
+			var vec3 vPos, vPos2;
+			if(!m_bSkipPosition)then
+				vPos = p_pxUser^.GetPos();
+				vPos2= (vPos + ( p_pxUser^.GetRotation()*2.0f));
+				var real fScapeAlt = CSrvWrap.GetScapeMgr().GetHeight(vPos.GetX(), vPos.GetY());
+				var real fSeaLevel = CSrvWrap.GetScapeMgr().GetSeaLevel();
+				var ^CPathfinder pxPF = ^(CSrvWrap.GetPathfinder());
+				//Henry: Items dropped on sea shouldn't disappear anymore =)
+				if(fScapeAlt < (fSeaLevel - 0.5f))then
+					var vec3 vBechPos;
+					//if(!pxPF^.GetAmphibianBoardingPos(GetOwner(),vPos, GetPos(), vBechPos))then
+					if(pxPF!=null&&!pxPF^.GetShipBoardingPos(GetOwner(),vPos, GetPos(), vBechPos))then
+						if(m_vReturnPos=={0.0,0.0,0.0})then
+							vPos.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vPos.GetX(),vPos.GetY()),(CSrvWrap.GetScapeMgr().GetSeaLevel())-0.3f));
+	//						super.Delete();
+	//						return;
+						else
+							vPos = m_vReturnPos;
+						endif;
+					else
+						vPos = vBechPos;
+						vPos.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vPos.GetX(),vPos.GetY()),(CSrvWrap.GetScapeMgr().GetSeaLevel())-0.3f));
+					endif;
+				elseif(pxPF!=null&&!pxPF^.IsPassable(vPos2))then
+					var vec3 vBoardPos;
+					if(pxPF^.GetLandBoardingPos(-1,vPos,vPos,vBoardPos))then
+						vPos=vBoardPos;
+					elseif(m_vReturnPos!={0.0,0.0,0.0})then
+						vPos=m_vReturnPos;
+					else
+						vPos=FindNewPos();
+//						super.Delete();
+//						return;
+					endif;
+				else
+					vPos.SetX(vPos2.GetX());
+					vPos.SetY(vPos2.GetY());
+					vPos.SetZ(fScapeAlt);
+				endif;
+			endif;
+			if((m_dwFlags&EFFECT_USE)==0b)then
+				// Item do not must be used ...
+				var ^CTechTreeDef pxTTDef = p_pxUser^.GetTechTreeDef();
+				if (pxTTDef!=null) then
+					if ((m_dwFlags&EFFECT_OUT_INV)!=0b) then
+						// Item effects while not in inventory ...
+						if (m_fRadius > 0.0f && m_pxSink!=null ) then
+							if (m_fRadius == 999999.0f) then
+								// we need the WorldRegion
+								var int iIdx = CSrvWrap.GetRegionMgr().GetWorldRgnHndl();
+								m_pxSink^.SetRegion(CSrvWrap.GetRegionMgr().GetRegion(iIdx));
+							else
+								// we need an own region
+								if (!m_pxSink^.HasRegion()) then
+									var vec3 vP;
+									vP.SetXYZ(m_fRadius, m_fRadius, 0.0f);
+									var int iIdx = CSrvWrap.GetRegionMgr().CreateRegion("ItemRegion_" + Random.GetInt().ToString(), 2.ToBitset(), GetPos(), vP);
+									m_pxSink^.SetRegion(CSrvWrap.GetRegionMgr().GetRegion(iIdx));
+								endif;
+							endif;
+							
+							// we have valid Region and Sink, so let's go
+							if (m_pxSink!=null && m_pxSink^.HasRegion()) then
+								m_pxSink^.GetRegion()^.BindToObj(GetItemOwner());
+								m_pxSink^.Subscribe();
+							endif;
+						else
+							//L KLog.LogSpam("MaZi", "An Not-Inv-Item must have an effect radius");
+						endif;
+					else
+						if (m_fRadius > 0.0f ) then 
+							// Item effects nearby units 
+							if (m_pxSink!=null) then
+								m_pxSink^.Unsubscribe();
+								m_pxSink^.DeleteRegion();
+							endif;
+						endif;
+						// Item effetcs while carried in inventory
+						pxTTDef^.DisableFilter(m_xTechTree.GetValueS(GetObjPath()+"/LocalTT", ""));
+						var int iOwner=p_pxUser^.GetOwner();
+						var bool bShare=CMirageSrvMgr.Get().DiploLocked()&&CMirageSrvMgr.Get().TreasureSharing();
+						var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+						var string sGF=m_xTechTree.GetValueS(GetObjPath()+"/GlobalTT", "");
+						var ^CPlayer pxPlayer = pxLevel^.GetPlayer(iOwner);
+						if(pxPlayer!=null)then
+							pxPlayer^.GetPlayerTechTreeDef().DisableFilter(sGF);
+						endif;
+						if(bShare)then
+							var int j, jC=CGameBase.GetMaxPlayers();
+							for(j=0)cond(j<jC)iter(j++)do
+								if(j==iOwner)then continue; endif;
+								if(!CSrvWrap.GetDiplomacyMgr().GetIsFriend(iOwner, j))then continue; endif;
+								var ^CPlayer pxPlyr=pxLevel^.GetPlayer(j);
+								if(pxPlyr==null)then continue; endif;
+								var ^CTechTreeDef pxTTDef=^(pxPlyr^.GetPlayerTechTreeDef());
+								if(pxTTDef!=null)then
+									pxTTDef^.DisableFilter(sGF);
+								endif;
+							endfor;
+						endif;
+						CItemEffectInvoker.Get().Invoke(m_sEffectName, this, GetItemOwner(), false);
+						if(HasTimer(RELOAD_TIMER_ID))then
+							DeleteTimer(RELOAD_TIMER_ID);
+						endif;
+					endif;
+				endif;
+			endif;
+			if(!m_bSkipPosition)then
+				SetPos(vPos);
+			endif;
+			if(m_vReturnPos=={0.0,0.0,0.0})then
+				m_vReturnPos = GetPos();
+			endif;
+			//if(IsInWater())then Delete(); return; endif;
+			SetVisible(true);
+			SetSelectable(true);
+			SetHitable(true);
+			SetVisInFOW(true);
+			m_xOwner = CObjHndl.Invalid();
+			SetOwner(-1);
+			var CEvtPointer xEvt;
+			xEvt = CEvtPointer.CreateEvent("ITEMDROP");
+			xEvt.SetInt(0, p_pxUser^.GetHandle().AsInt());
+			m_xEvtSource.Broadcast(xEvt);
+		endproc;
+
+		//////////////////////////////////////////////////////////
+		// OnUsed()
+		//////////////////////////////////////////////////////////
+		export proc void OnUsed(^CGameObj p_pxUser)
+			if ((m_dwFlags&EFFECT_USE)!=0b) then
+				if (!HasTimer(RELOAD_TIMER_ID)) then
+					CItemEffectInvoker.Get().Invoke(m_sEffectName, this);
+					if(m_fReload > 0.0f)then
+						CreateTimer(RELOAD_TIMER_ID, CGameTimeSpan.OneSecond()*m_fReload, true);
+					else
+						//L KLog.LogSpam("MaZi", GetName() + " killed");
+						Delete();
+					endif;
+				endif;
+			endif;
+		endproc;
+
+		//////////////////////////////////////////////////////////
+		// HandleGamePlayCommand()
+		//////////////////////////////////////////////////////////
+		export proc void HandleGamePlayCommand(string p_sCommand,^CGameObj p_pxObject,vec3 p_vPos,string p_sMiscParams)
+			//L CSrvWrap.LogInfo("Item","HandleGamePlayCommand: "+p_sCommand);
+			if (p_sCommand == "Use") then
+				OnUsed(p_pxObject);
+			else
+				super.HandleGamePlayCommand(p_sCommand, p_pxObject, p_vPos, p_sMiscParams);
+			endif;
+		endproc;
+
+		export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+			if (p_rxEvtPtr.GetClass() == ms_xTimerClass) then
+				var int iID = p_rxEvtPtr.GetInt(0);
+				if (iID == DIE_TIMER_ID ) then
+					DeleteTimer(DIE_TIMER_ID);
+					Delete();
+				elseif(iID == RELOAD_TIMER_ID) then
+					//DeleteTimer(RELOAD_TIMER_ID);
+					CItemEffectInvoker.Get().Invoke(m_sEffectName, this, GetItemOwner(), true);
+				else 
+					super.HandleEvent(p_rxEvtPtr);
+				endif;
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		endproc;
+
+/*		export proc void DeleteDelayed()
+			CreateTimer(DIE_TIMER_ID, CGameTimeSpan.OneSecond() * 5.0, false);
+		endproc;
+*/	
+
+	export proc void Delete()
+		if (GetItemOwner().IsValid()) then
+			var ^CGameObj pxC = GetItemOwner().GetObj();
+			if (pxC!=null) then
+				var ^CInventory pxInv = pxC^.GetInventory();
+				if (pxInv!=null) then
+					pxInv^.RemItem(GetHandle());
+					pxInv^.Invalidate();
+				endif;
+			endif;
+		endif;
+		if (m_pxSink!=null)then
+			m_pxSink^.Unsubscribe();
+			delete m_pxSink;
+		endif;
+
+		OnDropped(GetItemOwner().GetObj());
+		super.Delete();
+	endproc;
+	
+	proc vec3 FindNewPos()
+		var vec3 vNew={10.0,10.0,10.0};
+		var ^CRegionMgr pxRegionMgr=^(CSrvWrap.GetRegionMgr());
+		if(pxRegionMgr==null)then return vNew; endif;
+		var int iIdx = pxRegionMgr^.GetWorldRgnHndl();
+		var ^CRegion pxRegion=CSrvWrap.GetRegionMgr().GetRegion(iIdx);
+		if(pxRegion==null)then return vNew; endif;
+		var ^CScapeMgrSrv pxSMS = ^(CSrvWrap.GetScapeMgr());
+		if(pxSMS==null)then return vNew; endif;
+		var ^CPathfinder pxPF = ^(CSrvWrap.GetPathfinder());
+		if(pxPF==null)then return vNew; endif;
+		var real fScapeAlt, fSeaLevel = pxSMS^.GetSeaLevel() - 0.5f;
+		var int iSafety=0;
+		while(iSafety<1000)do
+			iSafety++;
+			vNew=pxRegion^.GetRandomPointInside();
+			fScapeAlt = pxSMS^.GetHeight(vNew.GetX(), vNew.GetY());
+			if(fScapeAlt < fSeaLevel)then continue; endif;
+			if(!pxPF^.IsPassable(vNew))then continue; endif;
+			break;
+		endwhile;
+		return vNew;
+	endproc;
+	
+endclass;
+
+class CItemEffect
+	
+	export var string		m_sEffectName;
+	export var CFourCC	m_xType;
+	export var real			m_fBonus;
+	
+	export proc void Invoke(^CItem p_pxItem, CObjHndl p_xObj, bool p_bOn)
+	endproc;
+
+	export proc void GetPlayerCharacters(int p_iPlayer, ref CObjList po_rxObjs)
+		GetPlayerObjs(p_iPlayer, "CHTR", po_rxObjs);
+	endproc;
+	
+	export proc void GetPlayerObjs(int p_iPlayer, string p_sType, ref CObjList po_rxObjs)
+		var CObjQuery xQ;
+		xQ.SetType(p_sType, false);
+		xQ.SetOwner(p_iPlayer);
+		xQ.Execute(po_rxObjs);
+	endproc;
+	
+	export proc ^CAttribs GetPlayerAttribs(int p_iPlayer)
+		var ^CPlayer pxP = CSrvWrap.GetCurLevel()^.GetPlayer(p_iPlayer);
+		if (pxP==null) then return null; endif;
+		return pxP^.GetAttribs();
+	endproc;
+endclass;
+
+/*class CMaxXP inherit CItemEffect
+
+
+	export proc void Invoke(^CItem p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		if (p_pxItem==null) then return; endif;
+		var ^CGameObj pxO = p_pxItem^.GetItemOwner().GetObj();
+		var ^CAttribs pxAttr = GetPlayerAttribs(pxO^.GetOwner());
+		if (pxAttr==null) then return; endif;
+			
+		var CObjList xObjs;
+		GetPlayerCharacters(pxO^.GetOwner(), xObjs);
+			
+		var int i, iC = xObjs.NumEntries();
+		for(i=0) cond(i<iC) iter(++i)do
+			var ^CCharacter pxC = cast<CCharacter>(xObjs[i].GetObj());
+			if (pxC!=null) then
+				var string sAttrib = "xp_max_" + pxC^.GetLevel().ToString();
+				var real fMax = pxAttr^.GetValueInt(sAttrib).ToReal();
+				pxC^.SetExperience(fMax);
+			endif;
+		endfor;
+	endproc;
+endclass;
+*/
+class CHealAll inherit CItemEffect
+	
+	export proc void Invoke(^CItem p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		if (p_pxItem==null) then return; endif;
+		var ^CGameObj pxO = p_pxItem^.GetItemOwner().GetObj();
+		var ^CAttribs pxAttr = GetPlayerAttribs(pxO^.GetOwner());
+		if (pxAttr==null) then return; endif;
+		var CObjList xObjs;
+		GetPlayerCharacters(pxO^.GetOwner(), xObjs);
+		var int i, iC = xObjs.NumEntries();
+		for(i=0) cond(i<iC) iter(++i)do
+			var ^CCharacter pxC = cast<CCharacter>(xObjs[i].GetObj());
+			if (pxC!=null) then
+				pxC^.SetHitpoints(pxC^.GetMaxHitpoints());
+			endif;
+		endfor;
+	endproc;
+	
+endclass;
+	
+class CShowWorld inherit CItemEffect
+	
+	export proc void Invoke(^CItem p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		if (p_pxItem==null) then return; endif;
+		if(!p_pxItem^.GetItemOwner().IsValid()) then return; endif;
+		var ^CGameObj pxO = p_pxItem^.GetItemOwner().GetObj();
+		var real fW = CSrvWrap.GetScapeMgr().GetMapWidth().ToReal();
+		var vec3 vMid;
+		vMid.SetXYZ(fW*0.5f, fW*0.5f, CSrvWrap.GetScapeMgr().GetHeight(fW*0.5f, fW*0.5f));
+		var ^CGameObj pxObj = CSrvWrap.GetObjMgr()^.CreateObj("ShowFOW_Obj", pxO^.GetOwner(), vMid);
+		if (pxObj!=null) then
+			pxObj^.SetFOW(fW);
+			var ^CShowFOWObj pxFOWObj = cast<CShowFOWObj>(pxObj);
+			if (pxFOWObj!=null) then
+				pxFOWObj^.SetKillTimer(0.1f);
+			endif;
+			//pxObj^.SetVisible(false);
+		endif;
+	endproc;
+	
+endclass;
+
+/*class CAddDefense inherit CItemEffect
+	export proc void Invoke(^CItem p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		var ^CCharacter pxC = cast<CCharacter>(p_xObj.GetObj());
+		if (pxC!=null) then
+			
+		endif;
+	endproc;
+endclass;
+
+class CTurnToStone inherit CItemEffect
+
+	export proc void Invoke(^CItem p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		if (p_pxItem==null) then return; endif;
+		var ^CGameObj pxO = p_pxItem^.GetItemOwner().GetObj();
+		
+		var ^CObjList pxList = CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(pxO^.GetOwner());
+		if (pxList != null) then
+			var CObjList xL;
+			pxList^.CopySorted(xL, pxO^.GetPos(), p_pxItem^.m_fRadius);
+			var int i, iC = xL.NumEntries();
+			for(i=0) cond(i<iC) iter(++i)do
+				var ^CFightingObj pxFO = cast<CFightingObj>(xL[i].GetObj());
+				if (pxFO!=null) then
+					pxFO^.SetTrapped(p_pxItem^.m_fDuration);
+				endif;
+			endfor;
+		endif;
+	endproc;
+endclass;
+*/
+class CRepairNoCost inherit CItemEffect
+	
+	export proc void Invoke(^CItem p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		if(p_pxItem==null)then return; endif;
+		var int iOwner=p_pxItem^.m_iCurOwner;
+//		var CObjHndl xObj = p_pxItem^.GetItemOwner();
+		if(!p_bOn)then
+			CMirageSrvMgr.Get().SetRepairNoCost(iOwner, false);
+			p_pxItem^.m_iCurOwner = -1;
+			//CCharacter.ms_iRepairNoCost=0;
+		else
+			CMirageSrvMgr.Get().SetRepairNoCost(iOwner, true);
+			//if(xObj.IsValid()) then
+				//var int iOwner=xObj.GetObj()^.GetOwner();
+				//CCharacter.ms_iRepairNoCost=iOwner+2;
+			//endif;
+		endif;
+		var bool bShare=CMirageSrvMgr.Get().DiploLocked()&&CMirageSrvMgr.Get().TreasureSharing();
+		if(bShare)then
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			var int j, jC=CGameBase.GetMaxPlayers();
+			for(j=0)cond(j<jC)iter(j++)do
+				if(j==iOwner)then continue; endif;
+				if(!CSrvWrap.GetDiplomacyMgr().GetIsFriend(iOwner, j))then continue; endif;
+				var ^CPlayer pxPlyr=pxLevel^.GetPlayer(j);
+				if(pxPlyr==null)then continue; endif;
+				if(p_bOn)then
+					CMirageSrvMgr.Get().SetRepairNoCost(j, true);
+				else
+					CMirageSrvMgr.Get().SetRepairNoCost(j, false);
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+endclass;
+
+class CBoomingEconomy inherit CItemEffect
+	
+	export proc void Invoke(^CItem p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		if(p_pxItem==null)then return; endif;
+		var int iOwner=p_pxItem^.m_iCurOwner;
+		if(!p_bOn)then
+			CMirageSrvMgr.Get().SetBoomingEconomy(iOwner, false);
+			p_pxItem^.m_iCurOwner = -1;
+		else
+			CMirageSrvMgr.Get().SetBoomingEconomy(iOwner, true);
+		endif;
+		var bool bShare=CMirageSrvMgr.Get().DiploLocked()&&CMirageSrvMgr.Get().TreasureSharing();
+		if(bShare)then
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			var int j, jC=CGameBase.GetMaxPlayers();
+			for(j=0)cond(j<jC)iter(j++)do
+				if(j==iOwner)then continue; endif;
+				if(!CSrvWrap.GetDiplomacyMgr().GetIsFriend(iOwner, j))then continue; endif;
+				var ^CPlayer pxPlyr=pxLevel^.GetPlayer(j);
+				if(pxPlyr==null)then continue; endif;
+				if(p_bOn)then
+					CMirageSrvMgr.Get().SetBoomingEconomy(j, true);
+				else
+					CMirageSrvMgr.Get().SetBoomingEconomy(j, false);
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+endclass;
+
+/*class CProdSpeed inherit CItemEffect
+	export proc void Invoke(^CItem p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		if (m_sEffectName.Right(4)!="ANML") then return; endif;
+		var ^CFightingObj pxFO = cast<CFightingObj>(p_xObj.GetObj());
+		if (pxFO!=null && pxFO^.GetType()=="BLDG" && pxFO^.GetOwner()==p_pxItem^.GetOwner()) then
+			var ^CBoniBucket pxBB = pxFO^.GetBoniBucket(CFightingObj.BONUS_PRODSPEED_ANML);
+			if (p_bOn) then
+				pxBB^.AddEntry(m_sEffectName, m_fBonus);
+			else
+				pxBB^.RemEntry(m_sEffectName);
+			endif;
+			pxFO^.ForceBoniUpdate();
+		endif;
+	endproc;
+endclass;
+*/
+	
+class CIgnoreSlope inherit CItemEffect
+	export proc void Invoke(^CItem p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		var CObjHndl xObj = p_pxItem^.GetItemOwner();
+		if(xObj.IsValid()) then
+			var int iOwner = xObj.GetObj()^.GetOwner();
+			var CObjList xL;
+			GetPlayerObjs(iOwner, m_xType.AsString(), xL);
+			var int i, iC=xL.NumEntries();
+			for(i=0) cond(i<iC) iter(++i)do
+				var ^CGameObj pxO = xL[i].GetObj();
+				if(pxO!=null && pxO^.GetType()==m_xType) then
+					pxO^.SetIgnoreSlope(p_bOn);
+				endif;
+			endfor;
+		endif;
+	endproc;
+endclass;
+
+class CMoreScalps inherit CItemEffect
+	
+	export proc void Invoke(^CItem p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		var CObjHndl xObj = p_pxItem^.GetItemOwner();
+		if(xObj.IsValid())then
+			var int iOwner = xObj.GetObj()^.GetOwner();
+			var ^CBasePlayer pxEnemyBasePlayer = cast<CBasePlayer>(CSrvWrap.GetCurLevel()^.GetPlayer(iOwner));
+			if(pxEnemyBasePlayer!=null)then
+				if(p_bOn)then
+					pxEnemyBasePlayer^.SetScalpsModifier(m_fBonus);
+				else
+					pxEnemyBasePlayer^.SetScalpsModifier(1.0f);
+				endif;
+			endif;
+			var bool bShare=CMirageSrvMgr.Get().DiploLocked()&&CMirageSrvMgr.Get().TreasureSharing();
+			if(bShare)then
+				var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+				var int j, jC=CGameBase.GetMaxPlayers();
+				for(j=0)cond(j<jC)iter(j++)do
+					if(j==iOwner)then continue; endif;
+					if(!CSrvWrap.GetDiplomacyMgr().GetIsFriend(iOwner, j))then continue; endif;
+					var ^CBasePlayer pxPlyr=cast<CBasePlayer>(pxLevel^.GetPlayer(j));
+					if(pxPlyr==null)then continue; endif;
+					if(p_bOn)then
+						pxPlyr^.SetScalpsModifier(m_fBonus);
+					else
+						pxPlyr^.SetScalpsModifier(1.0f);
+					endif;
+				endfor;
+			endif;
+		endif;
+	endproc;
+	
+endclass;
+
+/*
+class CIncXPGain inherit CItemEffect
+	export proc void Invoke(^CItem p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		var ^CFightingObj pxFO = cast<CFightingObj>(p_xObj.GetObj());
+		if (pxFO!=null && pxFO^.GetType()=="CHTR" && pxFO^.GetOwner()==p_pxItem^.GetOwner()) then
+			var ^CBoniBucket pxBB = pxFO^.GetBoniBucket(CFightingObj.BONUS_XPGAIN);
+			if (p_bOn) then
+				pxBB^.AddEntry(m_sEffectName, m_fBonus);
+			else
+				pxBB^.RemEntry(m_sEffectName);
+			endif;
+			pxFO^.ForceBoniUpdate();
+		endif;
+	endproc;
+endclass;
+
+class CDinoscare inherit CItemEffect
+	export proc void Invoke(^CItem p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		if (!p_bOn) then return; endif;
+		var ^CFightingObj pxFO = cast<CFightingObj>(p_xObj.GetObj());
+		if (pxFO!=null && pxFO^.GetType()=="ANML" && pxFO^.GetOwner()==-1) then
+			var ^CAnimal pxA = cast<CAnimal>(pxFO);
+			if (pxA!=null) then
+				if (pxA^.FleeToNest()) then
+					return;
+				endif;
+				
+				var vec3 vDir = pxA^.GetPos()-p_pxItem^.GetPos();
+				vDir *= 3.0f;
+				pxA^.GoTo(pxA^.GetPos()+vDir, true, pxA^.GetMaxSpeed(), true, true);
+			endif;
+		endif;
+		return;
+	endproc;
+endclass;
+
+class CRing inherit CItemEffect
+	export proc void Invoke(^CItem p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		var ^CCharacter pxC = cast<CCharacter>(p_pxItem^.GetItemOwner().GetObj());
+		if (pxC!=null) then
+			pxC^.SetEffectFlag(CFightingObj.EFFECT_ITEM_RING, p_bOn);
+		endif;
+	endproc;
+endclass;
+
+class CAmulett1Effect inherit CItemEffect
+	export proc void Invoke(^CItem  p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		if (p_xObj.IsValid()) then
+			var ^CFightingObj pxFO = cast<CFightingObj>(p_xObj.GetObj());
+			if (pxFO!=null) then
+				pxFO^.SetEffectFlag(CFightingObj.EFFECT_ITEM_AMULETT1, p_bOn);
+				return;
+			endif;
+		endif;
+	endproc;
+endclass;
+
+class CIncMaxHP inherit CItemEffect
+	export proc void Invoke(^CItem  p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		if (p_xObj.IsValid()) then
+			var ^CFightingObj pxFO = cast<CFightingObj>(p_xObj.GetObj());
+			if (pxFO!=null) then
+				if (pxFO^.GetType()!=m_xType) then return; endif;
+				var ^CBoniBucket pxBB = pxFO^.GetBoniBucket(CFightingObj.BONUS_MAXHITPOINTS);
+				if (p_bOn) then
+					var real fHP = pxFO^.GetTechTreeHitpoints();
+					var real fB = fHP * 0.01 * m_fBonus;
+					fHP += fB;
+					KLog.LogSpam("MaZi", pxFO^.GetName() + " got " + fB.ToString() + " HP-Bonus");
+					pxBB^.AddEntry(m_sEffectName, fHP);
+				else
+					KLog.LogSpam("MaZi", pxFO^.GetName() + " lost his HP Bonus");
+					pxBB^.RemEntry(m_sEffectName);
+				endif;
+				pxFO^.ForceBoniUpdate();
+			endif;
+		endif;
+	endproc;
+endclass;
+
+class CIncResInv inherit CItemEffect
+	export proc void Invoke(^CItem  p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		if (p_xObj.IsValid()) then
+			var ^CFightingObj pxFO = cast<CFightingObj>(p_xObj.GetObj());
+			if (pxFO!=null) then
+				var ^CBoniBucket pxBB = pxFO^.GetBoniBucket(CFightingObj.BONUS_MAXRESINV);
+				if (p_bOn) then
+					pxBB^.AddEntry(m_sEffectName, m_fBonus);
+				else
+					pxBB^.RemEntry(m_sEffectName);
+				endif;
+			endif;
+		endif;
+	endproc;
+endclass;
+
+class CIncFOW inherit CItemEffect
+	export proc void Invoke(^CItem  p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		if (p_xObj.IsValid()) then
+			var ^CFightingObj pxFO = cast<CFightingObj>(p_xObj.GetObj());
+			if (pxFO!=null) then
+				if (pxFO^.GetType()!=m_xType) then return; endif;
+				var ^CBoniBucket pxBB = pxFO^.GetBoniBucket(CFightingObj.BONUS_FOWRANGE);
+				if (p_bOn) then
+					pxBB^.AddEntry(m_sEffectName, m_fBonus);
+				else
+					pxBB^.RemEntry(m_sEffectName);
+				endif;
+			endif;
+		endif;
+	endproc;
+endclass;
+
+class CStopUnit inherit CItemEffect
+	export proc void Invoke(^CItem  p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		var ^CFightingObj pxFO = cast<CFightingObj>(p_xObj.GetObj());
+		if (pxFO != null && pxFO^.GetType()==m_xType) then
+			//pxFO^.SetCanWalk(p_bOn);
+			pxFO^.SetTrapped(p_bOn);
+		endif;
+	endproc;
+endclass;
+
+class CSinkRndShip inherit CItemEffect
+	export proc void Invoke(^CItem  p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		KLog.LogSpam("MaZi", "Invoke Fishi");
+		var CObjHndl xVictim = SelectRandomShip(p_pxItem^.GetOwner(), p_pxItem^.GetPos(), p_pxItem^.m_fRadius);
+		if (!xVictim.IsValid()) then return; endif;
+		KLog.LogSpam("MaZi", "ship found");
+		var ^CShip pxShip = cast<CShip>(xVictim.GetObj());
+		if (pxShip!=null) then
+			var vec3 vPos = FindDeepWater(pxShip^.GetPos(), 10.0f, 20.0f, 50);
+			var ^CKillerKrono pxKillerFish = cast<CKillerKrono>(CSrvWrap.GetObjMgr()^.CreateObj("Kronosaurus", -1, vPos));
+			if (pxKillerFish!=null) then
+				pxKillerFish^.SetVisible(true);
+				pxKillerFish^.KillShip(pxShip);
+				//pxKillerFish^.SetDmg(25000.0f);
+				//pxKillerFish^.Fight(pxShip, pxShip^.GetPos(), true);
+			endif;
+		endif;
+	endproc;
+	
+	proc CObjHndl SelectRandomShip(int p_iOwner, vec3 p_vPos, real p_fRadius)
+		var CObjQuery xQ;
+		xQ.SetType("SHIP", false);
+		xQ.RegionCircle(p_vPos, p_fRadius);
+		var ^CDiplomacySrvMgr pxDM = ^(CSrvWrap.GetDiplomacyMgr());
+		
+		var bool bF = false;
+		var int i, iC = 8;
+		for (i=0) cond(i<iC) iter(++i)do
+			//if (pxDM^.GetIsEnemy(p_iOwner, i)) then
+				xQ.SetOwner(i, bF);
+				if (!bF) then bF=true; endif;
+			//endif;
+		endfor;
+		
+		var CObjList xL;
+		xQ.Execute(xL);
+		if (xL.NumEntries()==0) then return CObjHndl.Invalid(); endif;
+		
+		var int iIdx = Random.GetInt()%xL.NumEntries();
+		return xL[iIdx];
+	endproc;
+	
+	proc vec3 FindDeepWater(vec3 p_vPos, real p_fMinRadius, real p_fMaxRadius, int p_iMaxTries)
+		var ^CScapeMgrSrv pxSM = ^(CSrvWrap.GetScapeMgr());		
+		var vec3 vCurBase = p_vPos;
+		var real fBaseZ = pxSM^.GetHeight(vCurBase.GetX(), vCurBase.GetY());
+		
+		var int i, iC = p_iMaxTries;
+		for(i=0) cond(i<iC) iter(++i)do
+			var int iRnd = Random.GetInt();
+			var vec3 vOff;
+			var real fX = ((Random.GetInt()%400)-200).ToReal() * 0.01f;
+			var real fY = ((Random.GetInt()%400)-200).ToReal() * 0.01f;
+			vOff.SetXYZ(fX, fY, 0.0f);
+			
+			var vec3 vCur = vCurBase + vOff;
+			
+			var real fNewZ = pxSM^.GetHeight(vCur.GetX(), vCur.GetY());
+			if (fNewZ < fBaseZ) then
+				vCurBase = vCur;
+				fBaseZ = fNewZ;
+			endif;
+			
+			if ((vCurBase-p_vPos).Abs2()>p_fMinRadius && fBaseZ <= pxSM^.GetSeaLevel()-10.0f) then
+				return vCurBase;
+			endif;
+		endfor;
+		return {0.0f, 0.0f, 0.0f};
+	endproc;
+endclass;
+*/
+class CItemEffectInvoker
+	
+	static var ^CItemEffectInvoker ms_pxInstance;
+	
+	var array string m_asEffectIndices;
+	var array ^CItemEffect m_apxEffect;
+	
+	constructor()
+		//var int iNumEntries = 16;
+		
+		//m_asEffectIndices = iNumEntries;
+		//m_apxEffect = iNumEntries;
+		
+		m_asEffectIndices.AddEntry("HealAll");
+		m_apxEffect.AddEntry(new CHealAll());
+		
+		m_asEffectIndices.AddEntry("ShowWorld");
+		m_apxEffect.AddEntry(new CShowWorld());
+		
+		m_asEffectIndices.AddEntry("RepairNoCost");
+		m_apxEffect.AddEntry(new CRepairNoCost());
+		
+		m_asEffectIndices.AddEntry("IgnoreSlope");
+		m_apxEffect.AddEntry(new CIgnoreSlope());
+		
+		m_asEffectIndices.AddEntry("MoreScalps");
+		m_apxEffect.AddEntry(new CMoreScalps());
+		
+		m_asEffectIndices.AddEntry("BoomingEconomy");
+		m_apxEffect.AddEntry(new CBoomingEconomy());
+		
+	endconstructor;
+	
+	destructor()
+		var int i, iC = m_apxEffect.NumEntries();
+		for(i=0) cond(i<iC) iter(++i)do
+			delete m_apxEffect[i];
+		endfor;
+	enddestructor;
+	
+	export static proc ref CItemEffectInvoker Get()
+		if (ms_pxInstance==null) then
+			ms_pxInstance = new CItemEffectInvoker();
+		endif;
+		return ms_pxInstance^;
+	endproc;
+	
+	export proc void Delete()
+		delete this;
+	endproc;
+	
+	export proc void Invoke(string p_sEffect, ^CItem p_pxItem)
+		Invoke(p_sEffect, p_pxItem, CObjHndl.Invalid());
+	endproc;
+	
+	export proc void Invoke(string p_sEffect, ^CItem p_pxItem, CObjHndl p_xObj)
+		Invoke(p_sEffect, p_pxItem, p_xObj, false);
+	endproc;
+	
+	export proc void Invoke(string p_sEffect, ^CItem p_pxItem, CObjHndl p_xObj, bool p_bOn)
+		if (p_pxItem==null) then return; endif;
+		var string sE = p_sEffect;
+		var string sType = "";
+		var int iIdx = sE.FindRev('_');
+		if (iIdx >= 0) then
+			sType = sE.Mid(iIdx+1);
+			sE.Delete(iIdx, sE.GetLength()-iIdx);
+		endif;
+		var ^CItemEffect pxIE = GetEffect(sE);
+		if(pxIE!=null) then
+			pxIE^.m_sEffectName = p_sEffect;
+			pxIE^.m_xType = sType;
+			pxIE^.m_fBonus = p_pxItem^.m_fBonus;
+			pxIE^.Invoke(p_pxItem, p_xObj, p_bOn);
+		endif;
+	endproc;
+	
+	export proc ^CItemEffect GetEffect(string p_sEffectName)
+		var int iIdx = m_asEffectIndices.FindEntry(p_sEffectName);
+		if (iIdx >= 0) then
+			return m_apxEffect[iIdx];
+		endif;
+		if (p_sEffectName.IsEmpty())then return null; endif;
+		KLog.LogError("Items", "Unknown ItemEffect-Type. Unable to Invoke '" + p_sEffectName + "'");
+		return null;
+	endproc;
+	
+endclass;
+	
+class CTreasureMap inherit CItem
+	
+	const int		TIMER_ID = 455746;
+	var vec3		m_vTreasurePos;
+	
+	//////////////////////////////////////////////////////////
+	// OnInit()
+	//////////////////////////////////////////////////////////
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		SetItemType("TreasureMap");
+		m_vTreasurePos.FromString(m_sItemData);
+		m_vTreasurePos = {165.0f, 190.0f, 21.0f};
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if (p_rxEvtPtr.GetClass() == ms_xTimerClass) then
+			if (p_rxEvtPtr.GetInt(0) == TIMER_ID) then
+				DeleteTimer(TIMER_ID);
+				CSrvWrap.SendGenericEvtToPlayer(GetOwner(), "PopCam");
+				Delete();
+			endif;
+		endif;
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// OnUsed()
+	//////////////////////////////////////////////////////////
+	export proc void OnUsed(^CGameObj p_pxUser)
+		//super.OnUsed(p_pxUser);
+		if (p_pxUser!=null) then
+			var ^CShowFOWObj pxO = cast<CShowFOWObj>(CSrvWrap.GetObjMgr()^.CreateObj("ShowFOW_Obj",GetOwner(),m_vTreasurePos));
+			if (pxO!=null) then
+				pxO^.SetFOWRange(20.0);
+				pxO^.SetKillTimer(10.0);
+			endif;
+			CSrvWrap.SendGenericEvtToPlayer(GetOwner(), "PushCam");
+			var string sSend = m_vTreasurePos.ToString();
+			CSrvWrap.SendGenericEvtToPlayer(GetOwner(), "SetCam\t" + sSend);
+			// start "jump-back-timer"
+			CreateTimer(TIMER_ID, CGameTimeSpan.OneSecond() * 5.0f, false);
+			var ^CInventory pxInv = p_pxUser^.GetInventory();
+			if (pxInv!=null) then
+				pxInv^.RemItem(GetHandle());
+			endif;
+		endif;
+	endproc;
+	
+endclass;
+
+class CIntervallEffectItem inherit CItem
+	
+	const int			TIMER_ID = 54354348;
+	
+	var real			m_fCallIntervall;
+	var bool			m_bEffectInInv;
+	
+	var CGameTime	m_xLastTick;
+	
+	//////////////////////////////////////////////////////////
+	// Initialize()
+	//////////////////////////////////////////////////////////
+	export proc void Initialize(real p_fCallIntervall, bool p_bEffectInInv)
+		m_fCallIntervall = p_fCallIntervall;
+		m_bEffectInInv = p_bEffectInInv;
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// OnTick()
+	//////////////////////////////////////////////////////////
+	export proc bool OnTick(CGameTime p_xNow)
+		// OVERLOAD ME
+		return true;
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// Delete()
+	//////////////////////////////////////////////////////////
+	export proc void Delete()
+		DeleteTimer(TIMER_ID);
+		super.Delete();
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// HandleEvent()
+	//////////////////////////////////////////////////////////
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if (p_rxEvtPtr.GetClass() == ms_xTimerClass) then
+			var int iTimerID = p_rxEvtPtr.GetInt(0);
+			if (iTimerID == TIMER_ID) then
+				var CGameTime xT = CTimeMgr.Get().GetTime();
+				OnTick(xT);
+				m_xLastTick = xT;
+			endif;
+		endif;
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// OnInit()
+	//////////////////////////////////////////////////////////
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		SetItemType("RegionItem");
+	
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// OnTaken()
+	//////////////////////////////////////////////////////////
+	export proc void OnTaken(^CGameObj p_pxUser)
+		super.OnTaken(p_pxUser);
+		DeleteTimer(TIMER_ID);
+		if (m_bEffectInInv) then
+			CreateTimer(TIMER_ID, CGameTimeSpan.OneSecond() * m_fCallIntervall, true);
+			m_xLastTick = CTimeMgr.Get().GetTime();
+		endif;
+	endproc;
+
+	//////////////////////////////////////////////////////////
+	// OnDropped()
+	//////////////////////////////////////////////////////////
+	export proc void OnDropped(^CGameObj p_pxUser)
+		DeleteTimer(TIMER_ID);
+		if (!m_bEffectInInv) then
+			CreateTimer(TIMER_ID, CGameTimeSpan.OneSecond() * m_fCallIntervall, true);
+			m_xLastTick = CTimeMgr.Get().GetTime();
+		endif;
+		super.OnDropped(p_pxUser);
+	endproc;
+	
+endclass;
+
+class COdinsPatch inherit CIntervallEffectItem
+	//////////////////////////////////////////////////////////
+	// OnInit()
+	//////////////////////////////////////////////////////////
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		Initialize(1.0f, true);
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// OnTick()
+	//////////////////////////////////////////////////////////
+	export proc bool OnTick(CGameTime p_xNow)
+		var ^CCharacter pxC = cast<CCharacter>(GetItemOwner().GetObj());
+		if (pxC!=null) then
+			pxC^.FindTraps();
+			return true;
+		endif;
+		return false;
+	endproc;
+endclass;
+
+class CPennantOfHealing inherit CIntervallEffectItem
+	
+	var CObjQuery m_xQuery;
+	
+	//////////////////////////////////////////////////////////
+	// OnInit()
+	//////////////////////////////////////////////////////////
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		Initialize(1.0f, false);
+		m_xQuery.SetType("CHTR", false);
+		m_xQuery.SetType("ANML", true);
+		m_xQuery.SetType("VHCL", true);
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// OnTick()
+	//////////////////////////////////////////////////////////
+	export proc bool OnTick(CGameTime p_xNow)
+		m_xQuery.RegionCircle(GetPos(), m_fRadius);
+		var CObjList xL;
+		m_xQuery.Execute(xL);
+		var int i, iC = xL.NumEntries();
+		for(i=0) cond(i<iC) iter(++i)do
+			var ^CFightingObj pxFO = cast<CFightingObj>(xL[i].GetObj());
+			if (pxFO!=null) then
+				pxFO^.SetHitpoints(Math.Clamp(pxFO^.GetHitpoints()+m_fBonus, 0.0f, pxFO^.GetMaxHitpoints()));
+			endif;
+		endfor;
+		return true;
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// OnTaken()
+	//////////////////////////////////////////////////////////
+	export proc void OnTaken(^CGameObj p_pxUser)
+		super.OnTaken(p_pxUser);
+		SetGFX(GetClassName());
+	endproc;
+	
+endclass;
+
+class CDinoScare inherit CItem
+	//////////////////////////////////////////////////////////
+	// OnTaken()
+	//////////////////////////////////////////////////////////
+	export proc void OnTaken(^CGameObj p_pxUser)
+		super.OnTaken(p_pxUser);
+		SetGFX(GetClassName());
+	endproc;
+endclass;
+
+class CSandInGears inherit CItem
+	//////////////////////////////////////////////////////////
+	// OnTaken()
+	//////////////////////////////////////////////////////////
+	export proc void OnTaken(^CGameObj p_pxUser)
+		super.OnTaken(p_pxUser);
+		SetGFX(GetClassName());
+	endproc;
+endclass;
+
+class CItemTaskHook inherit CTaskChangeSubscriber
+	
+	var ^CTaskChangeItem m_pxItem;
+	
+	export constructor(^CTaskChangeItem p_pxItem);
+		m_pxItem = p_pxItem;
+	endconstructor;
+	
+	export destructor();
+	enddestructor;
+
+	export proc bool OnPush(string p_sFrom, string p_sTo)
+//		if (m_pxItem!=null) then
+//			return m_pxItem^.OnTaskChange(p_sFrom, p_sTo);
+//		endif;
+		return false;
+	endproc;
+	
+endclass;
+
+class CTaskChangeItem inherit CItem
+	
+	var ^CItemTaskHook m_pxHook;
+	
+	export proc bool OnTaskChange(string p_sFrom, string p_sTo)
+		return true;
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// OnInit()
+	//////////////////////////////////////////////////////////
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		SetItemType("TaskChange");
+		m_pxHook=null;
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// OnTaken()
+	//////////////////////////////////////////////////////////
+	export proc void OnTaken(^CGameObj p_pxUser)
+		super.OnTaken(p_pxUser);
+//		if (p_pxUser!=null) then
+//			var ^CFightingObj pxFO = cast<CFightingObj>(p_pxUser);
+//			if (pxFO!=null) then
+//				m_pxHook = new CItemTaskHook(this);
+//				pxFO^.GetTaskMgr()^.Subscribe(m_pxHook);
+//			endif;
+//		endif;
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// OnDropped()
+	//////////////////////////////////////////////////////////
+	export proc void OnDropped(^CGameObj p_pxUser)
+		super.OnDropped(p_pxUser);
+//		if (p_pxUser!=null) then
+//			var ^CFightingObj pxFO = cast<CFightingObj>(p_pxUser);
+//			if (pxFO!=null) then
+//				pxFO^.GetTaskMgr()^.Unsubscribe(m_pxHook);
+//				delete m_pxHook;
+//				m_pxHook = null;
+//			endif;
+//		endif;
+	endproc;
+endclass;
+	
+class CRideCup inherit CTaskChangeItem
+	/*
+	export proc bool OnTaskChange(string p_sFrom, string p_sTo)
+		if(!GetItemOwner().IsValid())then return false; endif;
+		if(p_sFrom == "UnbrdTr"||p_sTo == "BrdTrns")then
+			var ^CFightingObj pxFO = cast<CFightingObj>(GetItemOwner().GetObj());
+			if(pxFO!=null)then
+				if(pxFO^.GetTransportObj().IsValid()) then
+					var ^CTransportObj pxTO = cast<CTransportObj>(pxFO^.GetTransportObj().GetObj());
+					if(pxTO!=null)then
+						var ^CBoniBucket pxBB = pxTO^.GetBoniBucket(CFightingObj.BONUS_MAXHITPOINTS);
+						if(pxBB!=null)then
+							if(p_sTo == "BrdTrns")then
+								var real fVal = pxTO^.GetTechTreeHitpoints() * 0.01f * 50.0f;
+								pxBB^.AddEntry("RideCup", fVal);
+							else
+								pxBB^.RemEntry("RideCup");
+							endif;
+							pxTO^.ForceBoniUpdate();
+						endif;
+						return true;
+					endif;
+				endif;
+			endif;
+		endif;
+		return false;
+	endproc;
+	*/
+endclass;
+	
+class CTargetItem inherit CItem
+	
+	export const int	TIMER_ID = 3421409;
+	
+	export var string	m_sCommand;
+	export var string	m_sCaste;
+	
+	//////////////////////////////////////////////////////////
+	// OnInit()
+	//////////////////////////////////////////////////////////
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+	endproc;
+
+	//////////////////////////////////////////////////////////
+	// OnUsed()
+	//////////////////////////////////////////////////////////
+	export proc void OnUsed(^CGameObj p_pxUser)
+		if(HasTimer(TIMER_ID)) then
+			return;
+		endif;
+		if (!m_sCaste.IsEmpty()) then
+			var ^CCharacter pxC = cast<CCharacter>(GetItemOwner().GetObj());
+			if (pxC==null)then return; endif;
+			if (m_sCaste.Find(pxC^.GetCaste()) < 0) then
+				return;
+			endif;
+		endif;
+		var string sSend = "SecInp\t" + m_sCommand + "\t" + GetGuid().ToString();
+		CSrvWrap.SendGenericEvtToPlayer(GetOwner(),sSend);
+		CreateTimer(TIMER_ID, CGameTimeSpan.OneSecond()*m_fReload, false);
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if (p_rxEvtPtr.GetClass() == ms_xTimerClass) then
+			if (p_rxEvtPtr.GetInt(0) == TIMER_ID ) then
+				DeleteTimer(TIMER_ID);
+			endif;
+		else
+			super.HandleEvent(p_rxEvtPtr);
+		endif;
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// HandleGamePlayCommand()
+	//////////////////////////////////////////////////////////
+	export proc void HandleGamePlayCommand(string p_sCommand,^CGameObj p_pxObject,vec3 p_vPos,string p_sMiscParams)
+	endproc;
+endclass;
+
+class CFrozeShips inherit CTargetItem
+	
+	//////////////////////////////////////////////////////////
+	// OnInit()
+	//////////////////////////////////////////////////////////
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		m_sCommand = "Froze";
+		//m_fReloadTime = 60.0f;
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// HandleGamePlayCommand()
+	//////////////////////////////////////////////////////////
+	export proc void HandleGamePlayCommand(string p_sCommand,^CGameObj p_pxObject,vec3 p_vPos,string p_sMiscParams)
+		if(p_sCommand=="Froze") then
+			if (p_pxObject == null) then
+				DeleteTimer(TIMER_ID);
+				return;
+			endif;
+			
+			var ^CFightingObj pxFO = cast<CFightingObj>(p_pxObject);
+			if(pxFO!=null) then
+				if ( (pxFO^.GetPos() - GetPos()).Abs2() < 50.0f) then
+					pxFO^.SetTrappedTime(10.0f);
+				endif;
+			endif;
+		else
+			super.HandleGamePlayCommand(p_sCommand, p_pxObject, p_vPos, p_sMiscParams);
+		endif;
+	endproc;
+endclass;
+
+class CQuestItem inherit CItem
+	//////////////////////////////////////////////////////////
+	// OnTaken()
+	//////////////////////////////////////////////////////////
+	export proc void OnTaken(^CGameObj p_pxUser)
+	endproc;
+
+	//////////////////////////////////////////////////////////
+	// OnDropped()
+	//////////////////////////////////////////////////////////
+	export proc void OnDropped(^CGameObj p_pxUser)
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// OnUsed()
+	//////////////////////////////////////////////////////////
+	export proc void OnUsed(^CGameObj p_pxUser)
+	endproc;
+endclass;
+
+class CWeaponItem inherit CItem
+
+	//////////////////////////////////////////////////////////
+	// OnInit()
+	//////////////////////////////////////////////////////////
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+	endproc;
+
+	//////////////////////////////////////////////////////////
+	// OnTaken()
+	//////////////////////////////////////////////////////////
+	export proc void OnTaken(^CGameObj p_pxUser)
+		super.OnTaken(p_pxUser);
+		var ^CFightingObj pxFO = cast<CFightingObj>(p_pxUser);
+		if (pxFO!=null) then
+			pxFO^.GetWeaponMgr()^.UpdateAll();
+		endif;
+	endproc;
+
+	//////////////////////////////////////////////////////////
+	// OnDropped()
+	//////////////////////////////////////////////////////////
+	export proc void OnDropped(^CGameObj p_pxUser)
+		super.OnDropped(p_pxUser);
+		var ^CFightingObj pxFO = cast<CFightingObj>(p_pxUser);
+		if (pxFO!=null) then
+			pxFO^.GetWeaponMgr()^.UpdateAll();
+		endif;
+	endproc;
+	
+	//////////////////////////////////////////////////////////
+	// OnUsed()
+	//////////////////////////////////////////////////////////
+	export proc void OnUsed(^CGameObj p_pxUser)
+	endproc;
+
+	//////////////////////////////////////////////////////////
+	// OnHit()
+	//////////////////////////////////////////////////////////
+	export proc void OnHit(^CGameObj p_pxEnemy)
+	endproc;
+	
+	///////
+	//	GetWeaponPath()
+	///////
+	export proc string GetWeaponPath()
+		return m_xTechTree.GetValueS(GetObjPath()+"/WeaponPath", "");
+	endproc;
+endclass;
+
+class CIceLance inherit CWeaponItem
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+	endproc;
+	
+	export proc void OnHit(^CGameObj p_pxEnemy)
+		var ^CFightingObj pxFO = cast<CFightingObj>(p_pxEnemy);
+		if (pxFO!=null) then
+			if (pxFO^.IsTrapped()) then return; endif;
+			
+			pxFO^.SetTrappedTime(m_fDuration);
+		endif;
+	endproc;
+	
+endclass;
+
+class CSpecialLance inherit CWeaponItem
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+	endproc;
+	
+	export proc bool OnObjAdd(CObjHndl p_xObj)
+		var ^CCharacter pxC = cast<CCharacter>(p_xObj.GetObj());
+		if(pxC!=null && pxC^.GetCaste() == "res" && pxC^.GetOwner()!=GetOwner()) then 
+			//L KLog.LogSpam("MaZi", "added " + pxC^.GetName());
+			var ^CBoniBucket pxBB = pxC^.GetBoniBucket(CFightingObj.BONUS_DAMAGE);
+			var real fVal = pxC^.GetDmg()*0.01f*m_fBonus;
+			pxBB^.AddEntry("SpecialLance", -fVal);
+			pxC^.ForceBoniUpdate();
+			return true;
+		endif;	
+		return false;
+	endproc;
+	
+	export proc bool OnObjRem(CObjHndl p_xObj)
+		var ^CCharacter pxC = cast<CCharacter>(p_xObj.GetObj());
+		if(pxC!=null && pxC^.GetCaste() == "res" && pxC^.GetOwner()!=GetOwner()) then 
+			var ^CBoniBucket pxBB = pxC^.GetBoniBucket(CFightingObj.BONUS_DAMAGE);
+			pxBB^.RemEntry("SpecialLance");
+			pxC^.ForceBoniUpdate();
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+endclass;

@@ -1,0 +1,227 @@
+class CItemSpawn inherit CGameObj
+
+	var bool						m_bGenerateAlways;
+	var bool						m_bRandomItem;
+	var array string		m_asItemList;
+	export var CObjHndl	m_xItemSpawned;
+
+	export constructor()
+		CItemMgr.Get().RegisterSpawn(this);
+	endconstructor;
+
+	export destructor()
+		CItemMgr.Get().UnregisterSpawn(this);
+	enddestructor;
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xBase="ISpw";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xItemSpawned.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="ISpw")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xItemSpawned.DoKArc(pxArc^);
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		if(!p_bLoad)then
+			SetType("ITSP");
+			SetSelectable(false);
+			SetHitable(false);
+		else
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			if(pxLevel^.IsEditable())then
+				SetVisible(true);
+				SetSelectable(true);
+			else
+				SetVisible(false);
+				SetSelectable(false);
+			endif;
+		endif;
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs==null)then pxAttribs=InitAttribs();endif;
+		if(!p_bLoad)then
+			pxAttribs^.SetValue("generate_always",true);
+			pxAttribs^.SetValue("random_item",true);
+		endif;
+		m_bGenerateAlways=pxAttribs^.GetValueBool("generate_always");
+		m_bRandomItem=pxAttribs^.GetValueBool("random_item");
+		var string sItems=pxAttribs^.GetValue("spawn_items");
+		sItems.Split(m_asItemList,"|",false);
+		if(m_asItemList.NumEntries()==0 && m_bRandomItem)then
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+			var ^CPropDB.CNode pxNode = (pxLevelInfo^.GetGenericData())["Items"].Get("Pool");
+			if(pxNode!=null) then
+				var int i, iC = pxNode^.NumSubs();
+				for(i=0)cond(i<iC)iter(++i)do
+					var ^CPropDB.CNode pxSub = ^((pxNode^)[i]);
+					if(pxSub!=null)then
+						m_asItemList.AddEntry(pxSub^.Name());
+					endif;
+				endfor;
+			endif;
+		endif;
+	endproc;
+
+	export proc bool GetGenerateAlways()
+		return m_bGenerateAlways;
+	endproc;
+
+	export proc bool GetRandomItem()
+		return m_bRandomItem;
+	endproc;
+
+	export proc array string GetItemList()
+		return m_asItemList;
+	endproc;
+endclass;
+
+class CItemMgr inherit IItemMgr
+	static var ^CItemMgr			ms_pxInstance;
+	var array ^CItemSpawn			m_apxItemSpawns;
+
+	constructor()
+		CSrvWrap.SetItemMgr(this);
+	endconstructor;
+
+	destructor()
+		CSrvWrap.SetItemMgr(null);
+	enddestructor;
+
+	export static proc ref CItemMgr Get()
+		if(ms_pxInstance==null)then
+			ms_pxInstance=new CItemMgr;
+		endif;
+		return ms_pxInstance^;
+	endproc;
+
+	export static proc void ShutStatic()
+		delete ms_pxInstance;
+	endproc;
+
+	export proc void RegisterSpawn(^CItemSpawn p_pxSpawn)
+		m_apxItemSpawns.AddEntry(p_pxSpawn);
+	endproc;
+
+	export proc void UnregisterSpawn(^CItemSpawn p_pxSpawn)
+		m_apxItemSpawns.RemEntry(p_pxSpawn);
+	endproc;
+
+	proc void GenerateItems()
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+		var int iMaxItems=(pxLevelInfo^.GetGenericData())["Items"].GetValueI("MaxItems",0);
+		var array ^CItemSpawn apxItemSpawns;
+		apxItemSpawns=m_apxItemSpawns;
+		var array string asUsedItems;
+		
+		begin CheckExistingItems;
+			var int i;
+			for(i=0)cond(i<apxItemSpawns.NumEntries())iter(i++)do
+				var ^CItemSpawn pxWalk=apxItemSpawns[i];
+				var ^CGameObj pxItem=pxWalk^.m_xItemSpawned.GetObj();
+				if(pxItem!=null) then
+					asUsedItems.AddEntry(pxItem^.GetClassName());
+					apxItemSpawns.DeleteEntry(i);
+					i--;
+				endif;
+			endfor;
+		end CheckExistingItems;
+
+		begin GenerateRequiredItems;
+			var int i;
+			for(i=0)cond(i<apxItemSpawns.NumEntries())iter(i++)do
+				if(asUsedItems.NumEntries()>=iMaxItems)then
+					break;
+				endif;
+				var ^CItemSpawn pxWalk=apxItemSpawns[i];
+				if(pxWalk==null)then continue; endif;
+				var vec3 vPos=pxWalk^.GetPos();
+				var vec3 vRotation=pxWalk^.GetRotation();
+				if(!pxWalk^.GetGenerateAlways())then continue; endif;
+				var array string asItems;
+				asItems=pxWalk^.GetItemList();
+				var int j;
+				for(j=0)cond(j<asItems.NumEntries())iter(j++)do
+					if(asUsedItems.FindEntry(asItems[j])!=-1)then
+						asItems.DeleteEntry(j);
+						j--;
+					endif;
+				endfor;
+				var int iNumItems=asItems.NumEntries();
+				if(iNumItems>0)then
+					var string sItem=asItems[0];
+					if(pxWalk^.GetRandomItem())then
+						Random.Seed();
+						sItem=asItems[Random.GetInt()%iNumItems];
+					endif;
+					var ^CGameObj pxItem=CreateItemBox(sItem,vPos,vRotation);
+					if(pxItem!=null)then
+						asUsedItems.AddEntry(sItem);
+						pxWalk^.m_xItemSpawned=pxItem^.GetHandle();
+					endif;
+				endif;
+				apxItemSpawns.DeleteEntry(i);
+				i--;
+			endfor;
+		end GenerateRequiredItems;
+
+		begin GenerateOptionalItems;
+			while(apxItemSpawns.NumEntries()>0)do
+				if(asUsedItems.NumEntries()>=iMaxItems)then
+					break;
+				endif;
+				Random.Seed();
+				var int iItemIdx=Random.GetInt()%apxItemSpawns.NumEntries();
+				var ^CItemSpawn pxWalk=apxItemSpawns[iItemIdx];
+				apxItemSpawns.DeleteEntry(iItemIdx);
+				if(pxWalk==null)then continue; endif;
+				var vec3 vPos=pxWalk^.GetPos();
+				var vec3 vRotation=pxWalk^.GetRotation();
+				var array string asItems;
+				asItems=pxWalk^.GetItemList();
+				var int j;
+				for(j=0)cond(j<asItems.NumEntries())iter(j++)do
+					if(asUsedItems.FindEntry(asItems[j])!=-1)then
+						asItems.DeleteEntry(j);
+						j--;
+					endif;
+				endfor;
+				var int iNumItems=asItems.NumEntries();
+				if(iNumItems>0)then
+					var string sItem=asItems[0];
+					if(pxWalk^.GetRandomItem())then
+						Random.Seed();
+						sItem=asItems[Random.GetInt()%iNumItems];
+					endif;
+					var ^CGameObj pxItem=CreateItemBox(sItem,vPos,vRotation);
+					if(pxItem!=null)then
+						asUsedItems.AddEntry(sItem);
+						pxWalk^.m_xItemSpawned=pxItem^.GetHandle();
+					endif;
+				endif;
+			endwhile;
+		end GenerateOptionalItems;
+	endproc;
+
+	proc ^CGameObj CreateItemBox(string p_sItem, vec3 p_vPos, vec3 p_vRotation)
+		//Leveldesign hates the randomization (see SB#16511)
+		//var vec3 vRotation;
+		//Random.Seed();
+		//var int iRand=Random.GetInt()%(Math.Pi()*2.0).ToInt()*100;
+		//vRotation.SetZ(iRand.ToReal()/100.0f);
+		var ^CGameObj pxItem=CSrvWrap.GetObjMgr()^.CreateObj(p_sItem, -1,p_vPos,p_vRotation);
+		return pxItem;
+	endproc;
+
+endclass;

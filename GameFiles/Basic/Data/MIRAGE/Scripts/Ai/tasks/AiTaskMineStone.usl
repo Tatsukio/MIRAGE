@@ -1,0 +1,205 @@
+class CAiTaskMineStone inherit CAiTaskGetResource
+
+	var CAiObjWrapList				m_xList;
+	var vec3						m_vStonePos;
+				
+	
+	///find stone area
+	export proc real CalculateStartCost()
+		m_pxBrain = GetGoal()^.GetAiBrain(); 
+		if(m_pxBrain==null)then return 1.0; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return 1.0; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		
+		m_sTribe=m_pxSensor^.GetTechTree().GetTribe();
+		
+		SetThinkWait(10);
+			
+		var ^CAiBrain.ICostFunction pxCostFunc = m_pxBrain^.GetCostFunction();
+		var real fCost = 1.0;
+		var ^CAiMaps pxMaps = ^(m_pxSensor^.GetAiMaps());
+		var ^CAiMaps pxGlobalMaps = ^(m_pxSensor^.GetGlobalAiMaps());
+
+		var ^CAiMap pxCostMap;
+		var ^CAiMap pxInflBuildMap = ^(pxMaps^.GetAiMap("InflBuild", m_iPlayerID));
+		var CAiMap xGenInflMap;
+		var CAiMap xRangeMap;
+
+		xRangeMap.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID);
+		xRangeMap.ClearToFast(0.0);
+
+		var vec3	vOPPos		= m_pxSensor^.GetOutpost(m_iOutpostId).GetWorldPos();
+		var int		iOPX;
+		var int		iOPY;
+		
+		CAiArea.Vec3ToArea(vOPPos, iOPX, iOPY);
+		xRangeMap.AddInfluenceFast(iOPX, iOPY, 60.0, 0.0, 1.0);
+
+		var CAiArea		xMaxInflBuildArea = pxInflBuildMap^.FindMaxArea();
+		
+        if(pxInflBuildMap^.GetValue(xMaxInflBuildArea)>0.0) then
+			xGenInflMap.CopyFrom(pxInflBuildMap^);
+		else
+			xGenInflMap.CopyFrom(pxMaps^.GetAiMap("Infl", m_iPlayerID));
+		endif;
+		xGenInflMap.OpAdd(0.2);
+		pxCostMap=^(pxMaps^.GetAiMap("STON",m_iPlayerID));
+
+		pxCostMap^.CopyFromFast(pxGlobalMaps^.GetAiMap("STON", m_iPlayerID));
+		pxCostMap^.MultiplyFast(xGenInflMap);
+		pxCostMap^.MultiplyFast(xRangeMap);
+		pxCostMap^.MultiplyFast(m_xInvalidMap);
+		pxCostMap^.MultMosaicFast(vOPPos);
+		if((pxCostMap^.IsDirty())||(m_xInvalidMap.IsDirty()))then
+			pxCostMap^.UpdateBitmap();
+			pxCostMap^.SetDirty(false);
+			m_xInvalidMap.SetDirty(false);
+		endif;
+
+		m_xMaxArea = pxCostMap^.FindMaxArea();	
+		if(pxCostMap^.GetValue(m_xMaxArea)==0.0)then
+			fCost = 99999999.0f;
+			SetImpossible();
+		endif;
+		return fCost;
+	endproc;
+
+
+	///Start
+	export proc bool Start()
+		SetStarted();
+			
+		var CFourCC xResource = "STON";
+		var CAiObjQuery xQuery;
+		xQuery.SetType(xResource);
+		xQuery.RegionArea(m_xMaxArea);
+		xQuery.SetSorting(m_pxSensor^.GetStartLocation(), 1);
+		
+		if(!xQuery.Execute(m_xList))then
+	   		m_xInvalidMap.AddValue(m_xMaxArea.GetX(), m_xMaxArea.GetY(), 1000.0);
+			CalculateStartCost();
+			Abort();
+			
+			m_iChkPointTimeouts++;
+			if((m_iChkPointTimeouts>m_iMaxChkPointTimeouts)||(IsNotPossible()))then
+				return false;
+			endif;	
+			return Start();	
+		else
+			if(m_xList[0].IsValid())then
+				if(!CAiUtilityMgr.Get()^.CheckForEnemy(m_pxBrain, m_xList[0].GetPos()))then return false; endif;
+			endif;
+		endif;
+		
+		var bool bSuccess = TryAllocate(GetSolution(), m_iOutpostId, 10);
+		if(!bSuccess)then return false; endif;
+		GetAllocation()^.SetTarget(m_xList[0].GetPos());
+		return true;
+	endproc;
+
+
+	///ExecuteSolution
+	export proc void ExecuteSolution(int p_iObject, vec3 p_vPos)
+		if(m_pxSensor==null) then return; endif;
+		
+		var int iSubjectHandle=m_xSubjects[0].GetHandle();
+		var int iObjectHandle=-1;
+		
+		if(p_iObject>=0)then
+			iObjectHandle=m_xObjects[p_iObject].GetHandle();
+		endif;
+		
+		m_pxSensor^.AddCheckpoint(this,0,"atto:"+iSubjectHandle.ToString()+",CurTask,==,Idle",0.0);
+		m_pxSensor^.AddCheckpoint(this,100,"atto:"+iSubjectHandle.ToString()+",CurTask,==,Mine",0.0);
+		
+		if(m_xList[0].IsValid() == false)then
+			Abort();
+			return;
+		endif;
+
+		m_pxSensor^.ExecuteGamePlayCommand(m_xLockedObjs, GetSolution()^.GetGPCmd(), m_xList[0].GetHandle(), p_vPos, GetSolution()^.GetAdditionalAttribs());
+		CheckForResourceCollector(p_vPos);
+	endproc;
+	
+	
+	///EvtRequestAccepted
+	export proc void EvtRequestAccepted(^CAiRequestInfo p_pxInfo)
+		if(p_pxInfo^.GetType()=="ATCK")then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+		endif;
+	endproc;
+
+
+	///EvtRequestRejected
+	export proc void EvtRequestRejected(^CAiRequestInfo p_pxInfo)
+		if(p_pxInfo^.GetType()=="ATCK")then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+		endif;
+	endproc;
+
+
+	///EvtRequestFailed
+	export proc void EvtRequestFailed(^CAiRequestInfo p_pxInfo)
+		if(p_pxInfo^.GetType()=="ATCK")then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+		endif;
+	endproc;
+	
+	
+	///EvtRequestSucceeded
+	export proc void EvtRequestSucceeded(^CAiRequestInfo p_pxInfo)
+		var CAiObjWrapList xUnits;
+		if(p_pxInfo^.GetType()=="ATCK")then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+		endif;
+	endproc;
+	
+	
+	///Think
+	proc void Think()
+		MaxInstanceCount();
+	endproc;
+	
+	
+	///CheckMaxInstanceCount
+	proc void MaxInstanceCount();
+		var ^CAiTechTree pxTT=^(m_pxSensor^.GetTechTree());
+		var ^CAiNodeInstance pxNI;
+		pxNI = pxTT^.GetNodeInstanceFromPartialName("stone");
+		if(pxNI!=null)then
+			if(pxNI^.GetInstanceCount() >= pxNI^.GetMaxInstanceCount())then
+				if(m_xLockedObjs.NumEntries()>0)then
+					m_pxSensor^.ExecuteGamePlayCommand(m_xLockedObjs, "Action", -1 , {0.0,0.0,0.0}, "/Stop");
+					CAiUtilityMgr.Get()^.LockExternal(this, m_xLockedObjs);
+					CAiUtilityMgr.Get()^.UnlockExternal(this, m_xLockedObjs);
+					Abort();
+					Shut();
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	
+	///CheckForResourceCollector
+	proc void CheckForResourceCollector(vec3 p_vPos)
+		if(m_sTribe!="Aje")then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		
+		var CAiObjWrapList xResourceCollectorList;
+		var CAiObjQuery xQuery;
+		
+		xQuery.SetOwner(m_iPlayerID);
+		xQuery.SetClass("aje_resource_collector");
+		
+		xQuery.Execute(xResourceCollectorList);
+		if(xResourceCollectorList.Validate()<=0)then return; endif;
+				
+		if(m_pxSensor^.ComputeIslandId(xResourceCollectorList[0].GetPos())==m_pxSensor^.ComputeIslandId(p_vPos))then
+			m_pxSensor^.ExecuteGamePlayCommand(xResourceCollectorList[0].GetHandle(), "Action", -1, p_vPos, "/Walk");
+		endif;
+	endproc;	
+endclass;

@@ -1,0 +1,126 @@
+class CAiGoalUserInteraction inherit CAiGoal
+	
+	var CAiObjWrapList	m_xExternalLockedUnits;
+	var array int		m_aiIdleTimer;
+	const int			m_kiIdleWaitCount = 4;
+	var string			m_sPlayerID;
+	
+	
+	///constructor
+	export constructor()
+	endconstructor;
+	
+	
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	
+	///CheckArrayConsistency
+	proc bool CheckArrayConsistency()
+		var int iELUC=m_xExternalLockedUnits.NumEntries();
+		var int iIdleCC=m_aiIdleTimer.NumEntries();
+		if(iELUC!=iIdleCC)then
+			return false;
+		endif;
+		return true;
+	endproc;
+
+
+	///OnUserInterAction
+	export proc void OnUserInteraction(CAiObjWrap p_xOW)
+		var ^CAiAllocationMgr pxAllocMgr = GetAiAllocationMgr();
+		if(pxAllocMgr==null)then return; endif;
+		if(!p_xOW.IsValid())then return; endif;
+		pxAllocMgr^.ExternalLock(p_xOW,"user_interaction");
+		
+		var int iCountIdx=m_xExternalLockedUnits.FindEntry(p_xOW);
+		if(!CheckArrayConsistency())then return; endif;
+		
+		if(iCountIdx== -1)then
+			m_xExternalLockedUnits.AddEntry(p_xOW);
+			m_aiIdleTimer.AddEntry(m_kiIdleWaitCount);
+		else
+			m_aiIdleTimer[iCountIdx] = m_kiIdleWaitCount;
+		endif;
+	endproc;
+
+
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		super.Init(p_pxBrain);
+		if(p_pxBrain==null)then return false; endif;
+		SetThinkWait(50);
+		ExternalUnlock();
+		m_aiIdleTimer = 0;
+		m_sPlayerID=p_pxBrain^.GetPlayerId().ToString();
+		return true;
+	endproc;
+	
+	
+	///ExternalLock
+	proc void ExternalUnlock()
+		var int i, iC=m_xExternalLockedUnits.NumEntries();
+		var ^CAiAllocationMgr pxAllocMgr	= GetAiAllocationMgr();
+		if(pxAllocMgr==null)then return; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			pxAllocMgr^.ExternalUnlock(m_xExternalLockedUnits[i]);
+		endfor;
+		m_xExternalLockedUnits.Clear();
+	endproc;
+
+
+	///shut
+	export proc void Shut()
+		ExternalUnlock();
+		m_aiIdleTimer = 0;
+	endproc;
+
+	
+	///GetMOD
+	export proc ^CAiGoalMinistryOfDefense GetMOD()
+		var ^CAiBrain pxBrain = GetAiBrain();
+		var ^CAiModuleDefenseDefault pxDM;
+		if(pxBrain==null)then return null; endif;
+		pxDM = cast<CAiModuleDefenseDefault>(pxBrain^.GetDefenseModule());
+		if(pxDM==null)then return null; endif;
+		return ^(pxDM^.GetMOD());
+	endproc;
+
+
+	///GiveUnitBackToMOD
+	proc void GiveUnitBackToMOD(int p_iUnitIdx)
+		var ^CAiGoalMinistryOfDefense pxMOD = GetMOD();
+		var CAiObjWrapList xTmp;
+		var int iNumELUs=m_xExternalLockedUnits.Validate();
+
+		if(pxMOD==null)then return; endif;
+		if(iNumELUs<=p_iUnitIdx)then return; endif;
+
+		xTmp.AddEntry(m_xExternalLockedUnits[p_iUnitIdx]);
+		pxMOD^.AddUnitsToPool(xTmp);
+		m_xExternalLockedUnits.RemEntry(m_xExternalLockedUnits[p_iUnitIdx]);
+		m_aiIdleTimer.DeleteEntry(p_iUnitIdx);
+	endproc;
+
+
+	///think
+	export proc void Think()
+		var int i, iC = m_xExternalLockedUnits.NumEntries();
+		if(!CheckArrayConsistency())then return; endif;
+		for(i=0)cond(i<iC)iter(++i)do
+			if((m_aiIdleTimer[i]==0)||(!m_xExternalLockedUnits[i].IsValid()))then
+				GiveUnitBackToMOD(i);
+				i--; iC--;
+			else
+				var string sCurTask=m_xExternalLockedUnits[i].GetAttribValue("CurTask");
+				if((sCurTask=="Idle")||(sCurTask.IsEmpty()))then
+					m_aiIdleTimer[i]--;
+				else
+					m_aiIdleTimer[i] = m_kiIdleWaitCount;
+				endif;
+			endif;
+		endfor;
+	endproc;
+
+endclass;

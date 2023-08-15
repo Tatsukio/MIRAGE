@@ -1,0 +1,1887 @@
+class CViewPlayerInfo inherit CEnhancedFrameWindow;
+
+	var array ^CPlayerInfoSlot m_apxSlots;
+	var ^CButton m_pxResetSlots;
+	var int m_iMaxPlayers;
+
+	export constructor()
+		if(!InitFromResource("options/ViewPlayerInfo","PlayerInfo")) then
+			CLevelEditorWrap.LogError("UI.PlayerInfo","InitFromResource failed");
+			return;
+		endif;
+		var int i,iNumPlayers=8; //Will most likely always be 8
+		m_apxSlots=iNumPlayers;
+		for(i=0)cond(i<iNumPlayers)iter(i++)do
+			m_apxSlots[i]=cast<CPlayerInfoSlot>(GetControl("PlayerSlot_"+(i+1).ToString()));
+		endfor;
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		var ^CPropDB.CNode pxBaseNode=^((pxGenericDB^)["Base"]);
+		m_iMaxPlayers=pxBaseNode^.GetValueI("MaxPlayers");
+		var ^CWindow pxWindow=GetControl("InfoBar");
+		if(pxWindow!=null)then
+			m_pxResetSlots=cast<CButton>(pxWindow^.GetControl("ResetSlots"));
+			m_pxResetSlots^.m_xOnClick=OnResetSlots;
+		endif;
+		LoadPosition("PlayerInfo");
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	proc void OnUpdateContent()
+		var int i;
+		for(i=0)cond(i<m_apxSlots.NumEntries())iter(i++)do
+			//m_apxSlots[i]^.Reset();
+		endfor;
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		var ^CPropDB.CNode pxPSNode=^((pxGenericDB^)["PlayerSettings"]);
+		var ^CPropDB.CNode pxBaseNode=^((pxGenericDB^)["Base"]);
+		var array int aiOwners;
+		var int iC=pxBaseNode^.GetValueI("MaxPlayers");
+		m_iMaxPlayers=iC;
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sNodeName="Player_"+i.ToString();
+			var ^CPropDB.CNode pxPlayerNode=pxPSNode^.Get(sNodeName);
+			if(pxPlayerNode==null)then
+				pxPlayerNode=^(pxPSNode^.AddValue(sNodeName,""));
+			endif;
+			m_apxSlots[i]^.Init(pxPlayerNode,i);
+			m_apxSlots[i]^.SetVisible(true);
+			aiOwners.AddEntry(i);
+		endfor;
+		for(i=0)cond(i<iC)iter(i++)do
+			m_apxSlots[i]^.InitDiplomacyButtons(aiOwners);
+		endfor;
+	endproc;
+
+	export proc void SaveLevelInfo()
+		var CConfig xConf;
+		var bool bExit=xConf.GetB("Game/NoLIAutosave",true);
+		if(bExit)then return; endif;
+//		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+//		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+//		pxGenericDB^.Save("C:/LevelInfoDump.txt");
+		var string sDir = "C:/ZPW/"+CEnhancedMenu.Get().GetLevelName()+"/";
+		if(!Filesystem.DirExists(sDir))then
+			Filesystem.MkDir(sDir);
+		endif;
+		var string sName=sDir+"LevelInfoDump.txt";
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		pxGenericDB^.Save(sName);
+	endproc;
+
+	export proc bool OnResetSlots()
+		var int i, iC=Math.Min(m_iMaxPlayers,m_apxSlots.NumEntries());
+//		var int i, iC=m_apxSlots.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_apxSlots[i]^.OnFullReset();
+		endfor;
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		var ^CPropDB.CNode pxPSNode=^((pxGenericDB^)["PlayerSettings"]);
+		m_iMaxPlayers;
+		for(i=0)cond(i<8)iter(i++)do
+			if(m_iMaxPlayers>i)then continue; endif;
+			var string sNodeName="Player_"+i.ToString();
+			var ^CPropDB.CNode pxPlayerNode=pxPSNode^.Get(sNodeName);
+			if(pxPlayerNode!=null)then
+				pxPSNode^.Remove(sNodeName);
+			endif;
+		endfor;
+		return(true);
+	endproc;
+	
+endclass;
+
+class CPlayerInfoSlot inherit CEnhancedFrameWindow;
+
+	var ^CPropDB.CNode				m_pxPlayerNode;
+	var ^CPropDB.CNode				m_pxRestrictionsNode;
+	var ^CPropDB.CNode				m_pxBaseNode;
+	var int 									m_iOwner;
+
+	//Controls
+	var ^CStaticCtrl					m_pxIDStatic;
+	var ^CEdit								m_pxNameEdit;
+
+	var ^CPane								m_pxColorPane;
+	var ^CSpinCtrlNumber			m_pxPBSpinCtrl;
+	var ^CButton							m_pxPyramidLimits;
+	var ^CButton							m_pxDefPointBuy;
+	var ^CButton							m_pxSLButton;
+	var ^CDropList						m_pxDefPlayer;
+	var ^CDropList						m_pxDefColor;
+	var ^CDropList						m_pxDefTeam;
+	var ^CSpinCtrlNumber			m_pxAiEasy;
+	var ^CSpinCtrlNumber			m_pxAiMedium;
+	var ^CSpinCtrlNumber			m_pxAiHard;
+	var ^CCheckBox						m_pxShowStatistics;
+	var ^CCheckBox						m_pxIncludeBuildings;
+	var ^CButton							m_pxFullReset;
+
+	export var array ^CDiplomacyButton	m_apxDiplomacyButtons;
+	export var string										m_sDiplomaySettings;
+	var ^CTribeViewLayoutMgr						m_pxTribeView;
+
+	class CDiplomacyButton inherit CButton;
+		
+		var int m_iState;
+		export var procref <void> m_xOnChangeState;
+		
+		export constructor()
+			m_iState=0;
+			m_xOnClick=OnLeftClick;
+			m_xOnRightClick=OnRightClick;
+		endconstructor;
+		
+		export destructor()
+		enddestructor;
+		
+		export proc void SetState(int p_iState)
+			if(p_iState<0)then p_iState=0; endif;
+			if(p_iState>2)then p_iState=2; endif;
+			if(m_iState!=p_iState)then
+				m_iState=p_iState;
+				if(!m_xOnChangeState.IsNull())then
+					m_xOnChangeState.Call();
+					UpdateState();
+				endif;
+			endif;
+		endproc;
+		
+		export proc int GetState()
+			return m_iState;
+		endproc;
+		
+		proc bool OnLeftClick()
+			var int iState=m_iState+1;
+			if(iState>=3)then iState=0;endif;
+			SetState(iState);
+			return(true);
+		endproc;
+		
+		proc bool OnRightClick()
+			var int iState=m_iState-1;
+			if(iState<=(-1))then iState=2;endif;
+			SetState(iState);
+			return(true);
+		endproc;
+		
+		export proc bool UpdateState()
+			if(m_iState==0)then
+				//Hostile (feindlich)
+				SetText("H");
+			elseif(m_iState==1)then
+				//Neutral (neutral)
+				SetText("N");
+			elseif(m_iState==2)then
+				//Friendly (freundlich)
+				SetText("F");
+			endif;
+			return(true);
+		endproc;
+	endclass
+	
+	export constructor()
+		if(!InitFromResource("options/ViewPlayerInfo","PlayerInfoSlot")) then
+			CLevelEditorWrap.LogError("UI.PlayerInfoSlot","InitFromResource failed");
+			return;
+		endif;
+		m_iOwner=-1;
+		m_pxIDStatic=cast<CStaticCtrl>(GetControl("PlayerID"));
+		m_pxNameEdit=cast<CEdit>(GetControl("PlayerName"));
+		m_pxTribeView = new CTribeViewLayoutMgr();
+		m_pxColorPane=cast<CPane>(GetControl("PlayerColor"));
+		m_pxNameEdit^.m_xOnChange=OnChangeName;
+		m_pxPBSpinCtrl=cast<CSpinCtrlNumber>(GetControl("PlayerPB"));
+		m_pxPBSpinCtrl^.SetLimits(0,100000,10);
+		m_pxPBSpinCtrl^.m_xOnChange=OnChangeCredits;
+		m_pxPyramidLimits=cast<CButton>(GetControl("PlayerLimits"));
+		m_pxPyramidLimits^.m_xOnClick=OnSetLimits;
+		m_pxDefPointBuy=cast<CButton>(GetControl("PointBuy"));
+		m_pxDefPointBuy^.m_xOnClick=OnPointBuy;
+		m_pxSLButton=cast<CButton>(GetControl("StartLocations"));
+		m_pxSLButton^.m_xOnClick=OnStartLocations;
+		m_pxDefTeam=cast<CDropList>(GetControl("Team"));
+		m_pxDefPlayer=cast<CDropList>(GetControl("Player"));
+		m_pxDefColor=cast<CDropList>(GetControl("Color"));
+		m_pxAiEasy=cast<CSpinCtrlNumber>(GetControl("AI_Easy"));
+		m_pxAiEasy^.SetLimits(0,9,1);
+		m_pxAiEasy^.m_xOnChange=OnChangeAiEasy;
+		m_pxAiMedium=cast<CSpinCtrlNumber>(GetControl("AI_Medium"));
+		m_pxAiMedium^.SetLimits(0,9,1);
+		m_pxAiMedium^.m_xOnChange=OnChangeAiMedium;
+		m_pxAiHard=cast<CSpinCtrlNumber>(GetControl("AI_Hard"));
+		m_pxAiHard^.SetLimits(0,9,1);
+		m_pxAiHard^.m_xOnChange=OnChangeAiHard;
+		m_pxShowStatistics=cast<CCheckBox>(GetControl("ShowStatistics"));
+		//m_pxShowStatistics^.SetLimits(0,9,1);
+		m_pxShowStatistics^.m_xOnStateChange=OnChangeShowStatistics;
+		m_pxIncludeBuildings=cast<CCheckBox>(GetControl("IncludeBuildings"));
+		m_pxIncludeBuildings^.m_xOnStateChange=OnChangeIncludeBuildings;
+/*
+		m_pxAiEasy^.SetVisible(false);
+		m_pxAiMedium^.SetVisible(false);
+		m_pxAiHard^.SetVisible(false);
+*/
+		m_apxDiplomacyButtons=8;
+		var int i,iC=m_apxDiplomacyButtons.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_apxDiplomacyButtons[i]=cast<CDiplomacyButton>(GetControl("PlayerDiplo"+i.ToString()));
+			m_apxDiplomacyButtons[i]^.UpdateState();
+		endfor;
+		m_pxFullReset=cast<CButton>(GetControl("FullReset"));
+		m_pxFullReset^.m_xOnClick=OnFullReset;
+		SetVisible(false);
+	endconstructor;
+
+	export destructor()
+		delete m_pxTribeView;
+	enddestructor;
+
+	export proc void Init(^CPropDB.CNode p_pxPlayerNode,int p_iID)
+		m_iOwner=p_iID;
+		m_pxPlayerNode=p_pxPlayerNode;
+		m_pxIDStatic^.SetText(m_iOwner.ToString());
+		var string sName=m_pxPlayerNode^.GetValueS("PlayerName");
+		if(sName.IsEmpty())then
+//			sName="No Name";
+			sName="Player_"+(m_iOwner+1).ToString();
+		endif;
+		m_pxNameEdit^.SetText(sName);
+		var int iCredits=m_pxPlayerNode^.GetValueI("SPCredits");
+		m_pxPBSpinCtrl^.SetValue(iCredits);
+		m_pxRestrictionsNode=m_pxPlayerNode^.Get("Restrictions");
+		if(m_pxRestrictionsNode==null)then
+			m_pxRestrictionsNode=^(m_pxPlayerNode^.AddValue("Restrictions",""));
+		endif;
+		m_pxBaseNode=m_pxRestrictionsNode^.Get("Base");
+		if(m_pxBaseNode==null)then
+			m_pxBaseNode=^(m_pxRestrictionsNode^.AddValue("Base",""));
+		endif;
+		if(m_pxBaseNode!=null)then
+			var ^CPropDB.CNode pxTribesNode=m_pxBaseNode^.Get("Tribes");
+			if(pxTribesNode==null)then
+				pxTribesNode=^(m_pxBaseNode^.AddValue("Tribes","Hu:Aje:Ninigi:SEAS:"));
+				pxTribesNode^.SetValue("Default","Hu");
+			elseif(m_pxBaseNode^.GetValueS("Tribes")=="")then
+				pxTribesNode^.SetValue("Tribes","Hu:Aje:Ninigi:SEAS:");
+				pxTribesNode^.SetValue("Default","Hu");
+			endif;
+		endif;
+		var int iEasy=m_pxBaseNode^.GetValueI("AI_Difficulty_Easy");
+		m_pxAiEasy^.SetValue(iEasy);
+		var int iMedium=m_pxBaseNode^.GetValueI("AI_Difficulty_Medium");
+		m_pxAiMedium^.SetValue(iMedium);
+		var int iHard=m_pxBaseNode^.GetValueI("AI_Difficulty_Hard");
+		m_pxAiHard^.SetValue(iHard);
+		var int iShowStats=m_pxBaseNode^.GetValueI("ShowStatistics",1);
+		m_pxShowStatistics^.SetChecked(iShowStats);
+		var int iIncludeBuildings=m_pxPlayerNode^.GetValueI("IncludeBuildings",1);
+		m_pxIncludeBuildings^.SetChecked(iIncludeBuildings);
+		InitTeams();
+		InitPlayer();
+		InitColor();
+	endproc;
+
+	proc void InitTeams()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		var ^CPropDB.CNode pxBaseNode=^((pxGenericDB^)["Base"]);
+		var int iMaxPlayers=pxBaseNode^.GetValueI("MaxPlayers");
+		m_pxDefTeam^.m_xOnChange.Clear();
+		m_pxDefTeam^.Clear();
+		var int i,iC=iMaxPlayers;
+		for(i=0)cond(i<iC)iter(i++)do
+			m_pxDefTeam^.AddItem((i+1).ToString());
+		endfor;
+		var ^CPropDB.CNode pxDefTeamNode=m_pxBaseNode^.Get("DefTeam");
+		if(pxDefTeamNode==null)then
+			pxDefTeamNode=^(m_pxBaseNode^.AddValue("DefTeam",m_iOwner+1));
+		endif;
+		var int iDefTeam=pxDefTeamNode^.ValueI();
+		m_pxDefTeam^.SetText(iDefTeam.ToString());
+		m_pxDefTeam^.m_xOnChange=OnChangeDefTeam;
+		OnChangeDefTeam();
+	endproc;
+
+	proc bool OnChangeDefTeam()
+		var int iDefTeam=m_pxBaseNode^.GetValueI("DefTeam");
+		var int iSelTeam=m_pxDefTeam^.GetText().ToInt();
+		if(iDefTeam!=iSelTeam)then
+			m_pxBaseNode^.SetValue("DefTeam",iSelTeam);
+		endif;
+		return true;
+	endproc;
+
+	proc void InitPlayer()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		var ^CPropDB.CNode pxBaseNode=^((pxGenericDB^)["Base"]);
+		m_pxDefPlayer^.m_xOnChange.Clear();
+		m_pxDefPlayer^.Clear();
+		m_pxDefPlayer^.AddItem("human");
+		m_pxDefPlayer^.AddItem("ai_Mikrobe");
+		var ^CPropDB.CNode pxDefPlayerNode=m_pxBaseNode^.Get("DefPlayer");
+		if(pxDefPlayerNode==null)then
+			pxDefPlayerNode=^(m_pxBaseNode^.AddValue("DefPlayer","human"));
+		endif;
+		m_pxDefPlayer^.SetText(pxDefPlayerNode^.Value());
+		m_pxDefPlayer^.m_xOnChange=OnChangeDefPlayer;
+		OnChangeDefPlayer();
+	endproc;
+
+	proc bool OnChangeDefPlayer()
+		var string sDefPlayer=m_pxBaseNode^.GetValueS("DefPlayer");
+		var string sSelPlayer=m_pxDefPlayer^.GetText();
+		if(sDefPlayer!=sSelPlayer)then
+			m_pxBaseNode^.SetValue("DefPlayer",sSelPlayer);
+		endif;
+		return true;
+	endproc;
+
+	proc void InitColor()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		var ^CPropDB.CNode pxBaseNode=^((pxGenericDB^)["Base"]);
+		m_pxDefColor^.m_xOnChange.Clear();
+		m_pxDefColor^.Clear();
+		var int i,iC=8;
+		for(i=0)cond(i<iC)iter(i++)do
+		var ^CCardBitmap pxBmp = CLevelEditorInst.GetBitmapMgr().GetBlendBitmap("0 ,fill TeamCol "+i.ToString()+" 0 20 17");
+		if (pxBmp!=null) then
+			m_pxDefColor^.AddItem(i.ToString(), pxBmp^.GetBitmap());
+		else
+			m_pxDefColor^.AddItem(i.ToString());
+		endif;
+		endfor;
+		var ^CPropDB.CNode pxDefColorNode=m_pxBaseNode^.Get("DefColor");
+		if(pxDefColorNode==null)then
+			pxDefColorNode=^(m_pxBaseNode^.AddValue("DefColor",m_iOwner.ToString()));
+		endif;
+		m_pxDefColor^.SetText(pxDefColorNode^.Value());
+		m_pxDefColor^.m_xOnChange=OnChangeDefColor;
+		OnChangeDefColor();
+	endproc;
+
+	proc bool OnChangeDefColor()
+		var int iDefColor=m_pxBaseNode^.GetValueI("DefColor");
+		var int iSelColor=m_pxDefColor^.GetText().ToInt();
+		if(iDefColor!=iSelColor)then
+			m_pxBaseNode^.SetValue("DefColor",iSelColor.ToString());
+		endif;
+		return true;
+	endproc;
+
+	export proc void InitDiplomacyButtons(array int p_aiOwners)
+		if(m_pxPlayerNode==null) then return; endif;
+		var string sDiplomacyString=m_pxPlayerNode^.GetValueS("Diplomacy");
+		var int i,iC=m_apxDiplomacyButtons.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CDiplomacyButton pxWalk=m_apxDiplomacyButtons[i];
+			pxWalk^.SetVisible(false);
+			pxWalk^.m_xOnChangeState.Clear();
+			var int j;
+			for(j=0)cond(j<p_aiOwners.NumEntries())iter(j++)do
+				if(i==p_aiOwners[j] && i!=m_iOwner)then
+					pxWalk^.SetVisible(true);
+					pxWalk^.m_xOnChangeState=OnClickDiplomacyBtn;
+					var int iState=0;//default feindlich
+					if(sDiplomacyString.GetLength()>i)then
+						var string sState=sDiplomacyString.GetAt(i);
+						iState=sState.ToInt();
+					endif;
+					pxWalk^.SetState(iState);
+				endif;
+			endfor;
+		endfor;
+	endproc;
+
+	proc bool OnChangeName()
+		var string sName=m_pxNameEdit^.GetText();
+		m_pxPlayerNode^.SetValue("PlayerName",sName);
+		return true;
+	endproc;
+	
+	proc bool OnChangeCredits()
+		var int iCredits=m_pxPBSpinCtrl^.GetValueInt();
+		m_pxPlayerNode^.SetValue("SPCredits",iCredits);
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		pxLevelInfo^.GetAttribs().SetValue("credits",iCredits);
+		return true;
+	endproc;
+
+	proc bool OnChangeAiEasy()
+		var int iDefDiff=m_pxBaseNode^.GetValueI("AI_Difficulty_Easy");
+		var int iSelDiff=m_pxAiEasy^.GetValueInt();
+		if(iDefDiff!=iSelDiff)then
+			m_pxBaseNode^.SetValue("AI_Difficulty_Easy",iSelDiff);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnChangeAiMedium()
+		var int iDefDiff=m_pxBaseNode^.GetValueI("AI_Difficulty_Medium");
+		var int iSelDiff=m_pxAiMedium^.GetValueInt();
+		if(iDefDiff!=iSelDiff)then
+			m_pxBaseNode^.SetValue("AI_Difficulty_Medium",iSelDiff);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnChangeAiHard()
+		var int iDefDiff=m_pxBaseNode^.GetValueI("AI_Difficulty_Hard");
+		var int iSelDiff=m_pxAiHard^.GetValueInt();
+		if(iDefDiff!=iSelDiff)then
+			m_pxBaseNode^.SetValue("AI_Difficulty_Hard",iSelDiff);
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnChangeShowStatistics()
+		var int iShowStats=1;
+		if(!m_pxShowStatistics^.GetCheckMark())then
+			iShowStats=0;
+		endif;
+		m_pxBaseNode^.SetValue("ShowStatistics",iShowStats);
+		return true;
+	endproc;
+	
+	proc bool OnChangeIncludeBuildings()
+		var int iValue=1;
+		if(!m_pxIncludeBuildings^.GetCheckMark())then
+			iValue=0;
+		endif;
+		m_pxPlayerNode^.SetValue("IncludeBuildings",iValue);
+		return true;
+	endproc;
+
+	proc void OnClickDiplomacyBtn()
+		var string sDiplomacyString;
+		var int i,iC=m_apxDiplomacyButtons.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sState="1";
+			var ^CDiplomacyButton pxWalk=m_apxDiplomacyButtons[i];
+			if(pxWalk^.GetVisible())then
+				sState=pxWalk^.GetState().ToString();
+			endif;
+			sDiplomacyString+=sState;
+		endfor;
+		m_pxPlayerNode^.SetValue("Diplomacy",sDiplomacyString);
+	endproc;
+
+	proc bool OnSetLimits()
+		var ^CLimitsWindow pxLimitsWindow=new CLimitsWindow(m_pxPlayerNode,m_pxRestrictionsNode,m_iOwner,m_pxTribeView);
+		CClientWrap.GetDesktop()^.AddChild(pxLimitsWindow);
+		CWindowMgr.Get().BringWindowToTop(pxLimitsWindow,true);
+		CWindowMgr.Get().SetModal(pxLimitsWindow);
+		return(true);
+	endproc;
+
+	proc bool OnPointBuy()
+		var ^CPBuyPreset pxTmp=new CPBuyPreset(m_pxPlayerNode,m_pxTribeView);
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		return true;
+	endproc;
+
+	proc bool OnStartLocations()
+		var ^CStartLocationList pxTmp=new CStartLocationList(m_pxPlayerNode,m_iOwner);
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		return true;
+	endproc;
+
+	export proc bool Reset()
+		m_pxNameEdit^.m_xOnChange.Clear();
+		m_pxPBSpinCtrl^.m_xOnChange.Clear();
+		m_pxPyramidLimits^.m_xOnClick.Clear();
+		SetVisible(false);
+		m_pxIDStatic^.SetText("");
+		m_pxNameEdit^.SetText("");
+		m_pxPBSpinCtrl^.SetValue(0);
+		m_pxNameEdit^.m_xOnChange=OnChangeName;
+		m_pxPBSpinCtrl^.m_xOnChange=OnChangeCredits;
+		m_pxPyramidLimits^.m_xOnClick=OnSetLimits;
+		return(true);
+	endproc;
+	
+	export proc bool OnFullReset()
+		m_pxNameEdit^.SetText("Player_"+(m_iOwner+1).ToString());
+		m_pxPBSpinCtrl^.SetValue(0);
+		m_pxDefTeam^.Select(m_iOwner);
+		m_pxDefPlayer^.Select(0);
+		m_pxDefColor^.Select(m_iOwner);
+		m_pxAiEasy^.SetValue(0);
+		m_pxAiMedium^.SetValue(0);
+		m_pxAiHard^.SetValue(0);
+		m_pxIncludeBuildings^.SetChecked(1);
+		m_pxShowStatistics^.SetChecked(1);
+		begin Diplomacy;
+			var int i,iC=m_apxDiplomacyButtons.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CDiplomacyButton pxWalk=m_apxDiplomacyButtons[i];
+				if(i!=m_iOwner)then
+					pxWalk^.SetState(0);
+				else
+					pxWalk^.SetState(1);
+				endif;
+			endfor;
+		end Diplomacy;
+		OnChangeName();
+		OnChangeCredits();
+		OnChangeDefTeam();
+		OnChangeDefPlayer();
+		OnChangeDefColor();
+		OnChangeAiEasy();
+		OnChangeAiMedium();
+		OnChangeAiHard();
+		OnChangeIncludeBuildings();
+		OnChangeShowStatistics();
+		OnClickDiplomacyBtn();
+		begin Misc;
+			if(m_pxPlayerNode!=null)then
+				var ^CPropDB.CNode pxSLNode=m_pxPlayerNode^.Get("StartLocations");
+				if(pxSLNode==null)then
+					pxSLNode=^(m_pxPlayerNode^.AddValue("StartLocations",""));
+				endif;
+				if(pxSLNode!=null)then
+					pxSLNode^.Clear();
+					var CObjQueryCln xOQ;
+					xOQ.SetType("SLOC");
+					var CObjList xStartLocs;
+					xOQ.Execute(xStartLocs);
+					var int i,iC=xStartLocs.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						var ^CObj pxWalk=xStartLocs[i].GetObj();
+						if(pxWalk==null||pxWalk^.GetOwner()!=m_iOwner)then continue; endif;
+						var CGuid xGuid=pxWalk^.GetGuid();
+						pxSLNode^.AddValue(xGuid.ToString(),"");
+					endfor;
+				endif;
+			endif;
+			if(m_pxRestrictionsNode!=null)then
+				if(m_pxBaseNode!=null)then
+					var ^CPropDB.CNode pxTribesNode;
+					pxTribesNode=m_pxBaseNode^.Get("Tribes");
+					if(pxTribesNode==null)then
+						pxTribesNode=^(m_pxBaseNode^.AddValue("Tribes",""));
+					endif;
+					pxTribesNode^.Value()="Hu:Aje:Ninigi:SEAS:";
+					pxTribesNode^.SetValue("Default","Hu");
+					m_pxBaseNode^.SetValue("GfxPrefix","");
+				endif;
+				var ^CPropDB.CNode pxCharsNode=m_pxRestrictionsNode^.Get("Chars");
+				if(pxCharsNode==null)then
+					pxCharsNode=^(m_pxRestrictionsNode^.AddValue("Chars",""));
+				endif;
+				pxCharsNode^.Clear();
+				var ^CPropDB.CNode pxPopNode=pxCharsNode^.Get("Population");
+				if(pxPopNode==null)then
+					pxPopNode=^(pxCharsNode^.AddValue("Population",""));
+				endif;
+				pxPopNode^.SetValue("Min",0);
+				pxPopNode^.SetValue("Max",52);
+				var array int aiLimits;
+				aiLimits.AddEntry(25);
+				aiLimits.AddEntry(15);
+				aiLimits.AddEntry(8);
+				aiLimits.AddEntry(3);
+				aiLimits.AddEntry(1);
+				var int j, jC=5;
+				for(j=0)cond(j<jC)iter(j++)do
+					var ^CPropDB.CNode pxLvl=pxCharsNode^.Get("Level"+(j+1).ToString());
+					if(pxLvl==null)then
+						pxLvl=^(pxCharsNode^.AddValue("Level"+(j+1).ToString(),""));
+					endif;
+					pxLvl^.SetValue("Min",0);
+					pxLvl^.SetValue("Max",aiLimits[j]);
+				endfor;
+				var ^CPropDB.CNode pxItemsNode=m_pxRestrictionsNode^.Get("Items");
+				if(pxItemsNode==null)then
+					pxItemsNode=^(m_pxRestrictionsNode^.AddValue("Items",""));
+				endif;
+				pxItemsNode^.Clear();
+				var ^CPropDB.CNode pxResNode=m_pxRestrictionsNode^.Get("Resources");
+				if(pxResNode==null)then
+					pxResNode=^(m_pxRestrictionsNode^.AddValue("Resources",""));
+				endif;
+				pxResNode^.Clear();
+				pxResNode^.SetValue("food",0);
+				pxResNode^.SetValue("stone",0);
+				pxResNode^.SetValue("wood",0);
+				pxResNode^.SetValue("iron",0);
+				var ^CPropDB.CNode pxTTDefNode=m_pxRestrictionsNode^.Get("TTDef");
+				if(pxTTDefNode==null)then
+					pxTTDefNode=^(m_pxRestrictionsNode^.AddValue("TTDef",""));
+				endif;
+				pxTTDefNode^.Clear();
+				if(CMirageSDKMgr.ms_bLastManStanding)then //LastManStanding
+					pxTTDefNode^.AddValue("/Filters/Aje/Upgrades/xenage/roguemask","");
+					pxTTDefNode^.AddValue("/Filters/Hu/Upgrades/xenage/roguemask","");
+					pxTTDefNode^.AddValue("/Filters/Ninigi/Upgrades/xenage/roguemask","");
+					pxTTDefNode^.AddValue("/Filters/SEAS/Upgrades/xenage/roguemask","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Moves/CHTR/entrench","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Moves/CHTR/entrench","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_amazon_temple","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_bazaar","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_bone_palisade","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_bone_palisade_gate","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_clay_wall","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_clay_wall_gate","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_cook_house","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_floating_harbour","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_gallimimus_nest","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_huge_farm","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_launchpad_zeppelin","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_medium_farm","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_medium_tower","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_portal_terminus","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_rodeo","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_scarecrow","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_slaughterhouse","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_small_farm","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_small_tower","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_temple","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_tent","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_tesla_tower","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_warpgate","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_weapons_builder","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/amazon_temple","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/CHTR/aje_archer_2","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/CHTR/aje_assassin_3","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/CHTR/aje_flamethrower_2","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/CHTR/aje_poisoner_3","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/CHTR/aje_rammer_3","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/CHTR/aje_scythian_2","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/CHTR/aje_shaman_3","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/CHTR/aje_spearman_1","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/CHTR/aje_spearman_2","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/CHTR/aje_spearman_3","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/CHTR/aje_thrower_2","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/CHTR/aje_warrior_2","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/CHTR/aje_worker","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_arena","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_bunker","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_corn_field","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_fireplace","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_goods","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_harbour","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_kennel","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_ladder","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_large_tower","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_launchpad_zeppelin","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_lumberjack_cottage","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_machine_maker","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_magic_cauldron","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_mine","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_palisade","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_palisade_gate","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_portal_terminus","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_re_enforced_wall","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_re_enforced_wall_gate","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_small_animal_farm","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_small_tower","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_small_wall","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_small_wall_gate","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_stone_cottage","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_stone_quarry","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_tavern","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_temple","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_warehouse","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_warpgate","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_weapons_smith","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_animal_farm","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_bamboofarm","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_cauldron","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_defense_skewer","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_defense_skewer_gate","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_dilophosaurus_nest","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_dojo","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_engineer","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_fireplace","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_harbour","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_hunting_lodge","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_launchpad_zeppelin","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_lumbermill","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_minefield","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_paddy","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_palisade","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_palisade_gate","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_pitfall","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_poison_trap","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_portal_terminus","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_resin_field","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_rocket_ramp","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_small_tower","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_smoke_tower","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_snare_trap","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_stone_quarry","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_teahouse","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_telescope_tower","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_telescope_tower_ruins","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_temple","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_warehouse","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_warpgate","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_weapon_maker","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/carrier_launch_pad","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/hcl13_gate","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/hcl13_city_wall","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_barracks","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_big_tent","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_carrier","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_disruptor","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_fence","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_fortress","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_garage","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_gate","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_great_cannon","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_greenhouse","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_headquarters","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_laboratory","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_launchpad_zeppelin","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_mg_nest","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_mine","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_portal_terminus","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_pub","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_outpouring","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_small_cannon","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_small_tent","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_speaker","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_steelwork","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_stygimoloch_nest","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_tesla_machine","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_turret_tower","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_wall","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_wall_gate","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_warpgate","");
+				elseif(CMirageSDKMgr.ms_bHarbour)then
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Aje/Build/BLDG/aje_floating_harbour","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Hu/Build/BLDG/hu_harbour","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_harbour","");
+					pxTTDefNode^.AddValue("/Filters/AntiActions/SEAS/Build/BLDG/seas_carrier","");
+				endif;
+				var ^CPropDB.CNode pxTmp=m_pxPlayerNode^.Get("PointBuyPreset");
+				if(pxTmp==null)then
+					pxTmp=^(m_pxPlayerNode^.AddValue("PointBuyPreset",""));
+				endif;
+				pxTmp^.Clear();
+				var ^CPropDB.CNode pxBlockedSlotsNode=pxTmp^.Get("BlockedSlots");
+				if(pxBlockedSlotsNode==null)then
+					pxBlockedSlotsNode=^(pxTmp^.AddValue("BlockedSlots",""));
+				endif;
+			endif;
+		end Misc;
+		return(true);
+	endproc;
+	
+endclass;
+
+class CLimitsWindow inherit CFrameWindow
+	var ^CTabCtrl				m_pxTabCtrl;
+	var int						m_iOwner;
+
+	export constructor(^CPropDB.CNode p_pxPlayerNode,^CPropDB.CNode p_pxRestrictionsNode,int p_iOwner,^CTribeViewLayoutMgr p_pxTribeView)
+		if(!InitFromResource("options/ViewPlayerInfo","LimitsWindow")) then
+			CLevelEditorWrap.LogError("UI.PlayerInfoSlot","InitFromResource failed");
+			return;
+		endif;
+		m_iOwner=p_iOwner;
+		var ^CPropDB.CNode pxBaseNode=p_pxRestrictionsNode^.Get("Base");
+		if(pxBaseNode==null)then
+			pxBaseNode=^(p_pxRestrictionsNode^.AddValue("Base",""));
+		endif;
+
+		var ^CPropDB.CNode pxCharsNode=p_pxRestrictionsNode^.Get("Chars");
+		if(pxCharsNode==null)then
+			pxCharsNode=^(p_pxRestrictionsNode^.AddValue("Chars",""));
+		endif;
+
+		var ^CPropDB.CNode pxItemsNode=p_pxRestrictionsNode^.Get("Items");
+		if(pxItemsNode==null)then
+			pxItemsNode=^(p_pxRestrictionsNode^.AddValue("Items",""));
+		endif;
+
+		var ^CPropDB.CNode pxResNode=p_pxRestrictionsNode^.Get("Resources");
+		if(pxResNode==null)then
+			pxResNode=^(p_pxRestrictionsNode^.AddValue("Resources",""));
+		endif;
+
+		var ^CPropDB.CNode pxTTDefNode=p_pxRestrictionsNode^.Get("TTDef");
+		if(pxTTDefNode==null)then
+			pxTTDefNode=^(p_pxRestrictionsNode^.AddValue("TTDef",""));
+		endif;
+
+		m_pxTabCtrl=cast<CTabCtrl>(GetControl("TabCtrl"));
+		var ^CLimitsResources pxLimitsRes=new CLimitsResources(pxResNode,pxBaseNode);
+		m_pxTabCtrl^.AddTab(" base ", new CLimitsBase(pxBaseNode,pxLimitsRes,m_iOwner));
+		m_pxTabCtrl^.AddTab(" chars ", new CLimitsChars(p_pxPlayerNode,pxCharsNode,p_pxTribeView));
+		m_pxTabCtrl^.AddTab(" resource ", pxLimitsRes);
+		m_pxTabCtrl^.AddTab(" TechTree Filter ", new CLimitsTechTreeFilter(pxTTDefNode));
+	endconstructor;
+
+	proc bool OnClose()
+		Destroy();
+		return true;
+	endproc;
+
+endclass;
+
+class CLimitsBase inherit CWindow
+	var ^CPropDB.CNode		m_pxBaseNode;
+	var ^CLimitsResources	m_pxLimitsResources;
+	var int 				m_iOwner;
+
+	var ^CPropDB.CNode		m_pxTribesNode;
+	var ^CList 				m_pxAllTribes;
+	var ^CDropList			m_pxDefTribe;
+	var ^CEdit				m_pxGfxPrefix;
+	
+	export constructor(^CPropDB.CNode p_pxBaseNode,^CLimitsResources p_pxLimitsResources,int p_iOwner)
+		if(!InitFromResource("options/ViewPlayerInfo","LimitsBase")) then
+			CLevelEditorWrap.LogError("UI.LimitsBase","InitFromResource failed");
+			return;
+		endif;
+		m_pxBaseNode=p_pxBaseNode;
+		m_pxLimitsResources=p_pxLimitsResources;
+		m_iOwner=p_iOwner;
+		m_pxAllTribes=cast<CList>(GetControl("Tribes/All"));
+		m_pxDefTribe=cast<CDropList>(GetControl("Tribes/Default"));
+		m_pxGfxPrefix=cast<CEdit>(GetControl("GfxPrefix"));
+		m_pxGfxPrefix^.m_xOnChange=OnChangeGfxPrefix;
+
+		InitTribes();
+	endconstructor;
+
+	proc void InitTribes()
+		m_pxAllTribes^.AddItem("Hu");
+		m_pxAllTribes^.AddItem("Aje");
+		m_pxAllTribes^.AddItem("Ninigi");
+		m_pxAllTribes^.AddItem("SEAS");
+
+		m_pxTribesNode=m_pxBaseNode^.Get("Tribes");
+		if(m_pxTribesNode==null)then
+			m_pxTribesNode=^(m_pxBaseNode^.AddValue("Tribes",""));
+		endif;
+
+		m_pxAllTribes^.Select(-1,true);
+		var array string asTribes;
+		m_pxTribesNode^.Value().Split(asTribes,":",true);
+		var int i,iC=asTribes.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sTribe=asTribes[i];
+			var int iIdx=m_pxAllTribes^.FindItem(sTribe);
+			if(iIdx!=-1)then
+				m_pxAllTribes^.Select(iIdx,false);
+				m_pxDefTribe^.AddItem(sTribe);
+			endif;
+		endfor;
+		m_pxAllTribes^.m_xOnSelect=OnSelectTribes;
+		if(asTribes.NumEntries()==0)then
+			iC=m_pxAllTribes^.NumItems();
+			for(i=0)cond(i<iC)iter(i++)do
+				m_pxAllTribes^.Select(i,false);
+			endfor;
+		endif;
+		
+		m_pxGfxPrefix^.SetText(m_pxBaseNode^.GetValueS("GfxPrefix"));
+
+		var string sDefTribe=m_pxBaseNode^.GetValueS("Default");
+		m_pxDefTribe^.SetText(sDefTribe);
+		m_pxDefTribe^.m_xOnChange=OnChangeDefTribe;
+		OnChangeDefTribe();
+	endproc;
+
+	proc bool OnSelectTribes()
+		var string sTribes;
+		m_pxDefTribe^.Clear();
+		m_pxDefTribe^.m_xOnChange.Clear();
+		var int i,iC=m_pxAllTribes^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_pxAllTribes^.IsItemSelected(i))then
+				var string sSelection=m_pxAllTribes^.GetItem(i);
+				sTribes+=sSelection+":";
+				m_pxDefTribe^.AddItem(sSelection);
+			endif;
+		endfor;
+		m_pxTribesNode^.Value()=sTribes;
+		var string sDefTribe=m_pxTribesNode^.GetValueS("Default");
+		m_pxDefTribe^.SetText(sDefTribe);
+		m_pxDefTribe^.m_xOnChange=OnChangeDefTribe;
+		OnChangeDefTribe();
+		return true;
+	endproc;
+
+	proc bool OnChangeDefTribe()
+		var string sDefTribe=m_pxTribesNode^.GetValueS("Default");
+		var string sText=m_pxDefTribe^.GetText();
+		if(sDefTribe!=sText)then
+			m_pxTribesNode^.SetValue("Default",sText);
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnChangeGfxPrefix()
+		var string sGfxPrefix=m_pxGfxPrefix^.GetText();
+		m_pxBaseNode^.SetValue("GfxPrefix",sGfxPrefix);
+		return true;
+	endproc;
+endclass;
+
+class CLimitsChars inherit CWindow
+
+	var ^CTribeViewLayoutMgr	m_pxTribeView;
+	var ^CPropDB.CNode				m_pxBlockedSlotsNode;
+	var ^CPropDB.CNode				m_pxCharsNode;
+	var ^CPropDB.CNode				m_pxHeroesNode;
+	var array ^CDropList			m_apxMinValues;
+	var array ^CDropList			m_apxMaxValues;
+	var ^CSpinCtrlNumber			m_pxPopulationMin;
+	var ^CSpinCtrlNumber			m_pxPopulationMax;
+	
+	export constructor(^CPropDB.CNode p_pxPlayerNode,^CPropDB.CNode p_pxCharsNode,^CTribeViewLayoutMgr p_pxTribeView)
+		if(!InitFromResource("options/ViewPlayerInfo","LimitsChars")) then
+			CLevelEditorWrap.LogError("UI.LimitsChars","InitFromResource failed");
+			return;
+		endif;
+		var ^CPropDB.CNode pxTmp=p_pxPlayerNode^.Get("PointBuyPreset");
+		if(pxTmp==null)then
+			pxTmp=^(p_pxPlayerNode^.AddValue("PointBuyPreset",""));
+		endif;
+		m_pxBlockedSlotsNode=pxTmp^.Get("BlockedSlots");
+		if(m_pxBlockedSlotsNode==null)then
+			m_pxBlockedSlotsNode=^(pxTmp^.AddValue("BlockedSlots",""));
+		endif;
+		m_pxTribeView=p_pxTribeView;
+		m_pxCharsNode=p_pxCharsNode;
+		var int i,iC=5;
+		m_apxMinValues=iC;
+		m_apxMaxValues=iC;
+		for(i=0)cond(i<iC)iter(i++)do
+			m_apxMinValues[i]=cast<CDropList>(GetControl("GroupChars/Min"+(i+1).ToString()));
+		endfor;
+		for(i=0)cond(i<iC)iter(i++)do
+			m_apxMaxValues[i]=cast<CDropList>(GetControl("GroupChars/Max"+(i+1).ToString()));
+		endfor;
+		for(i=0)cond(i<26)iter(i++)do
+			m_apxMinValues[0]^.AddItem(i.ToString());
+		endfor;
+		for(i=0)cond(i<26)iter(i++)do
+			m_apxMaxValues[0]^.AddItem(i.ToString());
+		endfor;
+		for(i=0)cond(i<16)iter(i++)do
+			m_apxMinValues[1]^.AddItem(i.ToString());
+		endfor;
+		for(i=0)cond(i<16)iter(i++)do
+			m_apxMaxValues[1]^.AddItem(i.ToString());
+		endfor;
+		for(i=0)cond(i<9)iter(i++)do
+			m_apxMinValues[2]^.AddItem(i.ToString());
+		endfor;
+		for(i=0)cond(i<9)iter(i++)do
+			m_apxMaxValues[2]^.AddItem(i.ToString());
+		endfor;
+		for(i=0)cond(i<4)iter(i++)do
+			m_apxMinValues[3]^.AddItem(i.ToString());
+		endfor;
+		for(i=0)cond(i<4)iter(i++)do
+			m_apxMaxValues[3]^.AddItem(i.ToString());
+		endfor;
+		for(i=0)cond(i<2)iter(i++)do
+			m_apxMinValues[4]^.AddItem(i.ToString());
+		endfor;
+		for(i=0)cond(i<2)iter(i++)do
+			m_apxMaxValues[4]^.AddItem(i.ToString());
+		endfor;
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sVal;
+			var ^CDropList pxMin=m_apxMinValues[i];
+			var ^CDropList pxMax=m_apxMaxValues[i];
+			var ^CPropDB.CNode pxLevelNode=m_pxCharsNode^.Get("Level"+(i+1).ToString());
+			if(pxLevelNode==null)then
+				pxLevelNode=^(m_pxCharsNode^.AddValue("Level"+(i+1).ToString(),""));
+			endif;
+			var int iMin=pxLevelNode^.GetValueI("Min",0);
+			var int iMax=pxLevelNode^.GetValueI("Max",pxMax^.NumItems()-1);
+			pxMin^.Select(pxMin^.FindItem(iMin.ToString()));
+			pxMax^.Select(pxMax^.FindItem(iMax.ToString()));
+			pxMin^.m_xOnChange=OnChangeLevelMinMax;
+			pxMax^.m_xOnChange=OnChangeLevelMinMax;
+		endfor;
+		m_pxPopulationMin=cast<CSpinCtrlNumber>(GetControl("GroupPopulation/MinValue"));
+		m_pxPopulationMax=cast<CSpinCtrlNumber>(GetControl("GroupPopulation/MaxValue"));
+		var ^CPropDB.CNode pxPopNode=m_pxCharsNode^.Get("Population");
+		var int iPopMin=0;
+		var int iPopMax=52;
+		if(pxPopNode!=null)then
+			iPopMin=pxPopNode^.GetValueI("Min",iPopMin);
+			iPopMax=pxPopNode^.GetValueI("Max",iPopMax);
+		endif;
+		m_pxPopulationMin^.SetValue(iPopMin);
+		m_pxPopulationMax^.SetValue(iPopMax);
+		m_pxPopulationMin^.m_xOnChange=OnChangePopulation;
+		m_pxPopulationMax^.m_xOnChange=OnChangePopulation;
+		//delete obsolete nodes
+		m_pxCharsNode^.Remove("CasteNat");
+		m_pxCharsNode^.Remove("CasteRes");
+		m_pxCharsNode^.Remove("CasteTec");
+	endconstructor;
+
+	proc bool OnChangeLevelMinMax()
+		var int i;
+		for(i=0)cond(i<m_apxMinValues.NumEntries())iter(i++)do
+			var ^CDropList pxWalk=m_apxMinValues[i];
+			var int iVal=pxWalk^.GetSelectedItemAsString().ToInt();
+			var ^CPropDB.CNode pxLevelNode=m_pxCharsNode^.Get("Level"+(i+1).ToString());
+			if(pxLevelNode==null)then
+				pxLevelNode=^(m_pxCharsNode^.AddValue("Level"+(i+1).ToString(),""));
+			endif;
+			pxLevelNode^.SetValue("Min",iVal);
+		endfor;
+		for(i=0)cond(i<m_apxMaxValues.NumEntries())iter(i++)do
+			var ^CDropList pxWalk=m_apxMaxValues[i];
+			var int iVal=pxWalk^.GetSelectedItemAsString().ToInt();
+			var ^CPropDB.CNode pxLevelNode=m_pxCharsNode^.Get("Level"+(i+1).ToString());
+			if(pxLevelNode==null)then
+				pxLevelNode=^(m_pxCharsNode^.AddValue("Level"+(i+1).ToString(),""));
+			endif;
+			pxLevelNode^.SetValue("Max",iVal);
+			pxLevelNode^.SetValue("MaxStart",iVal);
+			var string sBlockedSlots=m_pxBlockedSlotsNode^.Value();
+			var array string asBlockedSlots;
+			m_pxBlockedSlotsNode^.Value().Split(asBlockedSlots,":",true);
+			var ^CTribeViewLayoutMgr.CSingleLevelLayoutInfo pxSLI = ^(m_pxTribeView^.GetSingleLevelLayoutInfo(i));
+			var int j,ijC=pxSLI^.m_iSlotCount;
+			for(j=0)cond(j<ijC)iter(j++)do
+				var int iSlotIdx=pxSLI^.m_iSlotOffset+j;
+				var bool bBlocked=(asBlockedSlots.FindEntry(iSlotIdx.ToString())!=-1);
+				if(j<iVal)then
+					if(bBlocked)then
+						asBlockedSlots.Exclude(iSlotIdx.ToString());
+					endif;
+				else
+					asBlockedSlots.Include(iSlotIdx.ToString());
+				endif;
+			endfor;
+			begin write_blocked_slots;
+				var string sValue;
+				var int i,iC=asBlockedSlots.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					sValue+=asBlockedSlots[i]+":";
+				endfor;
+				m_pxBlockedSlotsNode^.Value()=sValue;
+			end write_blocked_slots;
+		endfor;
+		return true;
+	endproc;
+
+	proc bool OnChangePopulation()
+		var int iPopMin=m_pxPopulationMin^.GetValueInt();
+		var int iPopMax=m_pxPopulationMax^.GetValueInt();
+		var ^CPropDB.CNode pxPopNode=m_pxCharsNode^.Get("Population");
+		if(pxPopNode==null)then
+			pxPopNode=^(m_pxCharsNode^.AddValue("Population",""));
+		endif;
+		pxPopNode^.SetValue("Min",iPopMin);
+		pxPopNode^.SetValue("Max",iPopMax);
+		return true;
+	endproc;
+	
+endclass;
+
+class CLimitsResources inherit CWindow
+
+	var ^CPropDB.CNode		m_pxBaseNode;
+	var ^CPropDB.CNode		m_pxResNode;
+
+	var ^CSpinCtrlNumber	m_pxFood;
+	var ^CSpinCtrlNumber	m_pxWood;
+	var ^CSpinCtrlNumber	m_pxStone;
+	var ^CSpinCtrlNumber	m_pxSkulls;
+
+	export constructor(^CPropDB.CNode p_pxResNode,^CPropDB.CNode p_pxBaseNode)
+		if(!InitFromResource("options/ViewPlayerInfo","LimitsResources")) then
+			CLevelEditorWrap.LogError("UI.LimitsResources","InitFromResource failed");
+			return;
+		endif;
+
+		m_pxResNode=p_pxResNode;
+		m_pxBaseNode=p_pxBaseNode;
+		//m_pxHuRes=m_pxResNode^.Get("Hu");
+		//m_pxHuRes^.GetValueI(sRes)
+
+		var ^CPropDB.CNode pxHuNode=m_pxResNode^.Get("Hu");
+		var int iFood=m_pxResNode^.GetValueI("food");
+		var int iStone=m_pxResNode^.GetValueI("stone");
+		var int iWood=m_pxResNode^.GetValueI("wood");
+		var int iSkulls=m_pxResNode^.GetValueI("iron");
+
+		if(pxHuNode!=null)then
+			iFood=pxHuNode^.GetValueI("food");
+			iStone=pxHuNode^.GetValueI("stone");
+			iWood=pxHuNode^.GetValueI("wood");
+			iSkulls=pxHuNode^.GetValueI("iron");
+		endif;
+		m_pxFood=cast<CSpinCtrlNumber>(GetControl("ResourcesBox/food"));
+		m_pxFood^.SetValue(iFood);
+		m_pxFood^.m_xOnChange=OnChangeValues;
+		m_pxStone=cast<CSpinCtrlNumber>(GetControl("ResourcesBox/stone"));
+		m_pxStone^.SetValue(iStone);
+		m_pxStone^.m_xOnChange=OnChangeValues;
+		m_pxWood=cast<CSpinCtrlNumber>(GetControl("ResourcesBox/wood"));
+		m_pxWood^.SetValue(iWood);
+		m_pxWood^.m_xOnChange=OnChangeValues;
+		m_pxSkulls=cast<CSpinCtrlNumber>(GetControl("ResourcesBox/skulls"));
+		m_pxSkulls^.SetValue(iSkulls);
+		m_pxSkulls^.m_xOnChange=OnChangeValues;
+
+		//delete obsolete nodes
+		m_pxResNode^.Remove("Hu");
+		m_pxResNode^.Remove("Aje");
+		m_pxResNode^.Remove("Ninigi");
+	endconstructor;
+
+	proc bool OnChangeValues()
+		m_pxResNode^.Clear();
+		m_pxResNode^.SetValue("food",m_pxFood^.GetValueInt());
+		m_pxResNode^.SetValue("stone",m_pxStone^.GetValueInt());
+		m_pxResNode^.SetValue("wood",m_pxWood^.GetValueInt());
+		m_pxResNode^.SetValue("iron",m_pxSkulls^.GetValueInt());
+		return true;
+	endproc;
+endclass;
+
+class CLimitsTechTreeFilter inherit CFrameWindow
+
+	var ^CPropDB.CNode			m_pxTTDefNode;
+	var ^CTreeCtrl					m_pxFilter;
+	var ^CButton						m_pxApply,m_pxReset;
+	var CBitmapPtr					m_pxDefBitmap,m_pxSelBitmap;
+
+	export constructor(^CPropDB.CNode p_pxTTDefNode)
+		if(!InitFromResource("options/ViewPlayerInfo","LimitsTechTreeFilter")) then
+			CClientWrap.LogInfo("Error","LimitsTechTreeFilter: InitFromResource failed");
+			return;
+		endif;
+		m_pxTTDefNode=p_pxTTDefNode;
+		m_pxDefBitmap=CBitmapPtr.Create("treedefaultimg.tga");
+		m_pxSelBitmap=CBitmapPtr.Create("check.tga");
+		m_pxFilter=cast<CTreeCtrl>(GetControl("TreeFilter"));
+		m_pxFilter^.m_xOnLBtnDblClick=OnToggleFilter;
+//		m_pxFilter^.AllowMultiSelection(true);
+		m_pxReset=cast<CButton>(GetControl("ButtonReset"));
+		m_pxReset^.m_xOnClick=Reset;
+		Init();
+	endconstructor;
+
+	proc bool Reset()
+		m_pxTTDefNode^.Clear();
+		Init();
+		return true;
+	endproc;
+
+	proc int FindItem(int p_iParent,string p_sText)
+		var int iL,iLC=m_pxFilter^.ItemNumChildren(p_iParent);
+		for(iL=0)cond(iL<iLC)iter(iL++)do
+			var int iIdx=m_pxFilter^.GetChildItem(p_iParent,iL);
+			if(m_pxFilter^.GetItemText(iIdx)==p_sText)then
+				return iIdx;
+			endif;
+		endfor;
+		return 0;
+	endproc;
+
+	proc string GetPath(int p_iItem)
+		var string sPath;
+		while(p_iItem!=0)do
+			sPath=+m_pxFilter^.GetItemText(p_iItem)+sPath;
+			p_iItem=m_pxFilter^.GetParentItem(p_iItem);
+			sPath="/"+sPath;
+		endwhile;
+		return sPath;
+	endproc;
+
+	proc bool OnToggleFilter()
+		var int iSelItem=m_pxFilter^.GetSelectedItem();
+		if(iSelItem==0)then return true; endif;
+		var CBitmapPtr pxBitmap=m_pxDefBitmap;
+		if((m_pxFilter^.ItemNumChildren(iSelItem)==0) && (m_pxFilter^.GetItemBitmap(iSelItem)==m_pxDefBitmap))then
+			pxBitmap=m_pxSelBitmap;
+		endif;
+		m_pxFilter^.SetItemBitmap(iSelItem,pxBitmap);
+		var string sPath=GetPath(iSelItem);
+		if(pxBitmap==m_pxSelBitmap)then
+			m_pxTTDefNode^.AddValue(sPath,"");
+		else
+			m_pxTTDefNode^.Remove(sPath);
+		endif;
+		return true;
+	endproc;
+
+	proc void Init()
+		var array string asData;
+		var int i,iC=m_pxTTDefNode^.NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sFilter=m_pxTTDefNode^.Get(i).Name();
+			if(!sFilter.IsEmpty())then
+				asData.AddEntry(sFilter);
+			endif;
+		endfor;
+		m_pxFilter^.Clear();
+		var ^CTechTreeMgr pxTTMgr=^(CLevelEditorWrap.GetClient().GetTechTreeMgr());
+		iC=pxTTMgr^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sPath=pxTTMgr^.GetFilterPath(i);
+			if(sPath.Find("_RemoveMe")==-1)then
+				var bool bExist=(asData.FindEntry(sPath)!=-1);
+				var array string asParts;
+				sPath.Split(asParts,"/",true);
+				var int iRootIdx=0;
+				var int i,iC=asParts.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var int iWalkIdx=FindItem(iRootIdx,asParts[i]);
+					if(iWalkIdx==0)then
+						var CBitmapPtr pxBmp=m_pxDefBitmap;
+						if(bExist && i==(iC-1))then
+							pxBmp=m_pxSelBitmap;
+						endif;
+						iWalkIdx=m_pxFilter^.AddItem(iRootIdx,asParts[i],pxBmp);
+					endif;
+					iRootIdx=iWalkIdx;
+				endfor;
+			endif;
+		endfor;
+	endproc;
+endclass;
+
+class CPBuyPreset inherit CFrameWindow
+
+	class CPyramid inherit CWindow
+
+		class CCard inherit CStaticCtrlEx
+			var ^CPBuyPreset.CPyramid m_pxOwner;
+			var ^CPropDB.CNode	m_pxPlayerNode;
+			var int 			m_iSlotIdx;
+			var int 			m_iLevel;
+			var ^CPropDB.CNode	m_pxPBPreset;
+			var string 			m_sData;
+			var string 			m_sTribe;
+
+			export constructor(^CPBuyPreset.CPyramid p_pxOwner,^CPropDB.CNode p_pxPlayerNode,string p_sTribe, int p_iSlotIdx,int p_iLevel,^CTribeViewLayoutMgr p_pxTribeView)
+				m_pxOwner=p_pxOwner;
+				m_pxPlayerNode=p_pxPlayerNode;
+				m_iSlotIdx=p_iSlotIdx;
+				m_iLevel=p_iLevel;
+				m_sTribe=p_sTribe;
+				m_sData="Free";
+				if(p_sTribe.IsEmpty())then
+					return;
+				endif;
+				var ^CPropDB.CNode pxTmp=m_pxPlayerNode^.Get("PointBuyPreset");
+				if(pxTmp==null)then
+					pxTmp=^(m_pxPlayerNode^.AddValue("PointBuyPreset",""));
+				endif;
+				m_pxPBPreset=pxTmp^.Get(p_sTribe);
+				if(m_pxPBPreset==null)then
+					m_pxPBPreset=^(pxTmp^.AddValue(p_sTribe,""));
+				endif;
+				begin check_blocked;
+					var bool bBlocked=false;
+					var ^CPropDB.CNode pxBlockedSlotsNode=pxTmp^.Get("BlockedSlots");
+					if(pxBlockedSlotsNode!=null)then
+						var string sBlockedSlots=pxBlockedSlotsNode^.Value();
+						var array string asBlockedSlots;
+						pxBlockedSlotsNode^.Value().Split(asBlockedSlots,":",true);
+						bBlocked=(asBlockedSlots.FindEntry(m_iSlotIdx.ToString())!=-1);
+					endif;
+					if(bBlocked)then
+						SetData("Free");
+						SetText("Blocked");
+						SetDisabled(true);
+						return;
+					endif;
+				end check_blocked;
+				m_sData="Free";
+				var ^CPropDB.CNode pxSlotData=m_pxPBPreset^.Get(m_iSlotIdx.ToString());
+				if(pxSlotData!=null)then
+					m_sData=pxSlotData^.Value();
+					//SetBitmap(m_sData);
+				endif;
+				var ^CPropDB.CNode pxLevelNode=null;
+				var ^CPropDB.CNode pxRestrictions=m_pxPlayerNode^.Get("Restrictions");
+				if(pxRestrictions!=null)then
+					var ^CPropDB.CNode pxChars=pxRestrictions^.Get("Chars");
+					if(pxChars!=null)then
+						pxLevelNode=pxChars^.Get("Level"+(p_iLevel+1).ToString());
+					endif;
+				endif;
+	/*
+				if(pxLevelNode!=null)then
+					var int iMax=pxLevelNode^.GetValueI("Max");
+					var ^CTribeViewLayoutMgr.CSingleLevelLayoutInfo pxSLI = ^(p_pxTribeView^.GetSingleLevelLayoutInfo(p_iLevel));
+					if((m_iSlotIdx-pxSLI^.m_iSlotOffset)>=iMax)then
+						SetDisabled(true);
+						SetData("Blocked");
+					endif;
+				endif;
+	*/
+				InvalidateContent();
+			endconstructor;
+
+			export proc int GetLevel()
+				return m_iLevel;
+			endproc;
+
+			export proc int GetSlotIdx()
+				return m_iSlotIdx;
+			endproc;
+			
+			proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+				var string sClass=p_rxEvt.GetClass().ToString();
+				if(sClass=="sMRDown")then
+					OpenContextMenu();
+					return true;
+				elseif(sClass=="sCtxBtnC")then
+					var int iID=p_rxEvt.GetInt16A();
+					var string sData="Free";
+					if(iID==-1)then//Free
+						sData="Free";
+					elseif(iID==-2)then//"Blocked"
+						sData="Blocked";
+					else			
+						if(m_pxOwner^.m_axUnitInfoData.NumEntries()>iID)then
+							var ^CPBuyPreset.CPyramid.CUnitInfo pxUnitInfo=^(m_pxOwner^.m_axUnitInfoData[iID]);
+							sData=pxUnitInfo^.m_sUnit;
+						endif;
+					endif;
+					SetData(sData);
+				endif;
+				return super.HandleMessage(p_rxEvt);
+			endproc;
+			
+			proc void OpenContextMenu()
+				var ^CContextMenu pxMenu=new CContextMenu(GetSHWND());
+				pxMenu^.AddItem("Free",-1);
+				pxMenu^.AddItem("Blocked",-2);
+				var int i,iC=m_pxOwner^.m_axUnitInfoData.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CPBuyPreset.CPyramid.CUnitInfo pxWalk=^(m_pxOwner^.m_axUnitInfoData[i]);
+					if(pxWalk^.m_iMinLevel<=(m_iLevel+1))then
+						pxMenu^.AddItem(pxWalk^.m_sUnit,i);
+					endif;
+				endfor;
+				pxMenu^.Show();
+			endproc;
+
+			export proc void SetData(string p_sData)
+				m_sData=p_sData;
+				InvalidateContent();
+				if(p_sData=="Free")then
+					m_pxPBPreset^.Remove(m_iSlotIdx.ToString());
+					//SetText("");
+					return;
+				endif;
+				m_pxPBPreset^.SetValue(m_iSlotIdx.ToString(),p_sData);
+				//SetBitmap(p_sData);
+			endproc;
+			
+			proc void OnUpdateContent()
+				super.OnUpdateContent();
+				var string sBitmap = m_iLevel.ToString()+",layer info_crdframe_clear";
+				if(m_sData!="Free")then
+					if(m_sData=="Blocked")then
+						sBitmap+=", layer closed_perm";
+					else
+						sBitmap+=", layer "+m_sData;
+					endif;
+				endif
+				var ^CCardBitmap pxBmp = CLevelEditorInst.GetBitmapMgr().GetBlendBitmap(sBitmap);
+				super.SetBitmap(pxBmp^.GetBitmap());
+			endproc;
+
+			export proc string GetData()
+				return m_sData;
+			endproc;
+			/*
+			proc void SetBitmap(string p_sData)
+				if(p_sData=="Blocked")then
+					SetText("X");
+					SetDisabled(true);
+					return;
+				endif;
+				p_sData.MakeLower();
+				if(p_sData.Right(3)=="_s0")then
+					p_sData=p_sData.Left(p_sData.GetLength()-3);
+				endif;
+
+				var string sChar;
+				if(p_sData.Left(3)=="hu_")then
+					sChar = ", layer "+p_sData;
+				elseif(p_sData.Left(4)=="aje_")then
+					sChar = ", layer "+p_sData;
+				elseif(p_sData.Left(7)=="ninigi_")then
+					sChar = ", layer "+p_sData;
+				elseif(p_sData.Left(5)=="seas_")then
+					sChar = ", layer "+p_sData;
+				else
+					//sChar = ", layer "+p_sData+"_std";
+					sChar = ", layer "+p_sData;
+				endif;
+				//var string sBitmap = m_iLevel.ToString()+",layer crdbg_std"+sChar;
+				var string sBitmap = m_iLevel.ToString()+sChar;
+				//var string sBitmap="6, layer ptr_"+sClass+"_"+iLevel.ToString();
+				var ^CCardBitmap pxBmp = CLevelEditorInst.GetBitmapMgr().GetBlendBitmap(sBitmap);
+				super.SetBitmap(pxBmp^.GetBitmap());
+			endproc;
+			*/
+
+		endclass;
+	
+		class CUnitInfo
+			export var string m_sUnit;
+			export var int m_iMinLevel;
+		endclass;
+
+		var ^CTribeViewLayoutMgr 	m_pxTribeView;
+		var array ^CCard			m_apxCards;
+		export var array CUnitInfo	m_axUnitInfoData;
+		
+		export proc void Init(^CPropDB.CNode p_pxPlayerNode,string p_sTribe,^CTribeViewLayoutMgr p_pxTribeView)
+			//SetStyle(WS_Border|WS_Caption|WS_CloseButton);
+			DeleteAllChildren();
+			m_apxCards=0;
+			m_pxTribeView=p_pxTribeView;
+			m_pxTribeView^.SetModeSmall();
+			var int i, iC = m_pxTribeView^.TotalSlotCount();
+			m_apxCards = iC;
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CTribeViewLayoutMgr.CSlotInfo pxSlotInfo = m_pxTribeView^.GetSlotInfo(i);
+				if(pxSlotInfo!=null)then
+					var ^CCard pxButton = new CCard(this,p_pxPlayerNode,p_sTribe,i,m_pxTribeView^.SlotIndex2Level(i),m_pxTribeView);
+					m_apxCards[i] = pxButton;
+					AddChild(pxButton);
+					pxSlotInfo^.SetWindow(pxButton);
+				endif;
+			endfor;
+			m_pxTribeView^.RecalcLayout();
+			m_pxTribeView^.Tick();
+			SetSize(m_pxTribeView^.m_xCurSize.GetX()+15,m_pxTribeView^.m_xCurSize.GetY()+30);
+			//SetClientAreaSize(m_pxTribeView^.m_xCurSize);
+			begin fill_unitinfodata;
+				m_axUnitInfoData=0;
+				var CPropDB xPBDB;
+				var string sPath=CClientWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/Settings/NewPointBuyCosts.txt";
+				if(!xPBDB.Load(sPath))then
+					KLog.LogError("CAvailableUnitsCtrl","load faild: '"+sPath+"'");
+					return;
+				endif;
+				var CTechTree xTechTree;
+				var CTechTreeDef xTTDef;
+				xTechTree=CTechTreeMgr.Get().GetTechTree(xTTDef);
+				FillUnitInfoDataSub(xTechTree.FindNode("/Objects/"+p_sTribe+"/CHTR"),xPBDB["Units/"+p_sTribe+"/Character"]);
+				FillUnitInfoDataSub(xTechTree.FindNode("/Objects/"+p_sTribe+"/ANML"),xPBDB["Units/"+p_sTribe+"/Animals"]);
+				FillUnitInfoDataSub(xTechTree.FindNode("/Objects/"+p_sTribe+"/VHCL"),xPBDB["Units/"+p_sTribe+"/Vehicles"]);
+				FillUnitInfoDataSub(xTechTree.FindNode("/Objects/Special/CHTR"),xPBDB["Units/Heroes"]);
+			end fill_unitinfodata;
+		endproc;
+		
+		proc void FillUnitInfoDataSub(^CTechTree.CNode p_pxTTNode,ref CPropDB.CNode p_rxDBNode)
+			if(p_pxTTNode==null)then return; endif;
+			var int i,iC=p_rxDBNode.NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				var string sUnitName=p_rxDBNode.Get(i).Name();
+				var ^CTechTree.CNode pxWalk=p_pxTTNode^.GetSub(sUnitName);
+				if(pxWalk==null)then continue; endif;
+				var ^CUnitInfo pxNew=^(m_axUnitInfoData.NewEntryRef());
+//				if(sUnitName=="baryonyx_captain")then
+//					sUnitName="Miyagi_s0";
+//				endif;
+				pxNew^.m_sUnit=sUnitName;
+				pxNew^.m_iMinLevel=pxWalk^.GetSubValueI("captainlevel");
+			endfor;
+		endproc;
+		
+		export proc void Clear()
+			var int i,iC=m_apxCards.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CCard pxWalk=m_apxCards[i];
+				pxWalk^.SetData("Free");
+			endfor;
+		endproc;
+		
+	endclass;
+
+	export constructor(^CPropDB.CNode p_pxPlayerNode,^CTribeViewLayoutMgr p_pxTribeView)
+		if(!InitFromResource("options/ViewPlayerInfo","PointBuyPreset")) then
+			CClientWrap.LogInfo("Error","PointBuyPreset: InitFromResource failed");
+			return;
+		endif;
+		m_pxTribeView=p_pxTribeView;
+		m_pxPlayerNode=p_pxPlayerNode;
+		var array string asTribes;
+		var string sDefTribe;
+		var ^CPropDB.CNode pxRestrictions=p_pxPlayerNode^.Get("Restrictions");
+		if(pxRestrictions!=null)then
+			var ^CPropDB.CNode pxBase=pxRestrictions^.Get("Base");
+			if(pxBase!=null)then
+				var ^CPropDB.CNode pxTribes=pxBase^.Get("Tribes");
+				if(pxTribes!=null)then
+					var string sAllTribes=pxTribes^.Value();
+					sAllTribes.Split(asTribes,":",true);
+					sDefTribe=pxTribes^.GetValueS("Default");
+					if(sDefTribe.IsEmpty() && asTribes.NumEntries()>0)then
+						sDefTribe=asTribes[0];
+					endif;
+				endif;
+			endif;
+		endif;
+		m_pxTribeList=cast<CDropList>(GetControl("Tribes"));
+		m_pxClearBtn=cast<CButton>(GetControl("ClearBtn"));
+		m_pxPyramid=cast<CPyramid>(GetControl("Pyramid"));
+		m_pxAvailableUnitsCtrl=cast<CAvailableUnitsCtrl>(GetControl("GroupBox/AvailableUnitsCtrl"));
+		var ^CStaticCtrlEx pxFoodIcon=cast<CStaticCtrlEx>(GetControl("FoodIcon"));
+		var ^CStaticCtrlEx pxWoodIcon=cast<CStaticCtrlEx>(GetControl("WoodIcon"));
+		var ^CStaticCtrlEx pxStoneIcon=cast<CStaticCtrlEx>(GetControl("StoneIcon"));	
+		var ^CCardBitmap pxBmp = CLevelEditorInst.GetBitmapMgr().GetBlendBitmap("24,layer resicon_food");
+		if(pxBmp!=null)then
+			pxFoodIcon^.SetBitmap(pxBmp^.GetBitmap());
+		endif;
+		pxBmp = CLevelEditorInst.GetBitmapMgr().GetBlendBitmap("24,layer resicon_wood");
+		if(pxBmp!=null)then
+			pxWoodIcon^.SetBitmap(pxBmp^.GetBitmap());
+		endif;
+		pxBmp = CLevelEditorInst.GetBitmapMgr().GetBlendBitmap("24,layer resicon_stone");
+		if(pxBmp!=null)then
+			pxStoneIcon^.SetBitmap(pxBmp^.GetBitmap());
+		endif;
+		var ^CPropDB.CNode pxResNode=^(p_pxPlayerNode^.FindNode("Restrictions/Resources",true));
+		
+		m_pxFood=cast<CSpinCtrlNumber>(GetControl("Food"));
+		m_pxFood^.SetValue(pxResNode^.GetValueI("food"));
+		m_pxFood^.m_xOnChange=OnChangeResValues;
+		m_pxWood=cast<CSpinCtrlNumber>(GetControl("Wood"));
+		m_pxWood^.SetValue(pxResNode^.GetValueI("wood"));
+		m_pxWood^.m_xOnChange=OnChangeResValues;
+		m_pxStone=cast<CSpinCtrlNumber>(GetControl("Stone"));
+		m_pxStone^.SetValue(pxResNode^.GetValueI("stone"));
+		m_pxStone^.m_xOnChange=OnChangeResValues;
+		CWindowMgr.Get().SetModal(this);
+		if(asTribes.NumEntries()==0)then
+			m_pxPyramid^.SetDisabled(true);
+			m_pxClearBtn^.SetDisabled(true);
+			m_pxTribeList^.SetDisabled(true);
+			return;
+		endif;
+		var int i,iC=asTribes.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_pxTribeList^.AddItem(asTribes[i]);
+		endfor;
+		m_pxTribeList^.SetText(sDefTribe);
+		m_pxClearBtn^.m_xOnClick=OnClear;
+		m_pxTribeList^.m_xOnChange=OnChangeTribe;
+		OnChangeTribe();
+	endconstructor;
+
+	export destructor()
+		CWindowMgr.Get().ReleaseModal(this);
+	enddestructor;
+
+	proc bool OnClear()
+		m_pxPyramid^.Clear();
+		return true;
+	endproc;
+
+	proc bool OnChangeTribe()
+		var string sTribe=m_pxTribeList^.GetText();
+		m_pxPyramid^.Init(m_pxPlayerNode,sTribe,m_pxTribeView);
+		m_pxAvailableUnitsCtrl^.Init(m_pxPlayerNode^.Get("Restrictions"),sTribe);
+		return true;
+	endproc;
+	
+	proc bool OnChangeResValues()
+		var ^CPropDB.CNode pxResNode=^(m_pxPlayerNode^.FindNode("Restrictions/Resources",true));
+		pxResNode^.SetValue("food",m_pxFood^.GetValueInt());
+		pxResNode^.SetValue("wood",m_pxWood^.GetValueInt());
+		pxResNode^.SetValue("stone",m_pxStone^.GetValueInt());
+		return true;
+	endproc;
+
+	var ^CDropList m_pxTribeList;
+	var ^CButton m_pxClearBtn;
+	var ^CSpinCtrlNumber	m_pxFood;
+	var ^CSpinCtrlNumber	m_pxWood;
+	var ^CSpinCtrlNumber	m_pxStone;
+	var ^CPyramid	m_pxPyramid;
+	var ^CPropDB.CNode m_pxPlayerNode;
+	var ^CTribeViewLayoutMgr m_pxTribeView;
+	var ^CAvailableUnitsCtrl	m_pxAvailableUnitsCtrl;
+endclass;
+
+class CAvailableUnitsCtrl inherit CTabCtrl
+	var ^CPropDB.CNode m_pxRestrictions;
+	var string m_sTribe;
+	
+	var ^CList m_pxInfantry;
+	var ^CList m_pxCavalry;
+	var ^CList m_pxHeroes;
+	
+	class CAUItemData inherit CItemData
+		export var string m_sName;
+		
+		export constructor(string p_sName)
+			m_sName=p_sName;
+		endconstructor;
+	endclass;
+	
+	export constructor()
+	endconstructor;
+	
+	export destructor()
+		ClearList(m_pxInfantry);
+		ClearList(m_pxCavalry);
+		ClearList(m_pxHeroes);
+	enddestructor;
+	
+	export proc void Init(^CPropDB.CNode p_pxRestrictions,string p_sTribe)
+		RemoveAllTabs();
+		m_pxRestrictions=p_pxRestrictions;
+		m_sTribe=p_sTribe;		
+		m_pxInfantry=new CList();
+		m_pxInfantry^.AllowMultiSelection(true);
+		m_pxCavalry=new CList();
+		m_pxCavalry^.AllowMultiSelection(true);
+		m_pxHeroes=new CList();
+		m_pxHeroes^.AllowMultiSelection(true);
+		
+		var CPropDB xPBDB;
+		var string sPath=CClientWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/Settings/NewPointBuyCosts.txt";
+		if(!xPBDB.Load(sPath))then
+			KLog.LogError("CAvailableUnitsCtrl","load faild: '"+sPath+"'");
+			return;
+		endif;
+		var CTechTree xTechTree;
+		var CTechTreeDef xTTDef;
+		xTechTree=CTechTreeMgr.Get().GetTechTree(xTTDef);
+		
+		FillList(m_pxInfantry,xPBDB["Units/"+m_sTribe+"/Character"],xTechTree.FindNode("/Objects/"+m_sTribe+"/CHTR"));
+		FillList(m_pxCavalry,xPBDB["Units/"+m_sTribe+"/Animals"],xTechTree.FindNode("/Objects/"+m_sTribe+"/ANML"));
+		FillList(m_pxCavalry,xPBDB["Units/"+m_sTribe+"/Vehicles"],xTechTree.FindNode("/Objects/"+m_sTribe+"/VHCL"));
+		FillList(m_pxHeroes,xPBDB["Units/Heroes"],xTechTree.FindNode("/Objects/Special/CHTR"));
+		
+		var ^CPropDB.CNode pxChars=m_pxRestrictions^.FindNode("Chars",true);
+		System.Assert(pxChars!=null);
+		if(pxChars^.GetValueI("Version")==0)then
+			pxChars^.Clear();
+		endif;
+		pxChars^.SetValue("Version",1);
+		
+		InitSelection(m_pxInfantry,m_pxRestrictions^.FindNode("Chars/Infantry/"+m_sTribe,true));
+		InitSelection(m_pxCavalry,m_pxRestrictions^.FindNode("Chars/Cavalry/"+m_sTribe,true));
+		InitSelection(m_pxHeroes,m_pxRestrictions^.FindNode("Chars/Heroes/"+m_sTribe,true));
+		
+		m_pxInfantry^.m_xOnSelect=OnChangeSelection;
+		m_pxCavalry^.m_xOnSelect=OnChangeSelection;
+		m_pxHeroes^.m_xOnSelect=OnChangeSelection;
+		
+		AddTab("Infantry",m_pxInfantry);
+		AddTab("Cavalry",m_pxCavalry);
+		AddTab("Heroes",m_pxHeroes);
+	endproc;
+	
+	proc void ClearList(^CList p_pxList)
+		if(p_pxList==null)then return; endif;
+		p_pxList^.m_xOnSelect.Clear();
+		var int i,iC=p_pxList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			delete p_pxList^.GetItemData(i);
+		endfor;
+		p_pxList^.Clear();
+	endproc;
+	
+	proc void FillList(^CList p_pxList,ref CPropDB.CNode p_rxPBTable,^CTechTree.CNode p_pxTechTreeNode)
+		if(p_pxTechTreeNode==null)then 
+			return; 
+		endif;
+		var int i,iC=p_rxPBTable.NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPropDB.CNode pxWalkNode=^(p_rxPBTable.Get(i));
+			var string sName=pxWalkNode^.Name();
+			var ^CTechTree.CNode pxTTNode=p_pxTechTreeNode^.GetSub(sName);
+			if(pxTTNode==null)then
+				continue; 
+			endif;
+			var string sIcon=pxTTNode^.GetSubValue("description");
+			sIcon.Delete(0);//delete '_' prefix
+			var string sLayerPath="0, layer "+sIcon+", layer card_frame";
+			var CBitmapPtr pxIcon=CClientWrap.GetBitmapMgr().GetBlendBitmap(sLayerPath)^.GetBitmap();
+//			if(sName=="baryonyx_captain")then
+//				sName="Miyagi_s0";
+//			endif;
+			var int iIdx=p_pxList^.AddItem(sName,new CAUItemData(sName));
+			p_pxList^.SetItemBitmap(iIdx,pxIcon);
+		endfor;
+	endproc;
+	
+	proc void InitSelection(^CList p_pxList,^CPropDB.CNode p_pxAvailableUnitsNode)
+		if(p_pxAvailableUnitsNode==null)then
+			return; 
+		endif;
+		p_pxList^.Select(-1);
+		var int i,iC=p_pxList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAUItemData pxItemData=cast<CAUItemData>(p_pxList^.GetItemData(i));
+			if(pxItemData==null)then continue; endif;
+			if(p_pxAvailableUnitsNode^.Get(pxItemData^.m_sName)!=null)then
+				p_pxList^.Select(i,false);
+			endif;
+		endfor;
+	endproc;
+	
+	proc bool OnChangeSelection()
+		var ^CPropDB.CNode pxInfantry=m_pxRestrictions^.FindNode("Chars/Infantry/"+m_sTribe,true);
+		System.Assert(pxInfantry!=null);
+		var ^CPropDB.CNode pxCavalry=m_pxRestrictions^.FindNode("Chars/Cavalry/"+m_sTribe,true);
+		System.Assert(pxCavalry!=null);
+		var ^CPropDB.CNode pxHeroes=m_pxRestrictions^.FindNode("Chars/Heroes/"+m_sTribe,true);
+		System.Assert(pxHeroes!=null);
+		pxInfantry^.Clear();
+		var int i,iC=m_pxInfantry^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_pxInfantry^.IsItemSelected(i))then continue; endif;
+			var ^CAUItemData pxItemData=cast<CAUItemData>(m_pxInfantry^.GetItemData(i));
+			pxInfantry^.AddValue(pxItemData^.m_sName,"");
+		endfor;
+		pxCavalry^.Clear();
+		iC=m_pxCavalry^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_pxCavalry^.IsItemSelected(i))then continue; endif;
+			var ^CAUItemData pxItemData=cast<CAUItemData>(m_pxCavalry^.GetItemData(i));
+			pxCavalry^.AddValue(pxItemData^.m_sName,"");
+		endfor;
+		pxHeroes^.Clear();
+		iC=m_pxHeroes^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_pxHeroes^.IsItemSelected(i))then continue; endif;
+			var ^CAUItemData pxItemData=cast<CAUItemData>(m_pxHeroes^.GetItemData(i));
+			pxHeroes^.AddValue(pxItemData^.m_sName,"");
+		endfor;
+		return true;
+	endproc;
+	
+endclass;
+
+class CStartLocationList inherit CWindow
+	
+	var ^CButton m_pxCloseButton;
+	var ^CList m_pxSLList;
+	var ^CPropDB.CNode m_pxSLNode;
+	var int m_iOwner;
+
+	class CListItemData inherit CItemData
+		var CGuid m_xObjGuid;
+
+		export constructor(CGuid p_xObjGuid)
+			m_xObjGuid=p_xObjGuid;
+		endconstructor;
+
+		export proc CGuid GetData()
+			return m_xObjGuid;
+		endproc;
+	endclass;
+
+	export constructor(^CPropDB.CNode p_pxPlayerNode, int p_iOwner)
+		if(!InitFromResource("options/ViewPlayerInfo","StartLocationList")) then
+			CClientWrap.LogInfo("Error","StartLocationList: InitFromResource failed");
+			return;
+		endif;
+		m_iOwner=p_iOwner;
+		var ^CDesktop pxDesktop=CClientWrap.GetDesktop();
+		var point xPos=CWindowMgr.Get().GetMousePos();
+		var int iBottom=(xPos.GetY()+GetHeight());
+		if(iBottom>pxDesktop^.GetHeight())then
+			xPos.SetY(xPos.GetY()-(iBottom-pxDesktop^.GetHeight()));
+			if(xPos.GetY()<0)then xPos.SetY(0);endif;
+		endif;
+		SetPos(xPos);
+		m_pxCloseButton=cast<CButton>(GetControl("CloseBtn"));
+		m_pxCloseButton^.m_xOnClick=OnClose;
+		m_pxSLList=cast<CList>(GetControl("SLList"));
+		//m_pxCloseButton^.m_xOnClick=OnClose;
+		m_pxSLNode=p_pxPlayerNode^.Get("StartLocations");
+		if(m_pxSLNode==null)then
+			m_pxSLNode=^(p_pxPlayerNode^.AddValue("StartLocations",""));
+		endif;
+		var CObjQueryCln xOQ;
+		xOQ.SetType("SLOC");
+		var CObjList xStartLocs;
+		xOQ.Execute(xStartLocs);
+		var int i,iC=xStartLocs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CObj pxWalk=xStartLocs[i].GetObj();
+			if(pxWalk==null)then continue; endif;
+			var int iItem=m_pxSLList^.AddItem(pxWalk^.GetName());
+			m_pxSLList^.SetItemData(iItem, new CListItemData(pxWalk^.GetGuid()));
+		endfor;
+		m_pxSLList^.QSort();
+		m_pxSLList^.Select(-1,true);
+		iC=m_pxSLNode^.NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CGuid xSLGuid;
+			xSLGuid.FromString(m_pxSLNode^.Get(i).Name());
+			var int iIndex=-1;
+			var int j,ijC=m_pxSLList^.NumItems();
+			for(j=0)cond(j<ijC)iter(j++)do
+				var ^CListItemData pxData=cast<CListItemData>(m_pxSLList^.GetItemData(j));
+				if(pxData^.GetData()==xSLGuid)then
+					iIndex=j;
+					break;
+				endif;
+			endfor;
+			if(iIndex==-1)then
+				m_pxSLNode^.Remove(i);
+				iC--;
+				i--;
+				continue;
+			endif;
+			m_pxSLList^.Select(iIndex,false);
+		endfor;
+		m_pxSLList^.m_xOnSelect=OnSelectStartLocation;
+		CWindowMgr.Get().SetModal(this);
+	endconstructor;
+
+	export destructor()
+		var int i,iC=m_pxSLList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CListItemData pxData=cast<CListItemData>(m_pxSLList^.GetItemData(i));
+			delete pxData;
+		endfor;
+		CWindowMgr.Get().ReleaseModal(this);
+	enddestructor;
+
+	proc bool OnClose()
+		Destroy();
+		return true;
+	endproc;
+
+	proc bool OnSelectStartLocation()
+		m_pxSLNode^.Clear();
+		var int i,iC=m_pxSLList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_pxSLList^.IsItemSelected(i))then
+				var ^CListItemData pxData=cast<CListItemData>(m_pxSLList^.GetItemData(i));
+				var CGuid xGuid=pxData^.GetData();
+				//var string sSelection=m_pxSLList^.GetItem(i);
+				m_pxSLNode^.AddValue(xGuid.ToString(),"");
+//				var ^CObj pxObj = CClientWrap.GetObjMgr().GetObj(xGuid);
+//				if(pxObj!=null)then
+//					CEvt_SetOwner.Send(xGuid,m_iOwner);
+//				endif;
+			endif;
+		endfor;
+		return true;
+	endproc;
+
+endclass;

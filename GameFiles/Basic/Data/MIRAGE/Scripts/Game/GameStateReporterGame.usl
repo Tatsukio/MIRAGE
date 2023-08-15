@@ -1,0 +1,166 @@
+// USL Class file for the Discord rich presence state integration for MIRAGE - Game only
+// Version 1 - 2022-12-30
+//
+// Usage:
+// CGameStateReporterGame.CheckState();
+
+class CGameStateReporterGame
+
+	export static proc void CheckState()
+		var int iState = CUIStateMgr.Get().GetState();
+
+		if(iState==0 || iState==2 || iState==25) then
+			CGameStateReporter.SetState("In mainmenu");
+		elseif(TrySetPlayingState(iState))then
+			//Nothing
+		elseif(iState==1 || iState==14 || iState==29 || iState==30)then
+			CGameStateReporter.SetState("Loading game...");
+		elseif(iState==26)then
+			CGameStateReporter.SetState("Reloading game...");
+		elseif (iState==4 || iState==11) then
+			CGameStateReporter.SetState("Watching credits");
+		elseif (iState==5) then
+			CGameStateReporter.SetState("Changing options");
+		elseif (iState==6) then
+			CGameStateReporter.SetState("In singleplayer menu");
+		elseif (iState==7 || iState==8) then
+			CGameStateReporter.SetState("Loading campaign");
+		elseif (iState==9) then
+			CGameStateReporter.SetState("Watching statistics");
+		elseif (iState==10) then
+			CGameStateReporter.SetState("Watching menu");
+		elseif (iState==15) then
+			CGameStateReporter.SetState("Selecting multiplayer type");
+		elseif (iState==16) then
+			CGameStateReporter.SetState("Joining via IP");
+		elseif (iState==17) then
+			CGameStateReporter.SetState("Hosting via IP");
+		elseif (iState==18 || iState==19 || iState==23 || iState==24) then
+			CGameStateReporter.SetState("Creating lobby");
+		elseif (iState==20) then
+			CGameStateReporter.SetState("Watching army set");
+		elseif (iState==21) then
+			CGameStateReporter.SetState("Hosting direct server");
+		elseif (iState==22) then
+			CGameStateReporter.SetState("Saving game");
+		elseif (iState==27) then
+			CGameStateReporter.SetState("Connecting to a server");
+		elseif (iState==28) then
+			CGameStateReporter.SetState("Lost connection");
+		elseif (iState==31) then
+			CGameStateReporter.SetState("Reading help");
+		elseif (iState==32) then
+			CGameStateReporter.SetState("Spectator");
+		else
+			KLog.LogError("CGameStateReporter","Unknown state = " + iState.ToString());
+			CGameStateReporter.SetState("In mainmenu");
+		endif;
+	endproc;
+	
+	static proc bool TrySetPlayingState(int p_iState)
+		var ^CLevelInfo pxLevelInfo;
+		
+		if(p_iState == 18 || p_iState == 24)then
+			//In lobby
+			pxLevelInfo = ^(CGameWrap.GetClient().GetLevelPreview());
+		else
+			pxLevelInfo =^(CGameWrap.GetClient().GetLevelInfo());
+		endif;
+			
+		if(pxLevelInfo==null || pxLevelInfo^.GetAttribs().NumEntries()==0)then
+			return false;
+		endif;
+		
+		var CGameStateMapInfo xMapInfo;
+
+		var ^CPropDB pxGenericData=^(pxLevelInfo^.GetGenericData());
+		var string sLevelName=(pxGenericData^)["Base/LevelName"].Value();
+		var string sTribe="";
+		xMapInfo.m_sName = CLocalizer.Get().Translate(sLevelName);
+		xMapInfo.m_sSetting = pxLevelInfo^.GetLevelSetting();
+		var bool bReplay = !CGameWrap.GetClient().HasValidPlayerSlot();
+
+		var string sServer="";
+		var string sGameMode;
+		var int iGameType = CGameWrap.GetGame().GetType();
+		switch(iGameType)
+			case(0)do sGameMode = "Deathmatch"; endcase;
+			case(1)do sGameMode = "Domination"; endcase;
+			case(2)do sGameMode = "Defender"; endcase;
+			case default do sGameMode="?"; endcase;
+		endswitch;
+		
+		var string sAdditionalInfo = GetAdditionalInfo(p_iState);
+		
+		if(bReplay || pxLevelInfo^.GetLevelCheckSumme() == "")then
+			// in replays don't send the replay file name
+			xMapInfo.m_sFilename = sLevelName;
+			sTribe=CGameWrap.GetClient().GetPlayer().GetPlayerSlot()^.GetTribe();
+			CGameStateReporter.SetState("Watching replay", sAdditionalInfo, sTribe, xMapInfo, sGameMode, sServer, 1, 1);
+		else
+			sTribe=pxLevelInfo^.GetPlayerSlot(CGameWrap.GetClient().GetPlayerSlotID()).GetTribe();
+			var ^CGame pxGame=^(CGameWrap.GetGame());
+			// yes, the "CheckSum" is just the filename of the level - great naming guys!
+			xMapInfo.m_sFilename = pxLevelInfo^.GetLevelCheckSumme();
+			
+			var bool bMultiplayer = pxLevelInfo^.IsMultiplayer();
+
+			var int iMaxPlayers=pxLevelInfo^.GetNumPlayers();
+			var int iNumPlayers = iMaxPlayers;
+			var int iIter=0;
+			var CPlayerSlotID xIter;
+			for(xIter=CPlayerSlotID.First())cond(xIter<=CPlayerSlotID.Last())iter(xIter.Incr())do
+				if(iIter>=iMaxPlayers)then break; endif;
+				iIter++;
+				var ^CLevelInfo.CPlayerSlot pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(xIter));
+				if(pxPlayerSlot^.IsFree())then
+					iNumPlayers--;
+				endif;
+			endfor;
+			
+			if(bMultiplayer && !CMultiPlayerClientMgr.Get().GetSkirmishMode())then
+				if(pxGame^.GetAttrib("mirage_ip")!="")then
+					//Get server public ip if exist
+					sServer=pxGame^.GetAttrib("mirage_ip");
+				else
+					//Get server local ip
+					sServer=pxGame^.GetServerIP();
+				endif;
+				sServer += ":"+pxGame^.GetServerPort().ToString();
+				
+				if(p_iState == 32)then
+					CGameStateReporter.SetState("In game as spectator", sAdditionalInfo, sTribe, xMapInfo, sGameMode, sServer, iNumPlayers, iMaxPlayers);
+				else
+					CGameStateReporter.SetState("In multiplayer", sAdditionalInfo, sTribe, xMapInfo, sGameMode, sServer, iNumPlayers, iMaxPlayers);
+				endif;
+			elseif (bMultiplayer) then
+				CGameStateReporter.SetState("In singleplayer", sAdditionalInfo, sTribe, xMapInfo, sGameMode, sServer, iNumPlayers, iMaxPlayers);
+			else
+				CGameStateReporter.SetState("In campaign", sAdditionalInfo, sTribe, xMapInfo, "Story mode", sServer, 1, 1);
+			endif;
+		endif;
+		
+		return true;
+	endproc;
+	
+	static proc string GetAdditionalInfo(int p_iState)
+		var string sAdditionalInfo = "";
+		if (p_iState==5) then
+			return sAdditionalInfo = "changing options";
+		elseif (p_iState==9) then
+			return sAdditionalInfo = "watching statistics";
+		elseif (p_iState==10) then
+			return sAdditionalInfo = "watching menu";
+		elseif(p_iState==14)then
+			return sAdditionalInfo = "at load game menu";
+		elseif (p_iState==22) then
+			return sAdditionalInfo = "saving game";
+		elseif (p_iState==18 || p_iState==19 || p_iState==24) then
+			return sAdditionalInfo = "Lobby";
+		elseif (p_iState==31) then
+			return sAdditionalInfo = "reading help";
+		endif;
+		return sAdditionalInfo;
+	endproc;
+	
+endclass;

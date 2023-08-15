@@ -1,0 +1,455 @@
+class CGroupMgr
+
+	static var ^CGroupMgr			ms_pxInst;
+	var array CClntHndlGroup	m_axGroup;
+	var array vec3						m_avCameraEye;
+	var array vec3						m_avCameraLookat;
+	export var procref<bool>	m_xOnUpdateGroup;
+	var string								m_sCurrentLevelName;
+	var array ^CGroupButton		m_apxGroupButtons;
+	
+	constructor()
+		m_axGroup=10;
+		m_avCameraLookat=10;
+		m_avCameraEye=10;
+		//L CGameWrap.LogInfo("GroupMgr","Instanz angelegt...");
+		m_xOnUpdateGroup = OnUpdateGroup;
+		m_apxGroupButtons = 10;
+		var ^CPlayer pxPlayer=^(CGameWrap.GetClient().GetPlayer());
+		if(pxPlayer!=null) then
+			var ^CAttribs pxA = pxPlayer^.GetAttribs();
+			if(pxA!=null) then
+				pxA^.SetValue("has_selgroups", 1);
+			endif;
+		endif;
+		var int i,iC=m_axGroup.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_axGroup[i].m_iID=i;
+		endfor;
+	endconstructor;
+
+	export static proc ref CGroupMgr Get()
+		if(ms_pxInst==null)then
+			ms_pxInst = new CGroupMgr;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+
+	export static proc void Kill()
+		delete ms_pxInst;
+		ms_pxInst = null;
+	endproc;
+
+	export proc void SetGroupButton(int p_iGroupIdx, ^CGroupButton p_pxWnd)
+		m_apxGroupButtons[p_iGroupIdx] = p_pxWnd;
+	endproc;
+
+	export proc void LoadLevelConfig()
+		m_sCurrentLevelName=CGameWrap.GetClient().GetLevelInfo().GetAttribs().GetValue("Name");
+		var string sPathBase="Interface/NumberedGroups/"+m_sCurrentLevelName;
+		if(CSettings.NumSubs(sPathBase)!=0)then
+			var int i,iC=m_axGroup.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				m_axGroup[i].ClearEntries();
+				var string sGrpLst;
+				if(CSettings.Get(sPathBase+"/Group_"+i.ToString(),sGrpLst))then
+					var int iP=0;
+					while(iP!=-1)do
+						iP=sGrpLst.Find(";");
+						if(iP!=-1)then
+							var string sObjName=sGrpLst.Left(iP);
+							var ^CObj pxObj=CClientWrap.GetObjMgr().FindObjByName(sObjName);
+							if(pxObj!=null)then
+								m_axGroup[i].m_xObjects.Include(pxObj^.GetHandle());
+								m_axGroup[i].m_xSelObjects.Include(pxObj^.GetHandle());
+							endif;
+							sGrpLst=sGrpLst.Mid(iP+1);
+							iP=0;
+						endif;
+					endwhile;
+				endif;
+				if(CSettings.Get(sPathBase+"/Eye_"+i.ToString(),sGrpLst))then
+					var vec3 vVec;
+					vVec.FromString(sGrpLst);
+					m_avCameraEye[i]=vVec;
+				endif
+				if(CSettings.Get(sPathBase+"/LookAt_"+i.ToString(),sGrpLst))then
+					var vec3 vVec;
+					vVec.FromString(sGrpLst);
+					m_avCameraLookat[i]=vVec;
+				endif
+				if(i < 10) then
+					if(m_apxGroupButtons[i]==null) then
+						var ^CGroupBar pxBar = null;
+						var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+						if(pxIngameScreen!=null)then
+							pxBar = pxIngameScreen^.GetGroupBar();
+						endif;
+						if(pxBar!=null) then
+							m_apxGroupButtons[i] = pxBar^.GetGroupButton(i);
+						endif;
+					endif;
+					if(m_apxGroupButtons[i]==null) then continue; endif;
+					m_apxGroupButtons[i]^.SetAssigned(m_axGroup[i].m_xObjects.NumEntries()>0);
+				endif;
+			endfor;
+		endif;
+		CFeedback.Print("Shortcuts loaded.");
+	endproc;
+
+	export proc void SaveLevelConfig()
+		m_sCurrentLevelName=CGameWrap.GetClient().GetLevelInfo().GetAttribs().GetValue("Name");
+		var int i,iC=m_axGroup.NumEntries();
+		var string sPathBase="Interface/NumberedGroups/"+m_sCurrentLevelName;
+		CSettings.RemAllSubs(sPathBase);
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sGrp=m_axGroup[i].ToNameString();
+			CSettings.Set(sPathBase+"/Group_"+i.ToString(),sGrp);
+		endfor
+		for(i=0)cond(i<iC)iter(i++)do
+			var string sGrp=m_axGroup[i].ToNameString();
+			CSettings.Set(sPathBase+"/Eye_"+i.ToString(),m_avCameraEye[i].ToString());
+			CSettings.Set(sPathBase+"/LookAt_"+i.ToString(),m_avCameraLookat[i].ToString());
+		endfor
+		CFeedback.Print("Shortcuts saved.");
+	endproc
+
+	export proc void Update()
+		var ^CPlayer pxPlayer=^(CGameWrap.GetClient().GetPlayer());
+		if(pxPlayer!=null) then
+			var ^CAttribs pxA = pxPlayer^.GetAttribs();
+			var int i, iC = 10;
+			for(i=0) cond(i<iC) iter(++i) do
+				m_axGroup[i].m_xObjects.Clear();
+				m_axGroup[i].m_xSelObjects.Clear();
+				var string sStr = pxA^.GetValue("selgroup_"+i.ToString()+"_a");
+				sStr += pxA^.GetValue("selgroup_"+i.ToString()+"_b");
+				var array int aiHandles;
+				CDucentiquinquagintagintamal.ExtractFromString(sStr, aiHandles);
+				var int j, iJC = aiHandles.NumEntries();
+				for(j=0) cond(j<iJC) iter(++j) do
+					var ^CObj pxObj = CGameWrap.GetObjMgr().GetMirrorObjFromSrvHandle(aiHandles[j]);
+					if(pxObj!=null) then
+						m_axGroup[i].m_xObjects.Include(pxObj^.GetHandle());
+						m_axGroup[i].m_xSelObjects.Include(pxObj^.GetHandle());
+					endif;
+				endfor;
+			endfor;
+		endif;
+		var ^CGroupBar pxBar=null;
+		var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+		if(pxIngameScreen!=null)then  
+			pxBar=pxIngameScreen^.GetGroupBar();
+		endif;
+		if(pxBar!=null) then
+			var int i, iC=10;
+			for(i=0) cond(i<iC) iter(++i) do
+				var ^CGroupButton pxBtn = pxBar^.GetGroupButton(i);
+				if(pxBtn!=null) then
+					pxBtn^.SetAssigned(m_axGroup[i].m_xObjects.NumEntries()>0);
+				endif;
+			endfor;
+		endif;
+		if(CGameInst.ms_bShowObjectTexts)then
+			CMainController.Get().GetObjectTextMgr().ObjectTextUpdate();
+		endif;
+	endproc;
+	
+	proc bool OnUpdateGroup()
+		return true;
+	endproc;
+	
+	export proc int GetMaxGroupCount()
+		return m_axGroup.NumEntries();
+	endproc;
+	
+	export proc ref CObjList GetGroupList(int p_iIndex)
+		if(p_iIndex<0||p_iIndex>=m_axGroup.NumEntries())then
+			p_iIndex=0;
+		endif;
+		UpdateSingleGroup(p_iIndex);
+		return(m_axGroup[p_iIndex].m_xSelObjects);
+	endproc;
+	
+	export proc void UpdateGroups()
+		var int iGroup;
+		for(iGroup=0)cond(iGroup<m_axGroup.NumEntries())iter(iGroup++)do
+			UpdateSingleGroup(iGroup);
+		endfor;
+		if(CGameInst.ms_bShowObjectTexts)then
+			CMainController.Get().GetObjectTextMgr().ObjectTextUpdate();
+		endif;
+	endproc;
+	
+	proc void UpdateSingleGroup(int p_iIndex)
+		var CObjList xList = m_axGroup[p_iIndex].m_xObjects;
+		m_axGroup[p_iIndex].m_xSelObjects.Clear();
+		var CObjList xInvalid;
+		var CClntHndl xIncludeObj;
+		var int i, iC = xList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!xList[i].IsValid())then continue; endif;
+			xIncludeObj = xList[i];
+			var ^CObj pxObj = xIncludeObj.GetObj();
+			if(pxObj==null)then continue; endif;
+			if(pxObj^.GetOwner()!=CGameWrap.GetClient().GetPlayerID())then continue; endif;
+			m_axGroup[p_iIndex].m_xSelObjects.Include(xIncludeObj);
+		endfor;
+	endproc;
+	
+	//Returns true if a ViewMarker is stored on key p_iIndex
+	export proc bool ViewMarkerValid(int p_iIndex)
+		if(m_avCameraEye[p_iIndex]!={0.0,0.0,0.0})then
+			return(true);
+		else
+			return(false);
+		endif;
+	endproc;
+	
+	//Returns the vec3 stored on key p_iIndex
+	export proc vec3 GetViewMarkerEye(int p_iIndex)
+		return(m_avCameraEye[p_iIndex]);
+	endproc;
+	
+	export proc vec3 GetViewMarkerLookat(int p_iIndex)
+		return(m_avCameraLookat[p_iIndex]);
+	endproc;
+	
+	export proc bool UpdateGroup( int p_iIndex , ^CObjSelection p_pxSel )
+		//Sets an new ViewMarker and clears according group
+		if(p_pxSel^.NumEntries()==0)then
+			m_avCameraLookat[p_iIndex]=CMultiCameraController.Get().GetLookAt();
+			m_avCameraEye[p_iIndex]=CMultiCameraController.Get().GetEye();
+			m_axGroup[p_iIndex].ClearEntries();
+		else
+			//check wrong owner
+			var int iPlayerId = CGameWrap.GetClient().GetPlayerID();
+			if(p_pxSel^[0].IsValid() && p_pxSel^[0].GetObj()^.GetOwner()!=iPlayerId)then
+				m_axGroup[p_iIndex].ClearEntries();
+				return true;
+			endif;
+			//Invalidates ViewMarker on key p_iIndex
+			m_avCameraEye[p_iIndex]={0.0,0.0,0.0};
+			m_avCameraLookat[p_iIndex]={0.0,0.0,0.0};
+			if(p_iIndex<m_axGroup.NumEntries())then
+				var int i;
+				var CClntHndlGroup xGroup;
+				while(i<p_pxSel^.NumEntries())do
+					var ^CObj pxObj = p_pxSel^[i].GetObj();
+					if(pxObj!=null)then
+						var CObjList xList;
+						var bool bSizeTwo;
+						if(GetPassengers(p_pxSel^[i],xList,bSizeTwo))then
+							var int j, iC = xList.NumEntries();
+							for(j=0)cond(j<iC)iter(j++)do
+								xGroup.AddEntry(xList[j]);
+							endfor;
+							if(!bSizeTwo)then
+								xGroup.AddEntry((p_pxSel^)[i]);
+							endif;
+						else
+							xGroup.AddEntry((p_pxSel^)[i]);
+						endif;
+					endif;
+					i++;
+				endwhile;
+				m_axGroup[p_iIndex]=xGroup;
+			else
+				CGameWrap.LogWarning("GroupMgr","index too high...");
+			endif;
+		endif;
+		var int iPlayerId = CGameWrap.GetClient().GetPlayerID();
+		CEvt_UpdateSelectionGroup.Send(iPlayerId, p_iIndex, m_axGroup[p_iIndex].m_xObjects);
+		if(!m_xOnUpdateGroup.IsNull()) then
+			m_xOnUpdateGroup.Call();
+		endif;
+		if(m_apxGroupButtons[p_iIndex]!=null) then
+			m_apxGroupButtons[p_iIndex]^.OnUpdate();
+		endif;
+		if(CGameInst.ms_bShowObjectTexts)then
+			CMainController.Get().GetObjectTextMgr().ObjectTextUpdate();
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool GetPassengers(CClntHndl p_xTransporter, ref CObjList p_rxPassenger, ref bool p_rbSizeTwo)
+		p_rxPassenger.Clear();
+		var ^CObj pxTransporter = p_xTransporter.GetObj();
+		if(pxTransporter==null)then return false; endif;
+		var ^CAttribs pxAttr = pxTransporter^.GetAttribs();
+		if(pxAttr==null)then return false; endif;
+		var string sGuids = pxAttr^.GetValue("passenger_guids");
+		if(sGuids=="")then return false; endif;
+		var array string asTokens;
+		sGuids.Split(asTokens, "\n", true);
+		var int i, iC = asTokens.NumEntries();
+		if(iC==0)then return false; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			var CGuid xGuid;
+			xGuid.FromString(asTokens[i]);
+			var ^CObj pxRider = CClientWrap.GetObjMgr().GetObj(xGuid);
+			if(pxRider!=null)then
+				p_rxPassenger.Include(pxRider^.GetHandle());
+			endif;
+		endfor;
+		if(p_rxPassenger.NumEntries()==0)then return false; endif;
+		var int iTransportClass = pxAttr^.GetValueInt("transportclass");
+		p_rbSizeTwo = iTransportClass == 2;
+		return true;
+	endproc;
+	
+	proc bool IsRider(CClntHndl p_xObj)
+		var CClntHndl xHndl;
+		return IsRider(p_xObj, xHndl);
+	endproc;
+	
+	export proc bool IsRider(CClntHndl p_xObj, ref CClntHndl p_rxTransportObj)
+		var ^CObj pxTransporter = p_xObj.GetObj();
+		if(pxTransporter==null)then return false; endif;
+		var ^CAttribs pxAttr = pxTransporter^.GetAttribs();
+		if(pxAttr==null)then return false; endif;
+		var string sTransporter = pxAttr^.GetValue("transporter_guid");
+		if(sTransporter=="")then return false; endif;
+		var CGuid xGuid;
+		xGuid.FromString(sTransporter);
+		var ^CObj pxRider = CClientWrap.GetObjMgr().GetObj(xGuid);
+		if(pxRider==null)then return false; endif;
+		p_rxTransportObj = pxRider^.GetHandle();
+		return true;
+	endproc;
+	
+	export proc string GetGroupNumbers(CClntHndl p_xObj)
+		var string sNumbers;
+		if(!p_xObj.IsValid()||IsRider(p_xObj))then return sNumbers; endif;
+		var int i,iC=m_axGroup.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			sNumbers+=m_axGroup[i].FindMember(p_xObj);
+		endfor;
+		sNumbers.TrimRight();
+		return sNumbers;
+	endproc;
+	
+endclass;
+
+class CClntHndlGroup
+
+	export var CObjList	m_xObjects;
+	export var CObjList	m_xSelObjects;
+	export var int			m_iID;
+
+	export constructor()
+	endconstructor;
+
+	export proc bool AddEntry(ref CClntHndl p_rxAdd )
+		if(p_rxAdd.IsValid())then
+			m_xObjects.Include(p_rxAdd);
+			return(true);
+		else
+			CGameWrap.LogWarning("GroupMgr","too many objects... ");
+			return(false);
+		endif;
+	endproc;
+
+	export proc CClntHndl GetEntry(int p_iIndex )
+		if(p_iIndex>=0&&p_iIndex<m_xObjects.NumEntries())then
+			return(m_xObjects[p_iIndex]);
+		else
+			var CClntHndl xDummy;
+			return(xDummy);
+		endif;
+	endproc;
+	
+	export proc ref CClntHndlGroup op_Assign( ref CClntHndlGroup p_rxGroup )
+		var int i;
+		m_xObjects.Clear();
+		for(i=0)cond(i<p_rxGroup.NumEntries())iter(i++)do
+			m_xObjects.Include(p_rxGroup.GetEntry(i));
+		endfor;
+		return(this^);
+	endproc;
+	
+	export proc int NumEntries()
+		return(m_xObjects.NumEntries());
+	endproc;
+	
+	export proc int FindEntry(ref CClntHndl p_rxFind)
+		return m_xObjects.FindEntry(p_rxFind);
+	endproc;
+	
+	export proc void DeleteEntry(int p_iIndex)
+		m_xObjects.DeleteEntry(p_iIndex);
+	endproc;
+	
+	export proc bool ClearEntries()
+		m_xObjects.Clear();
+		return(true);
+	endproc;
+	
+	export proc string ToNameString()
+		var int i,iC=m_xObjects.NumEntries();
+		var string sResult;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CObj pxObj=m_xObjects[i].GetObj();
+			if(pxObj!=null)then
+				sResult+=pxObj^.GetName();
+				sResult+=";";
+			endif;
+		endfor
+		return sResult;
+	endproc;
+	
+	export proc void FromNameString(string p_sString)
+	endproc;
+	
+	export proc string FindMember(CClntHndl p_xMember)
+		if(m_xObjects.FindEntry(p_xMember)!=-1)then
+			return m_iID.ToString()+" ";
+		endif;
+		return "";
+	endproc;
+	
+endclass;
+
+class CDucentiquinquagintagintamal // ;)
+	export static proc string StringFromInt(int p_iVal)
+		var bitset dwVal = p_iVal.ToBitset();
+		var char cA = ((dwVal>>28)&07Fh).ToInt()+1;
+		var char cB = ((dwVal>>21)&07Fh).ToInt()+1;
+		var char cC = ((dwVal>>14)&07Fh).ToInt()+1;
+		var char cD = ((dwVal>>7)&07Fh).ToInt()+1;
+		var char cE = ((dwVal)&07Fh).ToInt()+1;
+		return cA+cB+cC+cD+cE;
+	endproc;
+	
+	export static proc int IntFromString(string p_sVal)
+		if(p_sVal.GetLength()<5) then return 0; endif;
+		var bitset dwRes = 0b;
+		dwRes = ((p_sVal.GetAt(0).ToInt()-1).ToBitset()<<28)&(07Fh<<28) |
+						((p_sVal.GetAt(1).ToInt()-1).ToBitset()<<21)&(07Fh<<21) |
+						((p_sVal.GetAt(2).ToInt()-1).ToBitset()<<14)&(07Fh<<14) |
+						((p_sVal.GetAt(3).ToInt()-1).ToBitset()<<7)&(07Fh<<7) |
+						((p_sVal.GetAt(4).ToInt()-1).ToBitset()&(07Fh));
+		return dwRes.ToInt();
+	endproc;
+	
+	export static proc void IntArrayToString(ref array int p_raiInts, ref string po_rsString)
+		po_rsString="";
+		var int i, iC = p_raiInts.NumEntries();
+		for(i=0) cond(i<iC) iter(++i) do
+			po_rsString+=StringFromInt(p_raiInts[i]);
+		endfor;
+	endproc;
+	
+	export static proc int ExtractFromString(string p_sString, ref array int po_raiInts)
+		var int iMod = p_sString.GetLength()%5;
+		var int iNumInts = p_sString.GetLength()/5;
+		if(iMod>0) then --iNumInts; endif;
+		var int i, iC = iNumInts;
+		po_raiInts=iC;
+		for(i=0) cond(i<iC) iter(++i) do
+			po_raiInts[i] = IntFromString(p_sString.Mid(i*5,5));
+		endfor;
+		return iC;
+	endproc;
+	
+endclass;

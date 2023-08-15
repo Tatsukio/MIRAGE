@@ -1,0 +1,1964 @@
+class CServerApp inherit IServerApp
+
+	var CStateFactory				m_xUSLStateFactory;		///< base USL state factory
+	var CObjStateFactory		m_xObjStateFactory; 	///<
+	var CTaskFactory				m_xTaskFactory;
+
+	static var ^CPropDB				ms_pxResourceTable;
+	static var ^CPropDB				ms_pxPointBuyTable;
+
+	var bool						m_bProfiler;
+
+	var bool						m_bSinglePlayerMode;
+	static var array bool			ms_abActionViewActive;
+	var bool						m_bSTPlacementMode;
+	var array string			m_asCodes;
+	
+	var int							m_iDifficulty;
+
+	export constructor()
+		//L CSrvWrap.LogSpam("ServerApp","CServerApp::ctor()");
+		ms_pxPointBuyTable=new CPropDB();
+		m_bSinglePlayerMode=false;
+		ms_abActionViewActive=8;
+		m_asCodes=8;
+		var int i;
+		for(i=0)cond(i<ms_abActionViewActive.NumEntries())iter(i++)do
+			ms_abActionViewActive[i]=false;
+		endfor;
+		CSrvWrap.GetUSLFactoryMgr().RegisterStateFactory(^m_xUSLStateFactory);
+		CSrvWrap.GetUSLFactoryMgr().RegisterStateFactory(^m_xObjStateFactory);
+		CSrvWrap.GetUSLFactoryMgr().RegisterStateFactory(^m_xTaskFactory);
+		CSrvWrap.ms_xOnServerAppTick=Tick;
+		CSrvWrap.ms_xOnHandleGroupCommand=OnHandleGroupCommand;
+		//CSrvWrap.StartGame();
+		//CTimeMgr.Get().SetFactor(1.0);
+		CTimeMgr.Get().SetVirtualDayOffset(0.25);
+		CTimeMgr.Get().SetVirtualNightOffset(0.75);
+		var ^CObjPlaceCheckerSrv pxCheck=CSrvWrap.GetObjMgr()^.GetObjPlaceChecker();
+		pxCheck^.SetMaterialFlagsNeg(4);
+		pxCheck^.SetMaterialFlagsNeg(7,true);
+		pxCheck^.GetWallMap()^.InitWallClassMap();
+		CStartLocationMgr.Get();
+//		CSrvWrap.GetSoundEventMgr().Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/init/clientsound.ini");
+//		CSrvWrap.GetSoundEventMgr().Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/init/serversound.ini");
+		CSrvWrap.GetTriggerMgr().GetTriggerDescMgr()^.LoadKeyMgr(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/misc/condition_attrib_def.txt", CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/misc/action_attrib_def.txt");
+		CSrvWrap.GetTriggerMgr().SetConditionFactory(new CConditionFactory);
+		CSrvWrap.GetTriggerMgr().SetActionFactory(new CActionFactory);
+		//CFlyingTraderMgr.OnInit();
+		m_bProfiler=false;
+		m_bSTPlacementMode=false;
+		//SetSummerMode(true);
+		//CSrvWrap.ProfilingStart();
+		//Profiler.Start();
+	endconstructor;
+
+	export destructor()
+		//Profiler.Stop();
+		//Profiler.ExportCSV("profiled_server.csv");
+		//CSrvWrap.ProfilingStop("profiled_server.kprof");
+		CRecruitPool.ShutStatic();
+		CSrvWrap.GetUSLFactoryMgr().UnRegisterStateFactory(^m_xTaskFactory);
+		CSrvWrap.GetUSLFactoryMgr().UnRegisterStateFactory(^m_xObjStateFactory);
+		CSrvWrap.GetUSLFactoryMgr().UnRegisterStateFactory(^m_xUSLStateFactory);
+		//CSrvWrap.ProfilingStop("GameServer.csv");
+		CStartLocationMgr.ShutStatic();
+		if(ms_pxResourceTable!=null)then delete ms_pxResourceTable; endif;
+		delete ms_pxPointBuyTable;
+		CNPCMgr.Kill();
+		CArtifactMgr.Kill();
+		CRequirementsMgr.Kill();
+		CGameOverMgr.ShutStatic();
+		CMirageSrvMgr.Kill();
+	enddestructor;
+
+	proc bool OnHandleGroupCommand(ref string p_rsCommand,ref CGuidList p_rxSubjList,ref CGuid p_rxObjList,ref vec3 p_rvPos,ref string p_rsParams)
+		if(p_rsParams.Find("/Attack")!=-1)then
+			var int iMinRangeAttackValue, iMaxRangeAttackValue;
+			var real fMinRange, fMaxRange, fAvgRange;
+//			var int iMaxSpeed;
+			fMaxRange=-1.0;
+			fMinRange=99999.9;
+//			iMaxSpeed=4;
+			var CObjList xFighters;
+			var int i,iC=p_rxSubjList.NumEntries();
+			var real fWalkRange;
+			if(iC>1)then
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CFightingObj pxObj=cast<CFightingObj>(CSrvWrap.GetObjMgr()^.GetObjByGuid(p_rxSubjList[i]));
+					if(pxObj==null)then continue; endif;
+					if(!pxObj^.IsAbleToFight())then
+						continue;
+					endif;
+					xFighters.AddEntry(pxObj^.GetHandle());
+					var real fRange=pxObj^.GetAttackRange();
+					if(fRange>fMaxRange)then fMaxRange=fRange; endif;
+					if(fRange<fMinRange)then fMinRange=fRange; endif;
+					fAvgRange+=fRange;
+	//				if(pxObj^.GetMaxSpeed()<iMaxSpeed)then iMaxSpeed=pxObj^.GetMaxSpeed(); endif;
+				endfor;
+				if(iC>0)then fAvgRange/=iC.ToReal(); endif;
+				iC=xFighters.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CFightingObj pxObj=cast<CFightingObj>(xFighters[i].GetObj());
+					var real fRange=pxObj^.GetAttackRange();
+					if((fMaxRange-fRange)<(fRange-fMinRange))then
+						iMaxRangeAttackValue++;
+					else
+						iMinRangeAttackValue++;
+					endif;
+				endfor;
+				if(iMaxRangeAttackValue>iMinRangeAttackValue)then
+					fWalkRange=(fAvgRange+fMaxRange)*0.5;
+				else
+					fWalkRange=(fAvgRange+fMinRange)*0.5;
+				endif;
+			else
+				var ^CFightingObj pxObj=cast<CFightingObj>(CSrvWrap.GetObjMgr()^.GetObjByGuid(p_rxSubjList[0]));
+				if(pxObj!=null)then
+					if(!pxObj^.IsAbleToFight())then
+						fWalkRange=pxObj^.GetFOWRange()/2.0;
+					else
+						fWalkRange=pxObj^.GetAttackRange();
+					endif;
+				else
+					fWalkRange=2.0f;
+				endif;
+			endif;
+//			var CGameObj.CAdvanceActionParams xParams;
+			p_rsParams+=" /RangeToWalk="+fWalkRange.ToInt().ToString();
+		endif;
+		return true;
+	endproc;
+
+	proc void Evt_OnPreLoadObjects()
+		//delete all units from player attribs (RT#3644)
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel!=null)then
+			var int i;
+			for(i=0) cond(i<8) iter(i++) do
+				var ^CPlayer pxPlayer=pxLevel^.GetPlayer(i);
+				if(pxPlayer!=null)then
+					var ^CAttribs pxPlAttr=pxPlayer^.GetAttribs();
+					if(pxPlAttr!=null)then
+						pxPlAttr^.SetValue("units",0);
+						pxPlAttr^.SetValue("supply",0);
+					endif;
+				endif;
+			endfor;
+		endif;
+		CMirageSrvMgr.Get().Purify();
+		CGameOverMgr.Get().Purify();
+		CNPCMgr.Get().Clear();
+		CArtifactMgr.Get().Clear();
+		CWarpMgr.Kill();
+		CBLDGConditionsMgr.Kill();
+		CBLDGMgr.Kill();
+	endproc;
+
+	proc void Evt_OnChangeQuest()
+		//CSrvCampaignMgr.Get().OnChangeQuest();
+	endproc;
+
+//	proc void SetSummerMode(bool p_bMode)
+//		if(!p_bMode)then
+//			CSrvWrap.LogSpam("Summer","Boah nö ne... Nicht noch mehr Regen!");
+//		endif;
+//	endproc;
+
+	proc void Init()
+		/// default
+		if(!ms_pxPointBuyTable^.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/Settings/PointBuyCosts.txt"))then
+			delete ms_pxPointBuyTable;
+			ms_pxPointBuyTable=null;
+			CSrvWrap.LogError("DB","File '/Data/Base/Scripts/Server/settings/PointBuyCosts.txt' could not be loaded.");
+		endif;
+		var ^CPropDB pxResGen=new CPropDB();
+		if(!pxResGen^.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/Resources.txt"))then
+			CSrvWrap.LogError("DB","File '/Data/Base/Scripts/Server/settings/Resources.txt' could not be loaded.");
+/*			CSrvWrap.LogSpam("DB","Gen loaded.");
+			if(pxResHu^.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/Hu/Resources.txt"))then
+				CServerApp.JoinDB( ^(pxResGen^.GetRoot()),^(pxResHu^.GetRoot()));
+				CSrvWrap.LogSpam("DB","Hu loaded.");
+			endif;
+			if(pxResAje^.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/Aje/Resources.txt"))then
+				CServerApp.JoinDB( ^(pxResGen^.GetRoot()),^(pxResAje^.GetRoot()));
+				CSrvWrap.LogSpam("DB","Aje loaded.");
+			endif;
+			if(pxResNinigi^.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/Ninigi/Resources.txt"))then
+				CServerApp.JoinDB( ^(pxResGen^.GetRoot()),^(pxResNinigi^.GetRoot()));
+				CSrvWrap.LogSpam("DB","Ninigi loaded.");
+			endif;
+			if(pxResSEAS^.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/SEAS/Resources.txt"))then
+				CServerApp.JoinDB( ^(pxResGen^.GetRoot()),^(pxResSEAS^.GetRoot()));
+				CSrvWrap.LogSpam("DB","SEAS loaded.");
+			endif;
+			if(pxResTest^.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/Test/Resources.txt"))then
+				CServerApp.JoinDB( ^(pxResGen^.GetRoot()),^(pxResTest^.GetRoot()));
+				CSrvWrap.LogSpam("DB","Test loaded.");
+			endif;
+*/		endif;
+		ms_pxResourceTable=pxResGen;
+		//PrintDB( ^(ms_pxResourceTable^.GetRoot()) );
+		//CSrvWrap.GetLevelInfo(false)^.SetNumPlayers(1);
+		//CRecruitPool.Get().AddRandomChar();
+		//CRecruitPool.Get().AddRandomChar();
+	endproc;
+
+	//called after load is done
+	proc void Evt_OnLoadingDone()
+		InitMixer();
+	endproc;
+
+	//called if all clients are ready to play
+	proc void Evt_OnStartGame()
+		//CQuestMgr.Get().Init();
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+		CMirageSrvMgr.Get().Inited();
+		CGameOverMgr.Get().Init(pxLevel);
+		// Set the WinningConditions
+		var ^CPropDB.CNode pxSettingsNode=pxLevelInfo^.GetGenericData().FindNode("PlayerSettings", false);
+		if(pxSettingsNode!=null)then
+			var string sSelGame=pxSettingsNode^.GetValueS("GameType");
+			// HACK
+			if(sSelGame.IsEmpty())then
+				sSelGame="Deathmatch";
+			endif;
+			// ENDHACK
+			var array string asToks;
+			sSelGame.Split(asToks, "|", true);
+			var ^CTriggerMgr pxTM=^(CSrvWrap.GetTriggerMgr());
+			var ^CTriggerDescMgr pxTDM=pxTM^.GetTriggerDescMgr();
+			var CTriggerDescMgr.CNode xWinCondNode=pxTDM^.FindNodeByName("WinningConditions");
+			if(xWinCondNode.IsValid())then
+				var ^CTriggerDescMgr.CHierarchyDesc pxHD=xWinCondNode.GetData();
+				if(pxHD!=null && pxHD^.GetNodeName()=="WinningConditions")then
+					var int i, iC=xWinCondNode.NumChildren();
+					for(i=0) cond(i<iC) iter(++i) do
+						var CTriggerDescMgr.CNode xSub=xWinCondNode.GetChild(i);
+						if(xSub.IsValid())then
+							var ^CTriggerDescMgr.CHierarchyDesc pxData=xSub.GetData();
+							if(pxData!=null)then
+								var bool bActive=asToks.FindEntry(pxData^.GetNodeName())>=0;
+								pxTM^.SetNodeActive(xSub, bActive, true);
+							endif;
+						endif;
+					endfor;
+				endif;
+			endif;
+		endif;
+		if(pxLevel!=null)then
+			var int i;
+			for(i=0)cond(i<8)iter(i++)do
+				var ^CPlayer pxPlayer=pxLevel^.GetPlayer(i);
+				if(pxPlayer!=null)then
+					var ^CBasePlayer pxB=cast<CBasePlayer>(pxPlayer);
+					if(pxB!=null)then
+						m_asCodes[i]=pxB^.GetID().ToString()+"_"+(Random.GetInt()%1000).ToString()+"_id";
+						CSrvWrap.SendGenericEvtToPlayer(i, "Purify\t"+m_asCodes[i]);
+						var int k, kC=8;
+						for(k=-1)cond(k<kC)iter(k++)do
+							CSrvWrap.SendGenericEvtToPlayer(k, "setplayername\t"+i.ToString()+ "\t"+pxB^.GetPName());
+						endfor;
+					endif;
+				endif;
+			endfor;
+		endif;
+		InitMixer();
+		CNPCMgr.Get().UpdateMixer();
+	endproc;
+	
+	proc void Evt_OnCloseGame()
+		CGameOverMgr.Get().Shut();
+	endproc;
+	
+	proc void Evt_OnPlayerDisconnect(int p_iOwner)
+		CGameOverMgr.Get().OnPlayerDisconnect(p_iOwner);
+	endproc;
+	
+	proc void Evt_OnAbandonGame(int p_iOwner)
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		System.Assert(pxLevel!=null);					   
+		var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		var string sLevelName = (pxGenericDB^)["Base/LevelName"].Value();
+		if(pxLevelInfo^.IsMultiplayer()&&(sLevelName=="Single 01"||
+		sLevelName=="Single 02"||sLevelName=="Single 03"||sLevelName=="Single 04"||
+		sLevelName=="Single 05"||sLevelName=="Single 06"||sLevelName=="Single 07"||
+		sLevelName=="Single 08"||sLevelName=="Single 09"||sLevelName=="Single 10"||
+		sLevelName=="Single 11"||sLevelName=="Single 12"||sLevelName=="Single 13"||
+		sLevelName=="Single 14"||sLevelName=="Single 15"||sLevelName=="Single 16"||
+		sLevelName=="Single B41"||sLevelName=="Single B42"||sLevelName=="Single B43"))then
+			var string sSend="GameOver\tCampaign\tLose\t_GAOV_Failed";
+			CSrvWrap.SendGenericEvtToPlayer(p_iOwner, sSend);
+		elseif(pxLevelInfo^.IsMultiplayer())then
+			CGameOverMgr.Get().OnAbandonGame(p_iOwner);
+		else
+			var string sSend="GameOver\tCampaign\tLose\t_GAOV_Failed";
+			CSrvWrap.SendGenericEvtToPlayer(p_iOwner, sSend);
+		endif;
+	endproc;
+
+	proc void Evt_OnDiplomacyChanged()
+		//need to check if there are any enemies, neutral left.
+		var ^array ^CConditionDiplomacy papxConds;
+		papxConds=CConditionDiplomacy.GetPendingConditions();
+		var CEvtPointer xEvt;
+		var int i, iC=papxConds^.NumEntries();
+		for(i=0) cond(i<iC) iter(++i) do
+			if(papxConds^[i]!=null)then
+				papxConds^[i]^.OnPush(xEvt);
+			endif;
+		endfor;
+	endproc;
+
+	proc void Evt_OnSequenceStart(string p_sSequence)
+	endproc;
+
+	proc void Evt_OnSequenceEnd(string p_sSequence)
+		CSequenceSource.Broadcast(CEvtPointer.CreateStringEvent("SeqEnd",p_sSequence));
+	endproc;
+
+	proc void Evt_OnDialogSceneStart(string p_sScene)
+		//CSequenceSource.Broadcast(CEvtPointer.CreateStringEvent("SeqEnd",p_sSequence));
+	endproc;
+
+	proc void Evt_OnDialogSceneEnd(string p_sScene)
+		CDlgSceneSource.Broadcast(CEvtPointer.CreateStringEvent("DgScEnd",p_sScene));
+	endproc;
+
+	proc void PrintDB( ^CPropDB.CNode  p_pxDB )
+		var int i;
+		for(i=0)cond(i<p_pxDB^.NumSubs())iter(i++)do
+			if((p_pxDB^)[i].Value()=="")then
+				CSrvWrap.LogInfo("ServerApp",(p_pxDB^)[i].Name());
+			else
+				CSrvWrap.LogInfo("ServerApp",(p_pxDB^)[i].Name()+"="+(p_pxDB^)[i].Value());
+			endif;
+			PrintDB(^((p_pxDB^)[i]));
+		endfor;
+	endproc;
+
+	export static proc void JoinDB( ^CPropDB.CNode p_pxDB1, ^CPropDB.CNode p_pxDB2 )
+		var int i;
+		for(i=0)cond(i<p_pxDB2^.NumSubs())iter(i++)do
+			var string sName = (p_pxDB2^)[i].Name();
+			var string sValue = (p_pxDB2^)[i].Value();
+			var int iIndex = p_pxDB1^.Find(sName);
+			if(iIndex!=-1)then
+				if(sValue!=p_pxDB1^.GetValueS(sName))then
+					p_pxDB1^.SetValue(sName,sValue);
+				endif;
+			else
+				p_pxDB1^.AddValue(sName, sValue);
+			endif;
+			CServerApp.JoinDB(p_pxDB1^.Get(sName), p_pxDB2^.Get(sName));
+		endfor;
+	endproc;
+
+	export proc void Tick()
+		CGameOverMgr.Get().Tick();
+	endproc;
+	
+	class CPlayerHQInfo
+		export var ^CLevelInfo.CPlayerSlot m_pxPlayerSlot;
+		export var ^CPropDB.CNode m_pxPlayerNode;
+		export var int m_iNewHQ;
+	endclass;
+	
+	class CPlayerColorInfo
+		export var ^CLevelInfo.CPlayerSlot m_pxPlayerSlot;
+		export var ^CPropDB.CNode m_pxPlayerNode;
+		export var int m_iNewColor;
+	endclass;
+	
+	proc bool CreatePlayers(^CLevel p_pxLevel)
+		var array string asValidFilters;
+		asValidFilters.AddEntry("Random");
+		asValidFilters.AddEntry("Aje_Ninigi_SEAS");
+		asValidFilters.AddEntry("Ninigi_Hu_SEAS");
+		asValidFilters.AddEntry("Aje_Hu_SEAS");
+		asValidFilters.AddEntry("Aje_Ninigi_Hu");
+		asValidFilters.AddEntry("Aje_Ninigi");
+		asValidFilters.AddEntry("Ninigi_Hu");
+		asValidFilters.AddEntry("Hu_SEAS");
+		asValidFilters.AddEntry("SEAS_Aje");
+		asValidFilters.AddEntry("Aje_Hu");
+		asValidFilters.AddEntry("Ninigi_SEAS");
+		var ^CLevelInfo pxLevelInfo=^(p_pxLevel^.GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		//pxGenericDB^.Save("c:/LevelInfo_Vor.txt");
+		var string sLevelName = (pxGenericDB^)["Base/LevelName"].Value();
+		var string sLNFHCTTF = sLevelName; // Henry: LevelNameForHardCodedTechTreeFilters
+		sLNFHCTTF.Replace(" ","_");
+		sLNFHCTTF.MakeLower();
+		//modified by Paraworldfan
+		sLevelName.Replace(" ","_");
+		
+		var bool bRandomHQ=(CSrvWrap.GetGame().GetChooseHQ()==false);
+		var bool bRandomColor=(CSrvWrap.GetGame().GetAttribInt("RandomColor")==1);
+		var bool bMultiplayer=true;
+		begin GetMultiplayer;
+			var ^CPropDB.CNode pxMapType=pxGenericDB^.FindNode("Base/MapType",false);
+			if(pxMapType!=null)then
+				bMultiplayer=(pxMapType^.Value()=="multiplayer");
+			endif;
+		end GetMultiplayer;
+		var int iMaxPlayers=(pxGenericDB^)["Base/MaxPlayers"].ValueI();
+		var int iRandomHQFlag=(pxGenericDB^)["Base/RandomHQFlag"].ValueI();
+		var int iRandomColorFlag=(pxGenericDB^)["Base/RandomColorFlag"].ValueI();
+		var string sValue;
+		if(CMirageSrvMgr.Get().GetCustomSettingS(sLevelName,"random_hq",sValue)&&pxLevelInfo^.IsMultiplayer())then
+			bRandomHQ = sValue=="1";
+		endif;
+		if(bRandomHQ && bMultiplayer && iRandomHQFlag==0 && iMaxPlayers>0)then
+			(pxGenericDB^)["Base"].SetValue("RandomHQFlag",1);
+			var array int aiAllHQList;
+			var array CPlayerHQInfo axPlayerHQInfoList;
+			var int i;
+			for(i=0)cond(i<iMaxPlayers)iter(i++)do
+				aiAllHQList.AddEntry(i);
+			endfor;
+			var CPlayerSlotID xIter;
+			var int iIter=0;
+			for(xIter=CPlayerSlotID.First())cond(xIter<=CPlayerSlotID.Last())iter(xIter.Incr())do
+				var ^CLevelInfo.CPlayerSlot pxWalk=^(pxLevelInfo^.GetPlayerSlot(xIter));
+				var ^CPlayerHQInfo pxNewPlayerHQInfo=^(axPlayerHQInfoList.NewEntryRef());
+				pxNewPlayerHQInfo^.m_pxPlayerSlot=null;
+				pxNewPlayerHQInfo^.m_pxPlayerNode=^((pxGenericDB^)["PlayerSettings/Player_"+iIter.ToString()]);
+				iIter++;
+				if(pxWalk^.IsFree())then
+					continue;
+				endif;
+				pxNewPlayerHQInfo^.m_pxPlayerSlot=pxWalk;
+				var int iIdx=(Random.GetInt()%aiAllHQList.NumEntries());
+				pxNewPlayerHQInfo^.m_iNewHQ=aiAllHQList[iIdx];
+				aiAllHQList.DeleteEntryUS(iIdx);
+			endfor;
+			var int iC=axPlayerHQInfoList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPlayerHQInfo pxPlayerHQInfo=^(axPlayerHQInfoList[i]);
+				var CGuid xGuid;xGuid.Generate();
+				var string sNewNodeName=pxPlayerHQInfo^.m_pxPlayerNode^.Name()+"_"+xGuid.ToString();
+				if(pxPlayerHQInfo^.m_pxPlayerSlot!=null)then
+					//KLog.LogSpam("AnTr",pxPlayerHQInfo^.m_pxPlayerSlot^.GetHeadQuater().ToString()+" -> "+pxPlayerHQInfo^.m_iNewHQ.ToString());
+					pxPlayerHQInfo^.m_pxPlayerSlot^.SetHeadQuater(pxPlayerHQInfo^.m_iNewHQ);
+					sNewNodeName="Player_"+pxPlayerHQInfo^.m_iNewHQ.ToString();
+				endif;
+				pxPlayerHQInfo^.m_pxPlayerNode^.Name()=sNewNodeName;
+			endfor;
+		endif;
+		if(bRandomColor && bMultiplayer && iRandomColorFlag==0)then
+			(pxGenericDB^)["Base"].SetValue("RandomColorFlag",1);
+			var array int aiAllColorList;
+			var array CPlayerColorInfo axPlayerColorInfoList;
+			var int i;
+			for(i=0)cond(i<8)iter(i++)do
+				aiAllColorList.AddEntry(i);
+			endfor;
+			var CPlayerSlotID xIter;
+			var int iIter=0;
+			for(xIter=CPlayerSlotID.First())cond(xIter<=CPlayerSlotID.Last())iter(xIter.Incr())do
+				var ^CLevelInfo.CPlayerSlot pxWalk=^(pxLevelInfo^.GetPlayerSlot(xIter));
+				var ^CPlayerColorInfo pxNewPlayerColorInfo=^(axPlayerColorInfoList.NewEntryRef());
+				pxNewPlayerColorInfo^.m_pxPlayerSlot=null;
+				pxNewPlayerColorInfo^.m_pxPlayerNode=^((pxGenericDB^)["PlayerSettings/Player_"+iIter.ToString()]);
+				iIter++;
+				if(pxWalk^.IsFree())then
+					continue;
+				endif;
+				pxNewPlayerColorInfo^.m_pxPlayerSlot=pxWalk;
+				var int iIdx=(Random.GetInt()%aiAllColorList.NumEntries());
+				pxNewPlayerColorInfo^.m_iNewColor=aiAllColorList[iIdx];
+				aiAllColorList.DeleteEntryUS(iIdx);
+			endfor;
+			var int iC=axPlayerColorInfoList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPlayerColorInfo pxPlayerColorInfo=^(axPlayerColorInfoList[i]);
+				if(pxPlayerColorInfo^.m_pxPlayerSlot!=null)then
+					pxPlayerColorInfo^.m_pxPlayerSlot^.SetColor(pxPlayerColorInfo^.m_iNewColor);
+				endif;
+			endfor;
+		endif;
+		//pxGenericDB^.Save("c:/LevelInfo_Danach.txt");
+		var int i,iC=pxLevelInfo^.GetNumPlayers();
+		if(!bMultiplayer)then
+			iC=iMaxPlayers;
+			if(iC==0)then
+				KLog.LogError("ServerApp","CreatePlayers failed, num players=0");
+			endif;
+		elseif(bMultiplayer && (sLevelName=="Single 01"||
+		sLevelName=="Single 02"||sLevelName=="Single 03"||sLevelName=="Single 04"||
+		sLevelName=="Single 05"||sLevelName=="Single 06"||sLevelName=="Single 07"||
+		sLevelName=="Single 08"||sLevelName=="Single 09"||sLevelName=="Single 10"||
+		sLevelName=="Single 11"||sLevelName=="Single 12"||sLevelName=="Single 13"||
+		sLevelName=="Single 14"||sLevelName=="Single 15"||sLevelName=="Single 16"||
+		sLevelName=="Single B41"||sLevelName=="Single B42"||sLevelName=="Single B43"))then
+			iC=iMaxPlayers;
+			if(iC==0)then
+				KLog.LogError("ServerApp","CreatePlayers failed, num players=0");
+			endif;
+		endif;
+		if(CMirageSrvMgr.Get().GetCustomSettingI(sLevelName,"num_slots",iMaxPlayers)&&pxLevelInfo^.IsMultiplayer())then
+			iC=iMaxPlayers;
+		endif;
+		CSrvWrap.GetDiplomacyMgr().ResetAllRelations();
+		begin WorldPlayer;
+			var ^CPlayer pxPlayer= new CBasePlayer;
+			pxPlayer^.SetPlayerSlotID(CPlayerSlotID.Invalid());
+			pxPlayer^.SetID(-1);
+			pxPlayer^.Init();
+			p_pxLevel^.AddPlayer(pxPlayer);
+		end WorldPlayer;
+		CMirageSrvMgr.Get().ResetAINames();
+		var CPlayerSlotID xCurSlotID=CPlayerSlotID.First();
+		var array int aiAvailable, aiPrefered;
+		for(i=0)cond(i<iC)iter(i++)do
+			aiAvailable.AddEntry(i);
+		endfor;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CLevelInfo.CPlayerSlot pxWalk=^(pxLevelInfo^.GetPlayerSlot(xCurSlotID));
+			xCurSlotID.Incr();
+			var int iPref;
+			if(!pxWalk^.IsFree())then
+				aiAvailable.RemEntry(pxWalk^.GetColor());
+			endif;
+			if(CMirageSrvMgr.Get().GetPreferedSlotColor(sLevelName,i,iPref)&&pxLevelInfo^.IsMultiplayer())then
+				aiPrefered.AddEntry(iPref);
+			endif;
+		endfor;
+		var bool bHandicap=CSrvWrap.GetGame().GetAllowHandicap();
+		xCurSlotID=CPlayerSlotID.First();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CLevelInfo.CPlayerSlot pxWalk=^(pxLevelInfo^.GetPlayerSlot(xCurSlotID));
+			if(pxWalk^.IsFree())then
+				if(CMirageSrvMgr.Get().IsSlotForced(sLevelName,i))then
+					pxWalk^.SetValue("forced","true");
+				else
+					continue;
+				endif;
+			endif;
+			var string sHandicap=CSrvWrap.GetGame().GetAttribInt("new_hc_"+i.ToString()).ToString();
+			var int iPref;
+			if(CMirageSrvMgr.Get().GetPreferedSlotColor(sLevelName,i,iPref)&&pxLevelInfo^.IsMultiplayer())then
+				if(aiAvailable.FindEntry(iPref)!=-1)then
+					pxWalk^.SetColor(iPref);
+				else
+					var int k=-1;
+					while(k<8)do
+						k++;
+						if(aiAvailable.FindEntry(k)==-1||aiPrefered.FindEntry(k)!=-1)then continue; endif;
+						break;
+					endwhile;
+					aiAvailable.RemEntry(k);
+					pxWalk^.SetColor(k);
+				endif;
+			endif;
+			//var int iOwner=pxWalk^.GetOwner();
+			var int iHQ=pxWalk^.GetHeadQuater();
+			if(CMirageSrvMgr.Get().GetCustomSlotHQ(sLevelName,i,iHQ)&&pxLevelInfo^.IsMultiplayer())then
+				pxWalk^.SetHeadQuater(iHQ);
+			endif;
+			//pxWalk^.SetOwner(iOwner);
+			var string sType=pxWalk^.GetType();
+			begin CheckRandomTribe;
+				var string sTribe=pxWalk^.GetTribe();
+				var bool bServerUpdate=false, bCustom=false, bAI=sType.Left(3)=="ai_";
+				if(CMirageSrvMgr.Get().GetCustomSlotTribe(sLevelName,iHQ,sTribe)&&pxLevelInfo^.IsMultiplayer())then
+					pxWalk^.SetTribe(sTribe);
+					bServerUpdate=true;
+					bCustom=true;
+				endif;
+				var ^CGameSrv pxGame=^(CSrvWrap.GetGame());
+				if(pxGame!=null)then
+					var int iCredits=pxGame^.GetCredits();
+					if(sType=="human"||bCustom||bAI)then
+						var string sAllTribes = (pxGenericDB^)["PlayerSettings/Player_"+iHQ.ToString()+"/Restrictions/Base/Tribes"].Value();
+						var ^CPropDB.CNode pxTribesNode=^((pxGenericDB^)["PlayerSettings/Player_"+iHQ.ToString()+"/Restrictions/Base/Tribes"]);
+						var string sTrb=pxGame^.GetAttrib("true_tribe_"+i.ToString());
+						bServerUpdate=(asValidFilters.FindEntry(sTrb)!=-1 || sAllTribes.Find(sTribe) == -1)&&pxLevelInfo^.IsMultiplayer();
+						if(bServerUpdate)then
+							if(!bCustom)then
+								var array string asTribes, asTemp;
+								sAllTribes.Split(asTribes,":",true);
+								var int i, iC=asTribes.NumEntries();
+								if(sTrb!="Random" && asValidFilters.FindEntry(sTrb)!=-1)then
+									var int iCnt=0;
+									asTemp=asTribes;
+									for(i=0)cond(i<iC)iter(i++)do
+										if(sTrb.Find(asTemp[i])==-1)then
+											asTribes.Exclude(asTemp[i]);
+											iCnt++;
+										endif;
+									endfor;
+									if(iCnt>=iC)then
+										asTribes=0; asTribes=asTemp;
+									endif;
+									iC=asTribes.NumEntries();
+								endif;
+								if(iC<=0)then iC=4; endif;
+								var int iRand=Random.GetInt()%iC;
+								if(iRand>=0 && iRand<asTribes.NumEntries())then
+									sTribe=asTribes[iRand];
+								else
+									sTribe=pxTribesNode^.GetValueS("Tribe2Use","Hu");
+								endif;
+							endif;
+							var CPropDB xPDB;
+							pxWalk^.SetTribe(sTribe);
+							if(iCredits!=-1 && sType=="human")then
+								if(xPDB.Load(CSrvWrap.GetUrsRelPath()+"/Data/MIRAGE/Scripts/Game/misc/DefPresets.txt"))then
+									var string sTribeSmall="_"+sTribe;
+									sTribeSmall.MakeLower();
+									var int iArmyID=Math.Clamp(pxWalk^.GetValueInt("army_id"),0,2);
+									var string sNode = sTribe+"/_pb";
+									if(iArmyID==1)then
+										sNode += "_rusher_";
+									elseif(iArmyID==0)then
+										sNode += "_boomer_";
+									else
+										sNode += "_standard_";
+									endif;
+									sNode+=iCredits.ToString()+sTribeSmall;
+									var ^CPropDB.CNode pxPNU=xPDB.FindNode(sNode+"/Units",false);
+									if(pxPNU!=null)then
+										var ^CPropDB.CNode pxPointBuyPreset = pxGenericDB^.FindNode("PlayerSettings/Player_"+iHQ.ToString()+"/PointBuyPreset/"+sTribe,true);
+										if(pxPointBuyPreset!=null)then
+											pxPointBuyPreset^.Clear();
+											pxPointBuyPreset^.Join(pxPNU);
+										endif;
+									endif;
+									var ^CPropDB.CNode pxPNR=xPDB.FindNode(sNode+"/Resources",false);
+									if(pxPNR!=null)then
+										var ^CPropDB.CNode pxPointBuyPreset = pxGenericDB^.FindNode("PlayerSettings/Player_"+iHQ.ToString()+"/Restrictions/Resources",true);
+										if(pxPointBuyPreset!=null)then
+											pxPointBuyPreset^.Clear();
+											pxPointBuyPreset^.Join(pxPNR);
+										endif;
+									endif;
+								endif;
+							endif;
+						endif;
+					endif;
+				endif;
+				if(sTribe=="Random")then
+					var ^CPropDB.CNode pxTribesNode=^((pxGenericDB^)["PlayerSettings/Player_"+iHQ.ToString()+"/Restrictions/Base/Tribes"]);
+					sTribe=pxTribesNode^.GetValueS("Tribe2Use","Hu");
+					pxWalk^.SetTribe(sTribe);
+				endif;
+			end CheckRandomTribe;
+			if(sType!="human" && sType!="closed")then
+				if(CMirageSrvMgr.Get().GetCustomSlotType(sLevelName,iHQ,sType)&&pxLevelInfo^.IsMultiplayer())then
+					pxWalk^.SetType(sType);
+				endif;
+			endif;
+			var int iColor=pxWalk^.GetColor();
+			if(CMirageSrvMgr.Get().GetCustomSlotColor(sLevelName,iHQ,iColor)&&pxLevelInfo^.IsMultiplayer())then
+				pxWalk^.SetColor(iColor);
+			endif;
+			var int iTeam=pxWalk^.GetTeam();
+			var ^CPlayer pxPlayer=null;
+			if(sType=="ai_Random")then
+				var array string asAITypes;
+				var int iMask;
+				CSettings.Get("AI/Personalities",iMask);
+				if(iMask>=8)then iMask-=8;/*asAITypes.AddEntry("ai_Mikrobe");*/endif;
+				if(iMask>=4)then iMask-=4;asAITypes.AddEntry("ai_Dodo");endif;
+				if(iMask>=2)then iMask-=2;asAITypes.AddEntry("ai_Giraffe");endif;
+				if(iMask>=1)then iMask-=1;asAITypes.AddEntry("ai_Schnecke");endif;
+				var int iIdx=Random.GetInt()%asAITypes.NumEntries();
+				sType=asAITypes[iIdx];
+				pxWalk^.SetType(sType);
+			endif;
+			if(sType=="human")then
+				pxPlayer=new CHumanPlayer;
+			elseif(sType=="closed")then
+				pxPlayer=new CAiPlayer(14);
+			elseif(sType=="ai_Dodo")then
+				pxPlayer=new CAiPlayer(2);
+			elseif(sType=="ai_Dodo_easy")then
+				pxPlayer=new CAiPlayer(3);
+			elseif(sType=="ai_Dodo_medium")then
+				pxPlayer=new CAiPlayer(4);
+			elseif(sType=="ai_Dodo_hard")then
+				pxPlayer=new CAiPlayer(5);
+			elseif(sType=="ai_Giraffe")then
+				pxPlayer=new CAiPlayer(6);
+			elseif(sType=="ai_Giraffe_easy")then
+				pxPlayer=new CAiPlayer(7);
+			elseif(sType=="ai_Giraffe_medium")then
+				pxPlayer=new CAiPlayer(8);
+			elseif(sType=="ai_Giraffe_hard")then
+				pxPlayer=new CAiPlayer(9);
+			elseif(sType=="ai_Schnecke")then
+				pxPlayer=new CAiPlayer(10);
+			elseif(sType=="ai_Schnecke_easy")then
+				pxPlayer=new CAiPlayer(11);
+			elseif(sType=="ai_Schnecke_medium")then
+				pxPlayer=new CAiPlayer(12);
+			elseif(sType=="ai_Schnecke_hard")then
+				pxPlayer=new CAiPlayer(13);
+			elseif(sType=="ai_Mikrobe")then
+				pxPlayer=new CAiPlayer(14);
+			endif;
+			var string sNew;
+			// Henry: add custom player names on specific maps
+			if(CMirageSrvMgr.Get().GetCustomSlotName(sLevelName,iHQ, sNew)&&pxLevelInfo^.IsMultiplayer())then
+				pxWalk^.SetName(sNew);
+				var ^CPropDB.CNode pxNameNode =
+				pxGenericDB^.FindNode("PlayerSettings/Player_"+iHQ.ToString(), true);
+				if(pxNameNode!=null)then
+					pxNameNode^.SetValue("PlayerName", sNew);
+				endif;
+				CSrvWrap.GetGame().SendLevelInfoUpdate();
+			// AyCe: If player is an AI AND level is multiplayer AND level is not in the "special" list
+			elseif(cast<CAiPlayer>(pxPlayer)!=null && pxLevelInfo^.IsMultiplayer() && CMirageSrvMgr.Get().UseAINames(((pxLevelInfo^.GetGenericData())["Base/LevelName"]).Value(), iHQ))then
+				pxWalk^.SetName(CMirageSrvMgr.Get().GetRandomAIName()+" [AI"+i.ToString()+"]");
+			else
+				sNew=pxWalk^.GetName();
+			endif;
+			var ^CBasePlayer pxTmpBP=cast<CBasePlayer>(pxPlayer);
+			if(pxTmpBP!=null)then
+				if(sNew!=""&&sNew!="No Name")then
+					pxTmpBP^.SetPName(pxWalk^.GetName());
+				endif;
+				if(bHandicap)then
+					pxTmpBP^.SetHandicap(sHandicap);
+				endif;
+				var int iSkip=0;
+				if(CMirageSrvMgr.Get().GetCustomSettingI(sLevelName,"SKIP_DIVISION_"+iHQ.ToString(),iSkip)&&pxLevelInfo^.IsMultiplayer())then
+					CMirageSrvMgr.ms_abSkipAtDivision[iHQ+1] = (iSkip==1);
+				endif;
+			endif;
+			//L KLog.LogSpam("ActionButtonBugTakeDown","CreatePlayers() sType="+sType+" IsFree="+pxWalk^.IsFree().ToString()+" iHQ="+iHQ.ToString()+" iTeam="+iTeam.ToString());
+			if(pxPlayer==null)then
+				CSrvWrap.LogError("Players","Player '"+sType+"' konnte nicht erzeugt werden"+" PlayerSlot: "+i.ToString());
+				return false;
+			endif;
+			// Paraworldfan: force AIplayers into certain difficulty level on specific maps
+			//var int iDifficulty;
+			
+			if(sType!="human")then
+				if(CMirageSrvMgr.Get().GetCustomSlotDifficulty(sLevelName,iHQ, m_iDifficulty)&&pxLevelInfo^.IsMultiplayer())then
+					pxWalk^.SetValue("Difficulty",m_iDifficulty);
+				endif;
+			endif;
+			// Henry: force players into certain teams on specific maps
+			if(CMirageSrvMgr.Get().GetCustomSlotTeam(sLevelName,iHQ, iTeam)&&pxLevelInfo^.IsMultiplayer())then
+				pxWalk^.SetTeam(iTeam);
+			endif;
+			pxPlayer^.SetPlayerSlotID(xCurSlotID);
+			//HACK
+			xCurSlotID.Incr();
+			var int iOwner=iHQ;
+			pxPlayer^.SetID(iOwner);
+			pxWalk^.SetHeadQuater(iOwner);
+			//test teamid bei defender. sollte eigentlich auf den Clients richtig eingestellt sein, aber wer weiß
+			if(CSrvWrap.GetGame().GetType()!=2)then//kein Defender
+				pxPlayer^.SetTeamID(iTeam);
+				pxWalk^.SetTeam(iTeam);
+			else//Defender
+//				//KLog.LogSpam("AnTr","Init Defender Teams");
+//				if(iHQ==0)then
+//					pxPlayer^.SetTeamID(1);
+//					pxWalk^.SetTeam(1);
+//					//KLog.LogSpam("AnTr","Init Defender Teams 1");
+//				else
+//					pxPlayer^.SetTeamID(2);
+//					pxWalk^.SetTeam(2);
+//					//KLog.LogSpam("AnTr","Init Defender Teams 2");
+//				endif;
+				var int iTemp=2;
+				if(iHQ==0)then
+					iTemp=1;
+				endif;
+				begin TeamCheck;
+					var array string asTeams;
+					var ^CPropDB.CNode pxTeams=pxGenericDB^.FindNode("ClientSettings/DefendTeams",false);
+					if(pxTeams!=null)then
+						var string sTeams=pxTeams^.Value();
+						if(sTeams!="")then
+							sTeams.Split(asTeams,":",true);
+							if(asTeams.NumEntries()>iHQ)then
+								iTemp=Math.Clamp(asTeams[iHQ].ToInt(),1,2);
+							endif;
+						endif;
+					endif;
+				end TeamCheck;
+				pxPlayer^.SetTeamID(iTemp);
+				pxWalk^.SetTeam(iTemp);
+			endif;
+			pxPlayer^.Init();
+			var ^CPropDB.CNode pxNodeBase=^((pxGenericDB^)["PlayerSettings/Player_"+iHQ.ToString()+"/Restrictions/Base"]);
+			pxPlayer^.SetGfxPrefix(pxNodeBase^.GetValueS("GfxPrefix",""));
+			//KLog.LogWarn("CHP","GfxPrefix:"+iOwner.ToString()+" "+pxNodeBase^.GetValueS("GfxPrefix",""));
+			//aiTeams[i]=iTeam;
+			// Henry: by AyCe to enable hardcoded filters
+			var ^CTechTreeDef pxPlayerTTDef=^(pxPlayer^.GetPlayerTechTreeDef());
+			if(pxPlayerTTDef!=null)then
+				CMirageSrvMgr.Get().HardcodeTTFilters(sLNFHCTTF, i, pxPlayerTTDef);
+			endif;
+			var ^CPropDB.CNode pxTTDef=^((pxGenericDB^)["PlayerSettings/Player_"+iHQ.ToString()+"/Restrictions/TTDef"]);
+			if(pxTTDef!=null)then
+//				var int iSEASCarrierFix=0;
+				var ^CTechTreeDef pxPlayerTTDef=^(pxPlayer^.GetPlayerTechTreeDef());
+				var int i,iC=pxTTDef^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					var string sFilter=(pxTTDef^)[i].Name();
+//					if(sFilter=="/Filters/AntiActions/Aje/Build/BLDG/aje_floating_harbour" || sFilter=="/Filters/AntiActions/Hu/Build/BLDG/hu_harbour" || sFilter=="/Filters/AntiActions/Ninigi/Build/BLDG/ninigi_harbour")then
+//						iSEASCarrierFix+=1;
+//					endif;
+					pxPlayerTTDef^.EnableFilter(sFilter);
+				endfor;
+//				if(iSEASCarrierFix==3)then
+//					pxPlayerTTDef^.EnableFilter("/Filters/AntiActions/SEAS/Build/BLDG/seas_carrier");
+//				endif;
+			endif;
+			p_pxLevel^.AddPlayer(pxPlayer);
+			//pxWalk^.SetValue("point_buy_costs", ms_pxPointBuyTable^.ToString());
+			// set the dipl-stuff (modified by ParaworldFan)
+			if(bMultiplayer && (sLevelName=="Single 01"||
+			sLevelName=="Single 02"||sLevelName=="Single 03"||sLevelName=="Single 04"||
+			sLevelName=="Single 05"||sLevelName=="Single 06"||sLevelName=="Single 07"||
+			sLevelName=="Single 08"||sLevelName=="Single 09"||sLevelName=="Single 10"||
+			sLevelName=="Single 11"||sLevelName=="Single 12"||sLevelName=="Single 13"||
+			sLevelName=="Single 14"||sLevelName=="Single 15"||sLevelName=="Single 16"||
+			sLevelName=="Single B41"||sLevelName=="Single B42"||sLevelName=="Single B43"))then
+				var ^CDiplomacySrvMgr pxDiplMgr=^(CSrvWrap.GetDiplomacyMgr());
+				var ^CPropDB.CNode pxDiplNode=pxGenericDB^.FindNode("PlayerSettings/Player_"+iHQ.ToString()+"/Diplomacy",false);
+				if(pxDiplNode!=null)then
+					var ^CBasePlayer pxBasePlayer=CBasePlayer.GetPlayer(iHQ);
+					var string sVal=pxDiplNode^.Value();
+					var int j, iJC=sVal.GetLength();
+					for(j=0) cond(j<iJC) iter(++j) do
+						var int iRel=sVal.GetAt(j).ToString().ToInt();
+						pxDiplMgr^.SetRelation(iHQ, j, iRel);
+						if(pxBasePlayer!=null)then
+							pxBasePlayer^.SetDiplomacySilent(j, iRel, true);
+						endif;
+					endfor;
+				endif;
+			elseif(!bMultiplayer)then
+				var ^CDiplomacySrvMgr pxDiplMgr=^(CSrvWrap.GetDiplomacyMgr());
+				var ^CPropDB.CNode pxDiplNode=pxGenericDB^.FindNode("PlayerSettings/Player_"+iHQ.ToString()+"/Diplomacy",false);
+				if(pxDiplNode!=null)then
+					var ^CBasePlayer pxBasePlayer=CBasePlayer.GetPlayer(iHQ);
+					var string sVal=pxDiplNode^.Value();
+					var int j, iJC=sVal.GetLength();
+					for(j=0) cond(j<iJC) iter(++j) do
+						var int iRel=sVal.GetAt(j).ToString().ToInt();
+						pxDiplMgr^.SetRelation(iHQ, j, iRel);
+						if(pxBasePlayer!=null)then
+							pxBasePlayer^.SetDiplomacySilent(j, iRel, true);
+						endif;
+					endfor;
+				endif;
+			endif;
+		endfor;
+		// set the dipl-stuff
+		if(bMultiplayer && (sLevelName!="Single 01"&&
+		sLevelName!="Single 02"&&sLevelName!="Single 03"&&sLevelName!="Single 04"&&
+		sLevelName!="Single 05"&&sLevelName!="Single 06"&&sLevelName!="Single 07"&&
+		sLevelName!="Single 08"&&sLevelName!="Single 09"&&sLevelName!="Single 10"&&
+		sLevelName!="Single 11"&&sLevelName!="Single 12"&&sLevelName!="Single 13"&&
+		sLevelName!="Single 14"&&sLevelName!="Single 15"&&sLevelName!="Single 16"&&
+		sLevelName!="Single B41"&&sLevelName!="Single B42"&&sLevelName!="Single B43"))then
+			var ^CDiplomacySrvMgr pxDiplMgr=^(CSrvWrap.GetDiplomacyMgr());
+			var CPlayerSlotID xSlotIDA;
+			for(xSlotIDA=CPlayerSlotID.First())cond(xSlotIDA<=CPlayerSlotID.Last())iter(xSlotIDA.Incr())do
+				var ^CLevelInfo.CPlayerSlot pxSlotA=^(pxLevelInfo^.GetPlayerSlot(xSlotIDA));
+				var CPlayerSlotID xSlotIDB;
+				for(xSlotIDB=CPlayerSlotID.First())cond(xSlotIDB<=CPlayerSlotID.Last())iter(xSlotIDB.Incr())do
+					var ^CLevelInfo.CPlayerSlot pxSlotB=^(pxLevelInfo^.GetPlayerSlot(xSlotIDB));
+					var int iRelation=1;
+					var int iOwnerA=-1;
+					var int iOwnerB=-1;
+					var int iTeamA=-1;
+					var int iTeamB=-1;
+					if(!pxSlotA^.IsFree()||pxSlotA^.GetValue("forced")=="true")then
+//					if(!pxSlotA^.IsFree())then
+						iOwnerA=pxSlotA^.GetOwner();
+						iTeamA=pxSlotA^.GetTeam();
+					endif;
+					if(!pxSlotB^.IsFree()||pxSlotB^.GetValue("forced")=="true")then
+//					if(!pxSlotB^.IsFree())then
+						iOwnerB=pxSlotB^.GetOwner();
+						iTeamB=pxSlotB^.GetTeam();
+					endif;
+					if(iOwnerA!=-1 && iOwnerB!=-1)then 
+						if(iTeamA==iTeamB)then
+							iRelation=2;//friend
+						else
+							iRelation=0;//enemy
+						endif;
+					endif;
+					if(!pxSlotA^.IsFree() && !pxSlotB^.IsFree())then
+						//KLog.LogSpam("AnTr","Set Relation, OwnerA "+iOwnerA.ToString()+", OwnerB: "+iOwnerB.ToString()+", Relation: "+iRelation.ToString()+", TeamA: "+iTeamA.ToString()+", TeamB: "+iTeamB.ToString());
+					endif;
+					var ^CBasePlayer pxBasePlayer=CBasePlayer.GetPlayer(iOwnerA);
+					pxDiplMgr^.SetRelation(iOwnerA,iOwnerB,iRelation);
+					if(pxBasePlayer!=null)then
+						pxBasePlayer^.SetDiplomacySilent(iOwnerB, iRelation, true);
+					endif;
+				endfor;
+			endfor;
+		endif;
+		pxLevelInfo^.InitColorMap();
+		var string sVirtualTime=CSrvWrap.GetGame().GetAttrib("VirtualTime");
+//		if(sVirtualTime!="")then
+		if(sVirtualTime!="" && CSrvWrap.GetGame().GetAttribInt("CustomTime")==1)then
+			var array string asStartTime;
+			sVirtualTime.Split(asStartTime,":",false);
+			if(asStartTime.NumEntries()==3)then
+				var int iHour=asStartTime[0].ToInt();
+				var int iMinutes=asStartTime[1].ToInt();
+				var int iSeconds=asStartTime[2].ToInt();
+				CTimeMgr.Get().SetVirtualTime(iHour.ToReal()*60.0f*60.0f+iMinutes.ToReal()*60.0+iSeconds.ToReal());
+				return true;
+			endif;
+		endif;
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		var string sStartTime=pxBaseNode^.GetValueS("StartTime","12:0");
+		var array string asTime;
+		sStartTime.Split(asTime,":",false);
+		if(asTime.NumEntries()==2)then
+			var int iHour=asTime[0].ToInt();
+			var int iMinutes=asTime[1].ToInt();
+			CTimeMgr.Get().SetVirtualTime(iHour.ToReal()*60.0f*60.0f+iMinutes.ToReal()*60.0);
+			return true;
+		endif;
+		CTimeMgr.Get().SetVirtualTime(8.0f*60.0f*60.0f+30.0*60.0);
+		return true;
+	endproc;
+
+	proc CObjHndl PlaceObj(int p_iOwner,string p_sClass,vec3 p_vPos,vec3 p_vRot,ref CObjList p_rxWorker,bool p_bQueued,bool p_bWall)
+		return CPlaceMgr.Get().PlaceObj(p_iOwner,p_sClass,p_vPos,p_vRot,p_rxWorker,p_bQueued,p_bWall);
+	endproc;
+
+	proc void Evt_OnInvalidateScapeRect(rect p_xRect)
+		//L CSrvWrap.LogSpam("Placer","Evt_OnInvalidateScapeRect");
+		if(m_bSTPlacementMode)then return;endif;
+		var CObjQuery xOQ;
+		var vec3 vMin;
+		vMin.SetX(p_xRect.GetLeft().ToReal()*32.0f);
+		vMin.SetY(p_xRect.GetTop().ToReal()*32.0f);
+		var vec3 vMax;
+		vMax.SetX(p_xRect.GetRight().ToReal()*32.0f);
+		vMax.SetY(p_xRect.GetBottom().ToReal()*32.0f);
+		xOQ.RegionRect(vMin,vMax);
+		xOQ.SetType("BLDG");
+		var CObjList xObjList;
+		if(xOQ.Execute(xObjList))then
+			var int i,iC=xObjList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var CObjHndl xWalk=xObjList[i];
+				var ^CGameObj pxObj=xWalk.GetObj();
+				if(pxObj!=null)then
+					// harbours shouldn't snap to scape !!!
+					var ^CHarbour pxHarbour=cast<CHarbour>(pxObj);
+					if(pxHarbour!=null)then continue; endif;
+					// walls shouldn't snap to scape !!!
+					var ^CWall pxWall=cast<CWall>(pxObj);
+					if(pxWall!=null)then continue; endif;
+					// gates shouldn't snap to scape !!!
+					var ^CGate pxGate=cast<CGate>(pxObj);
+					if(pxGate!=null)then continue; endif;
+					// snap object to scape
+					var vec3 vObjPos=pxObj^.GetPos();
+					vObjPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vObjPos.GetX(),vObjPos.GetY()));
+					pxObj^.SetPos(vObjPos);
+				endif;
+			endfor;
+		endif;
+	endproc;
+
+	proc void Evt_OnGenericEvent(string p_sEvent)
+		var bool bSDK=CMirageSrvMgr.SDK();
+		//L CSrvWrap.LogSpam("Events","Evt_OnGenericEvent: "+p_sEvent);
+		var array string asInput;
+		p_sEvent.Split(asInput,"&",false);
+		var int i;
+		if(asInput[0]=="SwitchServerProfiler")then
+			if(m_bProfiler)then
+				CFeedback.Print(CFeedback.ALL, CFeedback.SYSTEM, "Server profiler stopped, check 'profiled_server.csv' for details.");
+				CSrvWrap.LogInfo("Profiler","Server profiler stopped, check 'profiled_server.csv' for details.");
+				Profiler.Stop();
+				Profiler.ExportCSV("profiled_server.csv");
+				CSrvWrap.ProfilingStop("profiled_server.kprof");
+				m_bProfiler=false;
+			else
+				CFeedback.Print(CFeedback.ALL, CFeedback.SYSTEM, "Server profiler started.");
+				CSrvWrap.LogInfo("Profiler","Server profiler started.");
+				CSrvWrap.ProfilingStart();
+				Profiler.Start();
+				m_bProfiler=true;
+			endif;
+		elseif(asInput[0]=="Evt_OnProcessFraction")then
+			for(i=1)cond(i<8)iter(i++)do
+				var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+				if(pxLevel==null)then continue; endif;
+				var ^CLevelInfoHost pxLI =^(pxLevel^.GetLevelInfo());
+				if(pxLI==null)then continue; endif;
+				var ^CLevelInfo.CPlayerSlot pxPS=pxLI^.GetOwnerPlayerSlot(i);
+				if(pxPS==null)then continue; endif;
+				if(pxPS^.IsFree() ||
+					pxPS^.GetType()=="ai_Schnecke"||pxPS^.GetType()=="ai_Schnecke_easy"||pxPS^.GetType()=="ai_Schnecke_medium"||pxPS^.GetType()=="ai_Schnecke_hard" ||
+					pxPS^.GetType()=="ai_Giraffe"||pxPS^.GetType()=="ai_Giraffe_easy"||pxPS^.GetType()=="ai_Giraffe_medium"||pxPS^.GetType()=="ai_Giraffe_hard" ||
+					pxPS^.GetType()=="ai_Dodo"|| pxPS^.GetType()=="ai_Dodo_easy"|| pxPS^.GetType()=="ai_Dodo_medium"|| pxPS^.GetType()=="ai_Dodo_hard"||
+					pxPS^.GetType()=="ai_Mikrobe" )then
+					continue;
+				endif;
+				if(asInput.NumEntries()<2)then
+					asInput.AddEntry("0");
+				endif;
+				if(asInput.NumEntries()<3)then
+					asInput.AddEntry(" ");
+				endif;
+				if(asInput.NumEntries()>=3)then
+					CSrvWrap.SendGenericEvtToPlayer(i, asInput[0]+"\t"+asInput[1]+"\t"+asInput[2]);
+				endif;
+			endfor;
+		elseif(asInput[0]=="cheats")then
+			DoCheat(asInput[1],asInput[2].ToInt(),asInput[3],asInput[4]);
+		elseif(asInput[0]=="ReloadGfxSets")then
+			CSrvWrap.ReloadGraphicSets();
+		elseif(asInput[0]=="dumpDB")then
+			var ^CLevelInfo pxLI=CSrvWrap.GetLevelInfo(false);
+			var ^CPropDB pxGenericDB=^(pxLI^.GetGenericData());
+			pxGenericDB^.Save("levelinfo_server.txt");
+//		elseif(asInput[0]=="Tribute")then
+//			TransferTribute(asInput[1].ToInt(),asInput[2].ToInt(),asInput[3].ToInt(),asInput[4]);
+		elseif(asInput[0]=="DiplomacyChange")then
+			var bool bPhantom=CMirageSrvMgr.Get().PhantomMode();
+			var int iSender=asInput[1].ToInt();
+			var int iReceiver=asInput[2].ToInt();
+			var int iStatus=asInput[3].ToInt();
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			if(pxLevel==null)then return; endif;
+			var ^CPlayer pxSender=pxLevel^.GetPlayer(iSender);
+			if(pxSender==null)then return; endif;
+			var ^CPlayer pxReceiver=pxLevel^.GetPlayer(iReceiver);
+			if(pxReceiver==null)then return; endif;
+			var string sSenderName=pxSender^.GetPlayerSlot()^.GetName();
+			var string sReceiverName=pxReceiver^.GetPlayerSlot()^.GetName();
+			var string sMessage;
+			if(iStatus==0)then
+				sMessage="_NT_DiplChangeEnemy\t"+sSenderName+"\t"+sReceiverName;
+//				sMessage=" has declared war on you!";
+			elseif(iStatus==1)then
+				sMessage="_NT_DiplChangeNeutral\t"+sSenderName+"\t"+sReceiverName;
+//				sMessage=" has adopted a neutral position to you!";
+			elseif(iStatus==2)then
+				sMessage="_NT_DiplChangeAlly\t"+sSenderName+"\t"+sReceiverName;
+//				sMessage=" is now your ally!";
+			endif;
+			var ^CBasePlayer pxBaseSender=cast<CBasePlayer>(pxSender);
+			var ^CBasePlayer pxBaseReceiver=cast<CBasePlayer>(pxReceiver);
+			if(pxBaseSender!=null && pxBaseReceiver!=null)then
+				var bool bDead=pxBaseReceiver^.IsDead()||pxBaseSender^.IsDead();
+				pxBaseReceiver^.SetDiplomacy(iSender, iStatus, bPhantom, bDead);
+				pxBaseSender^.SetDiplomacySilent(iReceiver, iStatus, bDead);
+			endif;
+			// send diplomacy change to all players (-2)
+			if(!CMirageSrvMgr.Get().DiploLocked())then
+				if(!bPhantom)then
+					CFeedback.Print(-2, CFeedback.DIPLOMACY, sMessage);
+				endif;
+				Evt_OnDiplomacyChanged(); // notify all conditions of type DIPL
+			endif;
+		elseif(asInput[0]=="SetSTPMode" && CMirageSrvMgr.SDK())then
+			if(asInput[1]=="true")then
+				m_bSTPlacementMode=true;
+			else
+				m_bSTPlacementMode=false;
+			endif;
+		elseif(asInput[0]=="play_taunt")then
+			var string sTmp=asInput[1];
+			var vec3 vTmp;
+			var bitset dwS=Math.IntToBitset(3);
+			CSrvWrap.PlaySoundAll("Taunt_"+sTmp,dwS,vTmp);
+		elseif(asInput[0]=="start_gameover_trigger")then
+			var ^CLevelInfo pxLI=CSrvWrap.GetLevelInfo(false);
+			if(pxLI!=null)then
+				var string sType="multiplayer";
+				var ^CPropDB pxGenericDB=^(pxLI^.GetGenericData());
+				var ^CPropDB.CNode pxMapType=pxGenericDB^.FindNode("Base/MapType",false);
+				if(pxMapType!=null)then
+					sType=pxMapType^.Value();
+				endif;
+				if(sType=="multiplayer")then
+					CStartLocationMgr.Get().StartAllGameOverTriggers();
+				endif;
+			endif;
+		elseif(asInput[0]=="Chat_whisper")then
+			if(asInput.NumEntries()>4)then
+				CMultiPlayerHostMgr.Get().SendChatMsgTo(asInput[1], asInput[2], asInput[3], asInput[4]);
+			endif;
+		elseif(asInput[0]=="timeofday" && asInput.NumEntries()==3 && CMirageSrvMgr.SDK())then
+			var int iHour=asInput[1].ToInt();
+			var int iMinutes=asInput[2].ToInt();
+			CTimeMgr.Get().SetVirtualTime(iHour.ToReal()*60.0f*60.0f+iMinutes.ToReal()*60.0);
+		elseif(asInput[0]=="AdaptTerrain" && asInput.NumEntries() > 1 && CMirageSrvMgr.SDK())then
+			var CGuid xGuid;
+			xGuid.FromString(asInput[1]);
+			var ^CGameObj pxObj=CSrvWrap.GetObjMgr()^.GetObjByGuid(xGuid);
+			if(pxObj!=null)then
+				var bool bWall=true;
+				if(cast<CWall>(pxObj)==null)then
+					bWall=false;
+				endif;
+				var bool bGate=true;
+				if(cast<CGate>(pxObj)==null)then
+					bGate=false;
+				endif;
+				var bool bCoastal=true;
+				if(cast<CHarbour>(pxObj)==null)then
+					bCoastal=false;
+				endif;
+				if(!bWall && !bGate)then
+					var vec3 vPos=pxObj^.GetPos();
+					var vec3 vRot=pxObj^.GetRotation();
+					CSrvWrap.GetScapeMgr().AdaptTerrain(CMirageSrvMgr.Get().GetObjBrush(pxObj^.GetClassName(), pxObj^.GetGfxName()),vPos,vRot,bCoastal);
+					if(!bCoastal)then
+						vPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vPos.GetX(),vPos.GetY()));
+						pxObj^.SetPos(vPos);
+					endif;
+				endif;
+			endif;
+		elseif(asInput[0]=="UpdateSpiritCards"&&asInput.NumEntries()==4)then
+			var int iBP=asInput[1].ToInt();
+			if(iBP<0||iBP>=m_asCodes.NumEntries())then return; endif;
+			var string sCode=asInput[2];
+			if(sCode!=m_asCodes[iBP])then return; endif;
+			var ^CBasePlayer pxBase=CBasePlayer.GetPlayer(iBP);
+			if(pxBase==null)then return; endif;
+			pxBase^.EnableSpiritCards(asInput[3]=="1");
+			return;
+		elseif(asInput[0]=="UpdateResetRallyPoint"&&asInput.NumEntries()==4)then
+			var int iBP=asInput[1].ToInt();
+			if(iBP<0||iBP>=m_asCodes.NumEntries())then return; endif;
+			var string sCode=asInput[2];
+			if(sCode!=m_asCodes[iBP])then return; endif;
+			CMirageSrvMgr.Get().SetResetRallyPoint(iBP, asInput[3]=="1");
+			return;
+		elseif(asInput[0]=="SetContinueRepair"&&asInput.NumEntries()==4)then
+			var int iBP=asInput[1].ToInt();
+			if(iBP<0||iBP>=m_asCodes.NumEntries())then return; endif;
+			var string sCode=asInput[2];
+			if(sCode!=m_asCodes[iBP])then return; endif;
+			CMirageSrvMgr.Get().SetContinueRepair(iBP, asInput[3]=="1");
+			return;
+		elseif(asInput[0]=="TogglePause"&&asInput.NumEntries()==3)then
+			var string sEvent="Paused\t"+asInput[1]+"\t"+asInput[2];
+			var int iBP=asInput[1].ToInt();
+			if(iBP<0||iBP>=m_asCodes.NumEntries())then return; endif;
+			var string sCode=asInput[2];
+			if(sCode!=m_asCodes[iBP])then return; endif;
+			var ^CBasePlayer pxBase=CBasePlayer.GetPlayer(iBP);
+			if(pxBase==null)then return; endif;
+			var int iPauses=pxBase^.GetTacticalPauses();
+			CMirageSrvMgr.Get().ToggleTacticalPause(iBP,pxBase^.GetPName(),iPauses);
+			pxBase^.SetTacticalPauses(iPauses);
+			return;
+//		elseif(asInput[0]=="Pause")then
+//			CTimeMgr.Get().Stop();
+//			var string sEvent="Paused\t"+asInput[1]+"\t"+asInput[2];
+////			var string sEvent="Paused\t"+asInput[1];
+//			var int i, iC = 8;
+//			for(i=0)cond(i<iC)iter(i++)do
+//				CSrvWrap.SendGenericEvtToPlayer(i, sEvent);
+//			endfor;
+//		elseif(asInput[0]=="Unpause")then
+//			CTimeMgr.Get().Start();
+//			var string sEvent="Unpaused\t"+asInput[1]+"\t"+asInput[2];
+////			var string sEvent="Unpaused\t"+asInput[1];
+//			var int i, iC = 8;
+//			for(i=0)cond(i<iC)iter(i++)do
+//				CSrvWrap.SendGenericEvtToPlayer(i, sEvent);
+//			endfor;
+		elseif(asInput[0]=="Adminunpause")then
+			var int iBP=asInput[1].ToInt();
+			if(iBP<0||iBP>=m_asCodes.NumEntries())then return; endif;
+			if(!CMirageSrvMgr.IsHost(iBP))then return; endif;
+			var string sCode=asInput[3];
+			if(sCode!=m_asCodes[iBP])then return; endif;
+			var string sEvent="Adminunpause\t"+asInput[1]+"\t"+asInput[2];
+			var int i, iC = 8;
+			for(i=0)cond(i<iC)iter(i++)do
+				CSrvWrap.SendGenericEvtToPlayer(i, sEvent);
+			endfor;
+//		elseif(asInput[0]=="BuildUp" && asInput.NumEntries() > 1 && bSDK)then
+//			var CGuid xGuid;
+//			xGuid.FromString(asInput[1]);
+//			var ^CBuilding pxB=cast<CBuilding>(CSrvWrap.GetObjMgr()^.GetObjByGuid(xGuid));
+//			if(pxB!=null)then
+//				pxB^.BuildUpSDK();
+//			endif;
+//Das geht so nicht -> bei 8 Spielern würden 8 Krater erzeugt werden !!!
+//		elseif(asInput[0]=="CreateCrater")then
+//			if(asInput[1]=="big")then
+//				var vec3 vPos;
+//				vPos.FromString(asInput[2]);
+//				var ^CGameObj pxTmp=CSrvWrap.GetObjMgr()^.CreateObj("Crater_Big",(-1),vPos);
+//				if(pxTmp!=null)then
+//					//DoStuff
+//				endif;
+//			endif;
+		elseif(asInput[0]=="UnlockDiplo"&&asInput.NumEntries()==3)then
+			if(!CMirageSrvMgr.Get().AfterEndscreen())then return; endif;
+			var int iBP=asInput[1].ToInt();
+			if(iBP<0||iBP>=m_asCodes.NumEntries())then return; endif;
+			if(!CMirageSrvMgr.IsHost(iBP))then return; endif;
+			var string sCode=asInput[2];
+			if(asInput[2]!=m_asCodes[iBP])then return; endif;
+			var ^CBasePlayer pxBase=CBasePlayer.GetPlayer(iBP);
+			if(pxBase==null)then return; endif;
+			CMirageSrvMgr.Get().UnlockDiplo();
+			var string sEvent="UnlockDiplo\tdummy\tdummy";
+			var int i, iC = 8;
+			for(i=0)cond(i<iC)iter(i++)do
+				CSrvWrap.SendGenericEvtToPlayer(i, sEvent);
+			endfor;
+			return;
+		endif;
+	endproc;
+
+	proc void Evt_OnGenericLongStringEvent(string p_sEvent)
+		//KLog.LogWarn("Events","OnGenericLongStringEvent: "+p_sEvent);
+		var array string asInput;
+		p_sEvent.Split(asInput,"\t",true);
+		if(asInput.NumEntries()>1)then
+			if(asInput[0]=="SaveLevelInfoWeather")then
+				var ^CLevelInfo pxLevelInfo=CSrvWrap.GetLevelInfo(false);
+				CLevelInfo.ConvertStringToPropDB(asInput[1],^(pxLevelInfo^.GetGenericData()));
+			elseif(asInput[0]=="ChatToOne" && asInput.NumEntries()==5)then
+				if(!CMirageSrvMgr.Get().ObserverChat())then return; endif;
+//				CSrvWrap.SendGenericEvtToClients(01b<<(asInput[4].ToInt()),"Chat_whisper\t"+asInput[2]+"\t"+asInput[1]+"\t"+asInput[3]);
+				CSrvWrap.SendGenericEvtToPlayer(asInput[4].ToInt(),"Chat_whisper\t"+asInput[2]+"\t"+asInput[1]+"\t"+asInput[3]);
+			elseif(asInput[0]=="ChatToAll" && asInput.NumEntries()==4)then
+				if(!CMirageSrvMgr.Get().ObserverChat())then return; endif;
+				var int i;
+				for(i=0)cond(i<24)iter(i++)do
+					CSrvWrap.SendGenericEvtToClients(01b<<i,"Chat_whisper\t"+asInput[2]+"\t"+asInput[1]+"\t"+asInput[3]);
+				endfor;
+			elseif(asInput[0]=="debug_level_info")then
+				CMirageSrvMgr.Get().DumpLevelInfo();
+			endif;
+		endif;
+	endproc;
+
+	proc void TransferTribute(int p_iPlayerId1, int p_iPlayerId2, int p_iTribute, string p_sTributeType)
+		/*
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel==null)then return; endif;
+//		var ^CPlayer pxPlayer1=pxLevel^.GetPlayer(p_iPlayerId1);
+		var ^CBasePlayer pxPlayer1=CBasePlayer.GetPlayer(p_iPlayerId1);
+		if(pxPlayer1==null)then return; endif;
+//		var ^CPlayer pxPlayer2=pxLevel^.GetPlayer(p_iPlayerId2);
+		var ^CBasePlayer pxPlayer2 =CBasePlayer.GetPlayer(p_iPlayerId2);
+		if(pxPlayer2==null)then return; endif;
+		if(p_iTribute<=0)then return; endif;
+		var ^CAttribs pxPlAttr1=pxPlayer1^.GetAttribs();
+		if(pxPlAttr1==null)then return; endif;
+		var int iValue1=pxPlAttr1^.GetValueInt(p_sTributeType);
+		var ^CAttribs pxPlAttr2=pxPlayer2^.GetAttribs();
+		if(pxPlAttr2==null)then return; endif;
+		var int iValue2=pxPlAttr2^.GetValueInt(p_sTributeType);
+		if(iValue1<p_iTribute)then
+			p_iTribute=iValue1;
+		endif;
+		iValue1 -= p_iTribute;
+		var int iMaxValue=pxPlAttr2^.GetValueInt("max_"+p_sTributeType);
+		iValue2 += p_iTribute;
+//		kinda anoying...
+
+//		if(iValue2 > iMaxValue)then
+//			iValue2=iMaxValue;
+//		endif;
+
+		pxPlAttr1^.SetValue(p_sTributeType,iValue1);
+		pxPlAttr2^.SetValue(p_sTributeType,iValue2);
+		var string sPlayerName=pxLevel^.GetLevelInfo().GetPlayerSlot(pxPlayer1^.GetPlayerSlotID()).GetName();
+		var string sTribLoc=p_sTributeType;
+		sTribLoc.MakeUpper();
+		//By AyCe
+		if(sTribLoc=="STONE")then
+			sTribLoc="STON";
+		endif;
+		sTribLoc="_NT_AI_RESSOURCE_"+sTribLoc;
+		if(pxPlayer2^.GetDiplomacy(p_iPlayerId1)==2)then
+			CSrvWrap.SendGenericEvtToPlayer(p_iPlayerId2, "AllyTribute");
+		endif;
+		CFeedback.Print(p_iPlayerId2, CFeedback.DIPLOMACY,"_NT_DiplTribute\t"+sTribLoc+"\t"+p_iTribute.ToString()+"\t"+sPlayerName);
+		CStatsMgr.Get().GetPlayerStats(p_iPlayerId1)^.AddTribute(p_iPlayerId2, p_sTributeType, p_iTribute);
+		// track spend and received tributes for statistics
+		var ^CStatisticMgr pxStatisticMgr=^(pxLevel^.GetStatisticMgr());
+		pxStatisticMgr^.AddSample( CStatisticSample.Tribute.ToInt(), p_iPlayerId1,  p_iTribute );
+		pxStatisticMgr^.AddSample( CStatisticSample.Tribute.ToInt(), p_iPlayerId2, -p_iTribute );
+		CSrvWrap.GetGameLogger().Log("Tribute",p_iPlayerId1.ToString(),p_iPlayerId2.ToString(),p_iTribute.ToString(),p_sTributeType);
+		*/
+	endproc;
+
+	export static proc bool SetActionViewActive(int p_iID,bool p_bActive)
+		p_iID=Math.Min(0,ms_abActionViewActive.NumEntries()-1);
+		ms_abActionViewActive[p_iID]=p_bActive;
+		//L CSrvWrap.LogInfo("ServerApp","SetActionView for Player "+p_iID.ToString()+" to "+p_bActive.ToString());
+		return(true);
+	endproc;
+
+	export static proc bool GetActionViewActive(int p_iID)
+		p_iID=Math.Min(0,ms_abActionViewActive.NumEntries()-1);
+		return(ms_abActionViewActive[p_iID]);
+	endproc;
+
+	proc void DoCheat(string p_sCommand, int p_iPlayer, string p_sParamA, string p_sParamB)
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel==null)then return; endif;
+		var ^CLevelInfoHost pxLevelInfo=^(pxLevel^.GetLevelInfo());
+		var ^CGameAttribs pxGIAttr=^(pxLevelInfo^.GetAttribs());
+		if(pxGIAttr==null||pxGIAttr^.GetValue("cheats_enabled")!="true")then return; endif;
+		var ^CPlayer pxPlayer=pxLevel^.GetPlayer(p_iPlayer);
+		if(pxPlayer==null)then return; endif;
+		var ^CAttribs pxAttr=pxPlayer^.GetAttribs();
+		if(pxAttr==null)then return; endif;
+		var int i;
+/*		if(p_sCommand=="giveme")then
+			pxAttr^.SetValue(p_sParamA,pxAttr^.GetValueInt(p_sParamA)+p_sParamB.ToInt());
+		elseif(p_sCommand=="level")then
+			if(p_sParamA=="levelup")then
+				var CObjQuery xQuery;
+				xQuery.SetType("CHTR");
+				xQuery.SetOwner(p_iPlayer);
+				var CObjList xList;
+				if(xQuery.Execute(xList))then
+					var array string asHndls;
+					p_sParamB.Split(asHndls,"|",true);
+					var CObjHndl xInvalid;
+					var int i,j;
+					for(i=0)cond(i<asHndls.NumEntries())iter(i++)do
+						var CGuid xGuid;
+						xGuid.FromString(asHndls[i]);
+						for(j=0)cond(j<xList.NumEntries())iter(j++)do
+							if(xList[j].GetObj()^.GetGuid()==xGuid)then
+								xList[j].GetObj()^.HandleGamePlayCommand("setlevelcheat",null,{0.0,0.0,0.0},"");
+							endif;
+						endfor;
+					endfor;
+				endif;
+			endif;
+		endif;
+*/
+	endproc;
+
+	export static proc ^CPropDB GetPropDB_Resources()
+		if(ms_pxResourceTable==null )then
+			CSrvWrap.LogError("DB","'Resources.txt' was not properly loaded.");
+			return null;
+		else
+			return ms_pxResourceTable;
+		endif;
+	endproc;
+
+	export static proc ^CPropDB GetPropDX_PointBuyCosts()
+		if(ms_pxPointBuyTable==null )then
+			CSrvWrap.LogError("DB","'PointBuyCosts.txt' was not properly loaded.");
+			return null;
+		else
+			return ms_pxPointBuyTable;
+		endif;
+	endproc;
+	
+	export proc bool InitMixer()
+		if(CMirageSrvMgr.ms_pxPoolMixer!=null)then return false; endif;
+		var ^CGameSrv pxGame=^(CSrvWrap.GetGame());
+		if(pxGame==null)then return false; endif;
+		if(pxGame^.IsLevelEd())then return false; endif;
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+		if(pxLevelInfo==null)then return false; endif;
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		if(pxGenericDB==null)then return false; endif;
+		var ^CPropDB.CNode pxCSNode=^((pxGenericDB^)["ClientSettings"]);
+		if(pxCSNode==null)then return false; endif;
+		var string sMixer="pool_mixer_0";
+		var ^CPropDB.CNode pxPoolMixer=^(pxCSNode^.Get("PoolMixer"));
+		if(pxPoolMixer==null)then
+			var ^CPoolMixer pxMixer=GetNewPoolMixer();
+			if(pxMixer!=null)then
+				CMirageSrvMgr.ms_pxPoolMixer=pxMixer;
+				pxPoolMixer=^(pxCSNode^.AddValue("PoolMixer",pxMixer^.GetName()));
+				return true;
+			endif;
+		else
+			sMixer=pxPoolMixer^.Value();
+			var ^CPoolMixer pxMixer=cast<CPoolMixer>(CSrvWrap.GetObjMgr()^.GetObjByName(sMixer));
+			if(pxMixer!=null)then
+				CMirageSrvMgr.ms_pxPoolMixer=pxMixer;
+				return true;
+			else
+				pxMixer=GetNewPoolMixer();
+				if(pxMixer!=null)then
+					pxCSNode^.SetValue("PoolMixer",pxMixer^.GetName());
+					CMirageSrvMgr.ms_pxPoolMixer=pxMixer;
+					return true;
+				endif;
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+	proc ^CPoolMixer GetNewPoolMixer()
+		var vec3 vSpawn={0.0,0.0,0.0};
+		var ^CRegion pxRgn=CSrvWrap.GetRegionMgr().GetRegion(CSrvWrap.GetRegionMgr().GetWorldRgnHndl());
+		if(pxRgn!=null)then
+			vSpawn=pxRgn^.GetRandomPointInside();
+		endif;
+		var ^CPoolMixer pxMixer=cast<CPoolMixer>(CSrvWrap.GetObjMgr()^.CreateObj("pool_mixer",-1,vSpawn));
+		if(pxMixer!=null)then
+			CMirageSrvMgr.ms_pxPoolMixer=pxMixer;
+			return pxMixer;
+		endif;
+		return null;
+	endproc;
+	
+endclass;
+
+class CPlaceMgr
+
+	class CPlaceMgrTick inherit CEvtSink
+
+		var int m_iOwner;
+		var int m_iTimer;
+		export var procref <void,int> m_xOnTick;
+
+		export constructor()
+			m_xOnTick=OnTick;
+			m_iTimer=-1;
+		endconstructor;
+
+		destructor()
+			if(m_iTimer!=-1)then
+				CTimeMgr.Get().GetTimer(m_iTimer)^.Unsubscribe(this);
+				CTimeMgr.Get().DeleteTimer(m_iTimer);
+			endif;
+		enddestructor;
+
+		proc void OnTick(int p_iID)
+		endproc;
+
+		export proc void SetOwner(int p_iOwner)
+			m_iOwner=p_iOwner;
+		endproc;
+
+		export proc bool OnPush(ref CEvtPointer  p_rxEP)
+			m_xOnTick.Call(m_iOwner);
+			if(m_iTimer!=-1)then
+				CTimeMgr.Get().GetTimer(m_iTimer)^.Unsubscribe(this);
+				CTimeMgr.Get().DeleteTimer(m_iTimer);
+			endif;
+			m_iTimer=-1;
+			return true;
+		endproc;
+
+		export proc void SetTimer(real p_fDuration)
+			if(m_iTimer==-1)then
+				m_iTimer=CTimeMgr.Get().CreateTimer(CGameTimeSpan.OneSecond() * p_fDuration, false);
+				CTimeMgr.Get().GetTimer(m_iTimer)^.Subscribe(this);
+			endif;
+		endproc;
+
+		export proc int GetTimer()
+			return m_iTimer;
+		endproc;
+
+	endclass;
+
+	static var ^CPlaceMgr ms_pxInst;
+
+	var array CObjList m_axPlayerWalls;
+	var array CObjList m_axPlayerBuilders;
+	var array ^CPlaceMgrTick m_apxTimer;
+
+	constructor()
+		m_axPlayerWalls=8;
+		m_axPlayerBuilders=8;
+		m_apxTimer=8;
+		var int i, iC=m_apxTimer.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_apxTimer[i]=new CPlaceMgrTick();
+			m_apxTimer[i]^.m_xOnTick=CalculateWalls;
+		endfor;
+	endconstructor;
+
+	proc void CalculateWalls(int p_iOwner)
+		var CObjList xWalls=m_axPlayerWalls[p_iOwner];
+		var CObjList xBuilders=m_axPlayerBuilders[p_iOwner];
+		var vec3 vCenter;
+		var int iCount=0;
+		var int i, iC=xBuilders.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxObj=xBuilders[i].GetObj();
+			if(pxObj!=null)then
+				if(iCount==0||(vCenter/iCount.ToReal() - pxObj^.GetPos()).Abs()<50.0 )then
+					vCenter+=pxObj^.GetPos();
+					iCount++;
+				endif;
+			endif;
+		endfor;
+		vCenter=vCenter/iCount.ToReal();
+		iC=xWalls.NumEntries();
+		var vec3 vTarget;
+		var vec3 vDirection;
+		if(iC > 1)then
+			var ^CWall pxWall=cast<CWall>(xWalls[0].GetObj());
+			var ^CWall pxNextWall=cast<CWall>(xWalls[1].GetObj());
+			if(pxWall!=null && pxNextWall!=null)then
+				var vec3 vPos=pxWall^.GetPos();
+				vDirection=pxNextWall^.GetPos() - vPos;
+				var vec3 vBuilder	= vCenter - pxWall^.GetPos();
+				//quetsche auf 2D
+				vPos.SetZ(0.0);
+				vBuilder.SetZ(0.0);
+				vDirection.SetZ(0.0);
+				var vec3 vSenkrecht=vDirection$vBuilder;
+				var vec3 vLot=vDirection$vSenkrecht;
+				vLot.Normalize();
+				var vec3 vT1=vBuilder - (vPos+vLot);
+				var vec3 vT2=vBuilder - (vPos - vLot);
+				vLot *= 4.0;
+				vTarget=vDirection/10.0;
+				if(vT1.Abs2S()<vT2.Abs2S())then
+					vTarget -= vLot;
+				else
+					vTarget -= vLot;
+				endif;
+				pxWall^.SetBuildVector(vTarget);
+			endif;
+		elseif(iC==1)then
+			var ^CWall pxWall=cast<CWall>(xWalls[0].GetObj());
+			if(pxWall!=null)then
+				var vec3 vPos		= pxWall^.GetPos();
+				var vec3 vBuilder	= vCenter - vPos;
+				vBuilder.Normalize();
+				vTarget=vPos+vBuilder*4.0;
+			endif;
+		endif;
+		iC=xWalls.NumEntries()-1;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CWall pxFirstWall=cast<CWall>(xWalls[0].GetObj());
+			var ^CWall pxWall=cast<CWall>(xWalls[i].GetObj());
+			var ^CWall pxNextWall=cast<CWall>(xWalls[i+1].GetObj());
+			if(pxWall!=null && pxNextWall!=null)then
+				var Quat qFirst;
+				qFirst.FromDir(vDirection);
+				var vec3 vDir=pxNextWall^.GetPos() - pxWall^.GetPos();
+				var Quat qCurrent;
+				qCurrent.FromDir(vDir);
+				var Quat qDiff=qCurrent/qFirst;
+				var vec3 vTar=vTarget;
+				qDiff.VecRotateU(vTar);
+				pxWall^.SetBuildVector(vTar);
+				if(i==(iC-1))then
+					pxNextWall^.SetBuildVector(vTar);
+				endif;
+			endif;
+		endfor;
+		m_axPlayerWalls[p_iOwner].Clear();
+		m_axPlayerBuilders[p_iOwner].Clear();
+	endproc;
+
+	export static proc ref CPlaceMgr Get()
+		if(ms_pxInst==null)then
+			ms_pxInst=new CPlaceMgr;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+
+	export static proc void Kill()
+		if(ms_pxInst!=null)then
+			delete ms_pxInst;
+			ms_pxInst=null;
+		endif;
+	endproc;
+	
+	export proc CObjHndl PlaceObj(int p_iOwner,string p_sClass,vec3 p_vPos,vec3 p_vRot,ref CObjList p_rxWorker,bool p_bQueued,bool p_bWall)
+		var string sBldg=p_sClass;
+		var CObjHndl xInvalid;
+		if(p_iOwner<0)then return xInvalid; endif;
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel==null)then return xInvalid; endif;
+		var ^CPlayer pxPlayer=pxLevel^.GetPlayer(p_iOwner);
+		if(pxPlayer==null)then return xInvalid; endif;
+		var ^CAttribs pxPlAttr=pxPlayer^.GetAttribs();
+		if(pxPlAttr==null)then return xInvalid; endif;
+		var ^CLevelInfoHost pxLevelInfo=CSrvWrap.GetLevelInfo(false);
+		if(pxLevelInfo==null)then return xInvalid; endif;
+		var ^CLevelInfo.CPlayerSlot pxPlSlot=pxLevelInfo^.GetOwnerPlayerSlot(p_iOwner);
+		if(pxPlSlot==null)then return xInvalid; endif;
+		//KLog.LogSpam("RoSt", "function params are valid");
+		var string sTribe=pxPlSlot^.GetTribe();
+		var string sPTName=sTribe;
+		if(sTribe=="Random")then
+			sTribe="SEAS";
+		endif;
+		var CTechTree xTechTree=pxPlayer^.GetPlayerTechTree();
+		var array string asTokens;
+		sBldg.Split(asTokens,";",true);
+		var string sClass;
+		var string sAction;
+//		p_sClass: 'aje_small_farm;Actions/Aje/Build/BLDG/aje_huge_farm'
+		if(asTokens.NumEntries()>=1)then
+			sClass=asTokens[0];
+		endif;
+		if(asTokens.NumEntries()>=3)then
+			sTribe=asTokens[1];
+		elseif(sClass.Find('_')!=-1)then
+			var string sVolk=sClass.Left(sClass.Find('_'));
+			sVolk.MakeLower();
+			if(sVolk=="aje")then
+				sTribe="Aje";
+			elseif(sVolk=="hu")then
+				sTribe="Hu";
+			elseif(sVolk=="ninigi")then
+				sTribe="Ninigi";
+			elseif(sVolk=="seas")then
+				sTribe="SEAS";
+			elseif(sVolk=="special")then
+				sTribe="Special";
+			endif;
+		endif;
+		if(!CheckTribes(p_rxWorker,sTribe,sPTName))then return xInvalid; endif;
+		if(asTokens.NumEntries()>=3)then
+			sAction=asTokens[2];
+		elseif(asTokens.NumEntries()>=2)then
+			sAction=asTokens[1];
+		endif;
+		var string sBuildingPath;
+//		if(!sAction.IsEmpty())then
+		if(sAction.Find("Actions/")!=-1)then
+			sBuildingPath=sAction;
+		else
+			sBuildingPath="/Actions/"+sTribe+"/Build/BLDG/"+sClass;
+		endif;
+		var string sObjPath="/Objects/"+sTribe+"/BLDG/"+sClass;
+//		m_bWall=(xTechTree.GetValueI(sObjPath+"/wall",0)!=0);
+		var bool bGate=(xTechTree.GetValueI(sObjPath+"/gate",0)!=0);
+		var bool bRealWall=(xTechTree.GetValueI(sObjPath+"/real_wall",0)!=0);
+		var bool bCoastal=(xTechTree.GetValueI(sObjPath+"/coastal",0)!=0);
+		var ^CObjMgrHost pxObjMgr=CSrvWrap.GetObjMgr();
+		var bool bFaultFree=FaultFree(p_vPos);
+		if(!bFaultFree)then
+			CFeedback.Print(p_iOwner, CFeedback.GAMEPLAY, "_MIRAGE_PlaceController_Fault");
+			return xInvalid;
+		endif;
+		if(bCoastal)then
+			var vec3 vNewPos;
+			var Quat qNewRot;
+			if(pxObjMgr^.GetObjPlaceChecker()^.CheckGetCoastal(CMirageSrvMgr.Get().UseSmallerGfx(sClass), p_vPos, vNewPos, qNewRot))then
+				p_vPos=vNewPos;
+				p_vPos.SetZ( CSrvWrap.GetScapeMgr().GetSeaLevel()+1.5f );   //make land part of harbour at this height
+				qNewRot.ToVec3(p_vRot);
+			else
+				return xInvalid;
+			endif;
+		else
+			if(!p_bWall && !bGate)then
+				//KLog.LogSpam("RoSt", "calling check with classname: "+sClass);
+				if(!(pxObjMgr^.GetObjPlaceChecker()^.Check(CMirageSrvMgr.Get().UseSmallerGfx(sClass),p_vPos,p_vRot)))then
+					//KLog.LogSpam("RoSt", "return 2");
+					return xInvalid;
+				endif;
+			elseif(bRealWall)then
+				var ^CWallMapSrv pxWM=CSrvWrap.GetObjMgr()^.GetObjPlaceChecker()^.GetWallMap();
+				if(pxWM!=null)then
+					var CObjList xWalls;
+					pxWM^.GetNextWalls(p_vPos,1.0f,xWalls,true,false,false,true);
+					if(xWalls.NumEntries()>0)then
+						return xInvalid;
+					endif;
+				endif;
+			endif;
+		endif;
+		if(!CBLDGMgr.Get().CanAddBuilding(p_iOwner,sTribe,sClass))then
+			return xInvalid;
+		endif;
+		var CAction.CResourceCosts xCosts;
+		if(!CRequirementsMgr.Get().CheckConditionsAndPayForObjPlacer(p_iOwner,sBuildingPath,false,xCosts,sTribe))then
+			CBLDGMgr.Get().UnregisterClass(sClass,sTribe,p_iOwner);
+			return xInvalid;
+		endif;
+		var int iLevel=CRequirementsMgr.Get().GetBuildActionLevel(sBuildingPath)-1;
+		//L KLog.LogSpam("TechTree","CreateObj("+sClass+","+p_iOwner.ToString()+","+p_vPos.ToString()+","+p_vRot.ToString());
+		var ^CGameObj pxNewObj=pxObjMgr^.CreateObj(sClass,p_iOwner,p_vPos,p_vRot);
+		if(pxNewObj==null)then
+			//KLog.LogSpam("RoSt", "return 4");
+			return xInvalid;
+//		else
+//			CBLDGMgr.Get().UnregisterClass(p_iOwner,sTribe,sClass)
+		endif;
+		var ^CBuilding pxBuilding=cast<CBuilding>(pxNewObj);
+		if(pxBuilding!=null)then
+			pxBuilding^.SetBuildAction(sBuildingPath);
+			pxBuilding^.SetCosts(xCosts);
+			if(iLevel>0)then
+				pxBuilding^.SetLevelClean(iLevel);
+			endif;
+		endif;
+		if(p_bWall)then
+			m_axPlayerWalls[p_iOwner].Include(pxNewObj^.GetHandle());
+			m_axPlayerBuilders[p_iOwner].Include(p_rxWorker);
+			m_apxTimer[p_iOwner]^.SetTimer(0.15);
+		endif;
+		if(!p_bWall && !bGate)then
+//		if(!p_bWall&&!bGate&&!bCoastal)then
+			//CSrvWrap.GetScapeMgr().AdaptTerrain(pxNewObj^.GetGfxName(),p_vPos,p_vRot,bCoastal);
+			CSrvWrap.GetScapeMgr().AdaptTerrain(CMirageSrvMgr.Get().GetObjBrush(pxNewObj^.GetClassName(), pxNewObj^.GetGfxName()),p_vPos,p_vRot,bCoastal);
+			if(!bCoastal)then
+				//TP410
+				p_vPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(p_vPos.GetX(),p_vPos.GetY()));
+				pxNewObj^.SetPos(p_vPos);
+			endif;
+		endif;
+		//Check for vegetation, and delete it
+		begin Vegetation;
+			var CObjQuery xVegetationQuery;
+			var real fRadius=pxNewObj^.GetRadius();
+			xVegetationQuery.RegionCircle(p_vPos,fRadius);
+			xVegetationQuery.SetType("DECO");
+			xVegetationQuery.SetType("BCRT",true); //crater
+			xVegetationQuery.SetType("VGTN",true);
+			xVegetationQuery.SetType("WOOD",true); //RT#17429
+			xVegetationQuery.SetType("STON",true);
+			//Henry: to remove fruit brushes too
+			if(CMirageSrvMgr.Get().FruitsRemovement())then
+				xVegetationQuery.SetType("FRUI",true);
+				xVegetationQuery.SetAttribsNeg("fish",1);
+			endif;
+			var CObjList xVegetationList;
+			if(xVegetationQuery.Execute(xVegetationList))then
+				var int i,iC=xVegetationList.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+				var CObjHndl xTemp=xVegetationList[i];
+					var ^CGameObj pxObj=xTemp.GetObj();
+					if(pxObj!=null)then
+						if(pxObj^.GetType()=="STON" && cast<CStone_Corpse>(pxObj)==null)then
+							continue;
+						endif;
+						pxObj^.Delete();
+					endif;
+				endfor;
+			endif;
+			CSrvWrap.GetForestMgr().RemoveStumps(p_vPos,fRadius);
+		end Vegetation;
+		//pxNewObj^.SetFOW(1.0);
+		//L KLog.LogSpam("BuildUp","pxNewObj-Name: "+pxNewObj^.GetName());
+		pxNewObj^.HandleGamePlayCommand("BuildUp",pxNewObj,{0.0,0.0,0.0},sAction);
+		begin Worker;
+			var int i,iC=p_rxWorker.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxWorker=cast<CFightingObj>(p_rxWorker[i].GetObj());
+				if(pxWorker==null)then continue; endif;
+				if(pxWorker^.CanBuild())then
+					var string sCommand="Build";
+					if(p_bQueued)then
+						sCommand="Q_Build";
+					endif;
+					pxWorker^.HandleGamePlayCommand(sCommand,pxNewObj,pxNewObj^.GetPos(),"");
+				else
+					pxWorker^.HandleGamePlayCommand("Action",null,p_vPos,"/Walk");
+				endif;
+			endfor;
+		end Worker;
+		return pxNewObj^.GetHandle();
+	endproc;
+	
+	proc bool FaultFree(vec3 p_vPostition)
+		var CObjQuery xQuery;
+		var CObjList xObjects;
+		xQuery.SetClass("fault");
+		xQuery.SetOwner(-1);
+		xQuery.RegionCircle(p_vPostition, CFault.RUMBLE_RADIUS);
+		xQuery.Execute(xObjects);
+		var int i, iC=xObjects.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!xObjects[i].IsValid())then continue; endif;
+			var ^CGameObj pxObj=xObjects[i].GetObj();
+			if(pxObj!=null)then
+				return false;
+			endif;
+		endfor;
+		return true;
+	endproc;
+	
+	proc bool CheckTribes(CObjList p_xWorker, string p_sTribe, string p_sPTN)
+		if(!CMirageSrvMgr.Get().TechtreeSteal()&&p_sPTN!=p_sTribe)then
+			return false;
+		endif;
+//		var int i,iC=p_xWorker.NumEntries();
+		var int i,iC=p_xWorker.Validate();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!p_xWorker[i].IsValid())then continue; endif;
+			var ^CFightingObj pxWorker=cast<CFightingObj>(p_xWorker[i].GetObj());
+			if(pxWorker==null)then continue; endif;
+			if(!pxWorker^.CanBuild())then continue; endif;
+			var string sTribe=pxWorker^.GetTribeName();
+//			if(pxWorker^.GetTribeName()==p_sTribe)then
+			if(sTribe==p_sTribe||(sTribe=="Special"&&pxWorker^.GetPlayerTribeName()==p_sTribe))then
+				return true;
+			endif;
+		endfor;
+		return false;
+	endproc;
+	
+endclass;
+
+class CTimerTick inherit CEvtSink
+
+	var int m_iTimer;
+	export var procref <void> m_xOnTick;
+
+	export constructor()
+		m_xOnTick=OnTick;
+		m_iTimer=-1;
+	endconstructor;
+
+	export destructor()
+		if(m_iTimer!=-1)then
+			CTimeMgr.Get().GetTimer(m_iTimer)^.Unsubscribe(this);
+			CTimeMgr.Get().DeleteTimer(m_iTimer);
+		endif;
+	enddestructor;
+
+	proc void OnTick()
+	endproc;
+
+	export proc bool OnPush(ref CEvtPointer  p_rxEP)
+		var int iTimer=m_iTimer;
+		if(m_iTimer!=-1)then
+			CTimeMgr.Get().GetTimer(m_iTimer)^.Unsubscribe(this);
+			CTimeMgr.Get().DeleteTimer(m_iTimer);
+		endif;
+		m_iTimer=-1;
+		if(!m_xOnTick.IsNull())then
+			m_xOnTick.Call();
+		endif;
+		return true;
+	endproc;
+
+	export proc void SetTimer(real p_fDuration)
+		if(m_iTimer==-1)then
+			m_iTimer=CTimeMgr.Get().CreateTimer(CGameTimeSpan.OneSecond() * p_fDuration, false);
+			CTimeMgr.Get().GetTimer(m_iTimer)^.Subscribe(this);
+		endif;
+	endproc;
+
+	export proc int GetTimer()
+		return m_iTimer;
+	endproc;
+
+endclass;
+
+class CTimerIDTick inherit CEvtSink
+
+	var int m_iTimer;
+	var real m_fDuration;
+	export var procref <void,int> m_xOnTickID;
+
+	export constructor()
+		m_xOnTickID=OnTickID;
+		m_iTimer=-1;
+	endconstructor;
+
+	export destructor()
+		if(m_iTimer!=-1)then
+			CTimeMgr.Get().GetTimer(m_iTimer)^.Unsubscribe(this);
+			CTimeMgr.Get().DeleteTimer(m_iTimer);
+		endif;
+	enddestructor;
+
+	proc void OnTickID(int p_iID)
+	endproc;
+
+	export proc bool OnPush(ref CEvtPointer  p_rxEP)
+		var int iTimer=m_iTimer;
+		if(m_iTimer!=-1)then
+			CTimeMgr.Get().GetTimer(m_iTimer)^.Unsubscribe(this);
+			CTimeMgr.Get().DeleteTimer(m_iTimer);
+		endif;
+		m_iTimer=-1;
+		if(!m_xOnTickID.IsNull())then
+			m_xOnTickID.Call(iTimer);
+		endif;
+		return true;
+	endproc;
+
+	export proc void SetTimer(real p_fDuration)
+		m_fDuration=p_fDuration;
+		if(m_iTimer==-1)then
+			m_fDuration=p_fDuration;
+			m_iTimer=CTimeMgr.Get().CreateTimer(CGameTimeSpan.OneSecond() * p_fDuration, false);
+			CTimeMgr.Get().GetTimer(m_iTimer)^.Subscribe(this);
+		endif;
+	endproc;
+
+	export proc int GetTimer()
+		return m_iTimer;
+	endproc;
+
+	export proc void DoKArc(ref CArc p_rxArc)
+		var bool bNewTimer=false;
+		if(m_iTimer==-1)then bNewTimer=true; endif;
+		p_rxArc << m_iTimer;
+		p_rxArc << m_fDuration;
+		if(m_iTimer!=-1 && bNewTimer)then
+			if(m_fDuration<=0.0)then
+				m_fDuration=0.1;
+			endif;
+			m_iTimer=CTimeMgr.Get().CreateTimer(CGameTimeSpan.OneSecond() * m_fDuration, false);
+			CTimeMgr.Get().GetTimer(m_iTimer)^.Subscribe(this);
+		endif;
+	endproc;
+
+endclass;
+
+
+class CMaZi
+
+	static var ^CMaZi ms_pxI;
+
+	export static proc ref CMaZi Get()
+		if(ms_pxI==null)then ms_pxI=new CMaZi(); endif;
+		return ms_pxI^;
+	endproc;
+
+	var ^CGroupObj m_pxGroup;
+
+	export proc void CreateGroup()
+		m_pxGroup=cast<CGroupObj>(CSrvWrap.GetObjMgr()^.CreateObj("GroupObject", 0));
+	endproc;
+
+	export proc void AddRandom()
+		var CObjQuery xQ;
+		var CObjList xL;
+		xQ.Execute(xL);
+
+		var int iID=Random.GetInt()%xL.NumEntries();
+		m_pxGroup^.AddMember(xL[iID]);
+		//L KLog.LogSpam("MaZi", "Now Members: "+m_pxGroup^.NumMembers().ToString());
+	endproc;
+
+	export proc void RemRandom()
+		var int iID=Random.GetInt()%m_pxGroup^.NumMembers();
+		m_pxGroup^.RemMember(m_pxGroup^.GetMember(iID));
+		//L KLog.LogSpam("MaZi", "Now Members: "+m_pxGroup^.NumMembers().ToString());
+	endproc;
+
+	export proc void DumpStage(int p_iStage)
+		KLog.LogSpam("MaZi", "Dumping Stage "+p_iStage.ToString());
+		var ^CAttribs pxA=m_pxGroup^.GetAttribs();
+		if(pxA!=null)then
+			KLog.LogSpam("MaZi", pxA^.GetValue("member_hndl_"+p_iStage.ToString()));
+		endif;
+	endproc;
+endclass;

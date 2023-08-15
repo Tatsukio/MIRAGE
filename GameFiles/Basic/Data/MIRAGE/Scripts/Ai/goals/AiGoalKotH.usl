@@ -1,0 +1,171 @@
+class CAiGoalKotH inherit CAiGoal
+
+	static var array int ms_aiTeamLookUp;
+	
+	var vec3			m_vFightingPos;
+	var bool			m_bSuccess;
+	var CAiObjWrapList	m_xKotHList;
+	var int 			m_iTeam;
+	var bool			m_bAiKotHTriggerMode;
+	var ^CAiBrain 		m_pxBrain;
+	var ^CAiSensor		m_pxSensor;
+	var string			m_sPlayerID;
+	var int				m_iPlayerID;
+
+
+	///constructor
+	export constructor()
+	endconstructor;
+	
+	
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	
+	///GetKotHList
+	export proc ref CAiObjWrapList GetKotHList()
+		return m_xKotHList;
+	endproc;
+	
+	
+	///GetTeam
+	export proc int GetTeam()
+		return m_iTeam;
+	endproc;
+	
+	
+	///AddKotHObject
+	export proc void AddKotHObject(vec3 p_vPos, real p_fRadius)
+		var ^CAiBrain pxBrain = GetAiBrain();
+		if(pxBrain == null)then
+			return;
+		endif;
+		var CAiObjWrap xOW = pxBrain^.GetSensor().CreateObj("koth_sector", -1, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0});
+		if(xOW.IsValid() == false)then
+			return;
+		endif;
+		xOW.SetAttribValue("rgn_pos", p_vPos.ToString());
+		xOW.SetAttribValue("rgn_radius", p_fRadius.ToInt());
+		m_xKotHList.AddEntry(xOW);
+	endproc;
+	
+	
+	///SetAiKotHTriggerMode
+	export proc void SetAiKotHTriggerMode(bool p_bSetMode)
+		SetKotHActive(p_bSetMode);
+		m_bAiKotHTriggerMode = p_bSetMode;
+	endproc;
+	
+	
+	///Init
+	export proc bool Init(^CAiBrain p_pxBrain, CAiObjWrapList p_xKotHList)
+		super.Init(p_pxBrain);	
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		
+//		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(pxCM^.GetDifficultyInt()+iType);
+		m_iTeam=pxCM^.GetTeam();
+		m_xKotHList=p_xKotHList;
+		m_bAiKotHTriggerMode = false;
+	
+		var int i, iC = 8;
+		ms_aiTeamLookUp = iC;
+		for(i=0)cond(i<8)iter(++i)do
+			ms_aiTeamLookUp[i] = m_pxSensor^.GetPlayerTeam(i);
+		endfor;
+		
+		Start();
+		m_vFightingPos = {0.0,0.0,0.0};
+		return true;
+	endproc;
+
+	
+	///Start
+	export proc void Start()
+		if(m_pxBrain==null)then return; endif;
+		m_bSuccess=CAiUtilityMgr.Get()^.GetKothSectors(m_pxBrain, m_xKotHList);
+		SetKotHActive(m_bSuccess);
+	endproc;
+	
+	
+	///SetKotHActive
+	proc void SetKotHActive(bool p_bSuccess)
+		m_bSuccess=p_bSuccess;
+	endproc;
+	
+	
+	///GetKotHActive
+	export proc bool GetKotHActive()
+		return m_bSuccess;
+	endproc;
+
+
+	///Think
+	export proc void Think()
+		if(!m_bSuccess)then return; endif;
+		if(!m_bAiKotHTriggerMode)then return; endif;
+		
+		var int i, iC = m_xKotHList.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			var vec3 vPos;
+			vPos.FromString(m_xKotHList[i].GetAttribValue("rgn_pos"));
+			var real fRadius = m_xKotHList[i].GetAttribValueInt("rgn_radius").ToReal();
+			var int iTeam = m_xKotHList[i].GetAttribValueInt("controlling_team");
+			var CAiObjQuery xOQ;
+			var CAiObjWrapList xList;
+			
+			xOQ.RegionCircle(vPos, fRadius);
+			xOQ.SetType("CHTR");
+			xOQ.SetType("ANML", true);
+			xOQ.SetType("VHCL", true);
+			xOQ.SetType("SHIP", true);
+			var int j, jC = 8;
+			for(j=0)cond(j<jC)iter(++j)do
+				xOQ.SetOwner(j, j!=0);
+			endfor;
+			xOQ.Execute(xList);
+			var bool bTeamChanged = true;
+			jC = xList.NumEntries();
+			var int iNewOwningTeam = -1;
+			for(j=0)cond(j<jC)iter(++j)do
+				var int iOwner = xList[j].GetOwner();
+				if((iOwner < 0) || (iOwner > 7))then continue; endif;
+				var int iUnitTeam = ms_aiTeamLookUp[iOwner];
+				if(iUnitTeam != iTeam)then 
+					if(iUnitTeam != -1)then
+						iNewOwningTeam = iUnitTeam;
+					endif;
+					continue; 
+				endif;
+				bTeamChanged = false;
+				break;
+			endfor;
+			if(bTeamChanged == true)then
+				m_xKotHList[i].SetAttribValue("controlling_team", iNewOwningTeam);
+			endif;
+		endfor;
+	endproc;
+	
+	
+	///GetDangerArea
+	export proc bool GetDangerArea(ref vec3 p_rvPos)
+		if(m_vFightingPos!={0.0,0.0,0.0})then
+			p_rvPos = m_vFightingPos;
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+endclass;

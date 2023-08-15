@@ -1,0 +1,238 @@
+//CAiGoalIdleWorkerWhipper
+class CAiGoalIdleWorkerWhipper inherit CAiGoal
+	
+	var array CWhipTimer	m_axWhipTimers;	
+	static var int 			ms_iNextTimerId;
+	const int 				m_kiTimerInit = 2;
+	var int 				m_iOutPostID;
+	var ^CAiBrain 			m_pxBrain;
+	var ^CAiSensor			m_pxSensor;
+	var string				m_sPlayerID;
+	var int					m_iPlayerID;
+	var int					m_iResourceCounter;
+	
+	class CWhipTimer
+		export var CAiTaskTimer	m_xTimer;
+		export var CAiObjWrap	m_xWorker;
+	endclass;
+	
+	///constructor
+	export constructor()
+	endconstructor;
+	
+	
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		Shut();
+		super.Init(p_pxBrain);
+		
+		m_axWhipTimers = 0;
+		m_iResourceCounter=0;
+
+		if(p_pxBrain==null)then return false; endif;
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		m_iOutPostID=m_pxSensor^.ComputeOutpostId(m_pxSensor^.GetStartLocation());
+		
+//		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+//		SetThinkWait(1+iType);
+		SetThinkWait(3);
+		
+		var CAiObjQuery xOQ;
+		var CAiObjWrapList xList;
+				
+		var ^CAiAllocationMgr pxAllocMgr = GetAiAllocationMgr();
+		if(pxAllocMgr == null)then return false; endif;
+		
+		xOQ.SetOwner(m_iPlayerID);
+		xOQ.SetClass("hu_worker");
+		xOQ.SetClass("aje_worker", true);
+		xOQ.SetClass("ninigi_worker", true);
+		xOQ.SetClass("seas_worker", true);
+		xOQ.Execute(xList);
+
+		var int i, iC = xList.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			var int iWorkerOutpostID = m_pxSensor^.ComputeOutpostId(xList[i].GetPos());
+			if(iWorkerOutpostID!=m_iOutPostID)then
+				continue;
+			endif;
+			if(pxAllocMgr^.IsUnitLocked(xList[i], false, false, true) == true)then
+				xList.RemEntry(xList[i]);
+				i--;
+				iC--;
+				continue;
+			endif;
+			AddWorker(xList[i]);
+		endfor;
+		return true;
+	endproc;
+	
+	
+	///OnTimeOut
+	export proc void OnTimeOut(int p_iTimerId)
+		var ^CAiAllocationMgr pxAllocMgr = GetAiAllocationMgr();
+		if(pxAllocMgr==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		
+		var int i, iC = m_axWhipTimers.NumEntries();
+		var bool bFound = false;
+		
+		for(i=0)cond(i<iC)iter(++i)do
+			if(m_axWhipTimers[i].m_xTimer.GetId() != p_iTimerId)then
+				continue;
+			endif;
+			if(m_axWhipTimers[i].m_xWorker.IsValid() == false)then
+				return;
+			endif;
+
+			var int iWorkerOutpostID=m_pxSensor^.ComputeOutpostId(m_axWhipTimers[i].m_xWorker.GetPos());
+			if(m_iOutPostID!=iWorkerOutpostID)then
+				return;
+			endif;
+			
+			bFound = true;
+			LockExternal(m_axWhipTimers[i].m_xWorker);
+			UnlockExternal(m_axWhipTimers[i].m_xWorker);
+			
+			break;
+		endfor;
+		if(bFound == false)then
+		endif;
+	endproc;
+	
+	
+	///GetNextTimer
+	export static proc int GetNextTimerId()
+		return ms_iNextTimerId++;
+	endproc;
+	
+	
+	///AddWorker
+	export proc void AddWorker(CAiObjWrap p_xOW)
+		if(p_xOW.IsValid() == false)then return; endif;
+		var int i, iC = m_axWhipTimers.NumEntries();
+		var bool bFound = false;
+		for(i=0)cond(i<iC)iter(++i)do
+			if(m_axWhipTimers[i].m_xWorker.IsSameAs(p_xOW))then
+				bFound = true;
+				break;
+			endif;
+		endfor;
+		if(bFound == true)then return; endif;
+		var ^CWhipTimer pxWhipTimer = ^(m_axWhipTimers.NewEntryRef());
+		var int iTimerId = GetNextTimerId();
+		pxWhipTimer^.m_xWorker = p_xOW;
+		pxWhipTimer^.m_xTimer.Init(this);
+		pxWhipTimer^.m_xTimer.m_xOnTimeAlert = OnTimeOut;
+		pxWhipTimer^.m_xTimer.Set(iTimerId, m_kiTimerInit, false);
+		AddTask(^(pxWhipTimer^.m_xTimer));
+	endproc;
+	
+	
+	///OnUnitAdded
+	export proc void OnUnitAdded(ref CAiObjWrap p_rxOW, ^CAiNodeInstance p_pxNI)
+		if(p_rxOW.IsValid() == false)then return; endif;
+		if((p_rxOW.GetClassName() == "hu_worker") || (p_rxOW.GetClassName() == "aje_worker") || (p_rxOW.GetClassName() == "ninigi_worker") || (p_rxOW.GetClassName() == "seas_worker"))then
+			AddWorker(p_rxOW);
+		endif;
+	endproc;
+	
+	
+	///shut
+	export proc void Shut()
+		var int i, iC = m_axWhipTimers.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			m_axWhipTimers[i].m_xTimer.Shut();
+			RemoveTask(^(m_axWhipTimers[i].m_xTimer));
+		endfor;
+	endproc;
+	
+	
+	///UnlockExternal
+	proc void UnlockExternal(CAiObjWrap p_xObj)
+		var ^CAiAllocationMgr pxAllocMgr = GetAiAllocationMgr();
+		if(pxAllocMgr == null)then return; endif;
+		pxAllocMgr^.ExternalUnlock(p_xObj);
+	endproc;
+	
+	
+	///LockExternal
+	proc void LockExternal(CAiObjWrap p_xObj)
+		var ^CAiAllocationMgr	pxAllocMgr	= GetAiAllocationMgr();		
+		if(pxAllocMgr == null)then return; endif;
+		pxAllocMgr^.ExternalLock(p_xObj);
+	endproc;
+	
+	
+	///think
+	export proc void Think()
+		var int i, iC = m_axWhipTimers.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			if(m_axWhipTimers[i].m_xWorker.IsValid() == false)then
+				m_axWhipTimers[i].m_xTimer.Shut();
+				RemoveTask(^(m_axWhipTimers[i].m_xTimer));
+				m_axWhipTimers.DeleteEntry(i);
+				i--;
+				iC--;
+				continue;
+			endif;
+			if(m_axWhipTimers[i].m_xWorker.GetCurrentTask() == "Idle")then
+				if(m_axWhipTimers[i].m_xTimer.IsOn() == true)then
+					continue;
+				endif;
+				m_axWhipTimers[i].m_xTimer.Start();
+			else
+				if(m_axWhipTimers[i].m_xTimer.IsOn() == false)then
+					continue;
+				endif;
+				m_axWhipTimers[i].m_xTimer.Stop();
+			endif;
+		endfor;
+	endproc;
+	
+	
+	//CheckIfResourceTask
+	proc void CheckIfResourceTask()
+		var ^CAiAllocationMgr pxAllocMgr = GetAiAllocationMgr();
+		if(pxAllocMgr == null)then return; endif;
+		
+		var CAiObjQuery xOQ;
+		var CAiObjWrapList xList;
+		
+		xOQ.SetOwner(m_iPlayerID);
+		xOQ.SetClass("hu_worker");
+		xOQ.SetClass("aje_worker", true);
+		xOQ.SetClass("ninigi_worker", true);
+		xOQ.SetClass("seas_worker", true);
+		xOQ.Execute(xList);
+		
+		var int i, iC=xList.NumEntries();
+		if(iC<=0)then return; endif;
+		
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!xList[i].IsValid())then continue; endif;
+			if(xList[i].GetCurrentTask()=="Harvest"||xList[i].GetCurrentTask()=="Mine")then
+				LockExternal(xList[i]);
+				UnlockExternal(xList[i]);
+				xList[i].SetAttribValue("CurTask", "Idle");
+			endif;
+		endfor;
+	
+	endproc; 
+
+endclass;

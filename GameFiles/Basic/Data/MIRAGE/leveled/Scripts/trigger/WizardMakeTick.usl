@@ -1,0 +1,141 @@
+class CMakeTick1 inherit CWizardStepWnd
+
+	var ^CEdit		m_pxFlag;
+	var ^CEdit		m_pxGold;
+	var CMakeTickCreator 	m_xCreator;
+	
+	export constructor()
+		if (!InitFromResource("Trigger/WizardMakeTick", "MakeTick_Step1")) then
+			KLog.LogError("UI.TriggerWizard", "InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxFlag = cast<CEdit>(GetControl("Flag"));
+		m_pxGold = cast<CEdit>(GetControl("Gold"));
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	proc void StoreData()
+		var ^CPropDB.CNode pxNode = ^(m_pxParentWnd^.GetData().GetRoot());
+		if(pxNode!=null) then
+			pxNode^.SetValue("Flag",m_pxFlag^.GetText());
+			pxNode^.SetValue("Gold",m_pxGold^.GetText());
+		endif;
+	endproc;
+	
+	export proc void OnNext()
+		StoreData();
+	endproc;
+	
+	export proc void OnBack()
+		StoreData();
+	endproc;
+	
+	export proc bool IsLast()
+		return true;
+	endproc;
+
+	export proc ^CWizardTriggerCreater GetTriggerCreater()
+		StoreData();
+		return ^m_xCreator;
+	endproc;
+endclass;
+
+class CMakeTickCreator inherit CWizardTriggerCreater
+
+	export constructor()
+	endconstructor;
+
+	export proc bool CreateTrigger(^CTriggerWizard p_pxWizard)
+		if(p_pxWizard==null) then return false; endif;
+		var ^CPropDB.CNode pxRoot = ^(p_pxWizard^.GetData().GetRoot());
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		var string sFlag = pxRoot^.GetValueS("Flag");
+		var string sGold = pxRoot^.GetValueS("Gold");
+
+		var CTriggerDescMgr.CNode xRoot = pxTM^.GetHierarchyRoot();
+		var CTriggerDescMgr.CNode xMakroNode = xRoot.FindChild("ReceiveGold");
+		if(!xMakroNode.IsValid()) then
+			xMakroNode = pxTM^.CreateNewNode(xRoot, "ReceiveGold");
+		endif;
+		xMakroNode = xMakroNode.FindChild("gold "+sFlag);
+		if(!xMakroNode.IsValid()) then
+			xMakroNode = pxTM^.CreateNewNode(xRoot.FindChild("ReceiveGold"),"gold "+sFlag);
+		endif;
+		// Create the receive-trigger: 1 for each player
+		// Every trigger will recall self => Avoiding more than 1 winner
+		// nevertheless, its still possible to have more valid winners ;)
+		var int i;
+		for(i=0) cond(i<8) iter(++i) do
+			var ^CTriggerDesc pxTrigger=null;
+			var CGuid xGuid = pxTM^.CreateTrigger(sFlag+" gold pl"+i.ToString());
+			var int iTriggerIdx = pxTM^.FindTrigger(xGuid);
+			if(iTriggerIdx>=0) then
+				pxTrigger = pxTM^.GetTrigger(iTriggerIdx);
+			else
+				return true;
+			endif;
+			pxTM^.MoveTrigger(pxTrigger,xRoot,xMakroNode);
+			var string sTriggerGuid = pxTrigger^.GetGuid().ToString();
+			pxTrigger^.SetExpression("1 && 2");
+
+			var CFourCC xT = "TIME";
+			var int iCondIdx = pxTrigger^.AddCondition(xT);
+			var ^CTriggerDesc.CCondition pxCond = pxTrigger^.GetCondition(iCondIdx);
+			pxCond^.SetName("1 sec");
+			if(pxCond!=null) then
+				var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("duration",1);
+					pxAttr^.SetValue("repeat",0);
+					pxAttr^.SetValue("show",0);
+					pxAttr^.SetValue("countup",0);
+					pxAttr^.SetValue("reset",1);
+				endif;
+			endif;
+			xT = "CVAR";
+			iCondIdx = pxTrigger^.AddCondition(xT);
+			pxCond = pxTrigger^.GetCondition(iCondIdx);
+			pxCond^.SetName("flag owned by pl"+i.ToString());
+			if(pxCond!=null) then
+				var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("local",1);
+					pxAttr^.SetValue("varname","flag_"+sFlag);
+					pxAttr^.SetValue("value",(i+1).ToString());
+					pxAttr^.SetValue("operation","==");
+				endif;
+			endif;
+			xT = "VARS";
+			// each player receiving sGold gold
+			var int iActIdx = pxTrigger^.AddAction(xT);
+			var ^CTriggerDesc.CAction pxAct = pxTrigger^.GetAction(iActIdx);
+			pxAct^.SetName(sFlag+" gold pl"+i.ToString());
+			if(pxAct!=null) then
+				var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("difficulty",1);
+					pxAttr^.SetValue("local",1);
+					pxAttr^.SetValue("varname","gold_pl"+i.ToString());
+					pxAttr^.SetValue("value",sGold);
+					pxAttr^.SetValue("operation","+");
+				endif;
+			endif;
+			xT="TRIG";
+			iActIdx = pxTrigger^.AddAction(xT);
+			pxAct = pxTrigger^.GetAction(iActIdx);
+			pxAct^.SetName("reactivate self");
+			if(pxAct!=null) then
+				var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("guid",sTriggerGuid);
+					pxAttr^.SetValue("state",1);
+					pxAttr^.SetValue("difficulty",1);
+				endif;
+			endif;
+		endfor;
+		return true;
+	endproc;
+endclass;

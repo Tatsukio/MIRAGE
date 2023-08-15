@@ -1,0 +1,108 @@
+class CSleep inherit CTask
+	
+	var CObjHndl	m_xAnimal;
+	var string		m_sState;
+	
+	export constructor()
+		SetName("Sleep");
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Zzzz";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xAnimal.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Zzzz")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xAnimal.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xAnimal)
+		m_xAnimal=p_xAnimal;
+		if(!m_xAnimal.IsValid())then
+			return false;
+		endif;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		m_sState="find_sleep_place";
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CAnimal pxAnimal=cast<CAnimal>(m_xAnimal.GetObj());
+		if(pxAnimal==null)then
+			EndTask();
+			return;
+		endif;
+		if(m_sState=="find_sleep_place")then
+			var ^CNest pxNest=cast<CNest>(pxAnimal^.m_xNest.GetObj());
+			if(pxNest!=null)then
+				var vec3 vSleepPos;
+				if(pxNest^.GetRandomPoint(vSleepPos,pxAnimal^.IsBaby()))then
+					var bitset dwType=CObjMgrHost.GFPLT_Land;
+					if(!pxAnimal^.CanWalk()&&pxAnimal^.CanSwim())then
+						dwType=CObjMgrHost.GFPLT_Water;
+					endif;
+					if(CSrvWrap.GetObjMgr()^.GetFreePos(vSleepPos,pxAnimal,vSleepPos,null,true,false,false,pxAnimal^.GetCollisionRadiusInner(),dwType))then
+						pxAnimal^.WalkAction(vSleepPos);
+					endif;
+				endif;
+			endif;
+			m_sState="sleep_anim";
+		elseif(m_sState=="sleep_anim")then
+			Random.Seed();
+			var int iSleepLoops=(Random.GetInt()%40)+20;
+			if(pxAnimal^.HasAnim("rest"))then
+				pxAnimal^.AnimAction("rest",iSleepLoops,true,true);
+			endif;
+			//Muss noch richtig ausgerechnet werden
+			pxAnimal^.InvokeGenericSCEvent(7,4.0f);
+			m_sState="end";
+		elseif(m_sState=="end_anim")then
+			if(pxAnimal^.HasAnim("rest"))then
+				pxAnimal^.AnimAction("rest",1,false,true);
+			endif;
+			m_sState="end";
+		elseif(m_sState=="end")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var string sName;
+		var ^CAnimal pxAnimal=cast<CAnimal>(m_xAnimal.GetObj());
+		if(pxAnimal!=null)then
+			sName=pxAnimal^.GetName();
+		endif;
+	endproc;
+	
+	// auskommentiert wegen: RT#12372
+	/*export proc bool Break()
+		var ^CAnimal pxAnimal=cast<CAnimal>(m_xAnimal.GetObj());
+		if(pxAnimal!=null && m_sState=="end")then
+			pxAnimal^.TerminateAction();
+			//HACK siehe Animal.usl HandleGamePlayCommand()
+			SetName("Sleepend");
+			//ENDHACK
+			m_sState="end_anim";
+		endif;		
+		return false;
+	endproc;*/
+	
+endclass;

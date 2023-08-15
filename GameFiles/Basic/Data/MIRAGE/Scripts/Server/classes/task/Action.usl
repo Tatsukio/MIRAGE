@@ -1,0 +1,1610 @@
+// Only for Buildings
+class CAction inherit CTask
+
+	class CResourceCosts
+		
+		export var int m_iStone;
+		export var int m_iWood;
+		export var int m_iFood;
+		export var int m_iSkulls;
+		
+		export constructor()
+		endconstructor;
+		
+		export destructor()
+		enddestructor;
+
+		export proc ref CAction.CResourceCosts op_Assign( ref CAction.CResourceCosts p_rxOther )
+			m_iStone=p_rxOther.m_iStone;
+			m_iWood=p_rxOther.m_iWood;
+			m_iFood=p_rxOther.m_iFood;
+			m_iSkulls=p_rxOther.m_iSkulls;
+			return(this^);
+		endproc;
+	endclass;
+	
+	var CObjHndl				m_xActor; ///< object where action takes place
+	var CGameTimeSpan		m_xDuration; ///< time invention will take
+	var CGameTime				m_xLastTick;
+	var CObjHndl				m_xTrainingDummy;
+	var CFourCC					m_xType;
+	var string					m_sClass; ///< what will be invented/created
+	var int							m_iOwner;
+	var real						m_fProcess;
+	var string					m_sState;
+	var int							m_iProdID;
+	var int							m_iCheckCounter;
+	var CResourceCosts	m_xCosts;
+	var bool						m_bAlreadyPayed;
+	
+	//var array ^CTechTreeDef m_apxTTDefs;
+	var array string		m_asObjResults;
+	var array bool			m_abLocalTT;
+	var array string		m_asFilters;
+	var array bool			m_abGameTT;
+	
+	var array string		m_asQueuedInvents;
+	
+	var CObjHndl				m_xPyCO; // dummy object to show card in army controller
+	var bool						m_bResColUpg;
+	var string					m_sNPC;
+	var bool						m_bReactor;
+	var int							m_iSupply;
+	var int							m_iLevel;
+	var string					m_sTribe;
+	var string					m_sBefore;
+	var string					m_sAfter;
+	var bool						m_bLimit;
+	var bool						m_bAdded;
+	var bool						m_bDrHFD; // Henry: Dustrider's Huge farm Dummy...
+	
+	export constructor()
+		SetName("Action");
+		m_abGameTT=0;
+		m_iProdID=-1;
+		m_bResColUpg=false;
+		m_bAlreadyPayed=false;
+		m_sNPC="";
+		m_iSupply=0;
+		m_iLevel=0;
+		m_bReactor=false;
+		m_bLimit=false;
+		m_bAdded=false;
+		m_bDrHFD=false;
+	endconstructor;
+
+	export destructor()
+		var ^CGameObj pxTrainingDummy=m_xTrainingDummy.GetObj();
+		if(pxTrainingDummy!=null)then pxTrainingDummy^.Delete(); endif;
+	enddestructor;
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Acti";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,6);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xActor.DoKArc(pxArc^);
+		m_xDuration.DoKArc(pxArc^);
+		m_xLastTick.DoKArc(pxArc^);
+		m_xTrainingDummy.DoKArc(pxArc^);
+		(pxArc^) << m_xType;
+		(pxArc^) << m_sClass;
+		(pxArc^) << m_iOwner;
+		(pxArc^) << m_fProcess;
+		(pxArc^) << m_sState;
+		(pxArc^) << m_iProdID;
+		
+		var int i,iC=m_asObjResults.NumEntries();
+		(pxArc^) << iC;
+		for(i=0) cond(i<iC) iter(i++)do
+			(pxArc^) << m_asObjResults[i];
+		endfor;
+		
+		iC=m_asFilters.NumEntries();
+		(pxArc^) << iC;
+		for(i=0) cond(i<iC) iter(i++)do
+			(pxArc^) << m_asFilters[i];
+		endfor;
+		
+		iC=m_abLocalTT.NumEntries();
+		(pxArc^) << iC;
+		for(i=0) cond(i<iC) iter(i++)do
+			(pxArc^) << m_abLocalTT[i];
+		endfor;
+		
+		// version 4
+		m_xPyCO.DoKArc(pxArc^);
+		// version 4
+		
+		// version 5
+		(pxArc^) << m_xCosts.m_iWood;
+		(pxArc^) << m_xCosts.m_iStone;
+		(pxArc^) << m_xCosts.m_iFood;
+		(pxArc^) << m_xCosts.m_iSkulls;
+		// version 5
+		
+		// version 6
+		(pxArc^) << m_bResColUpg;
+		(pxArc^) << m_bAlreadyPayed;
+		iC=m_abGameTT.NumEntries();
+		(pxArc^) << iC;
+		for(i=0) cond(i<iC) iter(i++)do
+			(pxArc^) << m_abGameTT[i];
+		endfor;
+		(pxArc^) << m_sNPC;
+		(pxArc^) << m_bReactor;
+		(pxArc^) << m_iSupply;
+		(pxArc^) << m_iLevel;
+		(pxArc^) << m_sTribe;
+		(pxArc^) << m_sBefore;
+		(pxArc^) << m_sAfter;
+		(pxArc^) << m_bLimit;
+		(pxArc^) << m_bAdded;
+		(pxArc^) << m_bDrHFD;
+		if(m_bAdded)then
+			CBLDGMgr.Get().AddClass(m_sAfter,m_sTribe,m_iOwner);
+		endif;
+		// version 6
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Acti")then
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xActor.DoKArc(pxArc^);
+			m_xDuration.DoKArc(pxArc^);
+			m_xLastTick.DoKArc(pxArc^);
+			if(iVersion>=3)then
+				m_xTrainingDummy.DoKArc(pxArc^);
+			endif;
+			(pxArc^) << m_xType;
+			(pxArc^) << m_sClass;
+			(pxArc^) << m_iOwner;
+			(pxArc^) << m_fProcess;
+			(pxArc^) << m_sState;
+			if(iVersion>=2)then
+				(pxArc^) << m_iProdID;
+			endif;
+			var int i,iC;
+			(pxArc^) << iC;
+			m_asObjResults=iC;
+			for(i=0) cond(i<iC) iter(i++)do
+				(pxArc^) << m_asObjResults[i];
+			endfor;
+			(pxArc^) << iC;
+			m_asFilters=iC;
+			for(i=0) cond(i<iC) iter(i++)do
+				(pxArc^) << m_asFilters[i];
+			endfor;
+			(pxArc^) << iC;
+			m_abLocalTT=iC;
+			for(i=0) cond(i<iC) iter(i++)do
+				(pxArc^) << m_abLocalTT[i];
+			endfor;
+			if(iVersion>=4)then
+				m_xPyCO.DoKArc(pxArc^);
+			endif;
+			if(iVersion>=5)then
+				(pxArc^) << m_xCosts.m_iWood;
+				(pxArc^) << m_xCosts.m_iStone;
+				(pxArc^) << m_xCosts.m_iFood;
+				(pxArc^) << m_xCosts.m_iSkulls;
+			endif;
+			if(iVersion>=6)then
+				(pxArc^) << m_bResColUpg;
+				(pxArc^) << m_bAlreadyPayed;
+				(pxArc^) << iC;
+				m_abGameTT=iC;
+				for(i=0)cond(i<iC)iter(i++)do
+					(pxArc^) << m_abGameTT[i];
+				endfor;
+				(pxArc^) << m_sNPC;
+				(pxArc^) << m_bReactor;
+				(pxArc^) << m_iSupply;
+				(pxArc^) << m_iLevel;
+				(pxArc^) << m_sTribe;
+				(pxArc^) << m_sBefore;
+				(pxArc^) << m_sAfter;
+				(pxArc^) << m_bLimit;
+				(pxArc^) << m_bAdded;
+				(pxArc^) << m_bDrHFD;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc void SetPyCO(CObjHndl p_xPyCO)
+		m_xPyCO=p_xPyCO;
+		if(m_xPyCO.IsValid())then
+			var ^CPyramidCardObject pxTmp=cast<CPyramidCardObject>(m_xPyCO.GetObj());
+			if(pxTmp!=null)then
+				if(m_xActor.IsValid())then
+					var CFourCC xLink="NOPE";
+					pxTmp^.LinkAction(m_xActor,xLink);
+				endif;
+				var ^CAttribs pxAttr=pxTmp^.GetAttribs();
+				if(pxAttr!=null)then
+					pxAttr^.SetValue("CurProcess",m_fProcess.ToInt());
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	export proc void PayBack()
+		var bool bTemp;
+		PayBack(bTemp);
+	endproc;
+	
+	export proc void PayBack(ref bool p_rbRAFPQ)
+		if(m_bAlreadyPayed)then return; endif;
+		m_bAlreadyPayed=true;
+		if(m_sNPC!="")then
+			CNPCMgr.Get().RemoveNPCFromMixer(m_iOwner,m_sNPC);
+		endif;
+		RemoveActionFromProdQueue();
+		p_rbRAFPQ=true;
+		var ^CFightingObj pxActor=cast<CFightingObj>(m_xActor.GetObj());
+		if(pxActor==null)then return; endif;
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel==null)then return; endif;
+		var ^CBasePlayer pxPlayer=cast<CBasePlayer>(pxLevel^.GetPlayer(m_iOwner));
+		if(pxPlayer==null)then return; endif;
+		var ^CAttribs pxPlAttr=pxPlayer^.GetAttribs();
+		if(pxPlAttr==null)then return; endif;
+		var ^CLevelInfoHost pxLevelInfo=CSrvWrap.GetLevelInfo(false);
+		if(pxLevelInfo==null)then return; endif;
+		var ^CLevelInfo.CPlayerSlot pxPlSlot=pxLevelInfo^.GetOwnerPlayerSlot(pxActor^.GetOwner());
+		if(pxPlSlot==null)then return; endif;
+		var string sTribe=pxActor^.GetTribeName();
+		var ^CStatisticMgr pxStatisticMgr=^(pxLevel^.GetStatisticMgr());
+		var CGameTime xTime=CTimeMgr.Get().GetTime();
+		pxPlayer^.AddResource("wood",m_xCosts.m_iWood.ToReal(),true);
+		pxPlayer^.AddResource("stone",m_xCosts.m_iStone.ToReal(),true);
+		pxPlayer^.AddResource("food",m_xCosts.m_iFood.ToReal(),true);
+		pxPlayer^.AddResource("iron",m_xCosts.m_iSkulls.ToReal(),true);
+//		pxPlayer^.AddWood(m_xCosts.m_iWood);
+//		pxPlayer^.AddStone(m_xCosts.m_iStone);
+//		pxPlayer^.AddFood(m_xCosts.m_iFood);
+//		pxPlayer^.AddSkulls(m_xCosts.m_iSkulls);
+	endproc;
+	
+	proc ^CTechTreeDef GetTechTreeDef(int p_iIdx)
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CPlayer pxPlayer=pxLevel^.GetPlayer(m_iOwner);
+		var ^CTechTreeDef pxPlayerTTDef=^(pxPlayer^.GetPlayerTechTreeDef());
+		var ^CFightingObj pxActor=cast<CFightingObj>(m_xActor.GetObj());
+		if(pxActor==null)then return pxPlayerTTDef; endif;
+		if(m_abLocalTT[p_iIdx])then
+			return pxActor^.GetTechTreeDef();
+		endif;
+		return pxPlayerTTDef;
+	endproc;
+
+	proc void ResetFilters()
+		var ^CFightingObj pxTemp=cast<CFightingObj>(m_xActor.GetObj());
+		if(pxTemp!=null)then
+			var CTechTree xTechTree=pxTemp^.GetTechTree();
+			if(m_sNPC!="")then
+				var ^CTechTree.CNode pxHero=xTechTree.FindNode(m_sClass+"/results");
+				if(pxHero==null)then
+					AbortNPCProduction();
+					return;
+				endif;
+			endif;
+		endif;
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CPlayer pxPlayer=pxLevel^.GetPlayer(m_iOwner);
+		if(pxPlayer==null)then return; endif;
+		var ^CTechTreeDef pxDef=^(pxPlayer^.GetPlayerTechTreeDef());
+		var int i, iC=m_asFilters.NumEntries();
+		var int iGameFilters=-1;
+		iGameFilters=m_abGameTT.NumEntries();
+		var string sType;
+		var ^CGameObj pxObj=m_xActor.GetObj();
+		var CTechTree xTechTree;
+		if(pxObj!=null)then
+			xTechTree=pxObj^.GetTechTree();
+		endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			sType=xTechTree.GetValueS(m_sClass+"/results/"+i.ToString()+"/type","activate");
+			if(sType=="nothing")then continue; endif;
+			var bool bGameTT=false;
+			if(i<iGameFilters)then
+				bGameTT=m_abGameTT[i];
+			endif;
+			var ^CTechTreeDef pxDefCur=GetTechTreeDef(i);
+			if(bGameTT)then
+				var int j, jC=8;
+				for(j=0)cond(j<jC)iter(++j)do
+					var ^CPlayer pxPlyr=pxLevel^.GetPlayer(j);
+					if(pxPlyr==null)then continue; endif;
+					if(m_iOwner==j)then continue; endif;
+					var ^CTechTreeDef pxTTDef=^(pxPlyr^.GetPlayerTechTreeDef());
+					if(pxTTDef!=null)then
+						pxTTDef^.DisableFilter(m_asFilters[i]+"_RemoveMe");
+					endif;
+				endfor;
+			elseif(pxDefCur==pxDef)then
+				pxDef^.DisableFilter(m_asFilters[i]+"_RemoveMe");
+			endif;
+		endfor;
+		if(pxObj!=null)then
+			pxDef=pxObj^.GetTechTreeDef();
+			sType=xTechTree.GetValueS(m_sClass+"/results/"+i.ToString()+"/type","activate");
+			for(i=0)cond(i<iC)iter(i++)do
+				if(sType=="nothing")then continue; endif;
+				var ^CTechTreeDef pxDefCur=GetTechTreeDef(i);
+				if(pxDefCur==pxDef)then
+					pxDef^.DisableFilter(m_asFilters[i]+"_RemoveMe");
+				endif;
+			endfor;
+		endif;
+		var ^CFightingObj pxActor=cast<CFightingObj>(m_xActor.GetObj());
+		if(pxActor==null)then EndTask(); return; endif;
+		pxActor^.SetAttribAction("CurTask","none",m_bReactor);
+		pxActor^.SetAttribAction("CurProcessObj","",m_bReactor);
+		pxActor^.SetAttribAction("CurProcess",0,m_bReactor);
+		var bool bIsSupplyOn=CMirageSrvMgr.Get().UseSupply();
+		var string sClassName=pxActor^.GetClassName();
+		var int iSupplyCount=0;
+		if(bIsSupplyOn)then
+			var ^CTechTree.CNode pxBase=xTechTree.FindNode(m_sClass);
+			if(pxBase==null)then
+				iSupplyCount=0;
+			else
+				var ^CTechTree.CNode pxSupply=pxBase^.GetSub("supply");
+				if(pxSupply==null)then
+					iSupplyCount=0;
+				else
+					iSupplyCount=CMirageSrvMgr.Get().GetSupply(pxSupply^.GetValue());
+				endif;
+			endif;
+		endif;
+		var ^CTechTree.CNode pxResults=xTechTree.FindNode(m_sClass+"/results");
+		var ^CAttribs pxPlayerAttr=pxPlayer^.GetAttribs();
+		if(pxResults==null||pxPlayerAttr==null)then return; endif;
+		iC=pxResults^.NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			var int iLevel=-1;
+			var string sObjPath;
+			var ^CTechTree.CNode pxNode=pxResults^.GetSub(i.ToString());
+			if(pxNode!=null && pxNode^.GetSub("flags")!=null && pxNode^.GetSub("flags")^.GetSubValue("level").ToInt()>0)then
+				sObjPath=pxNode^.GetValue();
+				iLevel=pxNode^.GetSub("flags")^.GetSubValue("level").ToInt()-1;
+			endif;
+			var ^CTechTree.CNode pxObjNode=xTechTree.FindNode(sObjPath);
+			if(pxObjNode!=null)then
+				var string sCaptainClass=pxObjNode^.GetSubValue("captainclass", "");
+				if(iLevel<0)then
+					iLevel=pxObjNode^.GetSubValueI("captainlevel", 0)-1;
+				endif;
+				var string sCaste=pxObjNode^.GetSubValue("caste", "");
+				if(iLevel<0)then continue; endif;
+				if(!sCaptainClass.IsEmpty()||!sCaste.IsEmpty())then
+					if(iLevel!=-1)then
+						pxPlayerAttr^.SetValue("virtual_supply", pxPlayerAttr^.GetValueInt("virtual_supply")-iSupplyCount);
+						pxPlayerAttr^.SetValue("virtual_units_"+iLevel.ToString(), pxPlayerAttr^.GetValueInt("virtual_units_"+iLevel.ToString())-1);
+						var ^CPyramidCardObject pxPyCO=cast<CPyramidCardObject>(m_xPyCO.GetObj());
+						if(pxPyCO!=null)then
+							pxPyCO^.SetPos(pxPyCO^.GetPos());
+						endif;
+						if(m_xPyCO.IsValid())then
+							CSrvWrap.GetObjMgr()^.DeleteObject(m_xPyCO.GetObj());
+						endif;
+					endif;
+				endif;
+			endif;
+		endfor;
+		var string sInventions=pxPlayerAttr^.GetValue("inventions_in_progress");
+		var array string asToks;
+		sInventions.Split(asToks, ":", true);
+		iC=m_asQueuedInvents.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			var int iIdx=asToks.FindEntry(m_asQueuedInvents[i]);
+			if(iIdx>=0)then
+				asToks.DeleteEntry(iIdx);
+			endif;
+		endfor;
+		sInventions="";
+		iC=asToks.NumEntries();
+		for(i=0) cond(i<iC) iter(++i)do
+			sInventions += ":"+asToks[i];
+		endfor;
+		pxPlayerAttr^.SetValue("inventions_in_progress", sInventions);
+	endproc;
+
+	export proc bool Compare(string p_sTTPath)
+		return p_sTTPath==m_sClass;
+	endproc;
+
+	export proc bool InitReactored(CObjHndl p_xActor,string p_sClass,CAction.CResourceCosts p_xCosts,bool p_bReactor,string p_sBefore,string p_sAfter,bool p_bLimit,string p_sTribe)
+		m_bReactor=p_bReactor;
+		return Init(p_xActor, p_sClass, p_xCosts, p_sBefore, p_sAfter, p_bLimit, p_sTribe);
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xActor,string p_sClass,CAction.CResourceCosts p_xCosts,string p_sBefore,string p_sAfter,bool p_bLimit,string p_sTribe)
+		if(!p_xActor.IsValid())then
+			return false;
+		endif;
+		m_xActor=p_xActor;
+		m_sClass=p_sClass;
+		m_xCosts=p_xCosts;
+		m_sBefore=p_sBefore;
+		m_sAfter=p_sAfter;
+		m_bLimit=p_bLimit;
+		m_sTribe=p_sTribe;
+		var string sTmp=m_sClass;
+		var int iP=sTmp.FindRev('/');
+		if(iP >= 0)then
+			m_xType=sTmp.Mid(iP-4, 4);
+		endif;
+		var ^CFightingObj pxActor=cast<CFightingObj>(m_xActor.GetObj());
+		if(pxActor==null)then return false; endif;
+		if(m_bLimit)then
+			CBLDGMgr.Get().UnregisterClass(m_sAfter,m_sTribe,m_iOwner);
+			if(!CBLDGMgr.Get().CanAddBuilding(m_iOwner,m_sTribe,m_sAfter))then
+				return false;
+			else
+				CBLDGMgr.Get().AddClass(m_sAfter,m_sTribe,m_iOwner);
+				m_bAdded=true;
+			endif;
+		endif;
+		var CTechTree xTechTree=pxActor^.GetTechTree();
+		m_iOwner=pxActor^.GetOwner();
+		if(m_sClass.Find("/Build/")!=-1)then
+			var string sProduct=m_sClass;
+			var string sClass=sProduct.Mid(sProduct.FindRev('/')+1);
+			if(CNPCMgr.Get().CheckHero(sClass))then
+				if(!CNPCMgr.Get().IsAbleToBuyNPC(m_iOwner,sClass))then
+					m_sState="Break";
+					Break();
+					return false;
+				else
+					m_sNPC=sClass;
+					var bool bIsSupplyOn=CMirageSrvMgr.Get().UseSupply();
+					if(bIsSupplyOn)then
+						var ^CTechTree.CNode pxBase=xTechTree.FindNode(m_sClass);
+						if(pxBase!=null)then
+							var ^CTechTree.CNode pxSupply=pxBase^.GetSub("supply");
+							if(pxSupply!=null)then
+								m_iSupply=CMirageSrvMgr.Get().GetSupply(pxSupply^.GetValue());
+							endif;
+						endif;
+					endif;
+					var ^CTechTree.CNode pxResults=xTechTree.FindNode(m_sClass+"/results");
+					if(pxResults!=null)then
+						var int i, iC=pxResults^.NumSubs();
+						for(i=0)cond(i<iC)iter(i++)do
+							var int iLevel=-1;
+							var string sObjPath;
+							var ^CTechTree.CNode pxNode=pxResults^.GetSub(i.ToString());
+							if(pxNode!=null && pxNode^.GetSub("flags")!=null && pxNode^.GetSub("flags")^.GetSubValue("level").ToInt()>0)then
+								sObjPath=pxNode^.GetValue();
+								iLevel=pxNode^.GetSub("flags")^.GetSubValue("level").ToInt()-1;
+							endif;
+							var ^CTechTree.CNode pxObjNode=xTechTree.FindNode(sObjPath);
+							if(pxObjNode!=null)then
+								var string sCaptainClass=pxObjNode^.GetSubValue("captainclass", "");
+								if(iLevel<0)then
+									iLevel=pxObjNode^.GetSubValueI("captainlevel", 0)-1;
+								endif;
+								var string sCaste=pxObjNode^.GetSubValue("caste", "");
+								if(iLevel<0)then continue; endif;
+								if(!sCaptainClass.IsEmpty()||!sCaste.IsEmpty())then
+									if(iLevel!=-1)then
+										m_iLevel=iLevel;
+										break;
+									endif;
+								endif;
+							endif;
+						endfor;
+					endif;
+				endif;
+			endif;
+		endif;
+//		var CTechTree xTechTree=pxActor^.GetTechTree();
+		//add new action to prod queue
+		var ^CAttribs pxAttr=pxActor^.GetAttribs();
+		//set duration from techtree
+		m_xDuration=(xTechTree.GetValueR(m_sClass+"/duration",10.0) * pxActor^.GetTechTreeActionModifier(p_sClass, "duration"));
+		begin AIHelp;
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			if(pxLevel!=null)then
+				var ^CAiPlayer pxPlayer=cast<CAiPlayer>(pxLevel^.GetPlayer(pxActor^.GetOwner()));
+				if(pxPlayer!=null)then
+					if(m_sClass.Find("/immortality_protocol")==-1)then
+//					if(m_sClass.Find("/age_2")==-1&&m_sClass.Find("/immortality_protocol")==-1)then
+//					if(m_sClass.Find("/age")==-1&&m_sClass.Find("/immortality_protocol")==-1&&m_sClass.Find("/final_stage")==-1)then
+						var int iDiff=pxPlayer^.GetAIDifficulty();
+						if(m_sClass.Find("/Upgrades/")!=-1||m_sClass.Find("/Invent/")!=-1)then
+							switch(iDiff)
+								case(4)do m_xDuration*=0.9; endcase;
+								case(5)do m_xDuration*=0.8; endcase;
+								case(6)do m_xDuration*=0.7; endcase;
+								case(7)do m_xDuration*=0.6; endcase;
+								case(8)do m_xDuration*=0.5; endcase;
+								case(9)do m_xDuration*=0.4; endcase;
+								case default do endcase;
+							endswitch;
+						else
+							switch(iDiff)
+								case(4)do m_xDuration*=0.85; endcase;
+								case(5)do m_xDuration*=0.8; endcase;
+								case(6)do m_xDuration*=0.75; endcase;
+								case(7)do m_xDuration*=0.7; endcase;
+								case(8)do m_xDuration*=0.65; endcase;
+								case(9)do m_xDuration*=0.6; endcase;
+								case default do endcase;
+							endswitch;
+						endif;
+					endif;
+				endif;
+			endif;
+		end AIHelp;
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CPlayer pxPlayer=pxLevel^.GetPlayer(m_iOwner);
+		//m_apxTTDefs=0;
+		m_asFilters=0;
+		m_asObjResults=0;
+		m_abGameTT=0;
+		m_abLocalTT=0;
+		var string sLocalUpgrade;
+		var int i=0;
+		var string sResult=m_sClass+"/results/"+i.ToString();
+		var string sResultPath=xTechTree.GetValueS(sResult,"");
+		var bool bGlobal, bGameTT=false;
+		var bool bPool=CMirageSrvMgr.Get().HeroPool();
+		while(sResultPath!="")do
+			var string sResultClass=xTechTree.GetValueS(sResult+"/class","");
+			var string sResultType=xTechTree.GetValueS(sResult+"/type","");
+			if(sResultType!="nothing")then
+				var ^CTechTreeDef pxTechTreeDef;
+				var bool bLocalTT;
+				if(sResultClass=="local")then
+					pxTechTreeDef=pxActor^.GetTechTreeDef();
+					bLocalTT=true;
+					sLocalUpgrade=m_sClass;
+					bGameTT=false;
+				elseif(sResultClass=="server" && bPool)then
+					bGameTT=true;
+				else
+					pxTechTreeDef=^(pxPlayer^.GetPlayerTechTreeDef());
+					bGameTT=false;
+				endif;
+				if(bGameTT)then
+	//				var int j, jC=8;
+					var int j, jC=CGameBase.GetMaxPlayers();
+					for(j=0)cond(j<jC)iter(++j)do
+						var ^CPlayer pxPlyr=pxLevel^.GetPlayer(j);
+						if(pxPlyr==null)then continue; endif;
+						if(m_iOwner==j)then continue; endif;
+						var ^CTechTreeDef pxTTDef=^(pxPlyr^.GetPlayerTechTreeDef());
+						if(pxTTDef!=null)then
+							if(sResultPath.Left(7)=="Filters"||sResultPath.Left(8)=="/Filters")then
+								m_asFilters.AddEntry(sResultPath);
+								m_abGameTT.AddEntry(true);
+								m_abLocalTT.AddEntry(false);
+								pxTTDef^.EnableFilter(sResultPath+"_RemoveMe");
+							endif;
+						endif;
+					endfor;
+				else
+					if(pxTechTreeDef!=null)then
+						if(sResultPath.Left(7)=="Filters"||sResultPath.Left(8)=="/Filters")then
+							//m_apxTTDefs.AddEntry(pxTechTreeDef);
+							m_asFilters.AddEntry(sResultPath);
+							m_abGameTT.AddEntry(false);
+							m_abLocalTT.AddEntry(bLocalTT);
+							bGlobal=!bLocalTT;
+							var string sLocal="local";
+							if(!bLocalTT)then
+								sLocal="player";
+							endif;
+							pxTechTreeDef^.EnableFilter(sResultPath+"_RemoveMe");
+						elseif(sResultPath.Left(7)=="Objects"||sResultPath.Left(8)=="/Objects")then
+							m_asObjResults.AddEntry(sResultPath);
+						endif;
+					endif;
+				endif;
+			endif;
+			i++;
+			//Henry: fix for tavern pool (first resultclass would not be changed otherwise)
+			sResult=m_sClass+"/results/"+i.ToString();
+			sResultPath=xTechTree.GetValueS(m_sClass+"/results/"+i.ToString(),"");
+		endwhile;
+		if(bGlobal)then
+			CBLDGMgr.Get().InvalidateAllBuildlingTechTrees(m_iOwner);
+		else
+			pxActor^.InvalidateTechTree();
+		endif;
+		//L KLog.LogWarn("Manni",m_sClass);
+		pxAttr^.SetValue("LocalUpgrade",sLocalUpgrade);
+		if(m_sClass.Find("/Invent/")!=-1)then
+			var ^CGameObj pxTmp=m_xActor.GetObj();
+			if(pxTmp!=null)then
+				pxTmp^.InvokeGenericSCEvent(8,4.0f);
+			endif;
+		endif;
+		m_iProdID=-1;
+		if(m_sClass.Find("/Build/")!=-1||m_sClass.Find("/Upgrades/")!=-1)then
+			m_iProdID=pxActor^.AddProdQueueItem(m_sClass,m_bReactor);
+			if(m_iProdID==-1)then
+				if(m_bAdded)then
+					CBLDGMgr.Get().RemoveClass(m_sAfter,m_sTribe,m_iOwner);
+					m_bAdded=false;
+				endif;
+				m_sState="BreakInit";
+				Skip();
+				return false;
+			endif;
+			if(m_sClass.Find("/Upgrades/")>=0)then
+				if(pxPlayer!=null)then
+					var ^CAttribs pxA=pxPlayer^.GetAttribs();
+					if(pxA!=null)then
+						var int iP=m_sClass.FindRev('/');
+						var string sClassWithoutCompleteFuckinTechTreePath="";
+						if(iP>=0)then
+							sClassWithoutCompleteFuckinTechTreePath=m_sClass.Mid(iP+1);
+						endif;
+						var string sFullName=xTechTree.GetValueS(m_sClass+"/full_name",sClassWithoutCompleteFuckinTechTreePath);
+						var string sInventions=pxA^.GetValue("inventions_in_progress");
+						sInventions+=":"+sFullName;
+						m_asQueuedInvents.AddEntry(sFullName);
+						pxA^.SetValue("inventions_in_progress", sInventions);
+					endif;
+				endif;
+			endif;
+		endif;
+		m_sState="Init";
+		return true;
+	endproc;
+
+	proc void AddProgress(real p_fProgress)
+//		var ^CGameObj pxActor=m_xActor.GetObj();
+		var ^CFightingObj pxActor=cast<CFightingObj>(m_xActor.GetObj());
+		if(pxActor==null)then EndTask(); return; endif;
+		if(pxActor^.GetIncapacitated())then return; endif;
+//		if(pxActor^.GetClassName()=="aje_floating_harbour" && !(pxActor^.IsInWater()))then return; endif;
+//		var ^CAttribs pxAttr=pxActor^.GetAttribs();
+//		if(pxAttr==null)then EndTask(); return; endif;
+		m_fProcess+=p_fProgress;
+		if(m_fProcess<100.0)then
+			//action not yet finished
+			pxActor^.SetAttribAction("CurProcess",m_fProcess.ToInt(),m_bReactor);
+			pxActor^.SetAttribAction("CurProcessObj",m_sClass,m_bReactor);
+			var ^CBuilding pxBldg=cast<CBuilding>(pxActor);
+			if(pxBldg!=null&&!m_bDrHFD)then
+				pxBldg^.OnWork();
+//				pxBldg^.DoWorkAnim();
+			endif;
+		else
+			m_fProcess=100.0f;
+			m_sState="Check";
+			m_iCheckCounter=5;
+			//action finished
+		endif;
+		if(m_xPyCO.IsValid())then
+			var ^CPyramidCardObject pxTmp=cast<CPyramidCardObject>(m_xPyCO.GetObj());
+			if(pxTmp!=null)then
+				var ^CAttribs pxAttr=pxTmp^.GetAttribs();
+				if(pxAttr!=null)then
+					pxAttr^.SetValue("CurProcess",m_fProcess.ToInt());
+				endif;
+			endif;
+		endif;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		m_sState="Enter";
+		m_xLastTick=CTimeMgr.Get().GetTime();
+		var ^CFightingObj pxActor=cast<CFightingObj>(m_xActor.GetObj());
+		if(pxActor==null)then EndTask(); return; endif;
+		var ^CAttribs pxAttr=pxActor^.GetAttribs();
+		if(pxAttr==null)then EndTask(); return; endif;
+		//prepare attributes for ui
+		pxActor^.SetAttribAction("CurTask",GetName(),m_bReactor);
+		pxActor^.SetAttribAction("CurProcessObj",m_sClass,m_bReactor);
+		pxActor^.SetAttribAction("CurProcess",0,m_bReactor);
+		//HACK training anims
+		if(m_sClass.Find("/Build")!=-1)then
+			begin DelOldTrainingDummy;
+				var ^CGameObj pxTrainingDummy=m_xTrainingDummy.GetObj();
+				if(pxTrainingDummy!=null)then pxTrainingDummy^.Delete(); endif;
+			end DelOldTrainingDummy;
+			if(!pxActor^.GetProduceUnit().IsValid())then
+				var bool bDrFarm=false;
+				var vec3 vRot;
+				pxActor^.GetRot().ToVec3(vRot);
+				if(CMirageSrvMgr.Get().TrainingDummies())then
+					var vec3 vZero;
+					var ^CTrainingDummy pxTrainingDummy;
+					////// new stuff ////////////////
+					var string sDummy=m_sClass;
+					sDummy.Replace("/","_");
+					var int iP=m_sClass.FindRev('/');
+					var string sClassWithoutCompleteFuckinTechTreePath="";
+					if(iP>=0)then
+						sDummy=m_sClass.Mid(iP+1);
+					endif;
+					var ^CPropDB.CNode pxCustom, pxDummy, pxTmp;
+					var ^CPropDB pxSource=new CPropDB;
+					if(pxSource^.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/classes/mirage/training_dummies.txt"))then
+						pxCustom=^((pxSource^).GetRoot());
+						pxDummy=pxSource^.FindNode(sDummy,false);
+					endif;
+					if(pxDummy!=null)then
+						var vec3 vMid;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj(pxDummy^.GetValueS("class","NewTDummyANML"),pxActor^.GetOwner(),pxActor^.GetSpawnPos(vMid, 1.0f),vRot));
+						if(pxTrainingDummy!=null)then
+							bDrFarm=pxDummy^.GetValueS("open_gate","false")=="true";
+							var real fHeight=pxDummy^.GetValueR("start",0.0f);
+							var int i, iC=pxDummy^.NumSubs()-4;
+							for(i=0)cond(i<iC)iter(i++)do
+								pxTmp=pxDummy^.FindNode("set_"+i.ToString(),false);
+								if(pxTmp==null)then continue; endif;
+								var vec3 vDest, vOther;
+								if(pxTmp^.GetValueS("pos","")=="spawn")then
+									vDest=pxActor^.GetSpawnPos(vOther,pxTmp^.GetValueR("offset",0.0f));
+								elseif(pxTmp^.GetValueS("pos","")=="exit")then
+									vDest=pxActor^.GetDummyPos(vOther,pxTmp^.GetValueR("offset",0.0f));
+								elseif(pxTmp^.GetValueS("pos","")=="mid")then
+									pxActor^.GetDummyPos(vOther,pxTmp^.GetValueR("offset",0.0f));
+									vDest=vOther;
+								elseif(pxTmp^.GetValueS("pos","")=="door")then
+									pxActor^.GetSpawnPos(vOther,pxTmp^.GetValueR("offset",0.0f));
+									vDest=vOther;
+								endif;
+								vDest.SetZ(vDest.GetZ()+fHeight);
+								var string sAnim=pxTmp^.GetValueS("anim","standanim");
+								var int iLoops;
+								if(sAnim.Find(":")!=-1)then
+									var array string asAnims;
+									sAnim.Split(asAnims,":",true);
+									var int iRandom=Random.GetInt()%asAnims.NumEntries();
+									sAnim=asAnims[iRandom];
+									iLoops=pxTmp^.GetValueI("loops_"+iRandom.ToString(),1);
+								else
+									iLoops=pxTmp^.GetValueI("loops",1);
+								endif;
+								pxTrainingDummy^.AddParams(pxTmp^.GetValueI("type",0), sAnim, vDest, (Math.Pi())*pxTmp^.GetValueR("rot",1.0f), pxTmp^.GetValueR("speed",1.0f), iLoops);
+							endfor;
+							pxTrainingDummy^.StartTraining(pxDummy^.GetValueS("gfx","Dummy"),fHeight);
+						endif;
+					////// hu animals ////////////////
+					elseif(m_sClass.Find("/hu_wild_boar")!=-1)then
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("Wild_Boar");
+					elseif(m_sClass.Find("/hu_mammoth")!=-1)then
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("Mammoth");
+					elseif(m_sClass.Find("/hu_scout")!=-1)then
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("Megaloceros");
+					elseif(m_sClass.Find("/hu_chariot")!=-1)then
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("Megaloceros");
+					elseif(m_sClass.Find("/hu_triceratops")!=-1||m_sClass.Find("/hu_ballista_titan")!=-1)then
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("Triceratops");
+					elseif(m_sClass.Find("/hu_rhino")!=-1)then
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("Woolly_Rhino");
+					elseif(m_sClass.Find("/hu_carcharodontosaurus")!=-1)then
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("Carcharodontosaurus");
+					///////////// hu buildings ////////////
+					elseif(m_sClass.Find("/hu_spearman")!=-1)then
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummy",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("hu_spearman_s2","barrack_take_3");
+						var CFourCC xFCC="HndR";pxTrainingDummy^.SetLinkGFX(xFCC,"hu_spear_b_l");
+						pxActor^.SetAnim("take_2",1);
+					elseif(m_sClass.Find("/hu_archer")!=-1)then
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummy",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("hu_archer_s2","barrack_take_2");
+						var CFourCC xFCC="HndL";pxTrainingDummy^.SetLinkGFX(xFCC,"hu_bow_b_l");
+						pxActor^.SetAnim("take_2",1);
+					elseif(m_sClass.Find("/hu_warrior")!=-1)then
+						var string sWpn="a", sLvl="_s1";
+						if(m_sClass.Find("_2")!=-1)then
+							sWpn="b";
+							sLvl="_s2";
+						elseif(m_sClass.Find("_3")!=-1)then
+							sWpn="c";
+							sLvl="_s3";
+						endif;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummy",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("hu_warrior"+sLvl,"barrack_take_1");
+						var CFourCC xFCC="HndR";pxTrainingDummy^.SetLinkGFX(xFCC,"hu_axe_"+sWpn);
+						var CFourCC xFC2="Shld";pxTrainingDummy^.SetLinkGFX(xFC2,"hu_buckler_"+sWpn);
+						pxActor^.SetAnim("take_1",1);
+					//////////// aje buildings ////////////
+					elseif(m_sClass.Find("/aje_archer")!=-1)then
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummy",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("aje_archer_s2","rodeo_take_1");
+						var CFourCC xFCC="HndL";pxTrainingDummy^.SetLinkGFX(xFCC,"aje_bow_b_l");
+					elseif(m_sClass.Find("/aje_spearman")!=-1)then
+						var string sWpn="a", sLvl="_s1";
+						if(m_sClass.Find("_2")!=-1)then
+							sWpn="b";
+							sLvl="_s2";
+						elseif(m_sClass.Find("_3")!=-1)then
+							sWpn="c";
+							sLvl="_s3";
+						endif;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummy",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("aje_spearman"+sLvl,"rodeo_take_2");
+						var CFourCC xFCC="HndL";pxTrainingDummy^.SetLinkGFX(xFCC,"aje_spear_"+sWpn+"_l");
+						//var CFourCC xFCC="HndL";pxTrainingDummy^.SetLinkGFX(xFCC,"aje_bow_b_l");
+					elseif(m_sClass.Find("/aje_warrior")!=-1)then
+						var vec3 vTmp;
+						var CFourCC xLink="Spwn";
+						if(!pxActor^.GetLinkPosWorld(xLink,vTmp))then
+							vTmp=pxActor^.GetPos();
+						endif;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummy",pxActor^.GetOwner(),vTmp,vRot));
+						pxTrainingDummy^.StartTraining("aje_warrior_s2","NS2051_beg_anim");
+//						pxTrainingDummy^.StartTraining("aje_warrior_s2","res_guarding");
+						var CFourCC xFCC="HndR";pxTrainingDummy^.SetLinkGFX(xFCC,"aje_sword_b");
+						var CFourCC xFC2="Shld";pxTrainingDummy^.SetLinkGFX(xFC2,"aje_buckler_b");
+					//////////// aje animals /////////////////////
+					elseif(m_sClass.Find("/aje_velociraptor")!=-1)then
+						bDrFarm=true;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+//						pxTrainingDummy^.StartTraining("Velociraptor");
+						pxTrainingDummy^.StartTraining("Oviraptor");
+					elseif(m_sClass.Find("/aje_ankylosaurus")!=-1)then
+						bDrFarm=true;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("Ankylosaurus");
+					elseif(m_sClass.Find("/aje_brachiosaurus")!=-1)then
+						bDrFarm=true;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("Brachiosaurus");
+					elseif(m_sClass.Find("/aje_stegosaurus")!=-1)then
+						bDrFarm=true;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("Stegosaurus");
+					elseif(m_sClass.Find("/aje_allosaurus")!=-1)then
+						bDrFarm=true;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("Allosaurus");
+					elseif(m_sClass.Find("/aje_atroxosaurus")!=-1)then
+						bDrFarm=true;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("Atroxosaurus");
+					elseif(m_sClass.Find("/aje_tyrannosaurus")!=-1)then
+						bDrFarm=true;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("Atroxosaurus");
+					elseif(m_sClass.Find("/aje_triceratops_archer")!=-1)then
+						bDrFarm=true;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+//						pxTrainingDummy^.StartTraining("seas_triceratops");
+						pxTrainingDummy^.StartTraining("Triceratops");
+					elseif(m_sClass.Find("/aje_catapult_rex")!=-1)then
+						bDrFarm=true;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("arena_trex");
+					elseif(m_sClass.Find("/aje_tracker_dino")!=-1)then
+						bDrFarm=true;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("Deinonychus");
+					//////////// ninigi buildings ////////////
+					elseif(m_sClass.Find("/ninigi_archer")!=-1)then
+						var vec3 vTmp;
+						var CFourCC xLink="Spwn";
+						if(!pxActor^.GetLinkPosWorld(xLink,vTmp))then
+							vTmp=pxActor^.GetPos();
+						else
+							vTmp.SetZ(vTmp.GetZ()+1.76f);
+						endif;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummy",pxActor^.GetOwner(),vTmp,vRot));
+						var string sWpn="a", sLvl="_s1";
+						if(m_sClass.Find("_2")!=-1)then
+							sWpn="b";
+							sLvl="_s2";
+						elseif(m_sClass.Find("_3")!=-1)then
+							sWpn="c";
+							sLvl="_s3";
+						endif;
+//						pxTrainingDummy^.StartTraining("ninigi_archer_s1","disembowel");
+						pxTrainingDummy^.StartTraining("ninigi_archer"+sLvl,"throwdownshot");
+						var CFourCC xFCC="HndL";pxTrainingDummy^.SetLinkGFX(xFCC,"ninigi_bow_"+sWpn+"_l");
+					elseif(m_sClass.Find("/ninigi_spearman")!=-1)then
+						var vec3 vTmp;
+						var CFourCC xLink="Spwn";
+						if(!pxActor^.GetLinkPosWorld(xLink,vTmp))then
+							vTmp=pxActor^.GetPos();
+						else
+							vTmp.SetZ(vTmp.GetZ()+1.76f);
+						endif;
+//						var vec3 vTmp, vEx;
+//						var CFourCC xLink="Spwn", xL2="Ex_1";
+//						if(!pxActor^.GetLinkPosWorld(xLink,vTmp)||!pxActor^.GetLinkPosWorld(xL2,vEx))then
+//							vTmp=pxActor^.GetPos();
+//						else
+//							var vec3 vDir=(vEx-vTmp).GetNormalized();
+//							vTmp=vTmp+(vDir*4.31f);
+//							vTmp.SetZ(vTmp.GetZ()+1.76f);
+//						endif;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummy",pxActor^.GetOwner(),vTmp,vRot));
+//						pxTrainingDummy^.StartTraining("ninigi_spearman_s2","dojo_take_1");
+//						pxTrainingDummy^.StartTraining("ninigi_spearman_s2","nat_sm_matrix");
+						pxTrainingDummy^.StartTraining("ninigi_spearman_s2","attention");
+						var CFourCC xFCC="HndR";pxTrainingDummy^.SetLinkGFX(xFCC,"ninigi_spear_b_l");
+					elseif(m_sClass.Find("/ninigi_warrior")!=-1)then
+						var vec3 vTmp;
+						var CFourCC xLink="Spwn";
+						if(!pxActor^.GetLinkPosWorld(xLink,vTmp))then
+							vTmp=pxActor^.GetPos();
+						else
+							vTmp.SetZ(vTmp.GetZ()+1.76f);
+						endif;
+//						var vec3 vTmp, vEx;
+//						var CFourCC xLink="Spwn", xL2="Ex_1";
+//						if(!pxActor^.GetLinkPosWorld(xLink,vTmp)||!pxActor^.GetLinkPosWorld(xL2,vEx))then
+//							vTmp=pxActor^.GetPos();
+//						else
+//							var vec3 vDir=(vEx-vTmp).GetNormalized();
+//							vTmp=vTmp+(vDir*4.31f);
+//							vTmp.SetZ(vTmp.GetZ()+1.76f);
+//						endif;
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummy",pxActor^.GetOwner(),vTmp,vRot));
+//						pxTrainingDummy^.StartTraining("ninigi_warrior_s2","hu_battle_axe_anim");
+						pxTrainingDummy^.StartTraining("ninigi_warrior_s2","res_fm_7");
+						var CFourCC xFCC="HndR";pxTrainingDummy^.SetLinkGFX(xFCC,"ninigi_sword_b");
+						var CFourCC xFC2="Shld";pxTrainingDummy^.SetLinkGFX(xFC2,"ninigi_buckler_b");
+					//////////// ninigi animals /////////////////////
+					elseif(m_sClass.Find("/ninigi_scout")!=-1)then
+						pxTrainingDummy=cast<CTrainingDummy>(CSrvWrap.GetObjMgr()^.CreateObj("TrainingDummyANML",pxActor^.GetOwner(),pxActor^.GetPos(),vRot));
+						pxTrainingDummy^.StartTraining("Gallimimus");
+					endif;
+					if(pxTrainingDummy!=null)then
+						m_bDrHFD=pxActor^.GetGfxName()=="aje_huge_farm";
+						if(bDrFarm)then
+							pxActor^.SetSLEAnim("work_finished",1,true,false);
+							pxTrainingDummy^.SetBuilding(m_xActor);
+						endif;
+						m_xTrainingDummy=pxTrainingDummy^.GetHandle();
+					endif;
+				endif;
+			endif;
+		endif;
+		//Henry: HACK for dr hq, to allow invention while on board (transport turtle)
+		if(pxActor!=null)then
+			m_bResColUpg=pxActor^.GetClassName()=="aje_resource_collector" && (m_sClass.Find("age_")!=-1||m_sClass.Find("aje_capacity_")!=-1||m_sClass.Find("aje_resource_tool_upgrade")!=-1);
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CFightingObj pxActor=cast<CFightingObj>(m_xActor.GetObj());
+		if(pxActor==null)then EndTask(); return; endif;
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		var CGameTimeSpan xDiff=xNow-m_xLastTick;
+		m_xLastTick=xNow;
+		if(pxActor^.GetIncapacitated())then
+			return;
+		elseif(pxActor^.GetTransportObj().IsValid() && !m_bResColUpg)then
+			return;
+//		elseif(pxActor^.GetClassName()=="aje_floating_harbour" && !(pxActor^.IsInWater()))then
+//			return;
+		elseif(pxActor^.IsBuildMode())then
+			return;
+		endif;
+//		if(pxActor^.IsActionPaused())then
+//			return;
+//		endif;
+		if(m_sState=="Enter")then
+			var ^CBuilding pxBuilding=cast<CBuilding>(pxActor);
+			if(pxBuilding!=null&&!m_bDrHFD)then
+				pxBuilding^.StartWorkAnim();
+			endif;
+			m_sState="Start";
+		elseif(m_sState=="Start")then
+			if(m_xDuration.GetSecondsF() != 0.0f)then
+				AddProgress((100.0f*(xDiff.GetSecondsF()/m_xDuration.GetSecondsF()))*pxActor^.GetProdSpeedFactor(m_xType));
+			else
+				AddProgress(100.0f);
+			endif;
+		elseif(m_sState=="Check")then
+			var ^CBuilding pxBuilding=cast<CBuilding>(pxActor);
+			if(pxBuilding==null)then
+				var ^CResourceAnimal pxAnimal=cast<CResourceAnimal>(pxActor);
+				if(pxAnimal!=null)then
+					pxBuilding=cast<CBuilding>(pxAnimal^.GetProduceUnit().GetObj());
+				endif;
+			endif;
+			if(pxBuilding==null)then
+//				var ^CTransportObj pxTO=cast<CTransportObj>(pxActor);
+//				if(pxActor!=null)then
+//					var CObjHndl xProdUnit=pxTO^.GetProduceUnit();
+//					if(xProdUnit.IsValid())then
+//						pxBuilding=cast<CBuilding>(xProdUnit.GetObj());
+//					endif;
+//				endif;
+				if(pxActor!=null)then
+					var CObjHndl xProdUnit=pxActor^.GetProduceUnit();
+					if(xProdUnit.IsValid())then
+						pxBuilding=cast<CBuilding>(xProdUnit.GetObj());
+					endif;
+				endif;
+			endif;
+			if(pxBuilding==null)then
+				EndTask();
+				return;
+			endif;
+			if(m_iCheckCounter<5)then
+				m_iCheckCounter++;
+				return;
+			endif;
+			if(!pxBuilding^.CanDeliver(m_sClass))then
+				m_iCheckCounter=0;
+				return;
+			endif;
+			if(pxActor^.IsActionPaused())then
+				m_iCheckCounter=0;
+				return;
+			endif;
+			if(pxBuilding!=null)then
+				pxBuilding^.StopWorkAnim();
+			endif;
+			if(pxActor^.HasAnim("open_gate"))then
+				pxActor^.InvokeGenericSCEvent(24,4.0f);
+			endif;
+//			m_sState="EndTask";
+			DeliverProduct();
+			m_sState="EndTask";
+		elseif(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void RemoveActionFromProdQueue()
+		if(m_iProdID!=-1)then
+			var ^CFightingObj pxActor=cast<CFightingObj>(m_xActor.GetObj());
+			if(pxActor==null)then return; endif;
+			var ^CAttribs pxAttr=pxActor^.GetAttribs();
+			if(pxAttr==null)then return; endif;
+			pxActor^.RemoveProdQueueItem(m_iProdID,m_bReactor);
+			if(pxAttr^.GetValue("LocalUpgrade")==m_sClass)then
+				pxAttr^.SetValue("LocalUpgrade", "");
+			endif;
+			var CTechTree xTechTree=pxActor^.GetTechTree();
+			if(m_sClass.Find("/Upgrades/")>=0)then
+				var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+				var ^CPlayer pxPlayer=pxLevel^.GetPlayer(pxActor^.GetOwner());
+				if(pxPlayer!=null)then
+					var ^CAttribs pxA=pxPlayer^.GetAttribs();
+					if(pxA!=null)then
+						var string sInventions=pxA^.GetValue("inventions_in_progress");
+						var array string asToks;
+						sInventions.Split(asToks, ":", true);
+						var int iP=m_sClass.FindRev('/');
+						var string sClassWithoutCompleteFuckinTechTreePath="";
+						if(iP>=0)then
+							sClassWithoutCompleteFuckinTechTreePath=m_sClass.Mid(iP+1);
+						endif;
+						var string sFullName=xTechTree.GetValueS(m_sClass+"/full_name",sClassWithoutCompleteFuckinTechTreePath);
+						var int iInvIdx=asToks.FindEntry(sFullName);
+						if(iInvIdx<0)then
+							iInvIdx=asToks.FindEntry(sClassWithoutCompleteFuckinTechTreePath);
+						endif;
+						if(iInvIdx >= 0)then
+							asToks.DeleteEntry(iInvIdx);
+						endif;
+						iInvIdx=m_asQueuedInvents.FindEntry(sFullName);
+						if(iInvIdx<0)then
+							iInvIdx=m_asQueuedInvents.FindEntry(sClassWithoutCompleteFuckinTechTreePath);
+						endif;
+						if(iInvIdx>=0)then
+							m_asQueuedInvents.DeleteEntry(iInvIdx);
+						endif;
+						sInventions="";
+						var int i, iC=asToks.NumEntries();
+						for(i=0) cond(i<iC) iter(++i)do
+							sInventions += ":"+asToks[i];
+						endfor;
+						pxA^.SetValue("inventions_in_progress", sInventions);
+					endif;
+				endif;
+			endif;
+		endif;
+	endproc;
+
+	proc void DeliverProduct()
+		if(m_sNPC!="")then
+			if(CNPCMgr.Get().HasNPC(m_sNPC,m_iOwner))then
+				m_sState="Abort";
+				Break();
+//				m_sState="EndTask";
+//				EndTask();
+				return;
+			endif;
+		endif;
+		RemoveActionFromProdQueue();
+		if(m_bAdded)then
+			CBLDGMgr.Get().RemoveClass(m_sBefore,m_sTribe,m_iOwner);
+			m_bAdded=false;
+		endif;
+		var ^CGameObj pxActor=m_xActor.GetObj();
+		if(pxActor==null)then EndTask(); return; endif;
+		var ^CFightingObj pxCreator=cast<CFightingObj>(pxActor);
+		var ^CAttribs pxAttr=pxActor^.GetAttribs();
+		if(pxAttr==null)then EndTask(); return; endif;
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CPlayer pxPlayer=pxLevel^.GetPlayer(pxActor^.GetOwner());
+		if((m_sClass.Find("/Invent/")!=-1)||(m_sClass.Find("/Upgrades/")!=-1))then
+			var ^CGameObj pxTmp=m_xActor.GetObj();
+			if(pxTmp!=null)then
+				if((pxTmp^.GetType()=="ANML"||m_sClass.Find("/Upgrades/aje_small_farm/aje_")!=-1) && m_abLocalTT.FindEntry(true)!=-1)then
+					pxTmp^.InvokeGenericSCEvent(39,4.0f);
+				else
+					pxTmp^.InvokeGenericSCEvent(9,4.0f);
+				endif;
+				//KLog.LogSpam("UISound","delivered -> Invention '"+m_sClass+"'");
+				if((m_sClass.Find("/age_")!=-1||m_sClass.Find("/final_stage")!=-1)&&pxCreator!=null&&pxCreator^.GetPlayerTribeName()==pxCreator^.GetTribeName())then
+					CSrvWrap.SendGenericEvtToPlayer(pxPlayer^.GetID(), "NextAge\t"+m_sClass);
+					if(m_sClass.Find("/age_")!=-1)then
+						var int iNextAge=m_sClass.Right(1).ToInt();
+						var ^CStatisticMgr pxStatisticMgr=^(pxLevel^.GetStatisticMgr());
+						pxStatisticMgr^.AddSample(CStatisticSample.Epoch.ToInt(), pxPlayer^.GetID(),iNextAge);
+					elseif(m_sClass.Find("/final_stage")!=-1)then
+						var ^CStatisticMgr pxStatisticMgr=^(pxLevel^.GetStatisticMgr());
+						pxStatisticMgr^.AddSample(CStatisticSample.Epoch.ToInt(), pxPlayer^.GetID(),6);
+					endif;
+				else
+					var int iP=m_sClass.FindRev('/');
+					if(iP>=0)then
+						CSrvWrap.SendGenericEvtToPlayer(pxPlayer^.GetID(), "Invention\t"+m_sClass.Mid(iP+1));
+					endif;
+				endif;
+			endif;
+		endif;
+		var string sProductName;
+		var string sProductTTDesc;
+		var vec3 vBldg=pxActor^.GetPos();
+		var bool bTesla=false;
+		var CObjHndl xBldg;
+		if(pxPlayer!=null)then
+			ResetFilters();
+			var CTechTree xTechTree=pxActor^.GetTechTree();
+			var int j=0;
+/*				var string sResult=xTechTree.GetValueS(m_sClass+"/results/"+j.ToString(),"");
+			while(sResult!="")do
+*/
+			var bool bLogged=false;
+			var bool bLocalUp=false;
+			var bool bAdapt=false;
+			var CObjQuery xQuery;
+			var CObjList xUnits;
+			xQuery.SetType("ANML");
+			xQuery.SetType("CHTR",true);
+			xQuery.SetAttribsPos("reanimated",1);
+			xQuery.SetOwner(pxActor^.GetOwner());
+			if(xQuery.Execute(xUnits))then
+				bAdapt=true;
+			endif;
+			for(j=0)cond(j<m_asFilters.NumEntries())iter(j++)do
+				var string sResult=m_asFilters[j];
+				if(!bLogged)then
+					CProdLog.AddEntry(pxActor^.GetOwner(),m_sClass);
+					bLogged=true;
+				endif;
+				//result is a filter to be activated
+				var string sClass=xTechTree.GetValueS(m_sClass+"/results/"+j.ToString()+"/class","player");
+				var string sType=xTechTree.GetValueS(m_sClass+"/results/"+j.ToString()+"/type","activate");
+				bLocalUp=xTechTree.GetValueI(m_sClass+"/results/"+j.ToString()+"/upgrade",0)==1;
+				var ^CTechTreeDef pxTTDef;
+				if(sClass=="player")then
+					pxTTDef=^(pxPlayer^.GetPlayerTechTreeDef());
+					if(bAdapt)then
+						var ^CTechTreeDef pxOwn;
+						var int k, kC=xUnits.NumEntries();
+						for(k=0)cond(k<kC)iter(k++)do
+							var ^CGameObj pxUnit=xUnits[k].GetObj();
+							if(pxUnit==null)then continue; endif;
+							pxOwn=pxUnit^.GetTechTreeDef();
+							if(pxOwn!=null && pxOwn^.HasFilter(sResult))then
+								pxOwn^.DisableFilter(sResult);
+							endif;
+						endfor;
+					endif;
+				elseif(sClass=="local")then
+					pxTTDef=pxActor^.GetTechTreeDef();
+				endif;
+				if(pxTTDef!=null)then
+					if(sType=="deactivate")then
+						pxTTDef^.DisableFilter(sResult);
+					elseif(sType!="nothing")then
+						pxTTDef^.EnableFilter(sResult);
+					endif;
+				endif;
+				if(m_sClass.Find("Actions/Ninigi/Upgrades/ninigi_fireplace/Explode")!=-1&&pxCreator!=null)then
+					pxCreator^.SetAttrib("explosives_set","true");
+				endif;
+			endfor;
+//			if(pxCreator!=null&&pxCreator^.GetType()=="BLDG" && bLocalUp)then
+			if(pxCreator!=null&&bLocalUp)then
+				pxCreator^.UpdateCosts(m_xCosts);
+			endif;
+			// variables for statistics
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			var ^CStatisticMgr pxStatisticMgr=^(pxLevel^.GetStatisticMgr());
+			var CGameTime xTime=CTimeMgr.Get().GetTime();
+			var CObjList xRiderList;
+			var array int aiRiderIndex;
+			for(j=0)cond(j<m_asObjResults.NumEntries())iter(j++)do
+				var string sResult=m_asObjResults[j];
+				CProdLog.AddEntry(pxActor^.GetOwner(),sResult);
+				if(j==0)then
+					var string sRider=xTechTree.GetValueS(m_sClass+"/results/"+j.ToString()+"/rider","");
+					if(sRider!="")then
+						var array string asItems;
+						aiRiderIndex=0;
+						sRider.Split(asItems,",",true);
+						var int iL, iAll=asItems.NumEntries();
+						for(iL=0)cond(iL<iAll)iter(iL++)do
+							aiRiderIndex.AddEntry(asItems[iL].ToInt());
+						endfor;
+					endif;
+				endif;
+				//result is a object to be created
+				var string sClass=sResult.Mid(sResult.FindRev('/')+1);
+				//get type of object (hack for ships)
+				var string sType=sResult;
+				var int iIndex=sClass.GetLength()+1;
+				sType.Delete(sType.GetLength()-iIndex, iIndex);
+				sType=sType.Mid(sType.FindRev('/')+1);
+				var vec3 vPos=pxActor^.GetPos();
+				var CFourCC xProduct="Spwn";
+				//hack für die ninigi_mine
+				if(pxActor^.GetType()=="SHIP")then
+					xProduct="Proj";
+				endif;
+				var Quat qRot;
+				var vec3 vRot;
+//				pxActor^.GetLinkPosRotWorld(xProduct,vPos,qRot);
+				pxActor^.GetLinkPosRotWorld(xProduct,vPos,qRot);
+				qRot.ToVec3(vRot);
+				if(sType=="SHIP")then
+					vPos.SetZ(CSrvWrap.GetScapeMgr().GetSeaLevel());
+				endif;
+				//(endhack for ships)
+				var ^CBuilding pxBldg=cast<CBuilding>(pxActor);
+				if(pxBldg!=null)then
+					xBldg=pxBldg^.GetSpawnPos(vPos,vRot);
+					bTesla=xBldg.IsValid();
+				endif;
+				if(bTesla)then
+					vBldg=vPos;
+				else
+					xBldg=m_xActor;
+				endif;
+				// Henry: there are now too many effects which reduces production durations (Ada t5, treasures, game speed up option, phantom duration bonus), so the dummy is visible, weven if the unit is produced already...
+				var ^CGameObj pxTrainingDummy=m_xTrainingDummy.GetObj();
+				if(pxTrainingDummy!=null)then
+					pxTrainingDummy^.Delete();
+				endif;
+				var ^CGameObj pxObj=CSrvWrap.GetObjMgr()^.CreateObj(sClass,pxActor^.GetOwner(),vPos,vRot);
+				if(m_xPyCO.IsValid() && pxObj!=null)then
+					var ^CAttribs pxAttr=pxObj^.GetAttribs();
+					if(pxAttr!=null)then
+						pxAttr^.SetValue("clientpyramid_replacecard", m_xPyCO.GetObj()^.GetName());
+					endif;
+				endif;
+				if(pxObj!=null)then
+					xRiderList.Include(pxObj^.GetHandle());
+					//get techtree flags such as level
+					if(xTechTree.NumSubs(m_sClass+"/results/"+j.ToString()+"/flags")>0)then
+						var int iLevel=xTechTree.GetValueI(m_sClass+"/results/"+j.ToString()+"/flags/level",1)-1;
+						if(iLevel!=0)then
+							var ^CFightingObj pxFObj=cast<CFightingObj>(pxObj);
+							if(pxFObj != null)then
+//								cast<CFightingObj>(pxObj)^.SetLevelClean(iLevel);
+								pxFObj^.SetLevelClean(iLevel);
+							endif;
+						endif;
+					endif;
+					var ^CFightingObj pxProduct=cast<CFightingObj>(pxObj);
+					if(pxProduct != null)then
+						if(pxCreator != null)then
+							pxProduct^.SetSpawningPool(pxCreator^.GetCreatorHandle());
+						else
+							pxProduct^.SetSpawningPool(m_xActor);
+						endif;
+					endif;
+					if(pxObj^.GetType()=="CHTR")then
+						//Dont let the character be created underneath the scape surface
+						var vec3 vPos=pxObj^.GetPos();
+						if(vPos.GetZ()<CSrvWrap.GetScapeMgr().GetHeight(vPos.GetX(),vPos.GetY()))then
+							vPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vPos.GetX(),vPos.GetY()));
+							pxObj^.SetPos(vPos);
+						endif;
+						var ^CFightingObj pxFightingObj=cast<CFightingObj>(pxObj);
+						if(pxFightingObj!=null)then
+							pxFightingObj^.SetBuildAction(m_sClass);
+							pxFightingObj^.SetCosts(m_xCosts);
+							var string sNewUnit=pxFightingObj^.GetClassName();
+							if(sNewUnit=="aje_shaman"||sNewUnit=="hu_druid"||sNewUnit=="ninigi_monk"||sNewUnit=="seas_medic")then
+								var CTechTree xTT=pxFightingObj^.GetTechTree();
+								var ^CTechTree.CNode pxActions=xTT.FindNode("Actions/"+pxFightingObj^.GetTribeName()+"/Moves/CHTR");
+								if(pxActions!=null)then
+									var int i,iC=pxActions^.NumSubs();
+									for(i=0)cond(i<iC)iter(i++)do
+										var ^CTechTree.CNode pxAction=pxActions^.GetSub(i);
+										if(pxAction==null)then continue; endif;
+										if(pxAction^.GetSubValueI("duration")<=0)then continue; endif;
+										pxFightingObj^.AddSpecialActionTimer(pxAction^.GetAbsPath());
+									endfor;
+								endif;
+							endif;
+						endif;
+//						var ^CCharacter pxChar=cast<CCharacter>(pxObj);
+//						var ^CAttribs pxPlayerAttr=pxPlayer^.GetAttribs();
+//						if(xTechTree.NumSubs(m_sClass+"/results/"+j.ToString()+"/flags")>0)then
+//							var int iLevel=xTechTree.GetValueI(m_sClass+"/results/"+j.ToString()+"/flags/level",1)-1;
+////							if(m_sClass.Find("hu_druid") != -1)then
+////								KLog.LogSpam("RoStTmp", "Setting "+pxObj^.GetName()+" to level "+iLevel.ToString()+"...");
+////							endif;
+//							if(iLevel!=0)then
+//								cast<CCharacter>(pxObj)^.SetLevelClean(iLevel);
+//							endif;
+//						endif;
+					else
+						var ^CFightingObj pxFightingObj=cast<CFightingObj>(pxObj);
+						if(pxFightingObj!=null)then
+							pxFightingObj^.SetBuildAction(m_sClass);
+						endif;
+						begin CheckResultActions;
+							//get techtree flags such as upgrades and stuff
+							var int iX, iNumSubs=xTechTree.NumSubs(m_sClass+"/results/"+j.ToString()+"/resultactions");
+							if(iNumSubs>0)then
+								for(iX=0)cond(iX<iNumSubs)iter(iX++)do
+									var string sFlagPath=xTechTree.GetValueS(m_sClass+"/results/"+j.ToString()+"/resultactions/"+iX.ToString(),"");
+									//L KLog.LogSpam("TechTree","Result-Actions: "+iX.ToString()+" - "+sFlagPath);
+									//gnarf, not just this particular filter, all filters that are a result of a build-a-buildup-action
+									var int iFlagResults=0;
+									var string sFlagResultPath=xTechTree.GetValueS(sFlagPath+"/results/"+iFlagResults.ToString(),"");
+									while(sFlagResultPath!="")do
+										var string sFlagResultClass=xTechTree.GetValueS(sFlagPath+"/results/"+iFlagResults.ToString()+"/class","");
+										var string sFlagResultType=xTechTree.GetValueS(sFlagPath+"/results/"+iFlagResults.ToString()+"/type","");
+										var ^CTechTreeDef pxTechTreeDef;
+										if(sFlagResultClass=="local")then
+											pxTechTreeDef=pxObj^.GetTechTreeDef();
+										else
+											pxTechTreeDef=^(pxPlayer^.GetPlayerTechTreeDef());
+										endif;
+										if(pxTechTreeDef!=null)then
+											if(sFlagResultType =="deactivate")then
+												pxTechTreeDef^.DisableFilter(sFlagResultPath);
+											elseif(sFlagResultType!="nothing")then
+												pxTechTreeDef^.EnableFilter(sFlagResultPath);
+											endif;
+										endif;
+										iFlagResults++;
+										sFlagResultPath=xTechTree.GetValueS(sFlagPath+"/results/"+iFlagResults.ToString(),"");
+									endwhile;
+									if(sFlagPath!="")then
+	//									if(pxObj^.GetType()=="ANML")then
+	//										(cast<CAnimal>(pxObj))^.HandleAction(sFlagPath.Mid(sFlagPath.FindRev('/')+1));
+										if((pxObj^.GetType()=="ANML"||pxObj^.GetType()=="VHCL"||pxObj^.GetType()=="SHIP")&&cast<CTransportObj>(pxObj)!=null)then
+											(cast<CTransportObj>(pxObj))^.HandleAction(sFlagPath.Mid(sFlagPath.FindRev('/')+1));
+										endif;
+									endif;
+								endfor;
+							endif;
+						end CheckResultActions;
+						begin CheckConversion;
+							var ^CTechTree.CNode pxConversionNode = xTechTree.FindNode(m_sClass + "/results/" + j.ToString() + "/conversion");
+							if(pxConversionNode!=null)then
+								var int iX, iNumSubs = pxConversionNode^.NumSubs();
+								for(iX=0)cond(iX<iNumSubs)iter(iX++)do
+									var string sCFilter = pxConversionNode^.GetSub(iX)^.GetValue();
+									var string sCClass = pxConversionNode^.GetSub(iX)^.GetSubValue("class");
+									var bool bCActivate = pxConversionNode^.GetSub(iX)^.GetSubValue("type")=="activate";
+									var ^CTechTreeDef pxTechTreeDef;
+									if(sCClass=="local")then
+										pxTechTreeDef = pxObj^.GetTechTreeDef();
+									else
+										pxTechTreeDef = ^(pxPlayer^.GetPlayerTechTreeDef());
+									endif;
+									if(bCActivate)then
+										pxTechTreeDef^.EnableFilter(sCFilter);
+									else
+										pxTechTreeDef^.DisableFilter(sCFilter);
+									endif;
+								endfor;
+							endif;
+						end CheckConversion;
+					endif;
+				endif;
+				var ^CAttribs pxAttribs=pxObj^.GetAttribs();
+				CSrvWrap.GetGameLogger().Log("UnitCreate",pxObj^.GetOwner().ToString(),pxObj^.GetClassName());
+				var ^CFightingObj pxFO=cast<CFightingObj>(pxObj);
+				if(pxFO!=null && pxFO^.DoesCountInUnitLimit())then
+					if(pxFO^.CountInStatistic())then
+						pxStatisticMgr^.AddUnit( pxObj^.GetOwner(), pxObj^.GetClassName(), pxObj^.GetType(), 1 );
+					endif;
+				endif;
+				if(m_xPyCO.IsValid())then
+					var ^CPyramidCardObject pxPyCO=cast<CPyramidCardObject>(m_xPyCO.GetObj());
+					if(pxPyCO!=null)then
+						pxPyCO^.SetPos(pxPyCO^.GetPos());
+					endif;
+					CSrvWrap.GetObjMgr()^.DeleteObject(m_xPyCO.GetObj());
+				endif;
+			endfor;
+			(cast<CFightingObj>(pxActor))^.UpdateTechTree();
+			//If no objects are created, don't bother thinking about riders
+			if(xRiderList.NumEntries()==0)then EndTask(); return; endif;
+			var ^CGameObj pxObj=xRiderList[0].GetObj();
+			if(pxObj==null)then EndTask();return; endif;
+			if(pxObj^.CanSwim()||pxObj^.CanWalk()||pxObj^.CanFly())then
+				var CGameEvtPtr xEvt=CGameEvtPtr.CreateEvent("CTheLite");
+				xEvt.SetObjHandle(0,xBldg);
+				pxObj^.HandleEvent(xEvt);
+			endif;
+			sProductName=pxObj^.GetClassName();
+			sProductTTDesc=pxObj^.GetTechTreeDesc();
+		endif;
+//		CFeedback.Print(pxActor^.GetOwner(), CFeedback.ECONOMY,"_NT_ProdDone\t"+pxActor^.GetTechTreeDesc()+"\t"+sProductTTDesc, pxActor^.GetPos());
+		CFeedback.Print(pxActor^.GetOwner(), CFeedback.ECONOMY,"_NT_ProdDone\t"+pxActor^.GetTechTreeDesc()+"\t"+sProductTTDesc, vBldg);
+		CFeedbackEventMgr.Get().AddFinishedEvent(pxActor^.GetHandle(),pxActor^.GetOwner());
+		CSrvWrap.SendGenericEvtToPlayer(pxPlayer^.GetID(), "Delivered\t"+sProductName);
+		var ^CBuilding pxBldg=cast<CBuilding>(pxActor);
+		if(pxBldg!=null)then
+			if(bTesla)then
+				pxBldg^.OnWorkFinishedSimple();
+			else
+				pxBldg^.OnWorkFinished();
+			endif;
+		endif;
+		//after all results are done, end task
+		//m_sState="EndTask";
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc void Skip()
+		if(m_sState=="Init"||m_sState=="BreakInit")then
+			PayBack();
+			ResetFilters();
+		endif;
+	endproc;
+
+	export proc bool Break()
+		var bool bRAFPQ=false;
+		if(m_sState=="Enter"||m_sState=="Check"||m_sState=="Start")then
+			PayBack(bRAFPQ);
+			ResetFilters();
+		endif;
+		if(m_sState=="Abort")then
+			PayBack(bRAFPQ);
+			AbortNPCProduction();
+		endif;
+		if(m_sState=="Break")then
+			PayBack(bRAFPQ);
+		endif;
+		if(!bRAFPQ)then
+			RemoveActionFromProdQueue();
+		endif;
+		if(m_bAdded)then
+			CBLDGMgr.Get().RemoveClass(m_sAfter,m_sTribe,m_iOwner);
+			m_bAdded=false;
+		endif;
+		return true;
+	endproc;
+	
+	proc void AbortNPCProduction()
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CPlayer pxPlayer=pxLevel^.GetPlayer(m_iOwner);
+		if(pxPlayer==null)then return; endif;
+		var ^CTechTreeDef pxDef=^(pxPlayer^.GetPlayerTechTreeDef());
+		var int i, iC=m_asFilters.NumEntries();
+		var int iGameFilters=-1;
+		iGameFilters=m_abGameTT.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var bool bGameTT=false;
+			if(i<iGameFilters)then
+				bGameTT=m_abGameTT[i];
+			endif;
+			var ^CTechTreeDef pxDefCur=GetTechTreeDef(i);
+			if(bGameTT)then
+				var int j, jC=8;
+				for(j=0)cond(j<jC)iter(++j)do
+					var ^CPlayer pxPlyr=pxLevel^.GetPlayer(j);
+					if(pxPlyr==null)then continue; endif;
+					if(m_iOwner==j)then continue; endif;
+					var ^CTechTreeDef pxTTDef=^(pxPlyr^.GetPlayerTechTreeDef());
+					if(pxTTDef!=null)then
+						pxTTDef^.DisableFilter(m_asFilters[i]+"_RemoveMe");
+					endif;
+				endfor;
+			elseif(pxDefCur==pxDef)then
+				pxDef^.DisableFilter(m_asFilters[i]+"_RemoveMe");
+			endif;
+		endfor;
+		var ^CGameObj pxObj=m_xActor.GetObj();
+		if(pxObj!=null)then
+			pxDef=pxObj^.GetTechTreeDef();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CTechTreeDef pxDefCur=GetTechTreeDef(i);
+				if(pxDefCur==pxDef)then
+					pxDef^.DisableFilter(m_asFilters[i]+"_RemoveMe");
+				endif;
+			endfor;
+		endif;
+		var ^CFightingObj pxActor=cast<CFightingObj>(m_xActor.GetObj());
+		if(pxActor==null)then EndTask(); return; endif;
+		pxActor^.SetAttribAction("CurTask","none",m_bReactor);
+		pxActor^.SetAttribAction("CurProcessObj","",m_bReactor);
+		pxActor^.SetAttribAction("CurProcess",0,m_bReactor);
+		var CTechTree xTechTree=pxActor^.GetTechTree();
+		var ^CAttribs pxPlayerAttr=pxPlayer^.GetAttribs();
+		if(pxPlayerAttr==null)then return; endif;
+		pxPlayerAttr^.SetValue("virtual_supply", pxPlayerAttr^.GetValueInt("virtual_supply")-m_iSupply);
+		pxPlayerAttr^.SetValue("virtual_units_"+m_iLevel.ToString(), pxPlayerAttr^.GetValueInt("virtual_units_"+m_iLevel.ToString())-1);
+		if(m_xPyCO.IsValid())then
+			var ^CPyramidCardObject pxPyCO=cast<CPyramidCardObject>(m_xPyCO.GetObj());
+			if(pxPyCO!=null)then
+				pxPyCO^.SetPos(pxPyCO^.GetPos());
+			endif;
+			CSrvWrap.GetObjMgr()^.DeleteObject(m_xPyCO.GetObj());
+		endif;
+		var string sInventions=pxPlayerAttr^.GetValue("inventions_in_progress");
+		var array string asToks;
+		sInventions.Split(asToks, ":", true);
+		iC=m_asQueuedInvents.NumEntries();
+		for(i=0) cond(i<iC) iter(++i)do
+			var int iIdx=asToks.FindEntry(m_asQueuedInvents[i]);
+			if(iIdx>=0)then
+				asToks.DeleteEntry(iIdx);
+			endif;
+		endfor;
+		sInventions="";
+		iC=asToks.NumEntries();
+		for(i=0) cond(i<iC) iter(++i)do
+			sInventions += ":"+asToks[i];
+		endfor;
+		pxPlayerAttr^.SetValue("inventions_in_progress", sInventions);
+	endproc;
+	
+endclass;
+
+class CProdLog
+
+	static var string ms_sFile;
+	
+	export static proc void StartNewLog()
+		ms_sFile="XXX";
+
+		var CConfig xConf;
+		if(!xConf.GetSetB("Server/DumpProdLog",false))then return; endif;
+		var int i,iC=999;
+		var string sFile;
+		for(i=0)cond(i<iC)iter(i++)do
+			sFile="game"+i.ToReal().ToString("03.0")+".log";
+			if(!Filesystem.FileExists(sFile))then break; endif;
+		endfor;
+		ms_sFile=sFile;
+		var Filesystem.CFile xFile;
+		xFile.OpenWrite(ms_sFile);
+		xFile.PrintLn("START|START|"+CTimeMgr.Get().GetTime().ToString());
+		xFile.Close();
+	endproc;
+	
+	export static proc void AddEntry(int p_iOwner, string p_sPath)
+		var Filesystem.CFile xFile;
+		if(Filesystem.FileExists(ms_sFile))then
+			xFile.OpenAppend(ms_sFile);
+			xFile.PrintLn(p_iOwner.ToString()+"|"+p_sPath+"|"+CTimeMgr.Get().GetTime().ToString());
+			xFile.Close();
+		endif;
+	endproc;
+	
+endclass;

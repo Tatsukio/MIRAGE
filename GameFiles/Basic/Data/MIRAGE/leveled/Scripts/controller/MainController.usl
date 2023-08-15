@@ -1,0 +1,659 @@
+class CMainController inherit CInputController
+
+	export var CMultiCameraController	m_xMultiCameraCtrl; //new Multi camera controller
+
+	var CSelectionController		m_xSelCtrl;
+	var CObjectTransformController	m_xTransfCtrl;
+	var CTempTransFormController	m_xTempTransfCtrl;
+	var CTerrainController			m_xTerrainCtrl;
+	var CBeautyController			m_xBeautyCtrl;
+	var CRegionController			m_xRegionCtrl;
+	var CBlockController			m_xBlockCtrl;
+	var CWallController				m_xWallCtrl;
+	var CShortcutController			m_xShortcutCtrl;
+	var CObjCreator					m_xObjCreator;
+	var CWaypointController			m_xWaypointCtrl;
+	var array ^CToggleButton 		m_apxToggleButton;
+	var bool						m_bStepTransf;
+	var bool						m_bStepSel;
+	var ^CDropButton 				m_pxFileSave,m_pxFileSaveAs;
+	var bool 						m_bMouseCaptured;
+	var bool 						m_bAlternativeEditMode;
+	
+	var array CMainController.CClickProcRef		m_axClickProcRefs;
+	var array CMainController.CNewClickProcRef		m_axNewClickProcRefs;
+	
+	var bitset m_dwAcceleratorFlags;
+	
+	class CClickProcRef
+	
+		export constructor()
+		endconstructor;
+		
+		export destructor()
+		enddestructor;
+	
+		export var procref<bool> m_xProcRef;
+		
+		export proc bool op_Equal(ref CMainController.CClickProcRef p_rxOther)
+			return p_rxOther.m_xProcRef==m_xProcRef;
+		endproc;
+		
+		export proc ref CMainController.CClickProcRef op_Assign(ref CMainController.CClickProcRef p_rxOther)	
+			m_xProcRef = p_rxOther.m_xProcRef;
+			return(this^);
+		endproc;
+
+	endclass;
+	
+	class CNewClickProcRef
+	
+		export constructor()
+		endconstructor;
+		
+		export destructor()
+		enddestructor;
+	
+		export var procref<bool, bitset, bitset, int, int> m_xProcRef;
+		
+		export proc bool op_Equal(ref CMainController.CNewClickProcRef p_rxOther)
+			return p_rxOther.m_xProcRef==m_xProcRef;
+		endproc;
+		
+		export proc ref CMainController.CNewClickProcRef op_Assign(ref CMainController.CNewClickProcRef p_rxOther)
+			m_xProcRef = p_rxOther.m_xProcRef;
+			return(this^);
+		endproc;
+		
+	endclass;
+	
+	static var ^CMainController 	ms_pxInst;
+	var int m_iState;			//(-1)all controllers are inactive
+								//(0) selection controller is active
+								//(1) transform controller is active
+								//(2) terrain controller is active
+								//(3) game camera is active, toggle with (1)
+								//(4) locked transform controller is active
+								//(5) region controller is active
+								//(6) dragbox controller is active
+								//(7) beauty controller is active
+								//(8) block controller is active
+								//(9) wall controller is active
+								//(10) shortcut controller is active
+	var int m_iCamState;		//(0) normal Cam
+								//(1) Game Cam
+								//(1) Sequence Cam
+	constructor()
+		//TODO: Buttons vernünftig Groupen...
+		m_bStepTransf=false;
+		m_bStepSel=false;
+		m_iCamState=0;
+		m_bMouseCaptured=false;
+		ms_pxInst=this;
+		m_axClickProcRefs = 0;
+		// add modules to and initialize multi camera controller
+		m_xMultiCameraCtrl.AddControllerModule(new CGameCameraModule());
+		m_xMultiCameraCtrl.AddControllerModule(new CFreeCameraModule());
+		m_xMultiCameraCtrl.AddControllerModule(new CSequenceCameraModule());
+		m_xMultiCameraCtrl.Init();
+	endconstructor;
+
+	export proc void AddClickProcRef(procref <bool> p_xProcRef)
+		RemoveClickProcRef(p_xProcRef);
+		var ^CClickProcRef pxPR = ^(m_axClickProcRefs.NewEntryRef());
+		pxPR^.m_xProcRef = p_xProcRef;
+	endproc;
+
+	export proc void RemoveClickProcRef(procref <bool> p_xProcRef)
+		var CMainController.CClickProcRef xPR;
+		xPR.m_xProcRef = p_xProcRef;
+		m_axClickProcRefs.RemEntry(xPR);
+	endproc;
+
+	export proc void AddNewClickProcRef(procref <bool, bitset, bitset, int, int> p_xProcRef)
+		RemoveNewClickProcRef(p_xProcRef);
+		var ^CNewClickProcRef pxPR = ^(m_axNewClickProcRefs.NewEntryRef());
+		pxPR^.m_xProcRef = p_xProcRef;
+	endproc;
+
+	export proc void RemoveNewClickProcRef(procref <bool, bitset, bitset, int, int> p_xProcRef)
+		var CMainController.CNewClickProcRef xPR;
+		xPR.m_xProcRef = p_xProcRef;
+		m_axNewClickProcRefs.RemEntry(xPR);
+	endproc;
+
+	export static proc ref CMainController Get()
+		if (ms_pxInst==null)then
+			CLevelEditorWrap.LogSpam("Controller.Main","Instance created");
+			ms_pxInst=new CMainController;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+
+	export static proc void ShutStatic()
+		delete ms_pxInst;
+		ms_pxInst=null;
+	endproc;
+
+	export proc void SetAlternativeEditMode(bool p_bParam)
+		KLog.LogWarn("Manni","SetAlternativeEditMode("+p_bParam.ToString()+")");
+		m_bAlternativeEditMode=p_bParam;
+		return();
+	endproc;
+	
+	export proc bool GetAlternativeEditMode()
+		return(m_bAlternativeEditMode);
+	endproc;
+	
+	export proc bool SetDropButtons (^CDropButton p_pxFileSave, ^CDropButton p_pxFileSaveAs);
+		m_pxFileSave = p_pxFileSave;
+		m_pxFileSaveAs = p_pxFileSaveAs;
+		return(true);
+	endproc;
+
+	export proc bool DisableDropButtons()
+		m_pxFileSave^.SetDisabled(false);
+		m_pxFileSaveAs^.SetDisabled(false);
+		return(true);
+	endproc;
+
+	export proc bool EnableDropButtons()
+		if(CLevelEditorWrap.GetScapeMgr().HasMap())then
+		else
+			m_pxFileSave^.SetDisabled(true);
+			m_pxFileSaveAs^.SetDisabled(true);
+		endif;
+		return(true);
+	endproc;
+
+	export proc bool AddToggleButton ( ^CToggleButton p_pxToggleButton)
+		m_apxToggleButton.AddEntry(p_pxToggleButton);
+		return(true);
+	endproc;
+
+	export proc bool DelToggleButton ( ^CToggleButton p_pxToggleButton)
+		var int i;
+		for (i=0) cond (i<m_apxToggleButton.NumEntries()) iter (i++) do
+			if (p_pxToggleButton == m_apxToggleButton[i]) then
+				m_apxToggleButton.DeleteEntry(i);
+				i--;
+			endif;
+		endfor;
+		return(true);
+	endproc;
+
+	export proc bool SetToggleButton ( ^CToggleButton p_pxToggleButton)
+		//Object ghost deleted
+		m_xObjCreator.DeleteGhost();
+		var int i;
+		for (i=0) cond (i<m_apxToggleButton.NumEntries()) iter (i++) do
+			if (p_pxToggleButton == m_apxToggleButton[i]) then
+			else
+				m_apxToggleButton[i]^.SetToggleButtonState(false);
+			endif;
+		endfor;
+		return(true);
+	endproc;
+
+	export proc bool DeselectAllToggleButton ()
+		var int i;
+		for(i=0)cond(i<m_apxToggleButton.NumEntries())iter(i++)do
+			m_apxToggleButton[i]^.SetToggleButtonState(false);
+			//Hack
+			m_xTerrainCtrl.SetState(-1);
+		endfor;
+		return(true);
+	endproc;
+
+	export proc ^CObjCreator GetObjCreator()
+		return ^m_xObjCreator;
+	endproc;
+
+	export proc ref CTerrainController GetTerrainCtrl()
+		return m_xTerrainCtrl;
+	endproc;
+
+	export proc ref CRegionController GetRegionCtrl()
+		return m_xRegionCtrl;
+	endproc;
+	
+	export proc ref CWaypointController GetWaypointCtrl()
+		return m_xWaypointCtrl;
+	endproc;
+	
+	export proc ref CBlockController GetBlockCtrl()
+		return m_xBlockCtrl;
+	endproc;
+
+	export proc ref CWallController GetWallCtrl()
+		return m_xWallCtrl;
+	endproc;
+
+	export proc ref CBeautyController GetBeautyCtrl()
+		return m_xBeautyCtrl;
+	endproc;
+
+	export proc ref CMultiCameraController GetMultiCameraCtrl()
+		return m_xMultiCameraCtrl;
+	endproc;
+
+	export proc ref CObjTransformController GetTransformCtrl()
+		return m_xTransfCtrl;
+	endproc;
+
+	export proc ref CShortcutController GetShortcutCtrl()
+		return m_xShortcutCtrl;
+	endproc;
+
+	proc bool Dummy()
+		return true;
+	endproc;
+
+	proc bool HandleMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+		//TODO: Abfangen der jetzt zwar kontrollierbaren, aber immer noch nervenden Messages *g*
+		if(m_iState==10) then
+			if(m_xShortcutCtrl.HandleMsg(p_dwType,p_dwFlags,p_iKey,p_iX,p_iY)) then
+				return true;
+			endif;
+		endif;
+		if(p_dwType==CInputController.MT_MouseLBtnDown)then
+			CWindowMgr.Get().SetCapture(CClientWrap.GetDesktop());
+			m_bMouseCaptured=true;
+		elseif(p_dwType==CInputController.MT_MouseLBtnUp)then
+			if(m_bMouseCaptured) then
+				CWindowMgr.Get().ReleaseCapture(CClientWrap.GetDesktop());
+				CEnhancedMenu.Get().GetMiniMap()^.Invalidate();
+				m_bMouseCaptured=false;
+			endif;
+		elseif(p_dwType==CInputController.MT_MouseRBtnDown)then
+			CWindowMgr.Get().SetCapture(CClientWrap.GetDesktop());
+			m_bMouseCaptured=true;
+		elseif(p_dwType==CInputController.MT_MouseRBtnUp)then
+			if(m_bMouseCaptured) then
+				CWindowMgr.Get().ReleaseCapture(CClientWrap.GetDesktop());
+				m_bMouseCaptured=false;
+			endif;
+//		elseif(p_dwType==CInputController.MT_KeyDown)then
+//			// eleminate ctrl
+//			if (p_iKey == 17  ||  p_iKey == 18) then
+//				return true;
+//			endif;
+		elseif(p_dwType==CInputController.MT_KeyDown)then
+			if(p_iKey == 16)then
+				if((m_dwAcceleratorFlags&Msg.KM_SHIFT)==0d)then
+					m_dwAcceleratorFlags |= Msg.KM_SHIFT;
+				endif;
+			endif;
+			// eleminate ctrl
+			if(p_iKey == 17  ||  p_iKey == 18)then
+				if((m_dwAcceleratorFlags&Msg.KM_CONTROL)==0d)then
+					m_dwAcceleratorFlags |= Msg.KM_CONTROL;
+				endif;
+				return true;
+			endif;
+		elseif(p_dwType==CInputController.MT_KeyUp)then
+			if(p_iKey == 16)then
+				if((m_dwAcceleratorFlags&Msg.KM_SHIFT)!=0d)then
+					m_dwAcceleratorFlags &= ~Msg.KM_SHIFT;
+				endif;
+			endif;
+			// eleminate ctrl
+			if(p_iKey == 17 || p_iKey == 18)then
+				if((m_dwAcceleratorFlags&Msg.KM_CONTROL)!=0d)then
+					m_dwAcceleratorFlags &= ~Msg.KM_CONTROL;
+				endif;
+				return true;
+			endif;
+		endif;
+		if(p_dwType==CInputController.MT_Tick)then
+			m_xObjCreator.Tick();
+		endif;
+		if(m_xMultiCameraCtrl.HandleMsg(p_dwType,p_dwFlags,p_iKey,p_iX,p_iY)==true)then
+			if(m_iCamState==1)then
+				CClientWrap.GetDesktop()^.SetCursor(0);
+			endif;
+			return true;
+		endif;
+		if(p_dwType==CInputController.MT_MouseLBtnDown || (m_bMouseCaptured && p_dwType==CInputController.MT_MouseMove))then
+			if(m_axNewClickProcRefs.NumEntries()>0) then
+				var CMainController.CNewClickProcRef xPR = m_axNewClickProcRefs[m_axNewClickProcRefs.NumEntries()-1];
+				if(!xPR.m_xProcRef.IsNull())then
+					if(xPR.m_xProcRef.Call(p_dwType,p_dwFlags,p_iX,p_iY))then
+						return true;
+					endif;
+				endif;
+			endif;
+		endif;
+		if(p_dwType==CInputController.MT_MouseLBtnDown)then
+			if(m_axClickProcRefs.NumEntries()>0) then
+				var CMainController.CClickProcRef xPR = m_axClickProcRefs[m_axClickProcRefs.NumEntries()-1];
+				if(!xPR.m_xProcRef.IsNull())then
+					xPR.m_xProcRef.Call();
+				endif;
+			endif;
+		endif;
+		if(m_iState==666) then
+			if(m_xWaypointCtrl.HandleMsg(p_dwType,p_dwFlags,p_iKey,p_iX,p_iY)) then
+				return true;
+			endif;
+		endif;
+		// it's only possible to work with anything while Free Camera is active
+		if(m_iCamState!=0)then
+			return false;
+		endif;
+		if(m_iState==9) then
+			if(m_xWallCtrl.HandleMsg(p_dwType,p_dwFlags,p_iKey,p_iX,p_iY)) then
+				return true;
+			endif;
+		endif;
+		if(m_xObjCreator.HandleMsg(p_dwType,p_dwFlags,p_iKey,p_iX,p_iY)) then
+			return true;
+		endif;
+		if(m_iState!=2 && m_iState!=5 && m_iState!=9 && m_iState!=6 && m_iState!=8 ) then
+			if(m_xTempTransfCtrl.HandleMsg(p_dwType,p_dwFlags,p_iKey,p_iX,p_iY)&&m_xTransfCtrl.HandleMsg(p_dwType,p_dwFlags,p_iKey,p_iX,p_iY)) then
+				return true;
+			else
+//				m_bStepTransf=false;
+			endif;
+		endif;
+		if(m_iState!=7 && m_iState!=9 && m_iState!=4 && m_iState!=2 && m_iState!=5 && m_iState!=1 && m_iState!=8) then
+			if(m_xSelCtrl.HandleMsg(p_dwType,p_dwFlags,p_iKey,p_iX,p_iY)) then
+				return true;
+			endif;
+		endif;
+		if(m_iState==2) then
+			if(m_xTerrainCtrl.HandleMsg(p_dwType,p_dwFlags,p_iKey,p_iX,p_iY)) then
+				return true;
+			endif;
+		endif;
+		if(m_iState==1||m_iState==4||m_iState==5) then
+			if(m_xRegionCtrl.HandleMsg(p_dwType,p_dwFlags,p_iKey,p_iX,p_iY)) then
+				return true;
+			endif;
+		endif;
+		if(m_iState==8) then
+			if(m_xBlockCtrl.HandleMsg(p_dwType,p_dwFlags,p_iKey,p_iX,p_iY)) then
+				return true;
+			endif;
+		endif;
+		if(m_iState==7) then
+			if(m_xBeautyCtrl.HandleMsg(p_dwType,p_dwFlags,p_iKey,p_iX,p_iY)) then
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+	export proc bool SelStep()
+		return(true);
+	endproc;
+
+	export proc bool TransfStep(int p_iType)
+		if(!m_bStepTransf && p_iType==1)then
+		endif;
+		return(true);
+	endproc;
+
+	export proc void Render()
+		m_xWallCtrl.Render();
+		m_xTransfCtrl.Render();
+		m_xRegionCtrl.Render();
+	endproc;
+
+	export proc void SetCamera(^CCamera p_pxCamera)
+		m_xMultiCameraCtrl.SetCamera(p_pxCamera);
+	endproc;
+	
+	export proc void UpdateCameraPosition(^CCamera p_pxCamera)
+		if(m_xMultiCameraCtrl.GetCurrentModule()!=null)then
+			m_xMultiCameraCtrl.GetCurrentModule()^.UpdateFromCamera(p_pxCamera);
+		endif;
+	endproc;
+
+	export proc int GetCameraState()
+		return(m_iCamState);
+	endproc;
+
+	export proc void ResetState()
+		m_iState=-1;
+		m_xTerrainCtrl.SetState(-1);
+	endproc;
+
+	export proc bool ActivateCameraGame()
+		m_xMultiCameraCtrl.SwitchToModule("GameCamera");
+		m_iCamState=1;
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		var real fTmp=pxBaseNode^.GetValueR("DefaultCamera",0.785f);
+		m_xMultiCameraCtrl.GetGameCameraModule()^.m_fAngle=fTmp;
+		m_xMultiCameraCtrl.GetGameCameraModule()^.EyeFromAngles();
+		m_xMultiCameraCtrl.UpdateCamera();
+		m_iCamState=1;
+		return(true);
+	endproc;
+
+	export proc bool ActivateCameraFree()
+		m_xMultiCameraCtrl.SwitchToModule("FreeCamera");
+		m_iCamState=0;
+		return(true);
+	endproc;
+
+	export proc bool ActivateCameraSequence()
+		m_xMultiCameraCtrl.SwitchToModule("SequenceCamera");
+		m_iCamState=2;
+		return(true);
+	endproc;
+
+	export proc bool ActivateTerrainAltitude()
+		m_iState=2;
+		m_xTerrainCtrl.SetState(0);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+
+	export proc bool ActivateTerrainLevel()
+		m_iState=8;
+		m_xBlockCtrl.SetState(2);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+
+	export proc bool ActivateTerrainBlur()
+		m_iState=2;
+		m_xTerrainCtrl.SetState(1);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+
+	export proc bool ActivateTerrainNoise()
+		m_iState=2;
+		m_xTerrainCtrl.SetState(9);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+
+	export proc bool ActivateTerrainDetail()
+		m_iState=2;
+		m_xTerrainCtrl.SetState(2);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+
+	export proc bool ActivateTerrainDetailAbs()
+		m_iState=2;
+		m_xTerrainCtrl.SetState(5);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+
+	export proc bool ActivateBeauty()
+		m_iState=7;
+		m_xBeautyCtrl.SetState(0);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+
+	export proc bool ActivateMaterialDetail()
+		m_iState=2;
+		m_xTerrainCtrl.SetState(6);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+
+	export proc bool ActivateMaterialDetailAbs()
+		m_iState=2;
+		m_xTerrainCtrl.SetState(7);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+
+	export proc bool ActivateTerrainPlateau()
+		m_iState=2;
+		m_xTerrainCtrl.SetState(3);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+
+	export proc bool ActivateMatPaint(int p_iMaterial)
+		m_iState=2;
+		m_xTerrainCtrl.SetState(4);
+		m_xTerrainCtrl.SetMaterial(p_iMaterial);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+
+	export proc bool ActivateTerrainForest()
+		m_iState=2;
+		m_xTerrainCtrl.SetState(8);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+	
+	export proc bool ActivateTerrainCliff()
+		m_iState=2;
+		m_xTerrainCtrl.SetState(10);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+	
+	export proc bool ActivateTerrainCone()
+		m_iState=2;
+		m_xTerrainCtrl.SetState(11);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+	
+	export proc bool ActivateTerrainPyramid()
+		m_iState=2;
+		m_xTerrainCtrl.SetState(12);
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+	
+	export proc bool ActivateRegionCtrl()
+		m_iState=5;
+		CClientWrap.GetDesktop()^.SetStandardCursor();
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+
+	export proc bool ActivateWaypointCtrl()
+		m_iState=666;
+		CClientWrap.GetDesktop()^.SetStandardCursor();
+		m_xWaypointCtrl.SetActive(true);
+		return(true);
+	endproc;
+
+	export proc bool DeactivateWaypointCtrl()
+		m_iState=-1;
+		m_xWaypointCtrl.SetActive(false);
+		return(true);
+	endproc;
+
+	export proc bool ActivateBlockCtrl()
+		m_iState=8;
+		m_xBlockCtrl.Deactivate();
+		m_xBlockCtrl.SetState(0);
+		CClientWrap.GetDesktop()^.SetStandardCursor();
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+		return(true);
+	endproc;
+
+	export proc int GetState()
+		return(m_iState);
+	endproc;
+
+	export proc void SetState(int p_iState)
+		m_iState=p_iState;
+		switch (m_iState)
+			case (0) do //selection controller is active
+				m_xTransfCtrl.Activate(false);
+				m_xBlockCtrl.Deactivate();
+			endcase;
+			case (1) do //transform controller is active
+				m_xTransfCtrl.Activate(true);
+				m_xBlockCtrl.Deactivate();
+			endcase;
+			case (2) do //terrain controller is active
+				m_xTransfCtrl.Activate(false);
+				m_xBlockCtrl.Deactivate();
+			endcase;
+			case (3) do //game camera is active, toggle with (1)
+				m_xTransfCtrl.Activate(false);
+				m_xBlockCtrl.Deactivate();
+			endcase;
+			case (4) do //locked transform controller is active
+				m_xTransfCtrl.Activate(true);
+				m_xBlockCtrl.Deactivate();
+			endcase;
+			case (6) do //game camera is active, toggle with (1)
+				m_xTransfCtrl.Activate(false);
+				m_xBlockCtrl.Deactivate();
+			endcase;
+			case (7) do //game camera is active, toggle with (1)
+				m_xTransfCtrl.Activate(false);
+				m_xBlockCtrl.Deactivate();
+			endcase;
+			case (8) do //block controller is active
+				m_xTransfCtrl.Activate(false);
+			endcase;
+			case (9) do //wall controller is active
+				m_xTransfCtrl.Activate(false);
+				m_xBlockCtrl.Deactivate();
+			endcase;
+			case (10) do //shortcut controller is active
+				m_xTransfCtrl.Activate(false);
+				m_xBlockCtrl.Deactivate();
+			endcase;
+			case default do
+			endcase;
+		endswitch;
+	endproc;
+	
+	export proc bool SetCameraTarget(vec3 p_vPos)
+		m_xMultiCameraCtrl.SetCameraTarget(p_vPos,true);
+		return(true);
+	endproc;
+	
+	export proc bitset GetKeyFlags()
+		return m_dwAcceleratorFlags;
+	endproc;
+	
+endclass;

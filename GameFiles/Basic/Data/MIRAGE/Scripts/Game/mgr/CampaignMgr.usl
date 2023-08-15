@@ -1,0 +1,352 @@
+
+//CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/Campaigns.txt")
+
+
+/*
+var ^CPropDB pxUserProfile;
+pxUserProfile=^(CClientWrap.GetUserProfile());
+var ^CPropDB.CNode pxRoot=^(pxUserProfile^.GetRoot());
+var ^CPropDB.CNode pxCampaign=^(pxRoot^.Get("Campaign"));
+*/
+
+class CCampaignMgr
+	static var ^CCampaignMgr ms_pxInstance;
+		
+	export const int DIFFICULTY_EASY	=0;
+	export const int DIFFICULTY_MEDIUM	=1;
+	export const int DIFFICULTY_HARD	=2;
+	
+	var CLevelInfo			m_xCurLevelInfo;
+	var string			m_sCurLevel;
+	var bool			m_bSEASMode;
+	var ^CPropDB.CNode		m_pxCampaign;
+	var ^CPropDB.CNode		m_pxCampaigndata;
+	var string			m_sUpdateLevel;
+	var int				m_iUpdateCredits;
+	var bool			m_bUpdate;
+	
+	export static proc ref CCampaignMgr Get()
+		if(ms_pxInstance==null)then
+			ms_pxInstance=new CCampaignMgr;
+		endif;
+		return ms_pxInstance^;
+	endproc;
+	
+	export static proc void ShutStatic()
+		delete ms_pxInstance;
+	endproc;
+	
+	constructor()
+		Init();
+	endconstructor;
+	
+	destructor()
+	enddestructor;
+
+	export proc void Init()
+		m_bUpdate = false;
+		m_sUpdateLevel = "";
+		m_iUpdateCredits = 0;
+		var ^CPropDB pxCampaignsDB = new CPropDB();
+		pxCampaignsDB^.Load(CClientWrap.GetUrsRelPath()+"/Data/MIRAGE/Scripts/Server/settings/Campaigndata.txt");
+		m_pxCampaigndata = ^((pxCampaignsDB^).GetRoot());
+		var ^CPropDB pxCampaignDB = new CPropDB();
+		pxCampaignDB^.Load(CClientWrap.GetUrsRelPath()+"/Data/MIRAGE/Scripts/Server/settings/Campaigns.txt");
+		m_pxCampaign = ^((pxCampaignDB^)["Campaign"]);
+	endproc;
+
+	export proc array string GetCustomCampaignSectionNames()
+		var array string asNames;
+		var int iNames = 0;
+		var int iC = m_pxCampaigndata^.NumSubs();
+		asNames = iC;
+		for()cond(iNames<iC)iter(iNames++)do
+			asNames[iNames] = m_pxCampaigndata^.Get(iNames).Name();
+		endfor;
+		return asNames;
+	endproc;
+
+	export proc array bool GetCustomCampaignSectionTypes()
+		var array bool abTypes;
+		var int iTypes = 0;
+		var int iC = m_pxCampaigndata^.NumSubs();
+		abTypes = iC;
+		for()cond(iTypes<iC)iter(iTypes++)do
+			abTypes[iTypes] = m_pxCampaigndata^.Get(iTypes).GetValueI("CampaignMode")==1;
+		endfor;
+		return abTypes;
+	endproc;
+
+	proc void MergeMissions(^CPropDB.CNode p_pxBase, ^CPropDB.CNode p_pxToadd)
+		var int iStart = p_pxBase^.NumSubs();
+		var int iX = 0;
+		var int iXC = p_pxToadd^.NumSubs();
+		for()cond(iX<iXC)iter(iX++)do
+			var ^CPropDB.CNode pxNew = p_pxBase^.Insert(iX+iStart);
+			(pxNew^)=(p_pxToadd^.Get(iX));
+		endfor;
+	endproc;
+	
+	export proc void CheckUserProfile()
+		var ^CPropDB pxUserlevelsOldDB = new CPropDB();
+		var ^CPropDB.CNode pxUserlevelsOld = ^(pxUserlevelsOldDB^.GetRoot());
+		var ^CPropDB pxUserProfile = ^(CClientWrap.GetUserProfile());
+		var ^CPropDB.CNode pxUserlevelsOriginal = ^((pxUserProfile^)["Campaign/Levels"]);
+		var ^CPropDB.CNode pxUserlevels = ^((pxUserProfile^)["Customcampaign/Levels"]);
+
+		MergeMissions(pxUserlevelsOld, pxUserlevelsOriginal);
+		MergeMissions(pxUserlevelsOld, pxUserlevels);
+
+		var ^CPropDB pxUserlevelsNewDB = new CPropDB();
+		var ^CPropDB.CNode pxUserlevelsNew = ^(pxUserlevelsNewDB^.GetRoot());
+		
+		var int iSection = 0;
+		var int iSectionC = m_pxCampaigndata^.NumSubs();
+		for()cond(iSection<iSectionC)iter(iSection++)do
+			var ^CPropDB.CNode pxSection = m_pxCampaigndata^.Get(iSection).Get("Levels");
+			var int iMissions = 0;
+			var int iMissionsC = pxSection^.NumSubs();
+			var bool bUpdateNext = false;
+			var string sUpdateGroup = "";
+			for()cond(iMissions<iMissionsC)iter(iMissions++)do
+				var ^CPropDB.CNode pxLevelData = ^(pxSection^.Get(iMissions));
+				if(pxLevelData^.Value() != "") then
+					var ^CPropDB.CNode pxLevel = ^(pxUserlevelsNew^.Insert(pxUserlevelsNew^.NumSubs()));
+					pxLevel^.Name() = pxLevelData^.Name();
+					pxLevel^.Value() = pxLevelData^.Value();
+					var int iEnabled = pxLevelData^.GetValueI("enabled");
+					var int iCredits = pxLevelData^.GetValueI("Credits");
+					var bool bOriginal = pxLevelData^.GetValueI("Original")==1;
+					var string sGroup = pxLevelData^.GetValueS("Group");
+					var int iSearch = pxUserlevelsOld^.Find(pxLevel^.Name(),0);
+					if(iSearch != -1) then
+						if(iEnabled == 0) then
+							iEnabled = pxUserlevelsOld^.Get(iSearch).GetValueI("enabled");
+						endif;
+						if(iCredits < pxUserlevelsOld^.Get(iSearch).GetValueI("Credits")) then
+							iCredits = pxUserlevelsOld^.Get(iSearch).GetValueI("Credits");
+						endif;
+					endif;
+					if(bOriginal) then
+						pxLevel^.SetValue("Original","1");
+					endif;
+					if(bUpdateNext) then
+						if(sGroup == sUpdateGroup) then
+							if(m_iUpdateCredits > iCredits) then
+								iCredits = m_iUpdateCredits;
+							endif;
+							iEnabled = 1;
+						endif;
+						bUpdateNext = false;
+					endif;
+					if(m_bUpdate && m_sUpdateLevel == pxLevel^.Name()) then
+						m_bUpdate = false;
+						sUpdateGroup = sGroup;
+						bUpdateNext = true;
+					endif;
+					pxLevel^.SetValue("enabled",iEnabled);
+					pxLevel^.SetValue("PB_Available",pxLevelData^.GetValueI("PB_Available"));
+					pxLevel^.SetValue("Credits",iCredits);
+					pxLevel^.SetValue("MinCredits",pxLevelData^.GetValueI("MinCredits"));
+				endif;
+			endfor;
+		endfor;
+		// Now save the stuff :)
+		// Campaign/Levels
+		var ^CPropDB pxSaveOriginalDB = new CPropDB();
+		var ^CPropDB.CNode pxSaveOriginal = ^(pxSaveOriginalDB^.GetRoot());
+		pxSaveOriginal^.Name() = "Levels";
+		var int iMission = 0;
+		var int iMissionC = m_pxCampaign^.NumSubs();
+		for()cond(iMission<iMissionC)iter(iMission++)do
+			var ^CPropDB.CNode pxMission = pxSaveOriginal^.Insert(iMission);
+			pxMission^ = m_pxCampaign^.Get(iMission);
+			var int iSearch = pxUserlevelsNew^.Find(pxMission^.Name(),0);
+			if(iSearch != -1) then
+				var ^CPropDB.CNode pxUserlevel = ^(pxUserlevelsNew^.Get(iSearch));
+				pxMission^.SetValue("enabled", pxUserlevel^.GetValueI("enabled"));
+				pxMission^.SetValue("Credits", pxUserlevel^.GetValueI("Credits"));
+			endif;
+		endfor;
+		(pxUserProfile^)["Campaign/Levels"] = pxSaveOriginal^;
+		// Customcampaign/Levels
+		var ^CPropDB pxSaveDB = new CPropDB();
+		var ^CPropDB.CNode pxSave = ^(pxSaveDB^.GetRoot());
+		pxSave^.Name() = "Levels";
+		var int iIC = 0;
+		var int iMission2 = 0;
+		var int iMission2C = pxUserlevelsNew^.NumSubs();
+		for()cond(iMission2<iMission2C)iter(iMission2++)do
+			var ^CPropDB.CNode pxMission = ^(pxUserlevelsNew^.Get(iMission2));
+			if(!(pxMission^.GetValueI("Original")==1)) then
+				var ^CPropDB.CNode pxMission = pxSave^.Insert(iIC);
+				pxMission^ = pxUserlevelsNew^.Get(iMission2);
+				pxMission^.Remove("Original");
+				iIC++;
+			endif;
+		endfor;
+		(pxUserProfile^)["Customcampaign/Levels"] = pxSave^;
+		m_bUpdate = false;
+		CClientWrap.UpdateUserProfile();
+	endproc;
+	
+	export proc void SetCurLevelInfo(^CLevelInfo p_pxLevelInfo)		
+		if(p_pxLevelInfo==null)then
+			m_xCurLevelInfo.Reset();
+		else
+			m_xCurLevelInfo=(p_pxLevelInfo^);
+		endif;		
+	endproc;
+	
+	export proc ref CLevelInfo GetCurLevelInfo()
+		return m_xCurLevelInfo;
+	endproc;
+
+	export proc ref ^CPropDB GetUserLevels()
+		var ^CPropDB pxUserlevelsDB = ^(new CPropDB());
+		var ^CPropDB.CNode pxUserlevels = ^(pxUserlevelsDB^.GetRoot());
+		var ^CPropDB.CNode pxUserlevels1 = ^(CClientWrap.GetUserProfile()["Campaign/Levels"]);
+		var ^CPropDB.CNode pxUserlevels2 = ^(CClientWrap.GetUserProfile()["Customcampaign/Levels"]);
+		MergeMissions(pxUserlevels,pxUserlevels1);
+		MergeMissions(pxUserlevels,pxUserlevels2);
+		return pxUserlevelsDB;
+	endproc;
+
+	export proc ref ^CPropDB GetLevels()
+		var ^CPropDB.CNode pxUserlevels = ^(GetUserLevels()^.GetRoot());
+		var ^CPropDB pxLevelListDB = new CPropDB();
+		var ^CPropDB.CNode pxLevelList = ^(pxLevelListDB^.GetRoot());
+		var int iSections = 0;
+		var int iSectionsC = m_pxCampaigndata^.NumSubs();
+		for()cond(iSections<iSectionsC)iter(iSections++)do
+			var ^CPropDB.CNode pxLevelSectionData = ^(m_pxCampaigndata^.Get(iSections));
+			var ^CPropDB.CNode pxLevelSection = pxLevelList^.Insert(iSections);
+			pxLevelSection^.Name() = pxLevelSectionData^.Name();
+			var int iMissions = 0;
+			var int iMissionsC = pxLevelSectionData^.Get("Levels")^.NumSubs();
+			for()cond(iMissions<iMissionsC)iter(iMissions++)do
+				var ^CPropDB.CNode pxLevelData = ^((^(pxLevelSectionData^.Get("Levels")))^.Get(iMissions));
+				var ^CPropDB.CNode pxLevel = ^(pxLevelSection^.Insert(iMissions));
+				(pxLevel^.Name()) = (pxLevelData^.Name());
+				pxLevel^.Value() = pxLevelData^.Value();
+				if(pxLevel^.Value() != "") then
+					var int iSearch = pxUserlevels^.Find(pxLevel^.Name(),0);
+					var int iEnabled = pxLevelData^.GetValueI("enabled");
+					var int iCredits = pxLevelData^.GetValueI("Credits");
+					if(iSearch != -1) then
+						var ^CPropDB.CNode pxUserlevel = ^(pxUserlevels^.Get(iSearch));
+						iEnabled = pxUserlevel^.GetValueI("enabled");
+						iCredits = pxUserlevel^.GetValueI("Credits");
+					endif;
+					pxLevel^.SetValue("enabled",iEnabled);
+					pxLevel^.SetValue("PB_Available",pxLevelData^.GetValueI("PB_Available"));
+					pxLevel^.SetValue("Credits",iCredits);
+					pxLevel^.SetValue("MinCredits",pxLevelData^.GetValueI("MinCredits"));
+					pxLevel^.SetValue("SEAS_Version",pxLevelData^.GetValueI("SEAS_Version"));
+				else
+					pxLevel^.SetValue("label",pxLevelData^.GetValueS("label"));
+				endif;
+			endfor;
+		endfor;
+		return pxLevelListDB;
+	endproc;
+	
+	export proc string GetCurLevel()
+		return m_sCurLevel;
+	endproc;
+	
+	export proc void SetCurLevel(string p_sLevelKey)
+		m_sCurLevel=p_sLevelKey;
+	endproc;
+
+	export proc void SetSEASMode(bool p_bSEASMode)
+		m_bSEASMode = p_bSEASMode;
+	endproc;
+	
+	export proc void LoadCurrentLevel()
+
+		var ^CPropDB.CNode pxCampaignLevels=^(GetUserLevels()^.GetRoot());
+		var string sLevelFile;
+		var string sCurLevel=GetCurLevel();
+		pxCampaignLevels^.GetValue(sCurLevel,sLevelFile);
+		var string sFilePath=CClientWrap.GetUrsRelPath()+"/Data/Base/Maps/Cpn_single_001/"+sLevelFile;
+		if(!Filesystem.FileExists(sFilePath))then 
+			KLog.LogError("CampaignMgr","invalid campaign file '"+sFilePath+"'");
+			return; 
+		endif;
+		var ^CPropDB pxGenericDB=^(m_xCurLevelInfo.GetGenericData());
+		var CPlayerSlotID xSlotID;
+		for(xSlotID=CPlayerSlotID.First())cond(xSlotID<=CPlayerSlotID.Last())iter(xSlotID.Incr())do
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=^(m_xCurLevelInfo.GetPlayerSlot(xSlotID));
+			if(pxPlayerSlot==null)then continue; endif;
+			if(!pxPlayerSlot^.IsAIPlayer())then continue; endif;
+			var ^CPropDB.CNode pxPlayerBaseNode=^((pxGenericDB^)["PlayerSettings/Player_"+pxPlayerSlot^.GetOwner().ToString()+"/Restrictions/Base"]);
+			var int iAIDifficulty=pxPlayerBaseNode^.GetValueI("AI_Difficulty_Easy",1);
+			var int iCurDifficulty=GetDifficulty();
+			if(iCurDifficulty==DIFFICULTY_MEDIUM)then
+				iAIDifficulty=pxPlayerBaseNode^.GetValueI("AI_Difficulty_Medium",4);
+			elseif(iCurDifficulty==DIFFICULTY_HARD)then
+				iAIDifficulty=pxPlayerBaseNode^.GetValueI("AI_Difficulty_Hard",8);
+			endif;
+			pxPlayerSlot^.SetValue("Difficulty",iAIDifficulty);
+		endfor;
+		CEvt_StartGame.Send(sFilePath,m_xCurLevelInfo);
+	endproc;
+	
+	export proc bool OnLevelWin()
+		// 1. Load datas
+		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericData=^(pxLevelInfo^.GetGenericData());
+		var string sCurLevel=(pxGenericData^)["Base/LevelName"].Value();
+		sCurLevel.Replace(" ","_");
+		sCurLevel.MakeLower();
+		var ^CGameAttribs pxAttribs=^(pxLevelInfo^.GetAttribs());
+		// 2. Activate next level & give credit
+		m_bUpdate = true;
+		// Hack for 4.1, 4.2, 4.3 SEAS
+		var ^CPropDB.CNode pxPlayerTribe = ^((pxGenericData^)["PlayerSettings/Player_0/Restrictions/Base/Tribes/Tribe2Use"]);
+		if(pxPlayerTribe != null && pxPlayerTribe^.Value() == "SEAS")then
+			if(sCurLevel=="single_b41"||sCurLevel=="single_b42"||sCurLevel=="single_b43") then
+				sCurLevel += "_seas";
+			endif;
+		endif;
+		// Hack end
+		m_sUpdateLevel = sCurLevel;
+		m_iUpdateCredits=pxAttribs^.GetValueInt("BoniTotal");
+		// 3. Save the progress
+		// Note: I found it easier to use CheckUserProfile()
+		// for enable a level (depending on m_bUpdate)
+		CheckUserProfile();
+		return true;
+	endproc;
+	
+	export proc int GetDifficulty()
+		var ^CPropDB pxUserProfile=^(CClientWrap.GetUserProfile());
+		return (pxUserProfile^)["Campaign/Difficulty"].ValueI();
+	endproc;
+	
+	export proc void SetDifficulty(int p_iDifficulty)
+		var ^CPropDB pxUserProfile=^(CClientWrap.GetUserProfile());
+		(pxUserProfile^)["Campaign"].SetValue("Difficulty",p_iDifficulty);
+		CClientWrap.UpdateUserProfile();
+	endproc;
+	
+	// Useless with AyCe's system :-P
+	/*export proc string GetLastEnabledCampaignLevel()
+		CheckUserProfile();
+		var string sLevelName = "single_00";
+		var ^CPropDB.CNode pxAllLevels=^(GetLevels());
+		var int iNumLevels=pxAllLevels^.NumSubs();
+		var int i;
+		var int iLastLevel = 0;
+		for(i=0)cond(i<iNumLevels)iter(i++)do
+			var ^CPropDB.CNode pxLevel=^((pxAllLevels^)[i]);
+			var int iIsEnabled = pxLevel^.GetValueI("enabled",0);
+			if(iIsEnabled>0)then
+				sLevelName = pxLevel^.Name();
+			endif;
+		endfor;
+		return sLevelName;
+	endproc;*/
+
+endclass;

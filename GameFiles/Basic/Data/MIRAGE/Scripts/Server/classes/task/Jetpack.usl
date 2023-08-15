@@ -1,0 +1,203 @@
+class CJetpack inherit CSpecialActionTask
+
+	var string			m_sAnim;
+	var CObjHndl		m_xCharacter;
+	var string			m_sState;
+	var vec3				m_vJumpPos;
+	const real			m_fMaxDistance					=240.0f;		//Maximum jumping distance.
+	const real			m_fDamage								=30.0f;			//Damage in percent. Applies if jetpack fails to work properly.
+	const int				m_iAccidentPossibility	=5;					//Chance in percent the jetpack fails to work.
+
+	export constructor()
+		SetName("Jetpack");
+		SetCivil(false);
+		m_sAnim="sm_jump_01";
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="JePa";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,3);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xCharacter.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_vJumpPos;
+		(pxArc^) << m_sAnim;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="JePa")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xCharacter.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_vJumpPos;
+			if(p_pxReaderNode^.GetVersion()==1)then
+				var string sInvalid;
+				(pxArc^) << sInvalid;
+			endif;
+			if(p_pxReaderNode^.GetVersion()>=3)then
+				(pxArc^) << m_sAnim;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	//On Init
+	export proc bool Init(CObjHndl p_xCharacter, vec3 p_vPos, string p_sTTPath)
+		if(!p_xCharacter.IsValid())then
+			return false;
+		endif;
+		var ^CCharacter pxChar = cast<CCharacter>(p_xCharacter.GetObj());
+		if(pxChar==null)then return false; endif;
+		if(pxChar^.GetClassName()!="hu_jetpack_warrior")then
+			if(pxChar^.GetTribeName()!="Hu")then return false; endif;
+			begin CheckTaslow;
+				var CObjHndl xTaslow=CNPCMgr.Get().GetPlayerNPC(pxChar^.GetOwner(), "tesla_s0");
+				if(xTaslow.IsValid())then
+					var ^CFightingObj pxTaslow=cast<CFightingObj>(xTaslow.GetObj());
+					if(pxTaslow==null || pxTaslow^.GetLevel()<3)then
+						return false;
+					endif;
+				else
+					return false;
+				endif;
+			end CheckTaslow;
+			m_sAnim="jetpack";
+		endif;
+		SetSpecialActionPath(p_sTTPath);
+		SetName("Jetpack");
+		m_xCharacter=p_xCharacter;
+		m_vJumpPos=p_vPos;
+		return true;
+	endproc;
+
+	//On Enter
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xCharacter.GetObj());
+		if(pxFightingObj==null || !pxFightingObj^.CheckSpecialActionTimer(GetSpecialActionPath()))then
+			EndTask();
+			return;
+		endif;
+		//Turn jetpack on
+		if(m_xCharacter.IsValid())then
+			var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+			if(pxCharacter==null)then EndTask();return;endif;
+			var vec3 vPos;
+			var vec3 vWay=m_vJumpPos-pxCharacter^.GetPos();
+			var real fLength=vWay.Abs();
+			if(fLength>m_fMaxDistance)then
+				vWay.Normalize();
+				var real fTemp=fLength-m_fMaxDistance;
+				m_vJumpPos=GetAdoptedDest(pxCharacter^.GetPos(),m_vJumpPos,fTemp);
+			endif;
+		endif;
+		m_sState="rotate_to_target";
+	endproc;
+
+	//OnTick
+	proc void USLOnTick(int p_iTime)
+		if(!m_xCharacter.IsValid())then EndTask();return;endif;
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		if(pxCharacter==null)then EndTask();return;endif;
+		if(m_sState=="rotate_to_target")then
+			var vec3 vWay=m_vJumpPos-pxCharacter^.GetPos();
+			var Quat qRot;
+			qRot.FromXYDir(vWay.GetX(), vWay.GetY());
+			pxCharacter^.RotateAction(qRot);
+			m_sState="prepare_to_jump_3";
+		//Calculate wheter the jetpack crashes, or works correctly.
+		elseif(m_sState=="prepare_to_jump_3")then
+			if(pxCharacter^.IsJetPackOn())then
+				if(!CSrvWrap.GetObjMgr()^.GetFreePos(m_vJumpPos, pxCharacter, m_vJumpPos, null, true, true))then
+					EndTask();
+					return;
+				endif;
+				m_vJumpPos.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(m_vJumpPos.GetX(),m_vJumpPos.GetY()),CSrvWrap.GetScapeMgr().GetSeaLevel())+CHu.FLYING_HEIGHT);
+			else
+				if(!pxCharacter^.GetFreePos(m_vJumpPos,15.0)) then
+					EndTask();
+					return;
+				endif;
+				m_vJumpPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(m_vJumpPos.GetX(), m_vJumpPos.GetY()));
+			endif;
+			if(!CheckSpecialActionTimer(pxCharacter))then
+				EndTask();
+				return;
+			endif;
+			SetUnStoppable(true);
+			//if((Random.GetInt()%100)>100-m_iAccidentPossibility)then
+//			if((Random.GetInt()%100)>100-pxCharacter^.GetAccPoss())then
+//				pxCharacter^.AnimAction("jetpack_accident");
+//				m_sState="land_accident";
+//			else
+//				var CFourCC xLink = "Back";
+//				pxCharacter^.SetLinkGFX(xLink,"Hu_Steam_Jet_Pack");
+//				pxCharacter^.AnimAction(m_sAnim,0,true,false);
+//				m_sState="jump_to_target";
+//			endif;
+			var CFourCC xLink = "Back";
+			pxCharacter^.SetLinkGFX(xLink,"Hu_Steam_Jet_Pack");
+			pxCharacter^.AnimAction(m_sAnim,0,true,false);
+			m_sState="jump_to_target";
+		elseif(m_sState=="jump_to_target")then
+			pxCharacter^.SetSLEAnim(m_sAnim,9999,false,false);
+			pxCharacter^.RemoveFromWall();
+			pxCharacter^.JetPackAction(m_vJumpPos);
+			m_sState="land_1";
+		elseif(m_sState=="land_1")then
+			pxCharacter^.AnimAction(m_sAnim,0,false,true);
+			m_sState="land_2";
+		elseif(m_sState=="land_2")then
+			SetUnStoppable(false);
+			StartSpecialActionTimer(pxCharacter);
+			pxCharacter^.ShowWeapons();
+			m_sState="end";
+		elseif(m_sState=="land_accident")then
+			SetUnStoppable(false);
+			StartSpecialActionTimer(pxCharacter);
+			var ^CFightingObj pxTemp = cast<CFightingObj>(m_xCharacter.GetObj());
+			if(pxTemp==null)then EndTask();return;endif;
+			//Reduce the hitpoints of the jetpack user.
+			var real fDamage=(pxTemp^.GetHitpoints()/100.0)*m_fDamage;
+			pxTemp^.SetReaction(fDamage);
+			//pxCharacter^.AnimAction("to_dust");
+			m_sState="end";
+		elseif(m_sState=="end")then
+			EndTask();
+		endif;
+	endproc;
+
+	//called to random the landing pos
+	export proc void RandomizePos(ref vec3 po_rvPos)
+		po_rvPos.SetX(po_rvPos.GetX() + (Random.GetInt()%10+1).ToReal());
+		po_rvPos.SetY(po_rvPos.GetY() + (Random.GetInt()%10+1).ToReal());
+		po_rvPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(po_rvPos.GetX(), po_rvPos.GetY()));
+	endproc;
+
+	//On Leave
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	//End Action
+	export proc bool Break()
+		if(GetUnStoppable())then
+			return false;
+		endif;
+		if(m_xCharacter.IsValid())then
+			m_xCharacter.GetObj()^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+	
+	export proc void EndTask()
+		UpdateAggressionPos(m_xCharacter);
+		super.EndTask();
+	endproc;
+
+endclass;

@@ -1,0 +1,792 @@
+//CAiGoalBuildOutpost
+class CAiGoalBuildOutpost inherit CAiGoal
+
+	var array CAiConstructionInfoPtr 	m_apxBuildList;
+	var ^CAiModuleDefenseDefault 	m_pxDM;
+	var ^CAiModuleControlDefault 	m_pxCM;
+	var ^CAiModuleEconomyDefault 	m_pxEM;
+	var ^CAiBrain 					m_pxBrain;
+	var ^CAiSensor					m_pxSensor;
+	var ^CAiTransferInfo			m_pxTransferInfo;
+	var CAiTaskBuildSquad			m_xAllocator;
+	var ^CAiSolution				m_pxSolution;
+	var ^CAiSolution				m_pxMUSolution;
+	
+	var string						m_sPlayerID;
+	var string						m_sType;
+	var string						m_sState;
+	var string						m_sDifficulty;
+	var string						m_sLevelName;
+	
+	var int							m_iPlayerID;
+	var int							m_iIslandId;
+	var int							m_iOutpostId;
+	var int							m_iOldOutpostID;
+	var int							m_iPendingBuildingRequests;
+
+	var vec3						m_vPosition;
+	
+	var bool						m_bSpawned;
+	var bool						m_bMultimap;
+	var bool						m_bSendHome;
+	
+	///constructor
+	export constructor()
+	endconstructor;
+	
+	///destructor
+	export destructor()
+		var ^CAiTechTree pxTT=GetAiTechTree();
+		if(pxTT!=null)then
+			if(m_pxSolution!=null)then
+				m_xAllocator.SetSolution(null);
+				pxTT^.DeleteSolution(m_pxSolution);
+			endif;
+		endif;
+	enddestructor;
+	
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		Shut();
+		SetPermanent(true);
+		
+		super.Init(p_pxBrain);
+		if(p_pxBrain==null)then return false; endif;
+		
+		m_pxBrain=p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		m_bMultimap=m_pxSensor^.GetMultimap();
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 20;
+		
+		m_pxDM=cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		m_pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		m_pxEM=cast<CAiModuleEconomyDefault>(m_pxBrain^.GetEconomyModule());
+		
+		SetThinkWait(m_pxCM^.GetDifficultyInt()+iType);
+		m_sDifficulty=m_pxCM^.GetDifficulty();
+		
+		m_xAllocator.Init(this,false, false);
+		m_xAllocator.SetPriority(100.0f);
+		RemoveTask(^m_xAllocator);
+		AddTask(^m_xAllocator);
+		
+		m_bSpawned=false;
+		m_iOldOutpostID=-1;
+		m_bSendHome=false;
+		m_vPosition={0.0,0.0,0.0};
+		
+		return true;
+	endproc;
+	
+	
+	///GetOutpostId
+	export proc int GetOutpostId()
+		return m_iOutpostId;
+	endproc;
+	
+	
+	///DeleteSolution
+	proc void DeleteSolution(^CAiSolution p_pxSol)
+		if(p_pxSol==null)then return; endif;
+		p_pxSol^.DebugDump();
+		delete p_pxSol;
+	endproc;
+	
+	
+	///StartOutpost
+	export proc bool StartOutpost(int p_iIslandId, vec3 p_vPosition, string p_sType, ref int p_riOutpostID)
+		if(m_pxSensor==null) then return false; endif;
+		if(m_sLevelName=="Single 06")then return false; endif;
+		
+		m_iIslandId=p_iIslandId;
+		m_vPosition=p_vPosition;
+		m_sType=p_sType;
+		if(!CAiUtilityMgr.Get()^.CheckForEnemy(m_pxBrain, p_vPosition))then return false; endif;
+		m_pxSensor^.CreateOutpost(p_vPosition, m_iOutpostId);
+		p_riOutpostID = m_iOutpostId;
+		m_sState = "building";
+		return true;
+	endproc;
+	
+	
+	///shutalltasks
+	export proc void ShutAllTasks()
+		var int i;
+		var int iC = GetNumTasks();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiTask pxTask=GetTask(i);
+			pxTask^.Shut();
+			RemoveTaskUS(i);
+			delete pxTask;
+			i--; iC--;
+		endfor;
+	endproc;
+	
+	///shut
+	export proc void Shut()
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxDM==null)then return; endif;
+		m_pxDM^.GetMOD().AddUnitsToPool(m_xAllocator.GetUnits());
+		m_xAllocator.Shut();
+		RemoveTask(^m_xAllocator);
+	endproc;
+	
+	///UnlockExternal
+	proc void UnlockExternal(ref CAiObjWrapList p_rxObjs)
+		var ^CAiAllocationMgr pxAllocMgr=GetAiAllocationMgr();
+		if(pxAllocMgr==null)then return; endif;
+		p_rxObjs.Validate();
+		
+		var int i, iC=p_rxObjs.NumEntries();
+		if(iC<=0)then return; endif;
+		
+		for(i=0)cond(i<iC)iter(++i)do	
+			pxAllocMgr^.ExternalUnlock(p_rxObjs[i]);	
+		endfor;	
+	endproc;
+	
+	
+	///LockExternal
+	proc void LockExternal(ref CAiObjWrapList p_rxObjs)
+		var ^CAiAllocationMgr pxAllocMgr=GetAiAllocationMgr();
+		if(pxAllocMgr==null)then return; endif;
+		
+		p_rxObjs.Validate();
+		var int i, iC=p_rxObjs.NumEntries();
+		if(iC<=0)then return; endif;
+		
+		for(i=0)cond(i<iC)iter(++i)do
+			pxAllocMgr^.ExternalLock(p_rxObjs[i]);
+		endfor;
+	endproc;
+	
+	
+	///think
+	export proc void Think()
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null) then return; endif;
+		if(m_pxDM==null)then return; endif;
+		if(m_pxEM==null)then return; endif;
+		if((m_bMultimap)&&(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&
+		m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&
+		m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+		m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&
+		m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&
+		m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&
+		m_sLevelName!="Single B42"&&m_sLevelName!="Single B43")&&
+		((m_pxEM^.GetOutpostReady())||(m_pxDM^.IsDefending())))then
+			CheckNumUnitsInOutpost();
+			m_bSendHome=true;
+			return;
+		endif;
+		if(m_pxDM^.IsDefending())then return; endif;
+		if(m_vPosition!={0.0,0.0,0.0})then
+			if(!CAiUtilityMgr.Get()^.CheckForEnemy(m_pxBrain, m_vPosition))then 
+				return; 
+			endif;
+		endif;
+		UpdateSolution();
+		if(m_pxSolution==null)then return; endif;
+		var CAiObjWrapList xList;
+		var int iMinUnits, iMaxUnits;
+		var real fBad;
+		if(m_sState=="building")then
+			if(m_xAllocator.IsRunning())then
+				m_pxDM^.GetMOD().AddUnitsToPool(m_xAllocator.GetUnits());
+				m_xAllocator.Shut();
+				m_xAllocator.Init(this,false, false);
+			elseif(m_xAllocator.IsInitState())then
+				m_xAllocator.SetSolution(m_pxSolution);
+				delete m_pxMUSolution;
+				m_pxMUSolution=m_xAllocator.ComputeMissingUnitsSolution();
+				if(m_pxMUSolution!=null)then
+					if(m_sType!="RessourceOutpost"&&m_sType!="AttackOutpost"&&m_sType!="OP_ResAll")then
+						m_xAllocator.SetSolution(m_pxMUSolution);
+						m_xAllocator.SetOutpostId(0);
+						if(m_xAllocator.Start(false))then m_sState="waiting"; endif;
+						if((m_xAllocator.Start(true))&&(m_sState!="waiting"))then m_sState="waiting"; endif;
+						if(m_sState!="waiting")then
+							m_pxDM^.GetMOD().AddUnitsToPool(m_xAllocator.GetUnits());
+							xList=m_xAllocator.GetUnits();
+							m_xAllocator.Shut();
+							m_xAllocator.Init(this,false, false);
+						endif;
+					elseif(!m_bSpawned)then
+						if(CAiUtilityMgr.Get()^.CheckForEnemy(m_pxBrain,m_vPosition))then
+							var CAiObjWrapList xSpawned;
+							SpawnUnits(m_pxMUSolution, xSpawned);
+							m_bSpawned=true;
+							m_xAllocator.SetOutpostId(0);
+							if(m_xAllocator.Start(true))then m_sState="waiting"; endif;
+							m_xAllocator.AddUnits(xSpawned);
+						else
+							m_pxDM^.GetMOD().AddUnitsToPool(m_xAllocator.GetUnits());
+							m_xAllocator.Shut();
+							m_xAllocator.Init(this,false, false);
+							return;
+						endif;
+					endif;
+				else
+					m_xAllocator.SetOutpostId(0);
+					if(m_xAllocator.Start(true))then m_sState="waiting"; endif;
+				endif;
+			elseif(m_xAllocator.IsNotPossible())then
+				m_pxDM^.GetMOD().AddUnitsToPool(m_xAllocator.GetUnits());
+				m_xAllocator.Shut();
+				m_xAllocator.Init(this,false, false);
+				return;
+			elseif(m_xAllocator.IsAborted())then
+				m_pxDM^.GetMOD().AddUnitsToPool(m_xAllocator.GetUnits());
+				m_xAllocator.Shut();
+				m_xAllocator.Init(this,false, false);
+				return;
+			endif;
+			if(m_iPendingBuildingRequests<=0)then RequestNext(); endif;
+		elseif(m_sState=="waiting")then
+			if(m_xAllocator.IsRunning())then
+				var CAiObjWrapList xUnits;
+				if(m_sDifficulty=="Easy")then
+					iMinUnits=1; iMaxUnits=2; fBad=1.0;
+				elseif(m_sDifficulty=="Medium")then
+					iMinUnits=1; iMaxUnits=2; fBad=1.0;
+				else
+					iMinUnits=1; iMaxUnits=2; fBad=1.0;
+				endif;
+				if(!m_pxDM^.GetMOD().QueryUnits(xUnits, iMinUnits, iMaxUnits, fBad, 0, xUnits))then
+					return;
+				endif;
+				m_xAllocator.AddUnits(xUnits);
+				if(m_iIslandId==m_pxSensor^.ComputeIslandId(m_pxSensor^.GetStartLocation()))then
+					UnlockExternal(m_xAllocator.GetUnits());
+					var CAiObjWrapList xList=m_xAllocator.GetUnits();
+					if(m_pxSensor^.Transfer(m_xAllocator.GetUnits(), 0, m_iOutpostId))then
+						m_pxSensor^.ExecuteGamePlayCommand(m_xAllocator.GetUnits(), "Action", -1, m_vPosition, "/Walk");
+					endif;
+					LockExternal(m_xAllocator.GetUnits());
+					m_pxDM^.GetMOD().AddUnitsToPool(m_xAllocator.GetUnits());
+					m_xAllocator.Shut();
+					m_xAllocator.Init(this,false, false);
+					m_sState = "supervising";
+				else
+					RequestTransfer();
+					m_sState = "transfering";
+				endif;
+			elseif(m_xAllocator.IsNotPossible())then
+				m_pxDM^.GetMOD().AddUnitsToPool(m_xAllocator.GetUnits());
+				m_xAllocator.Shut();
+				m_xAllocator.Init(this,false, false);
+				m_sState = "building";
+				return;
+			elseif(m_xAllocator.IsAborted())then
+				m_pxDM^.GetMOD().AddUnitsToPool(m_xAllocator.GetUnits());
+				m_xAllocator.Shut();
+				m_xAllocator.Init(this,false, false);
+				m_sState = "building";
+				return;
+			endif;
+		elseif(m_sState=="transfering")then
+			if(m_xAllocator.IsNotPossible())then
+				m_pxDM^.GetMOD().AddUnitsToPool(m_xAllocator.GetUnits());
+				m_xAllocator.Shut();
+				m_xAllocator.Init(this,false, false);
+				m_sState = "supervising";
+				return;
+			elseif(m_xAllocator.IsAborted())then
+				m_pxDM^.GetMOD().AddUnitsToPool(m_xAllocator.GetUnits());
+				m_xAllocator.Shut();
+				m_xAllocator.Init(this,false, false);
+				m_sState = "building";
+				return;
+			endif;
+		elseif(m_sState=="supervising")then
+			if(m_iOutpostId>0) then
+				var ^CAiObjWrapList pxOPObjs=^(m_pxSensor^.GetOutpost(m_iOutpostId).GetObjects());
+				var int iNumObjsOutpost=pxOPObjs^.NumEntries();
+				var int iNumWorkers;
+				iterloop(pxOPObjs^,i)do
+					if((pxOPObjs^)[i].GetClassName().Find("_worker")!=-1) then iNumWorkers++; endif;
+				enditerloop;
+				if(iNumObjsOutpost<2||iNumWorkers<1) then
+					m_sState = "building";
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	///SpawnUnits
+	proc bool SpawnUnits(^CAiSolution p_pxSolution, ref CAiObjWrapList p_rxSpawned)
+		var ^CAiTechTree pxT=GetAiTechTree();
+		if(pxT==null)then return false; endif;
+		if(p_pxSolution==null)then return false; endif;
+		if(m_pxCM==null)then return false; endif;
+		
+		var CAiObjWrapList xList;
+		p_pxSolution^.DebugDump();
+		p_rxSpawned.Clear();
+		
+		var int i, iC=p_pxSolution^.NumRequired();
+		for(i=0)cond(i<iC)iter(i++)do
+			
+			var CAiNeedPtr pxNeed=p_pxSolution^.GetRequired(i);
+			if(pxNeed==null)then continue; endif;
+			if(pxNeed.GetNeed()^.NumEntries()<=0)then continue; endif;
+			
+			var int iNeeded=pxNeed.GetNeed()^.GetNeededInstanceCount();
+			if(iNeeded<=0)then continue; endif;
+			
+			var string sClass=pxNeed.GetNeed()^.GetAt(0)^.GetTTPath();
+			sClass=sClass.Mid(sClass.FindRev('/')+1);
+			
+			var string sLevel=pxNeed.GetNeed()^.GetAt(0)^.GetFlags().GetValue("level");
+			var int iLevel= -1;
+			if(!sLevel.IsEmpty())then iLevel=sLevel.ToInt(); endif;
+
+			var int j;
+			for(j=0)cond(j<iNeeded)iter(j++)do
+				var CAiObjWrap xObj=m_pxCM^.GetCheatMgr().SpawnUnitOnLevel(sClass, iLevel);
+				if(!xObj.IsValid())then continue; endif;
+				p_rxSpawned.AddEntry(xObj);
+			endfor;		
+		endfor;
+		return true;
+	endproc;	
+	
+	
+	///RequstTransfer
+	proc void RequestTransfer()
+		if(m_pxSensor==null) then return; endif;
+		if(m_pxBrain==null) then return; endif;
+		var ^IAiModuleArea pxAM = m_pxBrain^.GetAreaModule();
+		if(pxAM==null)then endif;
+		var ^CAiTransferInfo pxTransInfo=IAiModuleArea.CreateTransferInfo();
+		var vec3 vNull(0.0, 0.0, 0.0);
+		pxTransInfo^.SetIslandID(m_iIslandId);
+		var ^CAiMaps	pxMaps				= ^(m_pxSensor^.GetAiMaps());
+		var ^CAiMaps	pxGlobalMaps		= ^(m_pxSensor^.GetGlobalAiMaps());
+		var ^CAiMap		pxInflBuildMap		= ^(pxMaps^.GetAiMap("InflBuild", m_iPlayerID));
+		var CAiArea		xMaxInflBuildArea	= pxInflBuildMap^.FindMaxArea();
+		var CAiMap		xTmpCostMap;
+		var CAiArea		xMaxArea;
+		if(pxInflBuildMap^.GetValue(xMaxInflBuildArea)>0.0) then
+			xTmpCostMap.CopyFromFast(pxInflBuildMap^);
+		else
+			xTmpCostMap.CopyFromFast(pxMaps^.GetAiMap("Infl", m_iPlayerID));
+		endif;
+		xTmpCostMap.OpAdd(0.2); //small offset to give areas a chance, which are far away
+		xTmpCostMap.MultiplyFast(pxGlobalMaps^.GetAiMap("Coast", m_iPlayerID));
+		xTmpCostMap.MultMosaicFast(m_iIslandId);
+		xMaxArea = xTmpCostMap.FindMaxArea();
+		if(xTmpCostMap.GetValue(xMaxArea)==0.0)then
+			pxTransInfo^.SetPos(m_vPosition);
+		else
+			var vec3 vPos=m_vPosition;
+			m_pxSensor^.GetFixedPosLand(vPos);
+			pxTransInfo^.SetPos(vPos);
+		endif;
+		var ^CAiObjWrapList pxOWL=^(pxTransInfo^.GetTargets());
+		pxOWL^.CopyFrom(m_xAllocator.GetUnits());
+		pxTransInfo^.SetOwner(m_iPlayerID);
+		SetRequesterFor(pxTransInfo);
+		pxAM^.RequestTransfer(pxTransInfo);
+	endproc;
+	
+	///UpdateSolution
+	export proc void UpdateSolution()
+		var ^CAiTechTree pxTT = GetAiTechTree();
+		if(pxTT==null)then return; endif;
+		if(m_pxSolution!=null)then return; endif;
+		m_pxSolution=pxTT^.MakeDefinedSolution(m_sType, 1.0, 1.0);
+		if(m_pxSolution==null)then return; endif;
+	endproc;
+	
+	///RequestNext
+	export proc void RequestNext();
+		if(m_pxSensor==null) then return; endif;
+		var string sTribe=m_pxSensor^.GetTechTree().GetTribe();
+		var CAiConstructionInfoPtr pxCI;
+		//RessourceOutPost getriggert vom Leveldesign
+		if(m_sType=="RessourceOutpost")then
+			if(sTribe=="Hu")then
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/hu_small_tower", "", 2, true);
+				endif;
+//				if(pxCI == null)then
+//					pxCI = CreateRequest("BLDG/hu_warehouse", "", 1, true);
+//				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/hu_stone_quarry", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/hu_lumberjack_cottage", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/hu_bunker", "", 1, true);
+				endif;
+			elseif(sTribe=="Aje")then
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/aje_bazaar", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/aje_small_tower", "", 2, true);
+				endif;
+//				if(pxCI == null)then
+//					//Henry: fixed from BLDG/ to ANML/
+//					pxCI = CreateRequest("ANML/aje_resource_collector", "", 1, true);
+//				endif;
+			elseif(sTribe=="Ninigi")then
+//				if(pxCI == null)then
+//					pxCI = CreateRequest("BLDG/ninigi_warehouse", "", 1, true);
+//				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/ninigi_small_tower", "", 2, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/ninigi_stone_quarry", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/ninigi_lumbermill", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/ninigi_hunting_lodge", "", 1, true);
+				endif;
+			elseif(sTribe=="SEAS")then
+				//Henry: added seas small tent instead of steelwork and added mg nest additionally
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/seas_mg_nest", "", 2, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/seas_turret_tower", "", 2, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/seas_small_tent", "", 1, true);
+				endif;
+			endif;
+		//AttackOutpost getriggert vom Leveldesign
+		elseif(m_sType =="AttackOutpost")then
+			if(sTribe=="Hu")then
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/hu_small_tower", "", 2, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/hu_small_farm", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/hu_arena", "", 1, true);
+				endif;
+			elseif(sTribe=="Aje")then
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/aje_small_tower", "", 2, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/aje_small_farm", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					//Henry: fixed from aje_arena to aje_rodeo
+					pxCI = CreateRequest("BLDG/aje_rodeo", "", 1, true);
+				endif;
+			elseif(sTribe=="Ninigi")then
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/ninigi_small_tower", "", 2, true);
+				endif;
+				if(pxCI == null)then
+					//Henry: fixed from small farm to animal farm
+					pxCI = CreateRequest("BLDG/ninigi_animal_farm", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					//Henry: fixed from ninigi_arena to ninigi_dojo
+					pxCI = CreateRequest("BLDG/ninigi_dojo", "", 1, true);
+				endif;
+			elseif(sTribe=="SEAS")then
+				//Henry: added mg nest, garage
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/seas_turret_tower", "", 2, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/seas_mg_nest", "", 2, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/seas_barracks", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/seas_garage", "", 1, true);
+				endif;
+			endif;
+		//multiplayer outposts
+		elseif(m_sType =="OP_ResAll")then
+			if(sTribe=="Hu")then
+//				if(pxCI == null)then
+//					pxCI = CreateRequest("BLDG/hu_warehouse", "", 1, true);
+//				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/hu_small_tower", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/hu_stone_quarry", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/hu_lumberjack_cottage", "", 1, true);
+				endif;
+			elseif(sTribe=="Aje")then
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/aje_small_tower", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/aje_bazaar", "", 1, true);
+				endif;
+			elseif(sTribe=="Ninigi")then
+//				if(pxCI == null)then
+//					pxCI = CreateRequest("BLDG/ninigi_warehouse", "", 1, true);
+//				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/ninigi_small_tower", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/ninigi_stone_quarry", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/ninigi_lumbermill", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/ninigi_hunting_lodge", "", 1, true);
+				endif;
+			elseif(sTribe=="SEAS")then
+//				if(pxCI == null)then
+//					pxCI = CreateRequest("BLDG/seas_steelwork", "", 1, true);
+//				endif;
+				//Henry: added mg nest
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/seas_mg_nest", "", 1, true);
+				endif;
+				if(pxCI == null)then
+					pxCI = CreateRequest("BLDG/seas_turret_tower", "", 1, true);
+				endif;
+			else
+				KLog.LogWarn("CAiGoalBuildOutpost","Unknown tribe '"+sTribe+"'!");
+			endif;
+		//attack outpost
+		elseif(m_sType =="OP_AttackAll")then
+			if(sTribe=="Hu")then
+				if(CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)<4)then	
+					if(pxCI == null)then
+						pxCI = CreateRequest("BLDG/hu_small_tower", "", 3, true);
+					endif;
+				else
+					if(pxCI == null)then
+						pxCI = CreateRequest("BLDG/hu_large_tower", "", 3, true);
+					endif;
+				endif;
+			elseif(sTribe=="Aje")then
+				if(CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)<4)then
+					if(pxCI == null)then
+						pxCI = CreateRequest("BLDG/aje_small_tower", "", 3, true);
+					endif;
+				else
+					if(pxCI == null)then
+						pxCI = CreateRequest("BLDG/aje_medium_tower", "", 3, true);
+					endif;
+				endif;
+			elseif(sTribe=="Ninigi")then
+				if(CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)<4)then
+					if(pxCI == null)then
+						pxCI = CreateRequest("BLDG/ninigi_small_tower", "", 3, true);
+					endif;
+				else
+					if(pxCI == null)then
+						pxCI = CreateRequest("BLDG/ninigi_small_tower", "", 3, true);
+					endif;
+				endif;
+			elseif(sTribe=="SEAS")then
+				//Henry: added new offensive buildings of seas
+				if(CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)<4)then
+					if(pxCI == null)then
+						pxCI = CreateRequest("BLDG/seas_turret_tower", "", 3, true);
+					endif;
+					if(pxCI == null)then
+						pxCI = CreateRequest("BLDG/seas_mg_nest", "", 2, true);
+					endif;
+				else
+					if(pxCI == null)then
+						pxCI = CreateRequest("BLDG/seas_turret_tower", "", 3, true);
+					endif;
+					if(pxCI == null)then
+						pxCI = CreateRequest("BLDG/seas_small_cannon", "", 2, true);
+					endif;
+				endif;
+			else
+				KLog.LogWarn("CAiGoalBuildOutpost","Unknown tribe '"+sTribe+"'!");
+			endif;
+		endif;
+		if(pxCI!=null)then
+			if(m_pxBrain==null)then return; endif;
+			var ^IAiModuleEconomy pxEMod = m_pxBrain^.GetEconomyModule();
+			if(pxEMod==null)then return; endif;
+			if(!pxEMod^.ExternalRequestConstruction(pxCI))then
+			else
+				m_iPendingBuildingRequests++;
+			endif;
+		endif;
+	endproc;
+	
+	///CreateRequest-> create a ConstructionInfo fora building (by partial NodeInstance name), skip if building already exists
+	proc CAiConstructionInfoPtr CreateRequest(string p_sName, string p_sObjFlag, int p_iNumber, bool p_bBuildIfNotExist)
+		var CAiConstructionInfoPtr pxCI;
+		var CAiNeedPtr pxNd;
+		var ^CAiNodeInstance pxNI;
+		if(m_pxSensor==null) then return pxCI; endif;
+		var ^CAiTechTree pxTT=^(m_pxSensor^.GetTechTree());
+		pxNI=pxTT^.GetNodeInstanceFromPartialName(p_sName, p_sObjFlag);
+		if(pxNI!=null)then
+			if((p_bBuildIfNotExist)&&(pxNI^.GetInstanceCount(m_iOutpostId)>0))then return pxCI; endif;
+			pxNd = CAiNeed.Create(true,p_iNumber);
+			pxNd.GetNeed()^.AddEntry(pxNI);
+			pxCI = CAiConstructionInfo.Create();
+			SetRequesterFor(pxCI.GetConstructionInfo());
+			pxCI.GetConstructionInfo()^.SetNeed(pxNd);
+			pxCI.GetConstructionInfo()^.SetOutpostId(m_iOutpostId);
+		endif;
+		return pxCI;
+	endproc;
+	
+	
+	///CheckNumUnitsInOutpost
+	proc void CheckNumUnitsInOutpost()
+		if(m_pxSensor==null)then return; endif;	
+		var CAiObjWrapList xOutpostCrew;
+		var CAiObjWrapList xMainCrew;
+		var CAiObjQuery xOutpostQuery;
+		xOutpostQuery.SetOwner(m_iPlayerID);
+		xOutpostQuery.SetType("CHTR");
+		xOutpostQuery.SetType("ANML",true);
+		xOutpostQuery.SetType("VHCL",true);
+		xOutpostQuery.Execute(xMainCrew);
+		var int i, iC=xMainCrew.Validate();
+		var int iOutpostID=-1;
+		for(i=0)cond(i<iC)iter(i++)do
+			//Henry: added seas trade dino
+			if((xMainCrew[i].GetClassName()=="hu_cart")||(xMainCrew[i].GetClassName()=="aje_trade_dino")
+			||(xMainCrew[i].GetClassName()=="ninigi_cart")||(xMainCrew[i].GetClassName()=="seas_trade_dino")||(xMainCrew[i].GetClassName().Find("_worker")!=(-1)))then continue; endif;
+			iOutpostID=m_pxSensor^.FindObjInOutpost(xMainCrew[i]);
+			if(iOutpostID==0)then continue; endif;
+			
+			if(m_pxSensor^.ComputeIslandId(xMainCrew[i].GetPos())!=m_pxSensor^.ComputeIslandId(m_pxSensor^.GetStartLocation()))then continue; endif;
+			xOutpostCrew.AddEntry(xMainCrew[i]);
+			m_iOldOutpostID=iOutpostID;
+		endfor;
+		if((xOutpostCrew.NumEntries()<=0)&&(m_iOldOutpostID!= -1))then return; endif;
+		m_pxSensor^.Transfer(xOutpostCrew, m_iOldOutpostID, 0);
+		m_pxDM^.GetMOD().AddUnitsToPool(xOutpostCrew);
+		m_pxSensor^.ExecuteGamePlayCommand(xOutpostCrew, "Action", -1, m_pxSensor^.GetStartLocation(), "/AgressiveTarget");
+	endproc;
+	
+	///CheckNumUnitsInOutpost
+	proc int GetMarketplaceOutpostID()
+		var CAiObjQuery xMarktplaceQuery;
+		var CAiObjWrapList xMarktplaceList;
+		xMarktplaceQuery.SetOwner(m_iPlayerID);
+		xMarktplaceQuery.SetClass("hu_warehouse");
+		xMarktplaceQuery.SetClass("ninigi_warehouse", true);
+		xMarktplaceQuery.SetClass("aje_bazaar", true);
+		//Henry: added seas steelwork
+		xMarktplaceQuery.SetClass("seas_steelwork", true);
+		xMarktplaceQuery.Execute(xMarktplaceList);
+		var int i, iC=xMarktplaceList.Validate();
+		var int iOutpostID= -1;
+		for(i=0)cond(i<iC)iter(i++)do
+			iOutpostID=m_pxSensor^.FindObjInOutpost(xMarktplaceList[i]);
+			if(iOutpostID==0)then continue; endif;
+			return iOutpostID;
+		endfor;
+		return -1;
+	endproc;
+	
+	///EvtRequestSucceeded
+	export proc void EvtRequestSucceeded(^CAiRequestInfo p_pxRequest)
+		var CFourCC xCONSType="CONS";
+		var CFourCC xTRANType="TRAN";
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null) then return; endif;
+		if(m_pxDM==null)then return; endif;
+		if(p_pxRequest==null)then return; endif;
+		if(p_pxRequest^.GetType()==xCONSType)then
+			m_iPendingBuildingRequests--;
+			if(m_iPendingBuildingRequests<=0)then RequestNext(); endif;
+		elseif(p_pxRequest^.GetType()==xTRANType)then
+			var string sUnits;
+			var CAiObjWrapList xUnits=m_xAllocator.GetUnits();
+			var int i, iC=xUnits.Validate();
+			for(i=0)cond(i<iC)iter(i++)do
+				sUnits += xUnits[i].GetName() + ";";
+			endfor;
+			if(xUnits.NumEntries()<=0)then return; endif;
+			if(CAiUtilityMgr.Get()^.CheckForEnemy(m_pxBrain,m_vPosition))then
+				UnlockExternal(xUnits);
+				if(!m_pxSensor^.Transfer(xUnits, 0, m_iOutpostId))then
+					KLog.LogWarn("CAiGoalBuildOutpost", "Failed to transfer units! PlayerID: "+m_sPlayerID);
+				else
+					var CAiObjWrapList xWorkerList;
+					xWorkerList.Clear();
+					var int i, iC=xUnits.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						if(!xUnits[i].IsValid())then continue; endif;
+						if(xUnits[i].GetClassName().Find("_worker")!= -1)then
+							xWorkerList.AddEntry(xUnits[i]);
+							xUnits.RemEntry(xUnits[i]);
+							i--; iC--;
+						endif;
+					endfor;
+					m_pxSensor^.ExecuteGamePlayCommand(xUnits, "Action", -1, m_vPosition, "/AggressiveTarget");
+					m_pxSensor^.ExecuteGamePlayCommand(xWorkerList, "Action", -1, m_vPosition, "/Walk");
+				endif;
+				LockExternal(xUnits);
+				m_pxDM^.GetMOD().AddUnitsToPool(xUnits);
+				m_xAllocator.Shut();
+				m_xAllocator.Init(this,false, false);
+				m_sState = "supervising";
+			endif;
+		endif;
+	endproc;
+	
+	///EvtRequestFailed
+	export proc void EvtRequestFailed(^CAiRequestInfo p_pxRequest)
+		var CFourCC xCONSType="CONS";
+		var CFourCC xTRANType="TRAN";
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxDM==null)then return; endif;
+		if(p_pxRequest^.GetType()==xCONSType)then
+			m_iPendingBuildingRequests--;
+			if(m_iPendingBuildingRequests<=0)then RequestNext(); endif;
+		elseif(p_pxRequest^.GetType()==xTRANType)then
+			m_pxDM^.GetMOD().AddUnitsToPool(m_xAllocator.GetUnits());
+			m_xAllocator.Shut();
+			m_xAllocator.Init(this,false, false);
+			m_sState = "building";
+		endif;
+	endproc;
+	
+	///EvtRequestRejected
+	export proc void EvtRequestRejected(^CAiRequestInfo p_pxRequest)
+		var CFourCC xCONSType="CONS";
+		var CFourCC xTRANType="TRAN";
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxDM==null)then return; endif;
+		if(p_pxRequest^.GetType()==xCONSType)then
+			m_iPendingBuildingRequests--;
+			if(m_iPendingBuildingRequests<=0)then RequestNext(); endif;
+		elseif(p_pxRequest^.GetType()==xTRANType)then
+			m_pxDM^.GetMOD().AddUnitsToPool(m_xAllocator.GetUnits());
+			m_xAllocator.Shut();
+			m_xAllocator.Init(this,false, false);
+			m_sState = "building";
+		endif;
+	endproc;
+endclass;

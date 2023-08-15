@@ -1,0 +1,453 @@
+class CAiGoalDetectTraps inherit CAiGoalGeneralAttack
+
+	var array ^CAiTask		m_apxGuardTasks;
+	//var CAiObjWrapList		m_xProtectors;	
+	var CAiObjWrapList		m_xProtectorEnemies;	
+	var CAiObjWrap			m_xLastEnemy;
+	var int					m_iIndex;
+	var array vec3 			m_avWayPoints;
+	var int					m_iRetries;
+	var vec3				m_vCurPos;
+	var real				m_fAttackStrength;
+	var string				m_sDifficulty;
+	
+	
+	///Init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		super.Init(p_pxBrain);
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());		
+		SetThinkWait(10+iType);
+		
+		m_sDifficulty=pxCM^.GetDifficulty();
+		var int iDifficulty=pxCM^.GetOldDifficultyInt();
+	
+		m_sState = "new";
+		
+		if(iDifficulty==0)then
+			m_fAttackStrength=0.15;
+		elseif(iDifficulty==1)then
+			m_fAttackStrength=0.2;
+		elseif(iDifficulty==2)then
+			m_fAttackStrength=0.25;
+		elseif(iDifficulty==3)then
+			m_fAttackStrength=0.3;
+		elseif(iDifficulty==4)then
+			m_fAttackStrength=0.35;
+		elseif(iDifficulty==5)then
+			m_fAttackStrength=0.4;
+		elseif(iDifficulty==6)then
+			m_fAttackStrength=0.45;
+		elseif(iDifficulty==7)then
+			m_fAttackStrength=0.5;
+		elseif(iDifficulty==8)then
+			m_fAttackStrength=0.55;
+		else
+			m_fAttackStrength=0.6;
+		endif;
+
+		m_xOnEnemiesFound = OnEnemiesFound;
+		m_xOnCalculateEnemyValue = OnCalculateValue;
+		
+		GetEnemyQuery().AddMyEnemiesToSearch(m_iPlayerID, true);
+		GetEnemyQuery().SetType("CHTR");
+		GetEnemyQuery().SetType("ANML",true);
+		GetEnemyQuery().SetType("VHCL",true);
+		GetEnemyQuery().SetType("BLDG",true);		
+		return true;
+	endproc;
+
+
+	///OnCalculateValue
+	proc void OnCalculateValue(ref CAiObjWrap p_rxEnemy, ref real p_rfValue)
+		if(p_rxEnemy.IsValid())then
+			var CAiObjWrap xObj;
+			xObj.FromInt(p_rxEnemy.GetAttribValueInt("CurEnemy"));
+			var int iFightersIdx = m_xFighters.FindEntry(xObj);
+			var int iSupportersIdx = m_xSupporters.FindEntry(xObj);
+			if(p_rxEnemy.GetOwner()==-1)then
+				if(iFightersIdx==-1 && iSupportersIdx==-1)then
+					p_rfValue-=99999.0;
+					return;
+				endif;
+			endif;
+			if((m_vFightersPos - p_rxEnemy.GetPos()).Abs2S()>1600.0)then
+				p_rfValue -= 10.0;
+			endif;
+			if(iFightersIdx!=-1)then
+				p_rfValue+=2.0;
+			endif;
+			if(p_rxEnemy.GetType()=="BLDG" || p_rxEnemy.GetClassName()=="aje_resource_collector")then
+				p_rfValue-=1.9;
+			endif;
+			if(p_rxEnemy.IsSameAs(m_xLastEnemy))then
+				p_rfValue+=0.1;
+			endif;
+		endif;
+	endproc;
+
+
+	///UpdateNearbyEnemies
+	proc bool UpdateNearbyEnemies()
+		m_xProtectorEnemies.Clear();
+		return super.UpdateNearbyEnemies();
+	endproc;
+
+
+	///Think
+	export proc void Think()
+		super.Think();
+		var string						sDrop = m_avWayPoints.NumEntries().ToString();
+		var ^CAiGoalMinistryOfDefense	pxMOD = GetMOD();
+		var CAiObjWrapList	xList;
+
+		if(pxMOD == null)then return; endif;
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+
+		if(m_sState=="new")then
+			if(!GetUnits("DetectTraps_1"))then
+				var CAiObjWrapList xUnits;
+
+				m_xAllocator.StartAsSupervisor();
+				if(pxMOD^.QueryUnits(xUnits, 0, 6, 1.0, 0, m_xEnemies) == false)then
+					m_pxAttackInfo^.GetResult()="squad allocation failed (impossible)";
+					m_pxAttackInfo^.NotifyOnFailed();
+					Deactivate();
+				else
+					m_xAllocator.AddUnits(xUnits);
+					m_xAllocator.AddUnits(m_xEssentialUnitsFromMOD);
+					xList.Clear();
+					xList.Include(xUnits);
+					xList.Include(m_xEssentialUnitsFromMOD);
+					m_xEssentialUnitsFromMOD.Clear();
+
+					pxMOD^.RemoveUnitsFromPool(xList);
+					
+					SeparateUnits();
+					if(m_xEnemies.NumEntries()>0)then
+						m_xLastEnemy = m_xEnemies[0];
+					endif;
+					if(TransferUnits() == true)then
+						m_sState = "transfering";
+					else
+						StartSitOn();
+						m_sState = "sit_on";
+					endif;
+				endif;
+				return;
+			endif;
+			m_sState="waiting";
+		elseif(m_sState=="waiting")then
+			if(m_xAllocator.IsRunning())then
+				var CAiObjWrapList xUnits;
+
+				if(pxMOD^.QueryUnits(xUnits, 0, 6, 1.0, 0, m_xEnemies) == false)then
+					m_pxAttackInfo^.GetResult()="squad allocation failed (impossible)";
+					m_pxAttackInfo^.NotifyOnFailed();
+					Deactivate();
+				else
+					m_xAllocator.AddUnits(xUnits);
+					m_xAllocator.AddUnits(m_xEssentialUnitsFromMOD);
+					xList.Clear();
+					xList.Include(xUnits);
+					xList.Include(m_xEssentialUnitsFromMOD);
+					m_xEssentialUnitsFromMOD.Clear();
+					var bool bEnough;
+					if(!CompareLevel(m_xEnemies, xList, m_pxBrain,bEnough))then
+						if(!bEnough)then
+							m_pxAttackInfo^.GetResult()="Enemy is to strong!";
+							m_pxAttackInfo^.NotifyOnFailed();
+							Deactivate();
+							return;
+						endif;
+					endif;
+					
+					pxMOD^.RemoveUnitsFromPool(xList);
+					
+					SeparateUnits();
+
+					if(m_xEnemies.NumEntries()>0)then
+						m_xLastEnemy = m_xEnemies[0];
+					endif;
+					if(TransferUnits() == true)then
+						m_sState = "transfering";
+					else
+						StartSitOn();
+						m_sState = "sit_on";
+					endif;
+				
+				endif;
+			elseif(m_xAllocator.IsNotPossible())then
+				m_pxAttackInfo^.GetResult()="squad allcation failed!";
+				m_pxAttackInfo^.NotifyOnFailed();
+				Deactivate();
+				return;
+			elseif(m_xAllocator.IsAborted())then
+				m_pxAttackInfo^.GetResult()="squad dead";
+				m_pxAttackInfo^.NotifyOnFailed();
+				Deactivate();
+				return;
+			endif;
+		elseif(m_sState=="transfering")then
+			if(m_bTransferSucceeded == true)then
+				StartSitOn();
+				m_sState = "sit_on";
+			endif;
+		elseif(m_sState=="sit_on")then
+			if(m_bTransportersReady == true)then				
+				m_sState = "calc";
+			endif;
+		elseif(m_sState=="calc")then
+
+			if(!UpdateFighters())then
+				m_pxAttackInfo^.GetResult()="all targets to protect are dead!";
+				m_pxAttackInfo^.NotifyOnFailed();
+				Deactivate();
+				return;
+			endif;
+
+			var CAiPathPtr pxPath = m_pxSensor^.CalcPath(m_vFightersPos, m_vAttackPos, false, false);
+			var vec3 vCurPos, vLastPos = m_vFightersPos;
+			m_avWayPoints.AddEntry(m_vFightersPos);
+			if(pxPath!=null)then
+				var int i, iC = pxPath.GetPath()^.NumEntries();
+				for(i=1)cond(i<iC)iter(i++)do
+					vCurPos = pxPath.GetPath()^.Get(i);
+					var real fDistanceS = (vCurPos-vLastPos).Abs2S();
+					if(fDistanceS<100.0)then
+						continue;
+					elseif(fDistanceS<=900.0)then
+						m_avWayPoints.AddEntry(vCurPos);
+						vLastPos = vCurPos;
+					elseif(fDistanceS>900.0)then
+						var vec3 vDir = vCurPos-vLastPos;
+						vDir.Normalize();
+						vLastPos += vDir*20.0;
+						m_avWayPoints.AddEntry(vLastPos); 
+						i--;
+					endif;
+				endfor;
+			endif;
+			
+			var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+			SetThinkWait(15);
+			
+			m_vCurPos = m_avWayPoints[0];
+			
+//			begin AjeCamouflage;
+//				var ^CAiTechTree pxT = GetAiTechTree();
+//				if(pxT!=null)then
+//					var ^CAiNodeInstance pxNI = pxT^.GetNodeInstanceFromPartialName("InventObjects/camouflage");
+//					if(pxNI!=null && pxNI^.GetInstanceCount()>0)then
+//						var int i, iC = m_xFighters.NumEntries();
+//						for(i=0)cond(i<iC)iter(i++)do
+//							if(m_xFighters[i].IsValid() && m_xFighters[i].GetClassName()=="aje_shaman")then
+//								m_pxSensor^.ExecuteGamePlayCommand(m_xFighters[i].GetHandle(), "Action", m_xFighters[i].GetHandle(), m_xFighters[i].GetPos(), "/Actions/Aje/Moves/CHTR/camouflage");
+//							endif;
+//						endfor;
+//					endif;
+//				endif;
+//			end AjeCamouflage;
+			
+			StartAllAttacks();
+			m_sState = "follow_waypoints";
+		elseif(m_sState=="follow_waypoints")then
+			if(!UpdateFighters())then
+				m_pxAttackInfo^.GetResult()="all targets to protect are dead!";
+				m_pxAttackInfo^.NotifyOnFailed();
+				Deactivate();
+				return;
+			endif;
+			if(CheckCompletion())then
+				m_pxAttackInfo^.NotifyOnSucceeded();
+				Deactivate();
+				return;
+			endif;
+			UpdateNearbyEnemies();
+			if(m_xProtectorEnemies.NumEntries()>0)then
+				UpdateAllAttacks();
+				return;
+			elseif(m_iRetries == 0)then
+				m_vCurPos = m_avWayPoints[m_iIndex];
+				UpdateAllAttacks();
+			elseif(m_iRetries>3)then
+				m_iRetries = 0;
+				m_iIndex++;
+				return;
+			elseif((m_vFightersPos-m_avWayPoints[m_iIndex]).Abs2S()<4.0)then
+				m_iRetries = 11;
+			endif;
+			m_iRetries++;
+		endif;
+	endproc;
+	
+	
+	///IsDetector
+	proc bool IsDetector(ref CAiObjWrap p_rxActor)
+		var string sClass = p_rxActor.GetClassName();
+		if(sClass=="hu_druid")then
+			return true;
+		elseif(sClass=="aje_shaman")then
+			return true;
+		elseif(sClass=="ninigi_monk")then
+			return true;
+		//Henry: added seas medic
+		elseif(sClass=="seas_medic")then
+			return true;
+		endif;
+		return false;
+	endproc;
+
+
+	///OnEnemiesFound
+	proc void OnEnemiesFound(ref CAiObjWrapList p_rxList)
+		m_xProtectorEnemies.CopyFrom(p_rxList);
+	endproc;
+	
+	
+	///CheckCompletion
+	export proc bool CheckCompletion()
+		if(m_iIndex>=m_avWayPoints.NumEntries())then
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	
+	///SeperateUnits
+	proc void SeparateUnits()
+		var CAiObjWrapList xUnits;
+		xUnits.CopyFrom(m_xAllocator.GetUnits());
+		var int i, iC = xUnits.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(xUnits[i].IsValid())then
+				var ^CAiModuleFightDefault pxFM = GetFightModule();
+		
+				if(pxFM == null)then return; endif;
+				pxFM^.AddToKindergarten(xUnits[i]);
+				
+				if(IsSupportUnit(xUnits[i])||IsDetector(xUnits[i]))then
+					m_xSupporters.AddEntry(xUnits[i]);
+				else
+					m_xFighters.AddEntry(xUnits[i]);
+				endif;
+			
+			endif;
+		endfor;
+	endproc;
+	
+	
+	///StartGuarding
+	proc void StartGuarding(ref CAiObjWrapList p_rxActors)
+		var ^CAiTaskGuardUnits pxTask=new CAiTaskGuardUnits();
+		pxTask^.Init(this,p_rxActors, m_xFighters, m_xProtectorEnemies);
+		AddTask(pxTask);
+		m_apxGuardTasks.AddEntry(pxTask);
+		pxTask^.Start();
+	endproc;
+
+
+	///UpdateAllAttacks
+	export proc void UpdateAllAttacks()
+		var int i, iC = m_apxAttackTasks.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiTaskAttackObject pxAttack = m_apxAttackTasks[i];
+			if(pxAttack!=null)then
+				pxAttack^.UpdateEnemies(m_xEnemies, m_vCurPos, true);
+			endif;
+		endfor;
+		iC = m_apxGuardTasks.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiTaskGuardUnits pxGuard = cast<CAiTaskGuardUnits>(m_apxGuardTasks[i]);
+			if(pxGuard!=null)then
+				pxGuard^.SetEnemies(m_xProtectorEnemies);
+			endif;
+		endfor;
+	endproc;
+	
+	
+	///CompareLevel
+	export proc bool CompareLevel(CAiObjWrapList p_xTargets, CAiObjWrapList p_xActors, ^CAiBrain p_pxBrain, ref bool p_rbEnough)
+		if(p_pxBrain==null)then return true; endif;
+		if(p_xActors.NumEntries()<=0)then return false; endif;
+		if(p_xTargets.NumEntries()<=0)then return true; endif;
+		
+		var int 	iNumActors=p_xActors.NumEntries();
+		var int 	i, iC=p_xTargets.NumEntries();
+		var int 	j, iD=p_xActors.NumEntries();
+		var int		iZero=0; var int iOne=0; var int iTwo=0; var int iThree=0; var int iFour=0;
+		var int		iNull=0; var int iEins=0; var int iZwei=0; var int iDrei=0; var int iVier=0;
+		var int		iTotalTargets=0;
+		var int		iTotalActors=0;
+		var bool	bLevelOK=true;
+		var real	fSixty=0.0;
+		
+		var ^CAiGoalMinistryOfDefense pxMod=CAiUtilityMgr.Get()^.GetMOD(p_pxBrain);
+		if(pxMod==null)then return true; endif;
+				
+		//checking level of enemy
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!p_xTargets[i].IsValid())then continue; endif;
+			
+			if(p_xTargets[i].GetClassName().Find("_worker")!=(-1))then continue; endif;
+			
+			if((p_xTargets[i].GetType()=="CHTR")||(p_xTargets[i].GetType()=="ANML")||(p_xTargets[i].GetType()=="VHCL")||(p_xTargets[i].GetType()=="SHIP")||(p_xTargets[i].GetType()=="BLDG"))then
+				if(p_xTargets[i].GetAttribValueInt("level")==0)then
+					iNull++;
+				elseif(p_xTargets[i].GetAttribValueInt("level")==1)then
+					iEins+=2;
+				elseif(p_xTargets[i].GetAttribValueInt("level")==2)then
+					iZwei+=3;
+				elseif(p_xTargets[i].GetAttribValueInt("level")==3)then
+					iDrei+=4;
+				elseif(p_xTargets[i].GetAttribValueInt("level")==4)then
+					iVier+=5;
+				endif;
+			endif;
+		endfor;		
+		iTotalTargets=(iNull+iEins+iZwei+iDrei+iVier)*2;
+		
+		//checking level of attackgroup
+		for(j=0)cond(j<iD)iter(j++)do		
+			if(!p_xActors[j].IsValid())then continue; endif;				
+			
+			if(p_xActors[j].GetAttribValueInt("level")==0)then
+				iZero++;
+			elseif(p_xActors[j].GetAttribValueInt("level")==1)then
+				iOne+=2;
+			elseif(p_xActors[j].GetAttribValueInt("level")==2)then
+				iTwo+=3;
+			elseif(p_xActors[j].GetAttribValueInt("level")==3)then
+				iThree+=4;
+			elseif(p_xActors[j].GetAttribValueInt("level")==4)then
+				iFour+=5;
+			endif;
+		endfor;
+		iTotalActors=(iZero+iOne+iTwo+iThree+iFour)*2;
+		
+		fSixty=iTotalTargets.ToReal()*m_fAttackStrength;
+		p_rbEnough=(iThree>=8||(iThree>=4&&iFour>=5))&&iTwo>=15&&(iOne>=24||(iOne>=18&&iZero>=4));
+		
+		if(fSixty>iTotalActors.ToReal())then
+			bLevelOK=false;
+		else
+			bLevelOK=true;
+		endif;
+		
+		return bLevelOK;
+	endproc;
+	
+endclass;

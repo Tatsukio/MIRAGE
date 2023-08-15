@@ -1,0 +1,266 @@
+class CFinishingMove inherit CTask
+	
+	var CObjHndl											m_xFighter;
+	var CObjHndl											m_xVictim;
+	var CGameTimeSpan									m_xAnimTime;
+	var CGameTime											m_xStartTime;
+	var CFinishingMoveMgr.CMoveDef		m_xFinishingMove;
+	var string												m_sState;
+	var vec3													m_vLinkPos;
+	var CObjList											m_xBodyParts;
+	var array ^CTimerTick							m_apxTicks;
+	var int														m_iBPIndex;
+	var string												m_sFighterAnim;
+	var string												m_sEnemyAnim;
+	
+	export constructor()
+		SetName("Finish");
+		SetCivil(false);
+		m_iBPIndex = 0;
+	endconstructor;
+	
+	export destructor()
+		var int i;
+		for(i=0)cond(i<m_apxTicks.NumEntries())iter(i++)do
+			delete m_apxTicks[i];
+			m_apxTicks.DeleteEntry(i);
+			i--;
+		endfor;
+		
+		for(i=0)cond(i<m_xBodyParts.NumEntries())iter(i++)do
+			var ^CGameObj pxObj = m_xBodyParts[i].GetObj();
+			if(pxObj!=null)then
+				pxObj^.Delete();
+				m_xBodyParts.DeleteEntry(i);
+				i--;
+			endif;
+		endfor;
+		
+		var ^CGameObj pxVictim  = m_xVictim.GetObj();
+		if(pxVictim!=null && m_xFinishingMove.m_bInstantDelete )then
+			pxVictim^.Delete();
+		endif;
+	enddestructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="FiMo";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,3);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xFighter.DoKArc(pxArc^);
+		m_xVictim.DoKArc(pxArc^);
+		m_xAnimTime.DoKArc(pxArc^);
+		m_xStartTime.DoKArc(pxArc^);
+		m_xFinishingMove.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_vLinkPos;
+		(pxArc^) << m_sFighterAnim;
+		(pxArc^) << m_sEnemyAnim;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="FiMo")then
+			if(p_pxReaderNode^.GetVersion()<2) then return; endif;
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xFighter.DoKArc(pxArc^);
+			m_xVictim.DoKArc(pxArc^);
+			m_xAnimTime.DoKArc(pxArc^);
+			m_xStartTime.DoKArc(pxArc^);
+			m_xFinishingMove.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_vLinkPos;
+			if(p_pxReaderNode^.GetVersion()>=3)then
+				(pxArc^) << m_sFighterAnim;
+				(pxArc^) << m_sEnemyAnim;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;	
+	
+	export proc bool Init(CObjHndl p_xFighter, CObjHndl p_xPoorVictim, ref CFinishingMoveMgr.CMoveDef p_rxMove)
+		m_sState="EndTask";
+		if(!p_xFighter.IsValid() || !p_xPoorVictim.IsValid())then return false; endif;
+		var ^CFightingObj pxFighter = cast<CFightingObj>(p_xFighter.GetObj());
+		var ^CFightingObj pxVictim = cast<CFightingObj>(p_xPoorVictim.GetObj());
+		if(pxFighter==null || pxVictim==null)then return false; endif;
+		if(pxVictim^.HasTransportBuildUp())then
+			pxVictim^.Evacuate();
+		endif;
+		if(!p_rxMove.ParticipantsCheck(pxFighter^.GetClassName(),pxVictim^.GetClassName()))then return false; endif;
+		if(!pxFighter^.GetLinkPosWorld(p_rxMove.m_xLink,m_vLinkPos))then return false; endif;
+//		if(!(pxFighter^.GetCurEnemy()==p_xPoorVictim && pxVictim^.GetCurEnemy()==p_xFighter))then return false; endif;
+		if(!(pxFighter^.GetCurEnemy()==p_xPoorVictim))then return false; endif;
+		
+		m_xVictim = p_xPoorVictim;
+		m_xFighter = p_xFighter;
+		m_xFinishingMove = p_rxMove;
+		var string sFighterAnim, sEnemyAnim;
+		m_xFinishingMove.GetRandomAnim(sFighterAnim,sEnemyAnim);
+		if(!pxFighter^.HasAnim(sFighterAnim) || !pxVictim^.HasAnim(sEnemyAnim))then return false; endif;
+		m_sFighterAnim = sFighterAnim;
+		m_sEnemyAnim = sEnemyAnim;
+//		pxFighter^.m_bDoingFinishingMove = true;
+		pxFighter^.SetFinishingMode(true);
+		pxVictim^.SetGettingFinished(true);
+		pxVictim^.OnKill();
+		
+		m_sState="start_anim";
+		return true;
+	endproc;
+
+	proc void OnSplashBodyPart()
+		if(m_iBPIndex>=m_xBodyParts.NumEntries())then return; endif;
+
+		var ^CGameObj pxObj = m_xBodyParts[m_iBPIndex].GetObj();
+		if(pxObj==null)then return; endif;
+		
+		var ^CGameObj pxFighter = m_xFighter.GetObj();
+		if(pxFighter==null)then return; endif;
+		var ^CGameObj pxVictim = m_xVictim.GetObj();
+		if(pxVictim==null)then return; endif;
+		
+		var vec3 vRandom = {1.0,0.0,0.0};
+		
+		var real fRandomDist = ((Random.GetInt()%100).ToReal() / 100.0) * 10.0;
+		var real fRandomRot = ((Random.GetInt()%100).ToReal() / 100.0) * Math.Pi() * 2.0;
+		
+		vRandom.RotZ(fRandomRot);
+		vRandom *= fRandomDist;
+		vRandom += pxFighter^.GetPos();
+
+		pxObj^.SetVisible(true);
+		
+		var vec3 vPos = pxVictim^.GetPos();
+		vPos.SetZ(vPos.GetZ() + pxVictim^.GetSize().GetZ()*0.7);
+		
+		pxObj^.SetPos(vPos);
+		pxObj^.BallisticAction(vRandom, 7.0, 5.0);
+		
+		pxVictim^.SetLinkGFX(m_xFinishingMove.m_axBodyParts[m_iBPIndex].m_xLink,"Blood_04");
+
+		m_iBPIndex++;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+		var ^CFightingObj pxVictim = cast<CFightingObj>(m_xVictim.GetObj());
+		var ^CFightingObj pxFighter = cast<CFightingObj>(m_xFighter.GetObj());
+		if(pxVictim==null || pxFighter==null)then EndTask(); return; endif;
+		
+		if(pxVictim^.GetType()=="CHTR")then
+			var ^CCharacterCorpse pxObj = cast<CCharacterCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("CharacterCorpse", pxVictim^.GetOwner(), pxVictim^.GetPos(), pxVictim^.GetRotation()));
+			if(pxObj!=null)then
+				pxObj^.SetSource(pxVictim);
+				pxObj^.Init(pxVictim^.GetGfxName(), pxVictim^.GetName(),60.0);
+				pxObj^.SetOwner(pxVictim^.GetOwner());
+				pxObj^.InvokeGenericSCEvent(16,4.0f);
+				m_xVictim = pxObj^.GetHandle();
+			endif;
+		elseif(pxVictim^.GetType()=="ANML")then
+			var ^CGameObj pxObj = CSrvWrap.GetObjMgr()^.CreateObj(pxVictim^.GetClassName()+"_food", pxVictim^.GetOwner(), pxVictim^.GetPos(), pxVictim^.GetRotation());
+			if(pxObj!=null)then
+				pxObj^.SetName(pxVictim^.GetName());
+				var ^CAnimal pxAnimal = cast<CAnimal>(pxVictim);
+				var ^CFood pxFoodObj = cast<CFood>(pxObj);
+	
+				pxFoodObj^.SetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_PARTYCOL,pxAnimal^.GetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_PARTYCOL));
+				pxFoodObj^.SetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_SADDLE,pxAnimal^.GetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_SADDLE));
+				pxFoodObj^.SetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_HELMET,pxAnimal^.GetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_HELMET));
+				pxFoodObj^.SetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_ARMOR,pxAnimal^.GetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_ARMOR));
+				pxFoodObj^.SetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_STANDARTE,pxAnimal^.GetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_STANDARTE));
+				pxFoodObj^.SetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_ARMORSADDLE,pxAnimal^.GetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_ARMORSADDLE));
+				pxFoodObj^.SetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_MISC,pxAnimal^.GetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_MISC));
+	
+				pxFoodObj^.SetOwner(pxAnimal^.GetOwner());
+				if(pxFoodObj^.GetOwner()!=(-1))then
+					pxFoodObj^.SetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_PARTYCOL,true);
+				else
+					pxFoodObj^.SetRndInvMaskSingleFlagInv(pxAnimal^.VIS_FLAG_ANML_PARTYCOL,false);
+				endif;
+				var real fNow=CTimeMgr.Get().GetVirtualTime();
+				var ^CAttribs pxFoodAttribs=pxFoodObj^.GetAttribs();
+				pxFoodAttribs^.SetValue("birth_time",pxAnimal^.GetAttribs()^.GetValueFloat("birth_time"));
+				pxFoodAttribs^.SetValue("growup_duration",pxAnimal^.GetAttribs()^.GetValueFloat("growup_duration"));
+				pxFoodAttribs^.SetValue("die_time",fNow);
+				var real fMaxHP=pxAnimal^.GetTechTreeHitpoints();
+				var real fCurHP=pxAnimal^.CalculateHitpointsFromGrowUpSize(fMaxHP);
+				var real fMaxValue=pxFoodAttribs^.GetValueInt("value").ToReal();
+				pxFoodAttribs^.SetValue("value",((fCurHP*fMaxValue)/fMaxHP).ToInt());
+				m_xVictim = pxObj^.GetHandle();
+			endif;
+		endif;
+		pxVictim^.DieFastAndSilent();
+		pxFighter^.SetInvulnerable(pxFighter^.GetInvulnerable()+1);
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CFightingObj pxFighter = cast<CFightingObj>(m_xFighter.GetObj());
+		var ^CGameObj pxVictim = m_xVictim.GetObj();
+		if(pxFighter==null || pxVictim==null)then EndTask(); return; endif;
+		
+		if(m_sState == "start_anim")then
+			var real fTime;
+			pxFighter^.SetAnim(m_sFighterAnim,1,0,fTime);
+			var real fSpeed = 1.0;
+			m_xStartTime = CTimeMgr.Get().GetTime();
+			m_xAnimTime = CGameTimeSpan.OneSecond()*fTime;
+			begin CalcMoveSpeed;
+				var vec3 vDir = pxVictim^.GetPos() - m_vLinkPos;
+				fSpeed = vDir.Abs() / m_xFinishingMove.m_fLinkDelay;
+			end CalcMoveSpeed;
+			pxVictim^.MoveAction(m_vLinkPos, fSpeed);
+			if(!m_sEnemyAnim.IsEmpty())then
+				pxVictim^.SetAnim(m_sEnemyAnim,1);
+			endif;
+			m_sState = "link";
+		
+		elseif(m_sState == "link")then
+			var CGameTime xNow = CTimeMgr.Get().GetTime();
+			if((xNow-m_xStartTime).GetSecondsF()<m_xFinishingMove.m_fLinkDelay)then return; endif;
+			pxVictim^.LinkAction(m_xFighter, m_xFinishingMove.m_xLink);
+			m_sState = "EndTask";
+			return;
+		
+		elseif(m_sState == "EndTask")then
+			var CGameTime xNow = CTimeMgr.Get().GetTime();
+			if((xNow-m_xStartTime)<m_xAnimTime)then return; endif;
+			if((m_xFinishingMove.m_dwFlags&CFinishingMoveMgr.CMoveDef.DELETE_CORPSE)!=0b) then
+				var ^CGameObj pxO = m_xVictim.GetObj();
+				if(pxO!=null) then
+					pxO^.Delete();
+				endif;
+			endif;
+			EndTask();
+			pxFighter^.SetFinishingMode(false);
+//			pxFighter^.m_bDoingFinishingMove = false;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CFightingObj pxFighter = cast<CFightingObj>(m_xFighter.GetObj());
+		if(pxFighter!=null)then
+			pxFighter^.SetInvulnerable(pxFighter^.GetInvulnerable()-1);
+//			pxFighter^.m_bDoingFinishingMove = false;
+			pxFighter^.SetFinishingMode(false);
+			pxFighter^.FollowEnemy(null,false);
+		endif;
+		var ^CGameObj pxVictim = m_xVictim.GetObj();
+		if(pxVictim!=null)then
+			pxVictim^.TerminateAction();
+		endif;
+	endproc;
+	
+	export proc bool Break()
+		return false;
+	endproc;
+	
+	export proc void Skip()
+	endproc;
+	
+endclass;

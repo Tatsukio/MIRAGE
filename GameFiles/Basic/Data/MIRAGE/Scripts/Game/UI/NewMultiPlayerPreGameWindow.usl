@@ -1,0 +1,201 @@
+class CNewMultiPlayerPreGameWindow inherit CStaticCtrl
+	
+	var ^CDesktop						m_pxDesktop;
+	
+	var ^CPlayerListWindow	m_pxPlayerWindow;
+	var ^CGameInfoWindow		m_pxGameInfoWindow;
+	var ^CPresetWindow			m_pxPresetWindow;
+	var ^CNewChatWindow			m_pxChatWindow;
+	var int									m_iServerTimer;
+	var int 								m_iStartTimeOut;
+	//Stuff
+	var CMapInfoList m_xAllCampaignLevels;
+	export constructor()
+		
+		//CPointBuyResultMgr.ShutStatic();
+		m_pxDesktop=CClientWrap.GetDesktop();
+		
+		SetPos(0,0);
+		SetSize(m_pxDesktop^.GetWidth(),m_pxDesktop^.GetHeight());
+		//Slow if CGameInst.ms_iUIScaleFactor != 1
+		CGameWrap.GetMapInfoList(CClientWrap.GetUrsRelPath()+"/Data/Base/Maps/Multiplayer/",m_xAllCampaignLevels,200 * CGameInst.ms_iUIScaleFactor,200 * CGameInst.ms_iUIScaleFactor);
+		m_pxGameInfoWindow=new CGameInfoWindow(CGameInfoWindow.GIWT_MULTIPLAYER,^m_xAllCampaignLevels,true);
+		//m_pxGameInfoWindow=new CGameInfoWindow(CGameInfoWindow.GIWT_MULTIPLAYER,CMultiPlayerClientMgr.Get().GetMapInfoList(),true);
+		AddChild(m_pxGameInfoWindow);
+		m_pxGameInfoWindow^.SetPos(0,30 * CGameInst.ms_iUIScaleFactor);
+		
+		m_pxPlayerWindow=new CPlayerListWindow(this,m_pxGameInfoWindow);
+		AddChild(m_pxPlayerWindow);
+		m_pxPlayerWindow^.SetPos(320 * CGameInst.ms_iUIScaleFactor,30 * CGameInst.ms_iUIScaleFactor);
+		
+		m_pxPresetWindow=new CPresetWindow(m_pxGameInfoWindow);
+		AddChild(m_pxPresetWindow);
+		m_pxPresetWindow^.SetPos(670 * CGameInst.ms_iUIScaleFactor,30 * CGameInst.ms_iUIScaleFactor);
+		m_pxPresetWindow^.SetSize(350 * CGameInst.ms_iUIScaleFactor,420 * CGameInst.ms_iUIScaleFactor);
+		m_pxGameInfoWindow^.RegisterPointGauge(m_pxPresetWindow^.GetPointGauge()^.GetSHWND());
+		
+		
+		//Henry: gamespy hat server für pw ausgemacht, wozu ihre logo jetzt? :)
+//		if(CGameWrap.IsGameSpyGame()) then
+//			var ^CStaticCtrlEx pxGameSpyLogo=new CStaticCtrlEx;
+//			pxGameSpyLogo^.SetBitmap(CClientWrap.GetUrsRelPath()+"/Data/Base/UI/menue/decoration/logo_gamespy.tga");
+//			pxGameSpyLogo^.SetSize(130,30);
+//			pxGameSpyLogo^.SetPos(812,54);
+//			pxGameSpyLogo^.SetAlwaysOnTop(true);
+//			AddChild(pxGameSpyLogo);
+//		endif;
+		//m_pxGameInfoWindow^.SetPlayerListState(true);
+
+		//m_pxGameInfoWindow^.m_xOnSetVisible=MakeInvisble;
+		//m_pxGameInfoWindow^.SetServerAvailable(true);
+		//m_pxGameInfoWindow^.m_xOnChatWindowGive = OnChatWindowGive;
+		//m_pxGameInfoWindow^.m_xOnChatWindowGet = OnChatWindowGet;
+		
+		var CIOPath xPath;
+		xPath.Init(CGameWrap.GetClient().GetLevelPreview().GetAttribs().GetValue("Name"));
+		var string sCurLevel = xPath.FilePart();
+		CMultiPlayerClientMgr.Get().SetMap(sCurLevel);
+		
+		if(!sCurLevel.IsEmpty())then
+			//m_pxPlayerWindow^.SelectMap(CMultiPlayerClientMgr.Get().GetMapData()^.GetFileName());
+			CGameWrap.SetServerValueGS("MapName",CMultiPlayerClientMgr.Get().GetMapData()^.GetMapName(),true);
+		endif;
+
+		m_iServerTimer=SetTimer(200,true);
+		m_iStartTimeOut=SetTimer(20000,false); // wait 30 secs for final connect and building up the UI
+				
+		m_pxChatWindow=new CNewChatWindow;
+		AddChild(m_pxChatWindow);
+		m_pxChatWindow^.SetPos(320 * CGameInst.ms_iUIScaleFactor,450 * CGameInst.ms_iUIScaleFactor);
+		m_pxChatWindow^.SetSize(650 * CGameInst.ms_iUIScaleFactor,295 * CGameInst.ms_iUIScaleFactor);
+		m_pxChatWindow^.ReInit();
+		m_pxChatWindow^.SetDisabled(CMultiPlayerClientMgr.Get().GetSkirmishMode());
+		
+		m_pxGameInfoWindow^.m_xOnActivateTab=OnChangeTab;
+		m_pxGameInfoWindow^.GetTabCtrl()^.SelectTab(0);
+		OnChangeTab(0);
+		CMultiPlayerClientMgr.Get().m_xOnLevelInfoUpdate = OnLevelInfoUpdate;
+	endconstructor;
+	
+	export destructor()
+		CMultiPlayerClientMgr.Get().m_xOnLevelInfoUpdate.Clear();
+		CMultiPlayerClientMgr.Get().SetPlayerListWindow(null);
+		if(IEvtInterface.GetCurEvtInterface()!=null) then
+			cast<CGameInst>(IEvtInterface.GetCurEvtInterface())^.m_xOnLvlInfoUpdate.Clear();
+			CGameWrap.GetClient().GetLevelPreview().m_xOnTick.Clear();
+		endif;
+		UnsetTimer(m_iServerTimer);
+		UnsetTimer(m_iStartTimeOut);
+	enddestructor;
+	
+	export proc ^CPresetWindow GetPresetWindow()
+		return m_pxPresetWindow;
+	endproc;
+	
+	proc void OnLevelInfoUpdate()
+		m_pxPlayerWindow^.OnLevelInfoUpdate();
+		m_pxPresetWindow^.InvalidateContent();
+	endproc;
+	
+	proc void OnChangeTab(int p_iCurTab)
+		if(p_iCurTab==0)then
+			m_pxPlayerWindow^.SetVisible(true);
+			m_pxPresetWindow^.SetVisible(false);
+			if(m_pxChatWindow!=null)then
+				m_pxChatWindow^.SetPos(320 * CGameInst.ms_iUIScaleFactor,450 * CGameInst.ms_iUIScaleFactor);
+				m_pxChatWindow^.SetSize(650 * CGameInst.ms_iUIScaleFactor,295 * CGameInst.ms_iUIScaleFactor);
+				m_pxChatWindow^.AdjustCW(0);
+			endif;
+		else
+			m_pxPlayerWindow^.SetVisible(false);
+			m_pxPresetWindow^.SetVisible(true);
+			if(m_pxChatWindow!=null)then
+				m_pxChatWindow^.SetPos(670 * CGameInst.ms_iUIScaleFactor,450 * CGameInst.ms_iUIScaleFactor);
+				m_pxChatWindow^.SetSize(350 * CGameInst.ms_iUIScaleFactor,295 * CGameInst.ms_iUIScaleFactor);
+				m_pxChatWindow^.AdjustCW(1);
+			endif;
+		endif;
+		//m_pxCampaignList^.InvalidateContent();
+		//m_pxCampaignListSmall^.InvalidateContent();
+	endproc;
+	
+	proc bool OnTimer(int p_iTimerID)
+		if(p_iTimerID==m_iServerTimer)then
+			if(CGameWrap.GetClient().GetPlayerSlotID().IsValid())then
+				UnsetTimer(p_iTimerID);
+				Init(CGameWrap.GetClient().GetPlayerSlotID());
+			endif;
+		elseif(p_iTimerID==m_iStartTimeOut)then
+			if(CGameWrap.IsServerExeRunning()==true)then
+				// all is ok
+				UnsetTimer(p_iTimerID);
+			else
+				// server lost
+				UnsetTimer(p_iTimerID);
+				if(!CMultiPlayerClientMgr.Get().GetSkirmishMode()) then
+					CUIStateMgr.Get().SetState(CUIStateMgr.STATE_ACKSERVERLOST);
+				endif;
+			endif;
+		endif;	
+		return(true);
+	endproc;
+	/*
+	proc ^CNewChatWindow OnChatWindowGive()
+		if(m_pxChatWindow!=null)then
+			RemoveChild(m_pxChatWindow);
+		endif;
+		return m_pxChatWindow;
+	endproc;
+	
+	proc void OnChatWindowGet(^CNewChatWindow p_pxChat)
+		m_pxChatWindow = p_pxChat;
+		if(m_pxChatWindow!=null)then
+			AddChildWithLayout(m_pxChatWindow,"chat");
+		endif;
+	endproc;
+	*/
+	/*
+	proc bool MakeInvisble(bool p_bVisible)
+		if(!p_bVisible)then
+			CWindowMgr.Get().ReleaseModal(this);
+			SetVisible(p_bVisible);
+		else
+			SetVisible(p_bVisible);
+			if(m_pxChatWindow!=null)then
+				m_pxChatWindow^.ReInit();
+			endif;
+			CWindowMgr.Get().SetModal(this);
+		endif;
+		return(true);
+	endproc;
+	*/
+	
+	proc bool Init(CPlayerSlotID p_xPlayerSlotID)
+		m_pxGameInfoWindow^.Init(p_xPlayerSlotID);
+		m_pxGameInfoWindow^.SetPointBuyAvailable(true);
+		m_pxGameInfoWindow^.GetPointBuyMenu().SetPresetWindow(m_pxPresetWindow);
+		var string sTmp;
+		m_pxPlayerWindow^.Init(false/*CMultiPlayerClientMgr.Get().GetSkirmishMode()*/);
+		m_pxPlayerWindow^.OnLevelInfoUpdate();
+		CMultiPlayerClientMgr.Get().SetPlayerListWindow(m_pxPlayerWindow);
+		//L KLog.LogSpam("PeKo","NMPGW::Init");
+		CMultiPlayerClientMgr.Get().SetInit(true);
+		CMultiPlayerClientMgr.Get().UpdateGameInfoData();
+		CMultiPlayerClientMgr.Get().OnLevelInfoUpdate();
+		return(true);
+	endproc;
+	
+endclass;     
+
+class CTypeData inherit CItemData
+	var string m_sType;
+
+	export constructor(string p_sPlayerType)
+		m_sType=p_sPlayerType;
+	endconstructor;
+
+	export proc string GetType()
+		return m_sType;
+	endproc;
+endclass;
+

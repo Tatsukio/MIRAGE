@@ -1,0 +1,651 @@
+class CAiGoalTargetRealization inherit CAiGoal
+	
+	var array CAiModuleEconomyDefault.CActiveSolutionInfo m_axWFSInfos;
+	
+	var CAiTaskFactory							m_xTaskFactory;
+	var ^CAiTechTree								m_pxTree;
+	var CAiConstructionInfoPtr			m_pxTargetCI;
+	var CAiNeedPtr									m_pxTargetNeed;
+	var ^CAiNodeInstance						m_pxTargetNI;
+	var ^CAiBrain 									m_pxBrain;
+	var ^CAiSensor									m_pxSensor;
+	
+	var bool					m_bBusy;
+	var bool					m_bPrepare;
+	var bool					m_bRefresh;
+	var bool					m_bTargetNodePending;
+	var bool					m_bWaitForOtherTRGoal;
+	var bool					m_bIsWaitingForTarget;
+	
+	var int						m_iTargetTasksDone;
+	var int						m_iNumFailedTargetTasks;
+	var int						m_iMaxAllowedFailedTargetTasks;
+	var int						m_iPlayerID;
+	var int						m_iMaxInstanceCount;
+	
+	var string					m_sPlayerID;
+	var string					m_sTribe;
+
+	///constructor
+	export constructor()
+	endconstructor;
+	
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	///GetNI
+	export proc ^CAiNodeInstance GetNI() 
+		return m_pxTargetNI; 
+	endproc;
+	
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		super.Init(p_pxBrain);
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+		var int iType = 1+Random.GetInt()%iNumPlayers;
+		SetThinkWait(2);
+		m_bBusy=false;
+		m_bRefresh=true;
+		m_bTargetNodePending=false;
+		m_bPrepare=false;
+		m_bWaitForOtherTRGoal=false;
+		m_bIsWaitingForTarget=false;
+		m_iNumFailedTargetTasks=0;
+		m_iMaxAllowedFailedTargetTasks=30;
+		m_iMaxInstanceCount=0;
+		m_iTargetTasksDone=0;
+		m_pxTree= ^(m_pxSensor^.GetTechTree());
+		m_sTribe=m_pxTree^.GetTribe();
+		m_pxTargetNI=null;
+		m_axWFSInfos=0;
+		return true;
+	endproc;
+	
+	///shut
+	export proc void Shut()
+		if(m_pxBrain==null)then return; endif;
+		ShutAllTasks();
+		m_bBusy=false;
+		m_bRefresh=true;
+		m_iTargetTasksDone=0;
+		m_pxTargetNI=null;
+		m_bTargetNodePending=false;
+		m_bPrepare=false;
+		m_axWFSInfos=0;
+		var ^CAiModuleEconomyDefault pxEM = CAiUtilityMgr.Get()^.GetEconomyModule(m_pxBrain);
+		if(pxEM == null)then return; endif;
+		pxEM^.UnSubscribeForActiveSolution(OnOtherTRTaskFinished);
+		if(m_pxTargetCI!=null)then
+			m_pxTargetCI.GetConstructionInfo()^.UnSubscribeProcessor();
+		endif;
+		Deactivate();
+	endproc;
+
+	
+	///ComputeTargetNI
+	export proc void ComputeTargetNI();
+		var CFourCC xHeur = "LOCO";
+		if(m_pxTargetNeed.GetNeed()^.NumEntries()<=0)then return; endif;
+		m_pxTargetNI = m_pxTargetNeed.GetNeed()^.GetAt(0);
+	endproc;
+	
+	///RemoveTarget:
+	export proc void RemoveTarget(CAiConstructionInfoPtr p_pxTargetCI)
+		if(m_pxTargetCI==p_pxTargetCI) then
+			m_pxTargetCI.SetNull();
+			m_pxTargetNeed.SetNull();
+			m_bBusy = false;
+			Deactivate();
+		endif;
+	endproc;
+	
+	export proc int GetOutpostId()
+		if(m_pxTargetCI.GetConstructionInfo()==null) then return 0; endif;
+		return m_pxTargetCI.GetConstructionInfo()^.GetOutpostId();
+	endproc;
+
+	///SetTarget
+	export proc bool SetTarget(CAiConstructionInfoPtr p_pxTargetCI)
+		if((p_pxTargetCI==null)||(p_pxTargetCI.GetConstructionInfo()^.GetNeed()==null)
+			||(p_pxTargetCI.GetConstructionInfo()^.GetNeed().GetNeed()^.NumEntries()<1))then
+			return false;
+		endif;
+		if(p_pxTargetCI.GetConstructionInfo()^.GetNeed().GetNeed()^.GetNeededInstanceCount()<1)then return false; endif;
+		m_pxTargetCI=p_pxTargetCI;
+		m_pxTargetNeed=m_pxTargetCI.GetConstructionInfo()^.GetNeed();
+		m_pxTargetNeed.GetNeed()^.DebugDump();
+		ComputeTargetNI();
+		if(m_pxTargetNI==null)then return false; endif;	
+		if(m_pxTargetNI^.GetInstanceCount()>=m_pxTargetNI^.GetMaxInstanceCount())then return false; endif;
+		Activate();
+		m_bBusy=true;
+		m_bRefresh=true;
+		m_iTargetTasksDone=0;
+		m_iNumFailedTargetTasks=0;
+		m_axWFSInfos = 0;
+		m_bTargetNodePending=false;
+		m_bWaitForOtherTRGoal=false;
+		m_bIsWaitingForTarget=false;
+		m_bPrepare=p_pxTargetCI.GetConstructionInfo()^.GetPrepare();
+		if(!p_pxTargetCI.GetConstructionInfo()^.SubscribeProcessor(this))then
+		endif;
+		return true;
+	endproc;
+
+	///CanRealizeParallel
+	proc bool CanRealizeItParallel(string p_sTaskName)
+		if(p_sTaskName == "Suicide")then
+			return true;
+		elseif(p_sTaskName == "HarvestForest")then
+			return true;
+		elseif(p_sTaskName == "PickBush")then
+			return true;
+		elseif(p_sTaskName == "UseBuilding")then
+			return true;
+		elseif(p_sTaskName == "FishFish")then
+			return true;
+		elseif(p_sTaskName == "MineStone")then
+			return true;
+		elseif(p_sTaskName == "BuildUnit")then
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	///IncreaseTargetTaskCount
+	proc void IncreaseTargetTaskCount(^CAiTaskTargetRealization p_pxTRTask)
+		if(p_pxTRTask==null)then return; endif;
+		IncreaseTargetTaskCount(p_pxTRTask^.GetResultCount());
+	endproc;
+	
+	///IncreaseTargetTaskCount
+	proc void IncreaseTargetTaskCount(int p_iResultCount)
+		m_iTargetTasksDone+=p_iResultCount;
+		if(m_pxTargetNI^.IsResource())then
+			m_iTargetTasksDone=m_pxTargetNeed.GetNeed()^.GetNeededInstanceCount();
+		endif;
+	endproc;
+	
+	///CheckForInvalidSubjects
+	proc void CheckForInvalidSubjects(^CAiTaskTargetRealization p_pxTRTask)
+		if(p_pxTRTask==null)then return; endif;
+		var int	i, iC=p_pxTRTask^.GetSubjects().NumEntries();
+		var bool bAllInValid=false;
+		for(i=0)cond(i<iC)iter(++i)do
+			if(p_pxTRTask^.GetSubjects()[i].IsValid() == false)then
+				bAllInValid = false;
+				break;
+			endif;
+			bAllInValid = true;
+		endfor;
+		if(bAllInValid==false)then return; endif;
+		if(m_pxBrain==null)then return; endif;
+		var ^CAiModuleFightDefault pxFM=cast<CAiModuleFightDefault>(m_pxBrain^.GetFightModule());		
+		if(pxFM==null)then return; endif;
+		pxFM^.RequestPestPatrol(p_pxTRTask^.GetLastValidPosition());
+	endproc;
+	
+	///PutResultUnitsInDefensePool
+	proc void PutResultUnitsInDefensePool(ref CAiObjWrapList p_rxUnits)
+		if(m_pxBrain==null)then return; endif;
+		var ^CAiGoalMinistryOfDefense pxMOD = CAiUtilityMgr.Get()^.GetMOD(m_pxBrain);
+		if(pxMOD==null)then return; endif;
+		var int i, iC=p_rxUnits.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(p_rxUnits[i].IsValid())then
+				if(p_rxUnits[i].GetClassName().Find("hu_cart")!=(-1))then
+					p_rxUnits.RemEntry(p_rxUnits[i]);
+					i--; iC--;
+				endif;
+			endif;
+		endfor;
+		pxMOD^.AddUnitsToPool(p_rxUnits);
+	endproc;
+	
+	///DeleteAbortedTasks
+	proc bool DeleteAbortedTasks()
+		var bool bCompleted=false;
+		var bool bHasTargetTask=false;
+		var int i, iC=GetNumTasks();
+		var bool bRefresh=(iC==0);
+		if(m_bWaitForOtherTRGoal)then bRefresh=false; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiTask pxTask = GetTask(i);
+			if(pxTask==null)then
+				RemoveTaskUS(i);
+				continue;
+			endif;
+			var ^CAiTaskTargetRealization pxTRTask = cast<CAiTaskTargetRealization>(pxTask);
+			if(pxTRTask==null)then continue; endif;
+			if(pxTRTask^.IsTargetTask())then bHasTargetTask=true; endif;
+			if(pxTask^.IsCompleted()||pxTask^.IsAborted()||pxTask^.IsNotPossible())then
+				if(pxTRTask^.IsTargetTask())then
+					if(pxTRTask^.IsCompleted())then
+						if(m_pxTargetCI.GetConstructionInfo()^.GetWantUnits())then
+							if(!m_pxTargetCI.GetConstructionInfo()^.IsRequesterValid())then
+								PutResultUnitsInDefensePool(pxTRTask^.GetResults());
+							endif;
+							var int j,ijC=pxTRTask^.GetResults().NumEntries();
+							for(j=0)cond(j<ijC)iter(j++)do
+								m_pxTargetCI.GetConstructionInfo()^.GetUnits().AddEntry(pxTRTask^.GetResults()[j]);
+							endfor;
+						endif;
+						bCompleted = true;
+						IncreaseTargetTaskCount(pxTRTask);
+					endif;
+				endif;
+				if(pxTask^.IsCompleted())then
+					m_iNumFailedTargetTasks = 0;
+				else
+					CheckForInvalidSubjects(pxTRTask);
+					m_iNumFailedTargetTasks++;
+				endif;
+				var ^CAiSolution pxSolution = pxTRTask^.GetSolution();
+				var bool bIsTarget = pxTRTask^.IsTargetTask();
+				begin removeSolutionFromActiveSolutions;
+					if(m_pxBrain==null)then return false; endif;
+					var ^CAiModuleEconomyDefault pxEM = CAiUtilityMgr.Get()^.GetEconomyModule(m_pxBrain);
+					if(pxEM==null)then continue; endif;
+					pxEM^.RemoveActiveSolution(pxSolution, bIsTarget, true, pxTRTask^.GetResultCount());
+				end removeSolutionFromActiveSolutions;
+				bRefresh=true;
+				pxTask^.Shut();
+				RemoveTaskUS(i);
+				delete pxTask;
+				i--; iC--;
+			endif;
+		endfor;
+		if(!m_bRefresh)then m_bRefresh=bRefresh; endif;
+		return bCompleted;
+	endproc;
+	
+	///IsResourceTask
+	proc bool IsResourceTask(string p_sTaskName)
+		if(p_sTaskName == "HarvestForest")then
+			return true;
+		elseif(p_sTaskName == "PickBush")then
+			return true;
+		elseif(p_sTaskName == "MineStone")then
+			return true;
+		elseif(p_sTaskName == "FishFish")then
+			return true;
+		elseif(p_sTaskName == "UseBuilding")then
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	///OnOtherTRTaskFinished
+	export proc void OnOtherTRTaskFinished(^CAiSolution p_pxSol, bool p_bIsTargetTask, bool p_bGotToken, int p_iResultCount)
+		if(m_pxBrain==null)then return; endif;
+		var ^CAiModuleEconomyDefault pxEM = CAiUtilityMgr.Get()^.GetEconomyModule(m_pxBrain);
+		if(pxEM==null)then return; endif;
+		var int i, iC = m_axWFSInfos.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			if(m_axWFSInfos[i].m_pxSol!=p_pxSol)then continue; endif;
+			if(m_axWFSInfos[i].m_bIsTarget)then
+				if(p_bIsTargetTask)then continue; endif;
+				IncreaseTargetTaskCount(p_iResultCount);
+			endif;
+			m_axWFSInfos.DeleteEntry(i);
+			i--; iC--;
+			Refresh();
+		endfor;
+		if(m_axWFSInfos.NumEntries() <= 0)then
+			m_bWaitForOtherTRGoal = false;
+		endif;
+	endproc;
+	
+	///CreateTasksFromSolutions
+	proc void CreateTasksFromSolutions(ref CAiSolutionArray p_rxPossibleSolutions,bool p_bIsTargetTask)
+		var int i, iC = p_rxPossibleSolutions.NumEntries();	
+		for(i=0)cond(i<iC)iter(i++)do
+			var bool bTaskIsRunning;
+			var int	iTask;
+			var int iCTask=GetNumTasks();
+			var ^CAiSolution pxSolution=p_rxPossibleSolutions.GetAt(i);
+			bTaskIsRunning = false;
+			for(iTask=0)cond(iTask<iCTask)iter(iTask++)do	
+				var ^CAiTaskTargetRealization pxTask = cast<CAiTaskTargetRealization>(GetTask(iTask));
+				if(pxTask == null)then
+					RemoveTaskUS(iTask);
+					iTask--; iCTask--;
+					continue;
+				endif;
+				if(pxTask^.GetSolution()==pxSolution)then
+					bTaskIsRunning=true;
+					break;
+				endif;
+			endfor;
+			if(bTaskIsRunning)then continue; endif;
+			var bool bToken=false;
+			var ^CAiModuleEconomyDefault pxEM=CAiUtilityMgr.Get()^.GetEconomyModule(GetAiBrain());	
+			if(pxEM==null)then continue; endif;
+			if(p_bIsTargetTask&&m_bIsWaitingForTarget)then continue; endif;
+			if(pxEM^.IsSolutionActive(pxSolution, p_bIsTargetTask))then
+				m_bWaitForOtherTRGoal = true;
+				var CAiModuleEconomyDefault.CActiveSolutionInfo xASInfo;
+				xASInfo.m_pxSol = pxSolution;
+				xASInfo.m_bIsTarget = p_bIsTargetTask;
+				xASInfo.m_bGotToken = false;
+				m_axWFSInfos.AddEntry(xASInfo);
+				pxEM^.SubscribeForActiveSolution(OnOtherTRTaskFinished);
+				if(p_bIsTargetTask)then
+					xASInfo.m_bGotToken=true;
+					m_bIsWaitingForTarget=true;
+				endif;	
+				continue;
+			endif;
+			var string sTaskName = pxSolution^.GetTaskName();
+			var string sResourceName;
+			if(sTaskName=="HarvestForest")then
+				sResourceName="wood";
+			elseif(sTaskName=="Mine")then
+				sResourceName="stone";
+			elseif(sTaskName=="GetFood"||sTaskName=="GetCorn")then
+				sResourceName="food";
+			else
+				sResourceName="";
+			endif;
+			if(sResourceName!="")then	
+				var ^CAiTechTree pxTT=^(m_pxSensor^.GetTechTree());
+				var ^CAiNodeInstance pxNI;
+				pxNI = pxTT^.GetNodeInstanceFromPartialName(sResourceName);
+				if(pxNI!=null)then
+					if(pxNI^.GetInstanceCount()>=pxNI^.GetMaxInstanceCount())then continue; endif;
+				endif;
+			endif;
+			var ^CAiTaskTargetRealization pxTRTask;
+			pxTRTask=cast<CAiTaskTargetRealization>(m_xTaskFactory.CreateTargetRealizationTask(sTaskName));
+			if(pxTRTask==null)then continue; endif;
+			pxTRTask^.Init(this);
+			if(IsResourceTask(sTaskName))then
+				pxTRTask^.SetOutpostId(0);
+			else
+				pxTRTask^.SetOutpostId(m_pxTargetCI.GetConstructionInfo()^.GetOutpostId());
+			endif;
+			pxTRTask^.SetPos(m_pxTargetCI.GetConstructionInfo()^.GetPos());
+			pxTRTask^.SetTargetTask(m_bTargetNodePending);
+			pxTRTask^.SetSolution(pxSolution);
+			pxTRTask^.CalculateStartCost();
+			if(pxTRTask^.IsNotPossible())then
+				m_iNumFailedTargetTasks++;
+				pxTRTask^.Shut();
+				delete pxTRTask;
+				continue;
+			endif;
+			if(pxTRTask^.Start())then
+				AddTask(pxTRTask);
+				if(!CanRealizeItParallel(pxSolution^.GetTaskName()))then
+					pxEM^.AddActiveSolution(pxSolution, p_bIsTargetTask);
+				endif;
+			else
+				m_iNumFailedTargetTasks++;
+				pxTRTask^.Shut();
+				delete pxTRTask;
+			endif;
+		endfor;
+	endproc;
+
+	///CreateTasksFromSolutions
+	export proc void ShutAllTasks()
+		if(m_pxBrain==null)then return; endif;
+		var ^CAiModuleEconomyDefault pxEM=cast<CAiModuleEconomyDefault>(m_pxBrain^.GetEconomyModule());		
+		if(pxEM==null)then return; endif;
+		var int i, iC=GetNumTasks();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiTask pxTask=GetTask(i);
+			var ^CAiSolution pxSol=pxTask^.GetSolution();
+			var ^CAiTaskTargetRealization pxTRTask=cast<CAiTaskTargetRealization>(pxTask);
+			if(pxTRTask!=null)then
+				if(pxSol!=null)then
+					pxEM^.RemoveActiveSolution(pxSol, pxTRTask^.IsTargetTask(), false, 0);
+				endif;
+			endif;
+			pxTask^.Shut();
+			RemoveTaskUS(i);
+			delete pxTask;
+			i--; iC--;
+		endfor;
+	endproc;
+
+	///IsCompleted
+	proc bool IsCompleted()
+		if(m_iTargetTasksDone>=m_pxTargetNeed.GetNeed()^.GetNeededInstanceCount())then
+			m_pxTargetCI.GetConstructionInfo()^.NotifyOnSucceeded();
+			Shut();
+			return true;
+		endif;
+		return false;
+	endproc;
+
+	///think
+	export proc void Think()
+		if(m_pxTargetNI==null)then Shut(); return; endif;
+		var string sTTPath=m_pxTargetNI^.GetTTPath();
+		if(sTTPath=="max_units")then Shut(); return; endif;
+		if(CheckForUnitLimit())then
+			if((sTTPath.Find("stone_cottage")==(-1))&&(sTTPath.Find("_fireplace")==(-1))&&(sTTPath.Find("_tent")==(-1))
+			&&(sTTPath.Find("headquarters")==(-1))&&(sTTPath.Find("aje_resource_collector")==(-1))&&(sTTPath.Find("/InventObjects")==(-1)))then
+				Shut(); 
+				return;
+			endif;
+		endif;
+		if(m_iMaxInstanceCount>=10)then
+			MaxInstanceResourceCount();
+			m_iMaxInstanceCount=0;
+		endif;
+		m_iMaxInstanceCount++;
+		if(m_pxTargetNI^.GetInstanceCount()>=m_pxTargetNI^.GetMaxInstanceCount())then
+			m_pxTargetCI.GetConstructionInfo()^.GetResult() = "result is impossible";
+			m_pxTargetCI.GetConstructionInfo()^.NotifyOnFailed();
+			Shut();
+			return;
+		endif;
+		if(!m_bBusy)then return; endif;
+		if(DeleteAbortedTasks())then
+			if(IsCompleted())then 
+				return; 
+			endif;
+			ComputeTargetNI();
+		endif;
+		if(IsCompleted())then 
+			return; 
+		endif;
+		if(m_iNumFailedTargetTasks>=m_iMaxAllowedFailedTargetTasks)then
+			m_pxTargetCI.GetConstructionInfo()^.GetResult() = "target task aborted too often";
+			m_pxTargetCI.GetConstructionInfo()^.NotifyOnFailed();
+			Shut();
+			return;
+		endif;
+		if(m_bRefresh)then
+			m_bRefresh = false;
+			var CFourCC xHeur = "LOCO";
+			if(m_pxTargetNI==null)then endif;
+			var CAiSolutionArray xPossibleSolutions;
+			if(m_pxSensor==null)then return; endif;
+			if(m_pxSensor^.GetGameOver())then
+				m_pxTargetCI.GetConstructionInfo()^.GetResult() = "game over";
+				m_pxTargetCI.GetConstructionInfo()^.NotifyOnFailed();
+				Shut();
+				return;
+			endif;
+			if(m_pxTargetNI^.ComputeEarliestPossibleSolutions(^xPossibleSolutions, xHeur))then
+				m_bTargetNodePending=true;
+				if(m_bPrepare)then 
+					m_pxTargetCI.GetConstructionInfo()^.NotifyOnSucceeded();
+					Shut();
+					return;
+				endif;
+				CreateTasksFromSolutions(xPossibleSolutions,true);
+			else
+				m_bTargetNodePending=false;
+				if((xPossibleSolutions.NumEntries()<1)&&(!m_bWaitForOtherTRGoal))then
+					var int i, iC = GetNumTasks();
+					for(i=0)cond(i<iC)iter(i++)do
+						var ^CAiTask pxTask=GetTask(i);
+						var ^CAiTaskTargetRealization pxTRTask = cast<CAiTaskTargetRealization>(pxTask);
+						if(pxTRTask == null)then continue; endif;
+						if(pxTRTask^.IsTargetTask())then 
+							return; 
+						endif;
+					endfor;
+					m_pxTargetCI.GetConstructionInfo()^.GetResult() = "No Solutions for" + m_pxTargetNI^.GetTTPath() + " found!";
+					m_pxTargetCI.GetConstructionInfo()^.NotifyOnFailed();
+					Shut();
+					return;
+				endif;	
+				CreateTasksFromSolutions(xPossibleSolutions,false);
+			endif;
+		endif;
+	endproc;
+	
+	///IsBusy
+	export proc bool IsBusy()
+		return m_bBusy;
+	endproc;
+	
+	///Refresh
+	export proc void Refresh()
+		m_bRefresh=true;
+	endproc;
+	
+	///Activate
+	export proc void Activate()
+		if(m_pxTargetNI==null) then SetDbgString("invalid"); return; endif;
+		var string sDbg=m_pxTargetNI^.GetTTPath();		
+		if(m_pxTargetCI != null)then
+			sDbg+=" OP:"+m_pxTargetCI.GetConstructionInfo()^.GetOutpostId().ToString();
+		endif;
+		SetDbgString(sDbg);
+		super.Activate();
+	endproc;
+	
+	///deactivate
+	export proc bool Deactivate()
+		SetDbgString("off");
+		return super.Deactivate();
+	endproc;
+	
+	///MaxInstanceResourceCount
+	proc void MaxInstanceResourceCount();
+		var CAiObjWrapList xWorkerList;
+		var CAiObjWrapList xWoodList;
+		var CAiObjWrapList xStoneList;
+		var CAiObjWrapList xFoodList;
+		var CAiObjQuery xQuery;
+		xQuery.SetOwner(m_iPlayerID);
+		xQuery.SetType("CHTR");
+		xQuery.SetClass("hu_worker");
+		xQuery.SetClass("aje_worker",true);
+		xQuery.SetClass("ninigi_worker",true);
+		xQuery.SetClass("seas_worker",true);
+		xWorkerList.Clear();
+		xStoneList.Clear();
+		xWoodList.Clear();
+		xFoodList.Clear();
+		xQuery.Execute(xWorkerList);
+		var int i, iC=xWorkerList.NumEntries();
+		if(iC<=0)then return; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!xWorkerList[i].IsValid())then continue; endif;
+			if(xWorkerList[i].GetCurrentTask()=="Mine")then
+				xStoneList.AddEntry(xWorkerList[i]);
+			elseif(xWorkerList[i].GetCurrentTask()=="Harvest")then
+				xWoodList.AddEntry(xWorkerList[i]);
+			elseif(xWorkerList[i].GetCurrentTask()=="GetCorn"||xWorkerList[i].GetCurrentTask()=="GetFood")then
+				xFoodList.AddEntry(xWorkerList[i]);
+			endif;
+		endfor;
+		var ^CAiTechTree pxTT=^(m_pxSensor^.GetTechTree());
+		var ^CAiNodeInstance pxStoneNI, pxWoodNI, pxFoodNI;
+		var ^CAiAllocationMgr pxAllocMgr = GetAiAllocationMgr();
+		pxStoneNI = pxTT^.GetNodeInstanceFromPartialName("stone");
+		if(pxStoneNI!=null)then
+			if(pxStoneNI^.GetInstanceCount() >= pxStoneNI^.GetMaxInstanceCount())then
+				if(xStoneList.NumEntries()>0)then
+					m_pxSensor^.ExecuteGamePlayCommand(xStoneList, "Action", -1 , {0.0,0.0,0.0}, "/Stop");
+					if(pxAllocMgr == null)then return; endif;
+					var int i, iC=xStoneList.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						if(pxAllocMgr^.IsUnitLocked(xStoneList[i], false, false, true))then
+							pxAllocMgr^.ExternalUnlock(xStoneList[i]);
+						endif;
+					endfor;
+				endif;
+			endif;
+		endif;
+		pxWoodNI = pxTT^.GetNodeInstanceFromPartialName("wood");
+		if(pxWoodNI!=null)then
+			if(pxWoodNI^.GetInstanceCount() >= pxWoodNI^.GetMaxInstanceCount())then
+				if(xWoodList.NumEntries()>0)then
+					m_pxSensor^.ExecuteGamePlayCommand(xWoodList, "Action", -1 , {0.0,0.0,0.0}, "/Stop");
+					if(pxAllocMgr == null)then return; endif;
+					var int i, iC=xWoodList.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						if(pxAllocMgr^.IsUnitLocked(xWoodList[i], false, false, true))then
+							pxAllocMgr^.ExternalUnlock(xWoodList[i]);
+						endif;
+					endfor;
+				endif;
+			endif;
+		endif;
+		pxFoodNI = pxTT^.GetNodeInstanceFromPartialName("food");
+		if(pxFoodNI!=null)then
+			if(pxFoodNI^.GetInstanceCount() >= pxFoodNI^.GetMaxInstanceCount())then
+				if(xFoodList.NumEntries()>0)then
+					m_pxSensor^.ExecuteGamePlayCommand(xFoodList, "Action", -1 , {0.0,0.0,0.0}, "/Stop");
+					if(pxAllocMgr == null)then return; endif;
+					var int i, iC=xFoodList.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						if(pxAllocMgr^.IsUnitLocked(xFoodList[i], false, false, true))then
+							pxAllocMgr^.ExternalUnlock(xFoodList[i]);
+						endif;
+					endfor;
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	///CheckForUnitLimit
+	proc bool CheckForUnitLimit()
+		var bool bFull=false;
+		if(m_pxSensor==null||m_pxBrain==null)then return false; endif;
+		var ^CAiPyramid pxPyr=m_pxSensor^.GetPyramid();
+		if(pxPyr==null)then return false; endif;
+		var bool bSupply=CMirageAIMgr.Get().AllowSupplySystem();
+		if(bSupply)then
+			var int iSupply=(m_pxBrain^.GetPlayerAttrib("supply")).ToInt();
+			var int iMaxSupply=(m_pxBrain^.GetPlayerAttrib("max_supply")).ToInt();
+			var int iVirtualSupply = (m_pxBrain^.GetPlayerAttrib("virtual_supply")).ToInt();
+			if(((iSupply+iVirtualSupply)>=iMaxSupply)&&(iMaxSupply<200))then
+				bFull=true;
+			endif;
+		else
+			var int iUnitCount=pxPyr^.GetTotalNumUnits();
+			var int iUnitCap=(m_pxBrain^.GetPlayerAttrib("max_units")).ToInt();
+			var int i, iVirtualUnits;
+			for(i=0)cond(i<5)iter(i++)do
+				iVirtualUnits+=(m_pxBrain^.GetPlayerAttrib("virtual_units_"+i.ToString())).ToInt();
+			endfor;
+			if(((iUnitCount+iVirtualUnits)>=iUnitCap)&&(iUnitCap<52))then
+				bFull=true;
+			endif;
+		endif;
+		return bFull;
+	endproc;
+	
+	///GetSaveName
+	export proc string GetSaveName()
+		return "AiGoalTargetRealization";
+	endproc;
+	
+endclass;
+

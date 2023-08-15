@@ -1,0 +1,314 @@
+class CViewScape inherit CEnhancedFrameWindow
+
+	var bool		m_bIsProfiling;
+
+	export constructor()
+
+		m_bIsProfiling=false;
+
+		if(!InitFromResource("scape/ViewScape","Scape")) then
+			CLevelEditorWrap.LogError("UI.ViewScape","InitFromResource failed");
+			return;
+		endif;
+
+		//CMainController.Get().GetTerrainCtrl().SetCViewScape(this);
+
+		SetHelpText("Terrain Edit\n\nAllows you to edit the scape using brushes.\n\nAltitude:\nYou get a height brush, with it you can paint on the map, using the left mouse button you raise the scape, using the right mouse button you lower it.\n\nBlur:\nThis option allows you to smooth your scape. By pressing the left mouse button down, the area that you are clicking on looses sharp edges as well as spikes. To generate fractal noise on the map, use the right mouse button. You are using brushes this time, too.\n\nDetail:\nHere you can change the scape height resolution. You can increase Resolution by using the left mouse button, und decrease it with the help of the right mouse button. In this case you don't use brushes. Instead of this the block, that you are clicking on, changes it's height resolution.\nWhen you activate the detail mode, you have several additional choices to change height resolution. You also may choose the \"absolut\" mode, in which you can specify an absolut value to set the scape to.");
+
+		var ^CToggleButton 		pxAltitude		= cast<CToggleButton>(GetControl("TBtn_Altitude"));
+		pxAltitude^.SetText(CLocalizer.Get().Translate("_ViewScape_TBtn_Altitude"));
+		var ^CToggleButton 		pxDetail			= cast<CToggleButton>(GetControl("TBtn_Detail"));
+		pxDetail^.SetText(CLocalizer.Get().Translate("_ViewScape_TBtn_Detail"));
+		var ^CToggleButton 		pxSmoothing		= cast<CToggleButton>(GetControl("TBtn_Smoothing"));
+		pxSmoothing^.SetText(CLocalizer.Get().Translate("_ViewScape_TBtn_Smoothing"));
+		var ^CToggleButton 		pxPlateau		= cast<CToggleButton>(GetControl("TBtn_Plateau"));
+		pxPlateau^.SetText(CLocalizer.Get().Translate("_ViewScape_TBtn_Plateau"));
+		var ^CCheckBox 			pxCheckGrid		= cast<CCheckBox>(GetControl("CBox_Grid"));
+		pxCheckGrid^.SetText(CLocalizer.Get().Translate("_ViewScape_CBox_Grid"));
+		var ^CCheckBox 			pxCheckDetail		= cast<CCheckBox>(GetControl("CBox_Detail"));
+		pxCheckDetail^.SetText(CLocalizer.Get().Translate("_ViewScape_CBox_Detail"));
+		var ^CSpinCtrlNumber 		pxDetailLevel		= cast<CSpinCtrlNumber>(GetControl("Spin_Detail"));
+		var ^CSpinCtrlNumber 		pxPlateauHeight	= cast<CSpinCtrlNumber>(GetControl("Spin_Plateau"));
+
+		pxAltitude^.m_xOnClick						= OnChangeAltitude;
+		CKeyHandler.Get().AddWindowKT(pxAltitude,"OnActivateTerrainAltitude,Altitude Mode \n Scape up & down");
+		pxSmoothing^.m_xOnClick					= OnChangeSmoothing;
+		CKeyHandler.Get().AddWindowKT(pxSmoothing,"OnActivateTerrainBlur,Scape Smoothing Mode");
+		pxDetail^.m_xOnClick						= OnChangeDetail;
+		CKeyHandler.Get().AddWindowKT(pxDetail,"OnActivateTerrainDetail,Scape Detail Mode \n low 0 - high 6");
+		pxDetailLevel^.m_xOnChange				= OnChangeDetailLevel;
+		pxCheckDetail^.m_xOnStateChange			= OnChangeDetailAbsCheck;
+		pxPlateau^.m_xOnClick						= OnChangePlateau;
+		CKeyHandler.Get().AddWindowKT(pxPlateau,"OnActivateTerrainPlateau,Plateau Mode \n set to absolute values");
+		pxPlateauHeight^.m_xOnChange				= OnChangePlateauSpin;
+		pxCheckGrid^.m_xOnStateChange			= OnStateChange;
+		
+		
+
+		CMainController.Get().AddToggleButton(pxAltitude);
+		CMainController.Get().AddToggleButton(pxSmoothing);
+		CMainController.Get().AddToggleButton(pxDetail);
+		CMainController.Get().AddToggleButton(pxPlateau);
+
+		pxAltitude^.SetGrouped(true);
+		pxSmoothing^.SetGrouped(true);
+		pxDetail^.SetGrouped(true);
+		pxDetailLevel^.SetDisabled(true);
+		pxDetailLevel^.SetStyle(1);
+		pxPlateau^.SetGrouped(true);
+		pxPlateauHeight^.SetDisabled(true);
+
+		LoadPosition("Scape");
+
+	endconstructor;
+
+	export destructor()
+		var ^CToggleButton 	pxAltitude	= cast<CToggleButton>(GetControl("TBtn_Altitude"));
+		var ^CToggleButton 	pxDetail		= cast<CToggleButton>(GetControl("TBtn_Detail"));
+		var ^CToggleButton 	pxSmoothing	= cast<CToggleButton>(GetControl("TBtn_Smoothing"));
+		var ^CToggleButton 	pxPlateau	= cast<CToggleButton>(GetControl("TBtn_Plateau"));
+
+		CMainController.Get().DelToggleButton(pxAltitude);
+		CMainController.Get().DelToggleButton(pxDetail);
+		CMainController.Get().DelToggleButton(pxSmoothing);
+		CMainController.Get().DelToggleButton(pxPlateau);
+
+	enddestructor;
+
+	//Guess what, pushes Button
+	export proc bool PushButton(int p_iButton)
+
+		var int iButton =Math.Clamp(p_iButton,0,3);
+
+		var ^CSpinCtrlNumber	pxPlateauSpin = cast<CSpinCtrlNumber>(GetControl("Spin_Plateau"));
+		var ^CSpinCtrlNumber 	pxDetailSpin	= cast<CSpinCtrlNumber>(GetControl("Spin_Detail"));
+		var array ^CToggleButton		apxButtons;
+
+		apxButtons.AddEntry(cast<CToggleButton>(GetControl("TBtn_Altitude")));
+		apxButtons.AddEntry(cast<CToggleButton>(GetControl("TBtn_Smoothing")));
+		apxButtons.AddEntry(cast<CToggleButton>(GetControl("TBtn_Detail")));
+		apxButtons.AddEntry(cast<CToggleButton>(GetControl("TBtn_Plateau")));
+
+		apxButtons[iButton]^.SetToggleButtonState(true);
+
+		if(iButton==2) then
+			pxDetailSpin^.SetDisabled(false);
+		else
+			pxDetailSpin^.SetDisabled(true);
+		endif;
+
+		if(iButton==3) then
+			pxPlateauSpin^.SetDisabled(false);
+		else
+			pxPlateauSpin^.SetDisabled(true);
+		endif;
+
+		return(true);
+	endproc;
+
+	//Toggles grid visibility
+	export proc bool SwitchGrid()
+		var ^CCheckBox	pxTmp	= cast<CCheckBox>(GetControl("CBox_Grid"));
+		var	bool bState = pxTmp^.GetCheckMark();
+
+		bState=!bState;
+		CLevelEditorWrap.GetScapeMgr().GetGrid()^.SetEnabled(bState);
+
+		//strange
+		var	int	iTemp;
+
+		if(bState==true)then
+			iTemp=1;
+		else
+			iTemp=0;
+		endif;
+		pxTmp^.SetChecked(iTemp);
+
+		return(true);
+	endproc;
+
+	// When hit CheckBox
+	export proc bool OnStateChange()
+		var ^CCheckBox	pxTmp	= cast<CCheckBox>(GetControl("CBox_Grid"));
+
+		CLevelEditorWrap.GetScapeMgr().GetGrid()^.SetEnabled(pxTmp^.GetCheckMark());
+		return(true);
+	endproc;
+		
+	// When hit Altitude Button
+	proc bool OnChangeAltitude()
+		if(m_bIsProfiling)then
+			CLevelEditorWrap.ProfilingStop("rule.csv");
+			m_bIsProfiling=false;
+		else
+			CLevelEditorWrap.ProfilingStart();
+			m_bIsProfiling=true;
+		endif;
+		
+		
+		/*
+		var ^CToggleButton	pxBtnAltitude		= cast<CToggleButton>(GetControl("TBtn_Altitude"));
+		var ^CSpinCtrlNumber	pxPlateauHeight	= cast<CSpinCtrlNumber>(GetControl("Spin_Plateau"));
+		var ^CSpinCtrlNumber 	pxDetailLevel		= cast<CSpinCtrlNumber>(GetControl("Spin_Detail"));
+		var ^CCheckBox 		pxCheckDetail		= cast<CCheckBox>(GetControl("CBox_Detail"));
+
+		//CLevelEditorWrap.GetScapeMgr().GetGrid()^.SetGridType(00b);
+		//CLevelEditorWrap.GetScapeMgr().GetGrid()^.SetColor({{255,255,255,255}});
+		CClientWrap.GetDesktop()^.SetCursor(2);
+
+		pxPlateauHeight^.SetDisabled(true);
+		pxDetailLevel^.SetDisabled(true);
+		pxCheckDetail^.SetDisabled(true);
+		if(pxBtnAltitude^.GetToggleButtonState())then
+			CMainController.Get().ActivateTerrainAltitude();
+			CMainController.Get().SetToggleButton(pxBtnAltitude);
+		else
+			CMainController.Get().GetTerrainCtrl().SetState(-1);
+			CMainController.Get().SetState(0);
+			CClientWrap.GetDesktop()^.SetStandardCursor();
+		endif;
+		*/
+		return(true);
+	endproc;
+
+// When hit Blur Button
+	proc bool OnChangeSmoothing()
+		
+		CLevelEditorWrap.SwitchClientShell();
+		/*
+		var ^CToggleButton	pxBtnSmoothing	= cast<CToggleButton>(GetControl("TBtn_Smoothing"));
+		var ^CSpinCtrlNumber	pxPlateauHeight	= cast<CSpinCtrlNumber>(GetControl("Spin_Plateau"));
+		var ^CSpinCtrlNumber 	pxDetailLevel		= cast<CSpinCtrlNumber>(GetControl("Spin_Detail"));
+		var ^CCheckBox 		pxCheckDetail		= cast<CCheckBox>(GetControl("CBox_Detail"));
+
+		//CLevelEditorWrap.GetScapeMgr().GetGrid()^.SetGridType(00b);
+		//CLevelEditorWrap.GetScapeMgr().GetGrid()^.SetColor({{255,255,255,255}});
+		CClientWrap.GetDesktop()^.SetCursor(2);
+
+		pxPlateauHeight^.SetDisabled(true);
+		pxDetailLevel^.SetDisabled(true);
+		pxCheckDetail^.SetDisabled(true);
+		if(pxBtnSmoothing^.GetToggleButtonState())then
+			CMainController.Get().ActivateTerrainBlur();
+			CMainController.Get().SetToggleButton(pxBtnSmoothing);
+		else
+			CMainController.Get().GetTerrainCtrl().SetState(-1);
+			CMainController.Get().SetState(0);
+			CClientWrap.GetDesktop()^.SetStandardCursor();
+		endif;
+		
+		*/
+		return(true);
+	endproc;
+
+// When hit Detail Button
+	proc bool OnChangeDetail()
+		var ^CToggleButton	pxBtnDetail		= cast<CToggleButton>(GetControl("TBtn_Detail"));
+		var ^CSpinCtrlNumber	pxPlateauHeight	= cast<CSpinCtrlNumber>(GetControl("Spin_Plateau"));
+		var ^CSpinCtrlNumber 	pxDetailLevel		= cast<CSpinCtrlNumber>(GetControl("Spin_Detail"));
+		var ^CCheckBox 		pxCheckDetail		= cast<CCheckBox>(GetControl("CBox_Detail"));
+
+		//CLevelEditorWrap.GetScapeMgr().GetGrid()^.SetGridType(00b);
+		//CLevelEditorWrap.GetScapeMgr().GetGrid()^.SetColor({{255,255,255,255}});
+		CClientWrap.GetDesktop()^.SetCursor(2);
+
+		pxPlateauHeight^.SetDisabled(true);
+		pxCheckDetail^.SetDisabled(false);
+		if(pxCheckDetail^.GetCheckMark())then
+			pxDetailLevel^.SetDisabled(false);
+		else
+			pxDetailLevel^.SetDisabled(true);
+		endif;
+
+		if(pxBtnDetail^.GetToggleButtonState() && !pxCheckDetail^.GetCheckMark())then
+			CMainController.Get().ActivateTerrainDetail();
+			CMainController.Get().SetToggleButton(pxBtnDetail);
+		elseif(pxBtnDetail^.GetToggleButtonState() && pxCheckDetail^.GetCheckMark())then
+			CMainController.Get().ActivateTerrainDetailAbs();
+			CMainController.Get().SetToggleButton(pxBtnDetail);
+		else
+			CMainController.Get().GetTerrainCtrl().SetState(-1);
+			CMainController.Get().SetState(0);
+			CClientWrap.GetDesktop()^.SetStandardCursor();
+		endif;
+		return(true);
+	endproc;
+
+// When hit Plateau Button
+	proc bool OnChangePlateau()
+		var ^CToggleButton	pxBtnPlateau		= cast<CToggleButton>(GetControl("TBtn_Plateau"));
+		var ^CSpinCtrlNumber	pxPlateauHeight	= cast<CSpinCtrlNumber>(GetControl("Spin_Plateau"));
+		var ^CSpinCtrlNumber 	pxDetailLevel		= cast<CSpinCtrlNumber>(GetControl("Spin_Detail"));
+		var ^CCheckBox 		pxCheckDetail		= cast<CCheckBox>(GetControl("CBox_Detail"));
+
+		//CLevelEditorWrap.GetScapeMgr().GetGrid()^.SetGridType(00b);
+		//CLevelEditorWrap.GetScapeMgr().GetGrid()^.SetColor({{255,255,255,255}});
+		CClientWrap.GetDesktop()^.SetCursor(2);
+
+		pxDetailLevel^.SetDisabled(true);
+		pxCheckDetail^.SetDisabled(true);
+		CMainController.Get().GetTerrainCtrl().SetPlateauHeight(pxPlateauHeight^.GetValueFloat());
+		if(pxBtnPlateau^.GetToggleButtonState())then
+			pxPlateauHeight^.SetDisabled(false);
+			CMainController.Get().ActivateTerrainPlateau();
+			CMainController.Get().SetToggleButton(pxBtnPlateau);
+		else
+			CMainController.Get().GetTerrainCtrl().SetState(-1);
+			pxPlateauHeight^.SetDisabled(true);
+			CMainController.Get().SetState(0);
+			CClientWrap.GetDesktop()^.SetStandardCursor();
+		endif;
+		return(true);
+	endproc;
+
+// When change SpinCtrl Value
+	proc bool OnChangePlateauSpin()
+		var ^CSpinCtrlNumber	pxPlateauHeight	= cast<CSpinCtrlNumber>(GetControl("Spin_Plateau"));
+
+		CMainController.Get().GetTerrainCtrl().SetPlateauHeight(pxPlateauHeight^.GetValueFloat());
+		return(true);
+	endproc;
+
+// When Plateau Height is picked by Mouse
+	export proc bool OnPickPlateau(real p_fHeight)
+		var ^CSpinCtrlNumber	pxPlateauHeight	= cast<CSpinCtrlNumber>(GetControl("Spin_Plateau"));
+
+		pxPlateauHeight^.SetValue(p_fHeight);
+		return(true);
+	endproc;
+
+	proc bool OnChangeDetailLevel()
+		var ^CSpinCtrlNumber 	pxDetailLevel	= cast<CSpinCtrlNumber>(GetControl("Spin_Detail"));
+		CMainController.Get().GetTerrainCtrl().SetDetailLevel(pxDetailLevel^.GetValueInt());
+		return(true);
+	endproc;
+
+	proc bool OnChangeDetailAbsCheck()
+		var ^CCheckBox 		pxCheckDetail	= cast<CCheckBox>(GetControl("CBox_Detail"));
+		var ^CSpinCtrlNumber 	pxDetailLevel	= cast<CSpinCtrlNumber>(GetControl("Spin_Detail"));
+		var ^CToggleButton 	pxBtnDetail	= cast<CToggleButton>(GetControl("TBtn_Detail"));
+		if(pxCheckDetail^.GetCheckMark())then
+			pxDetailLevel^.SetDisabled(false);
+		else
+			pxDetailLevel^.SetDisabled(true);
+		endif;
+		if(pxBtnDetail^.GetToggleButtonState() && !pxCheckDetail^.GetCheckMark())then
+			CMainController.Get().ActivateTerrainDetail();
+			CMainController.Get().SetToggleButton(pxBtnDetail);
+		elseif(pxBtnDetail^.GetToggleButtonState() && pxCheckDetail^.GetCheckMark())then
+			CMainController.Get().ActivateTerrainDetailAbs();
+			CMainController.Get().SetToggleButton(pxBtnDetail);
+		else
+			CMainController.Get().GetTerrainCtrl().SetState(-1);
+			CMainController.Get().SetState(0);
+			CClientWrap.GetDesktop()^.SetStandardCursor();
+		endif;
+		return(true);
+	endproc;
+
+	export proc bool SetDetailAbs(int p_iDetailAbs)
+		var ^CSpinCtrlNumber 	pxDetailLevel	= cast<CSpinCtrlNumber>(GetControl("Spin_Detail"));
+		pxDetailLevel^.SetValue(p_iDetailAbs);
+		return(true);
+	endproc;
+endclass;

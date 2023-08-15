@@ -1,0 +1,1433 @@
+class CBasePlayer inherit CPlayer
+
+	var ^CPropDB							m_pxLevels;
+	var ^CPropDB							m_pxXP;
+	var ^CPropDB							m_pxSkills;
+	var ^CPropDB							m_pxResources;
+	export var string					m_sTribe;
+	var CGameTime							m_xLastAttackTime;
+	var vec3									m_vLastEventPos;
+	export var procref<void>	m_xOnServerTick;
+	var array int							m_aiResLimits;
+	var array string					m_asResLimits;
+	var array string					m_asRes;
+	var int										m_iScalps;
+	var real									m_fScalpsModifier;
+	var CEvtSource						m_xAttackEvtSource;
+	var bool 									m_bCanPlayWarnUnderAttackSound;
+	var array int							m_aiDiplomacyStatus;
+	var CObjList							m_xLimitCountBuildings; //objlist with objects that change the resource limits...
+	export var CObjHndl				m_xGPCE;
+	var string								m_sGFXPrefix;
+	var string								m_sPName;
+	var bool									m_bConqueror;
+	var bool									m_bPaladin;
+	var bool									m_bDefender;
+	var bool									m_bSlave;
+	var int										m_iPhantomRole;
+	var int										m_iLastDmg;
+	var int										m_iMaster;
+	var bool									m_bMaster;
+//	var array int							m_aiSlaves;
+	var CObjHndl							m_xStartLocation;
+	var ^CBasePlayer					m_pxMaster;
+	var bool									m_bDead;
+	var bool									m_bGoodSide;
+	var int										m_iBonusUnits;
+	var int										m_iBonusSupply;
+	var ^CAttribs							m_pxAttribs;
+	var bool									m_bRevealed;
+	var int										m_iTacticalPauses;
+	var bool									m_bSpiritCards;
+	var string								m_sHandicap;
+	var CGameTimeSpan					m_xSpentTime;
+	
+	// values for statistics
+	export const int COLLECTED_SKULLS=5;
+	// warn under attack message will be sent again if the last attack was at least WARN_UNDER_ATTACK_TIME seconds ago
+	// after WARN_UNDER_ATTACK_TIME seconds without attacks the m_bCanPlayWarnUnderAttackSound flag will be set to true again.
+	const int WARN_UNDER_ATTACK_TIME=10;
+	
+	export static proc ^CBasePlayer GetPlayer(int p_iId)
+		var ^CLevel pxLvl=CSrvWrap.GetCurLevel();
+		if(pxLvl==null)then return null; endif;
+		return cast<CBasePlayer>(pxLvl^.GetPlayer(p_iId));
+	endproc;
+	
+	export constructor()
+		m_xGPCE=CObjHndl.Invalid();
+		//m_aiDiplomacyStatus=CGameBase.GetMaxPlayers();
+		m_aiDiplomacyStatus=8;
+		m_sGFXPrefix="";
+		m_sPName="";
+		m_bConqueror=false;
+		m_bPaladin=false;
+		m_bDefender=false;
+		m_bSlave=false;
+		m_iPhantomRole=0;
+		m_iLastDmg=-1;
+		m_iMaster=-1;
+//		m_aiSlaves=0;
+		m_bMaster=false;
+		m_bDead=false;
+		m_bRevealed=false;
+		m_bGoodSide=false;
+		m_xStartLocation=CObjHndl.Invalid();
+		m_pxMaster=null;
+		m_iBonusUnits=0;
+		m_iBonusSupply=0;
+		m_iTacticalPauses=0;
+		m_bSpiritCards=true;
+		m_sHandicap="100";
+		m_xSpentTime=0.0;
+	endconstructor;
+	
+	destructor()
+		m_xGPCE=CObjHndl.Invalid();
+		if(m_pxLevels!=null)then delete m_pxLevels; endif;
+		if(m_pxXP!=null)then delete m_pxXP; endif;
+		if(m_pxSkills!=null)then delete m_pxSkills; endif;
+		if(m_pxResources!=null)then delete m_pxResources; endif;
+		m_xStartLocation=CObjHndl.Invalid();
+	enddestructor;
+	
+	export proc void OnInit()
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var CPlayerSlotID xPlayerSlotID=GetPlayerSlotID();
+		m_aiResLimits=9;
+		m_asResLimits.AddEntry("max_units");
+		m_asResLimits.AddEntry("max_food");
+		m_asResLimits.AddEntry("max_wood");
+		m_asResLimits.AddEntry("max_stone");
+		m_asResLimits.AddEntry("max_bone");
+		m_asResLimits.AddEntry("max_hide");
+		m_asResLimits.AddEntry("max_resin");
+		m_asResLimits.AddEntry("max_supply");
+		m_asRes.AddEntry("units");
+		m_asRes.AddEntry("food");
+		m_asRes.AddEntry("wood");
+		m_asRes.AddEntry("stone");
+		m_asRes.AddEntry("bone");
+		m_asRes.AddEntry("hide");
+		m_asRes.AddEntry("resin");
+		m_asRes.AddEntry("supply");
+		//HACK
+		if(!xPlayerSlotID.IsValid())then
+			m_sTribe="World";
+		else
+			var string sTmp=m_sPName;
+			if(sTmp=="")then
+				sTmp=pxLevel^.GetLevelInfo().GetPlayerSlot(xPlayerSlotID).GetName();
+				m_sPName=sTmp;
+			else
+				pxLevel^.GetLevelInfo().GetPlayerSlot(xPlayerSlotID).SetName(sTmp);
+			endif;
+			var int k, kC=8;
+			for(k=-1)cond(k<kC)iter(k++)do
+				CSrvWrap.SendGenericEvtToPlayer(k, "setplayername\t"+GetID().ToString()+ "\t"+sTmp);
+			endfor;
+			m_sTribe=pxLevel^.GetLevelInfo().GetPlayerSlot(xPlayerSlotID).GetTribe();
+			if(m_sTribe=="Random")then
+				m_sTribe="SEAS";
+			endif;
+		endif;
+//		var ^CAttribs pxAttr=GetAttribs();
+		m_pxAttribs=GetAttribs();
+		var int i;
+		m_pxLevels=new CPropDB();
+		m_pxXP=new CPropDB();
+		m_pxResources=new CPropDB();
+		m_pxSkills=new CPropDB();
+		var CPropDB xTmp;
+		if(m_pxLevels^.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/CharLevels.txt") &&
+			xTmp.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/"+m_sTribe+"/CharLevels.txt"))then
+			CServerApp.JoinDB(^(m_pxLevels^.GetRoot()),^(xTmp.GetRoot()));
+		endif;
+		var ^CPropDB.CNode pxRoot=^(m_pxLevels^.GetRoot());
+		if(pxRoot!=null)then
+			var array ^CPropDB.CNode apxLevel;
+			for(i=0)cond(i<5)iter(i++)do
+				var ^CPropDB.CNode pxValue=pxRoot^.Get("Level_"+i.ToString());
+				if(pxValue!=null)then
+					m_pxAttribs^.SetValue("xp_max_"+i.ToString(),pxValue^.GetValueI("XP_max"));
+					m_pxAttribs^.SetValue("xp_min_"+i.ToString(),pxValue^.GetValueI("XP_min"));
+					m_pxAttribs^.SetValue("foodcost_lvl_"+i.ToString(),pxValue^.GetValueI("scalps"));
+				endif;
+			endfor;
+		endif;
+		if(m_pxXP^.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/CharXPGain.txt") &&
+			xTmp.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/"+m_sTribe+"/CharXPGain.txt"))then
+			CServerApp.JoinDB(^(m_pxXP^.GetRoot()),^(xTmp.GetRoot()));
+		endif;
+		if(m_pxResources^.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/"+m_sTribe+"/Resources.txt"))then
+		endif;
+		if(m_pxSkills^.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/CharAttributes.txt") &&
+			xTmp.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/"+m_sTribe+"/CharAttributes.txt"))then
+			CServerApp.JoinDB(^(m_pxSkills^.GetRoot()),^(xTmp.GetRoot()));
+		endif;
+		m_vLastEventPos={0.0,0.0,0.0};
+		m_fScalpsModifier=1.0f;
+		var CGameTimeSpan xTimeDelta(WARN_UNDER_ATTACK_TIME);
+		m_xLastAttackTime=CTimeMgr.Get().GetTime()-xTimeDelta;
+		m_bCanPlayWarnUnderAttackSound=true;
+		var int iC=8;
+		for(i=0)cond(i<iC)iter(++i)do
+			m_aiDiplomacyStatus[i]=CSrvWrap.GetDiplomacyMgr().GetRelation(GetID(), i);
+		endfor;
+		if(GeneralSetupDone())then
+			CheckEpochs();
+		endif;
+//		var ^CLevelInfoHost pxLevelInfo=^(pxLevel^.GetLevelInfo());
+//		if(pxLevelInfo!=null)then
+//			if(pxLevelInfo^.IsSaveGame())then
+//				var ^CGameOverMgr pxGOM=^(CGameOverMgr.Get());
+//				if(m_bConqueror)then
+//					CGameOverMgr.Get().AddConqueror();
+//				elseif(m_bPaladin||m_bDefender)then
+//					CGameOverMgr.Get().AddGuardian();
+//				endif;
+//			endif;
+//		endif;
+	endproc;
+	
+	export proc bool Save(^CUOFWriterNode p_pxWriterNode)
+		if(!super.Save(p_pxWriterNode))then return false; endif;
+		var CFourCC xType="UPlB"; // USL PlayerBase
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,8);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		var bitset dwRel=0b;
+		var int iMe=GetID();
+		var int i, iC=8;
+		for(i=0) cond(i<iC) iter(++i) do
+			var int iRel=CSrvWrap.GetDiplomacyMgr().GetRelation(iMe, i);
+			pxArc^ << iRel;
+		endfor;
+		iC=m_aiResLimits.NumEntries();
+		pxArc^ << iC;
+		for(i=0)cond(i<iC)iter(i++)do
+			pxArc^ << m_aiResLimits[i];
+		endfor;
+		m_xGPCE.DoKArc(pxArc^);
+		m_sGFXPrefix=GetGfxPrefix();
+		pxArc^ << m_sGFXPrefix;
+		pxArc^ << m_bConqueror;
+		pxArc^ << m_bPaladin;
+		pxArc^ << m_bDefender;
+		pxArc^ << m_bSlave;
+		pxArc^ << m_iPhantomRole;
+		pxArc^ << m_iLastDmg;
+		pxArc^ << m_iMaster;
+		pxArc^ << m_bMaster;
+		m_xStartLocation.DoKArc(pxArc^);
+		pxArc^ << m_bDead;
+		pxArc^ << m_bGoodSide;
+//		iC=m_aiSlaves.NumEntries();
+//		pxArc^ << iC;
+//		for(i=0)cond(i<iC)iter(i++)do
+//			pxArc^ << m_aiSlaves[i];
+//		endfor;
+		pxArc^ << m_iBonusUnits;
+		pxArc^ << m_iBonusSupply;
+		pxArc^ << m_sPName;
+		pxArc^ << m_bRevealed;
+		pxArc^ << m_iTacticalPauses;
+		pxArc^ << m_bSpiritCards;
+		pxArc^ << m_sHandicap;
+		var bool bTemp=CMirageSrvMgr.ms_abSkipAtDivision[iMe+1];
+		pxArc^ << bTemp;
+		bTemp=CMirageSrvMgr.Get().GetNeutralToWildAnimals(iMe);
+		pxArc^ << bTemp;
+		m_xSpentTime.DoKArc(pxArc^);
+		pxWalk^.Close();
+		return true;
+	endproc;
+	
+	export proc bool Load(^CUOFReaderNode p_pxReaderNode)
+		var int iRel=0;
+		var bool bReturn=true;
+		if(p_pxReaderNode^.GetType()=="UPlB")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int i, iC=8, iVersion=p_pxReaderNode^.GetVersion();
+			m_aiDiplomacyStatus=iC;
+			var int iMe=GetID();
+			for(i=0) cond(i<iC) iter(++i) do
+				(pxArc^) << iRel;
+				CSrvWrap.GetDiplomacyMgr().SetRelation(iMe, i, iRel);
+				SetDiplomacySilent(i, iRel, true);
+			endfor;
+			if(iVersion>=2)then
+				var int iCount;
+				pxArc^ << iCount;
+				m_aiResLimits=iCount;
+				for(i=0)cond(i<iCount)iter(i++)do
+					pxArc^ << m_aiResLimits[i];
+				endfor;
+			endif;
+			if(iVersion>=3)then
+				m_xGPCE.DoKArc(pxArc^);
+				pxArc^ << m_sGFXPrefix;
+			else
+				m_sGFXPrefix=(CSrvWrap.GetCurLevel()^.GetLevelInfo().GetGenericData())["PlayerSettings/Player_"+GetID().ToString()+"/Restrictions/Base"].GetValueS("GfxPrefix","");
+			endif;
+			if(iVersion>=4)then
+				pxArc^ << m_bConqueror;
+				pxArc^ << m_bPaladin;
+				pxArc^ << m_bDefender;
+				pxArc^ << m_bSlave;
+				pxArc^ << m_iPhantomRole;
+				pxArc^ << m_iLastDmg;
+				pxArc^ << m_iMaster;
+				pxArc^ << m_bMaster;
+				m_xStartLocation.DoKArc(pxArc^);
+				pxArc^ << m_bDead;
+				pxArc^ << m_bGoodSide;
+//				pxArc^ << iC;
+//				m_aiSlaves=iC;
+//				for(i=0)cond(i<iC)iter(i++)do
+//					pxArc^ << m_aiSlaves;
+//				endfor;
+				pxArc^ << m_iBonusUnits;
+				pxArc^ << m_iBonusSupply;
+			endif;
+			if(iVersion>=5)then
+				pxArc^ << m_sPName;
+				pxArc^ << m_bRevealed;
+				pxArc^ << m_iTacticalPauses;
+				pxArc^ << m_bSpiritCards;
+			endif;
+			if(iVersion>=6)then
+				pxArc^ << m_sHandicap;
+				var bool bTemp;
+				pxArc^ << bTemp;
+				CMirageSrvMgr.ms_abSkipAtDivision[iMe+1]=bTemp;
+				pxArc^ << bTemp;
+				CMirageSrvMgr.Get().SetNeutralToWildAnimals(iMe,bTemp);
+			endif;
+//			if(iVersion>=7)then
+//			endif;
+			if(iVersion>=8)then
+				m_xSpentTime.DoKArc(pxArc^);
+			endif;
+		else
+			bReturn=super.Load(p_pxReaderNode);
+		endif;
+		var ^CAttribs pxAttr=GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("units",0);
+			pxAttr^.SetValue("supply",0);
+			pxAttr^.SetValue("objects_lvl_0",0);
+			pxAttr^.SetValue("objects_lvl_1",0);
+			pxAttr^.SetValue("objects_lvl_2",0);
+			pxAttr^.SetValue("objects_lvl_3",0);
+			pxAttr^.SetValue("objects_lvl_4",0);
+		endif;
+		SetGfxPrefix(m_sGFXPrefix);
+		CGameOverMgr.Get().AddPhantomMember(GetID(),m_iPhantomRole,m_iMaster,m_bMaster);
+		CGameOverMgr.Get().SetGoodSide(GetID(),m_bGoodSide);
+		CMirageSrvMgr.Get().UpdateTacticalPauses(GetID(),m_iTacticalPauses);
+//		var int j, jC=m_aiSlaves.NumEntries();
+//		for(j=0)cond(j<jC)iter(j++)do
+//			CGameOverMgr.Get().AddSlave(GetID(),m_aiSlaves[j]);
+//		endfor;
+		return bReturn;
+	endproc;
+	
+	export proc bool SetDiplomacy(int p_iPlayer, int p_iStatus)
+		return SetDiplomacy(p_iPlayer,p_iStatus,false);
+	endproc;
+	
+	export proc bool SetDiplomacy(int p_iPlayer, int p_iStatus, bool p_bMute)
+		return SetDiplomacy(p_iPlayer,p_iStatus,p_bMute,false);
+	endproc;
+	
+	export proc bool SetDiplomacy(int p_iPlayer, int p_iStatus, bool p_bMute, bool p_bDeadSkip)
+		if(p_iPlayer >= m_aiDiplomacyStatus.NumEntries()||p_iPlayer<0)then return false; endif;
+		var int iPrevStatus=m_aiDiplomacyStatus[p_iPlayer];
+		var int iID=GetID();
+		if(CMirageSrvMgr.Get().DiploLocked())then
+			if(!p_bDeadSkip)then
+				CSrvWrap.GetDiplomacyMgr().SetRelation(iID, p_iPlayer, iPrevStatus);
+				return false;
+			endif;
+		endif;
+//		if(p_iPlayer==m_iMaster)then
+//			CSrvWrap.GetDiplomacyMgr().SetRelation(iID, p_iPlayer, iPrevStatus);
+//			return false;
+//		endif;
+		if(cast<CAiPlayer>(this)==null&&!p_bMute)then
+			switch(p_iStatus)
+				case(0)do
+					if(iPrevStatus==1)then
+						CSrvWrap.SendGenericEvtToPlayer(iID, "NeutAttack");
+					elseif(iPrevStatus==2)then
+						CSrvWrap.SendGenericEvtToPlayer(iID, "AllyBetray");
+					endif;
+				endcase;
+				case(1)do
+					if(iPrevStatus==0)then
+						CSrvWrap.SendGenericEvtToPlayer(iID, "EnemyTruce");
+					elseif(iPrevStatus==2)then
+						CSrvWrap.SendGenericEvtToPlayer(iID, "AllyLeft");
+					endif;
+				endcase;
+				case(2)do
+					CSrvWrap.SendGenericEvtToPlayer(iID, "NewAlly");
+				endcase;
+				case default do endcase;
+			endswitch;
+		endif;
+//		var bool bUpdateWorthyChange=(p_iStatus!=iPrevStatus)&&(iPrevStatus==2||p_iStatus==2);
+		var bool bUpdateWorthyChange=p_iStatus!=iPrevStatus;
+		if(bUpdateWorthyChange)then
+			var bool bAlliance=Math.Min(CSrvWrap.GetDiplomacyMgr().GetRelation(iID,p_iPlayer),CSrvWrap.GetDiplomacyMgr().GetRelation(p_iPlayer,iID))==2;
+			var bool bHostility=CSrvWrap.GetDiplomacyMgr().GetRelation(iID,p_iPlayer)==0||CSrvWrap.GetDiplomacyMgr().GetRelation(p_iPlayer,iID)==0;
+			UpdateRegions(bAlliance,bHostility,bUpdateWorthyChange,p_iPlayer);
+			var ^CBasePlayer pxOther=CBasePlayer.GetPlayer(p_iPlayer);
+			if(pxOther!=null)then
+				pxOther^.UpdateRegions(bAlliance,bHostility,bUpdateWorthyChange,iID);
+			endif;
+		endif;
+		m_aiDiplomacyStatus[p_iPlayer]=p_iStatus;
+		return true;
+	endproc;
+	
+	export proc bool SetDiplomacySilent(int p_iPlayer, int p_iStatus, bool p_bSkipCheck)
+		if(p_iPlayer >= m_aiDiplomacyStatus.NumEntries()||p_iPlayer<0)then return false; endif;
+		if(!p_bSkipCheck&&CMirageSrvMgr.Get().DiploLocked())then
+			CSrvWrap.GetDiplomacyMgr().SetRelation(GetID(), p_iPlayer, m_aiDiplomacyStatus[p_iPlayer]);
+			return false;
+		endif;
+		if(p_iPlayer==m_iMaster)then
+			CSrvWrap.GetDiplomacyMgr().SetRelation(GetID(), p_iPlayer, m_aiDiplomacyStatus[p_iPlayer]);
+			return false;
+		endif;
+		m_aiDiplomacyStatus[p_iPlayer]=p_iStatus;
+		return true;
+	endproc;
+	
+	export proc void UpdateRegions(bool p_bAlliance, bool p_bHostility, bool p_bChange, int p_iID)
+		if(!p_bChange)then return; endif;
+		var CObjList xAllObj=GetAllObjects();
+		var int i, iC=xAllObj.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!xAllObj[i].IsValid())then continue; endif;
+			var ^CFightingObj pxFO=cast<CFightingObj>(xAllObj[i].GetObj());
+			if(pxFO==null)then continue; endif;
+//			pxFO^.UpdateRegion(p_bAlliance,p_bHostility,p_iID);
+			pxFO^.UpdateRegion();
+		endfor;
+	endproc;
+	
+	export proc int GetDiplomacy(int p_iPlayer)
+		if(p_iPlayer >= m_aiDiplomacyStatus.NumEntries()||p_iPlayer<0)then return 0; endif;
+		return m_aiDiplomacyStatus[p_iPlayer];
+	endproc;
+	
+	export proc void InitGPCE(vec3 p_vPos)
+		if(!m_xGPCE.IsValid())then
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			if(pxLevel==null)then return; endif;
+			var ^CGPCEmitter pxGPCE=cast<CGPCEmitter>(CSrvWrap.GetObjMgr()^.CreateObj("gpce_plyr_"+GetID().ToString(),GetID(),p_vPos));
+			if(pxGPCE!=null)then
+				var ^CAttribs pxOwnAtt=GetAttribs();
+				if(pxOwnAtt!=null)then
+					pxOwnAtt^.SetValue("gpce_own",pxGPCE^.GetGuid().ToString());
+				endif;
+				m_xGPCE=pxGPCE^.GetHandle();
+			endif;
+		endif;
+	endproc;
+	
+	export proc void AddLimitCountBuilding(CObjHndl p_xHndl)
+		m_xLimitCountBuildings.Include(p_xHndl);
+		UpdateLimits(false);
+	endproc;
+	
+	export proc void RemoveLimitCountBuilding(CObjHndl p_xHndl)
+		var int iIdx=m_xLimitCountBuildings.FindEntry(p_xHndl);
+		if(iIdx<0)then return; endif;
+		m_xLimitCountBuildings.DeleteEntry(iIdx);
+		UpdateLimits(false);
+	endproc;
+	
+	export proc void DestroyLimitCountBuilding(CObjHndl p_xHndl)
+		var int iIdx=m_xLimitCountBuildings.FindEntry(p_xHndl);
+		if(iIdx<0)then return; endif;
+		m_xLimitCountBuildings.DeleteEntry(iIdx);
+		var array string asAffectedLimits;
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(p_xHndl.GetObj());
+		if(pxFightingObj!=null)then
+			var ^CTechTree.CNode pxLimitsNode=pxFightingObj^.m_xTechTree.FindNode(pxFightingObj^.GetObjPath()+"/UpdateLimits");
+			if(pxLimitsNode!=null)then
+				var array string asMaxRes;
+				asMaxRes.AddEntry("max_food");
+				asMaxRes.AddEntry("max_wood");
+				asMaxRes.AddEntry("max_stone");
+				asMaxRes.AddEntry("max_units");
+				asMaxRes.AddEntry("max_supply");
+				var int iA, iAC=pxLimitsNode^.NumSubs();
+				for(iA=0)cond(iA<iAC)iter(iA++)do
+					var ^CTechTree.CNode pxNode=pxLimitsNode^.GetSub(iA);
+					if(pxNode==null)then continue; endif;
+					var int iIdx=asMaxRes.FindEntry(pxNode^.GetName());
+					if(iIdx<0)then continue; endif;
+					if(pxNode^.GetValue().ToInt()<=0)then continue; endif;
+					asAffectedLimits.AddEntry(asMaxRes[iIdx]);
+				endfor;
+			endif;
+		endif;
+		//UpdateLimits(false,asAffectedLimits);
+		UpdateLimits(!CMirageSrvMgr.Get().ResourcesUnlimited(),asAffectedLimits);
+	endproc;
+	
+	export proc void UpdateLimits(bool p_bCutToMax)
+		var array string asAffectedLimits;
+		asAffectedLimits.AddEntry("max_food");
+		asAffectedLimits.AddEntry("max_wood");
+		asAffectedLimits.AddEntry("max_stone");
+		asAffectedLimits.AddEntry("max_units");
+		asAffectedLimits.AddEntry("max_supply");
+		UpdateLimits(p_bCutToMax,asAffectedLimits);
+	endproc;
+	
+	export proc void UpdateLimits(bool p_bCutToMax, array string p_asAffectedLimits)
+		var ^CAttribs pxAttr=GetAttribs();
+		if(pxAttr==null)then return; endif;
+		if(CMirageSrvMgr.Get().ResourcesUnlimited())then p_bCutToMax=false; endif;
+		var array string asMaxRes;
+		asMaxRes.AddEntry("max_food");
+		asMaxRes.AddEntry("max_wood");
+		asMaxRes.AddEntry("max_stone");
+		asMaxRes.AddEntry("max_units");
+		asMaxRes.AddEntry("max_supply");
+		var array string asRes;
+		asRes.AddEntry("food");
+		asRes.AddEntry("wood");
+		asRes.AddEntry("stone");
+		asRes.AddEntry("units");
+		asRes.AddEntry("supply");
+		var array int aiRes;
+		aiRes=asRes.NumEntries();
+		var int i, iC=m_xLimitCountBuildings.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_xLimitCountBuildings[i].IsValid())then continue; endif;
+			var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xLimitCountBuildings[i].GetObj());
+			if(pxFightingObj==null)then continue; endif;
+			var ^CTechTree.CNode pxLimitsNode=pxFightingObj^.m_xTechTree.FindNode(pxFightingObj^.GetObjPath()+"/UpdateLimits");
+			if(pxLimitsNode==null)then continue; endif;
+			var int iA, iAC=pxLimitsNode^.NumSubs();
+			for(iA=0)cond(iA<iAC)iter(iA++)do
+				var ^CTechTree.CNode pxNode=pxLimitsNode^.GetSub(iA);
+				if(pxNode==null)then continue; endif;
+				var int iIdx=asMaxRes.FindEntry(pxNode^.GetName());
+				if(iIdx<0)then continue; endif;
+				aiRes[iIdx] += pxNode^.GetValue().ToInt();
+			endfor;
+		endfor;
+		var ^CLevelInfoHost pxLevelInfo=^(CSrvWrap.GetCurLevel()^.GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		var ^CPropDB.CNode pxCharsNode=^((pxGenericDB^)["PlayerSettings/Player_"+GetID().ToString()+"/Restrictions/Chars"]);
+		var int iRealMaxUnits=52;
+		var int iRealMinUnits=3; // Henry: so that dr players can produce mobile hq if they have only a small farm, or they have only 1 alive and hq could be still resurrected...
+		var int iRealMinSupply=3;
+		var int iRealMaxSupply=200;
+		if(pxCharsNode!=null)then
+			var ^CPropDB.CNode pxPopNode=pxCharsNode^.Get("Population");
+			if(pxPopNode!=null)then
+				iRealMaxUnits=pxPopNode^.GetValueI("Max",52);
+			endif;
+			var ^CPropDB.CNode pxSupplyNode = pxCharsNode^.Get("Supply");
+			if(pxSupplyNode!=null)then
+				iRealMaxSupply = pxSupplyNode^.GetValueI("Max",200);
+			endif;
+		endif;
+		iRealMaxUnits+=Math.Max(m_iBonusUnits,0);
+		iRealMaxSupply+=Math.Max(m_iBonusSupply,0);
+		pxAttr^.SetValue("max_units", Math.Clamp(aiRes[3], iRealMinUnits, iRealMaxUnits));
+		pxAttr^.SetValue("max_supply", Math.Clamp(aiRes[4], iRealMinSupply, iRealMaxSupply));
+		aiRes.DeleteEntry(4);asRes.DeleteEntry(4);
+		aiRes.DeleteEntry(3);asRes.DeleteEntry(3);
+		iC=asRes.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var int iMin=pxAttr^.GetValueInt("rescap_"+asRes[i]);
+			var int iRealMax=Math.Max(aiRes[i], iMin);
+			pxAttr^.SetValue(asMaxRes[i], iRealMax);
+			if(p_bCutToMax && p_asAffectedLimits.FindEntry(asMaxRes[i])!=-1)then
+				var int iValue=pxAttr^.GetValueInt(asRes[i]);
+				if(iValue>iRealMax)then
+					pxAttr^.SetValue(asRes[i], iRealMax);
+				endif;
+			endif;
+		endfor;
+	endproc;
+	
+	export proc ^CGPCEmitter GetGPCE()
+		if(m_xGPCE.IsValid())then
+			return cast<CGPCEmitter>(m_xGPCE.GetObj());
+		endif;
+		return null;
+	endproc;
+	
+	export proc int GetTacticalPauses()
+		return m_iTacticalPauses;
+	endproc;
+	
+	export proc void SetTacticalPauses(int p_iNew)
+		m_iTacticalPauses=p_iNew;
+	endproc;
+	
+	export proc void SetScalpsModifier(real p_fVal)
+		m_fScalpsModifier=p_fVal;
+	endproc;
+	
+	export proc void Subscribe(^CEvtSink p_pxSink)
+		super.Subscribe(p_pxSink);
+		m_xAttackEvtSource.Subscribe(p_pxSink);
+	endproc;
+	
+	export proc void Unsubscribe(^CEvtSink p_pxSink)
+		super.Unsubscribe(p_pxSink);
+		m_xAttackEvtSource.Unsubscribe(p_pxSink);
+	endproc;
+	
+	export proc real AddResource(string p_sType, real p_fValue)
+		return AddResource(p_sType, p_fValue, p_fValue, false);
+	endproc;
+	
+	export proc real AddResource(string p_sType, real p_fValue, bool p_bSkipCheck)
+		return AddResource(p_sType, p_fValue, p_fValue, p_bSkipCheck);
+	endproc;
+	
+	export proc real AddResource(string p_sType, real p_fValue, real p_fOriginalValue, bool p_bSkipCheck)
+		if(p_fValue==0.0f)then return 0.0; endif;
+		var ^CAttribs pxAttr=GetAttribs();
+		if(pxAttr==null)then return Math.Min(p_fValue,p_fOriginalValue); endif;
+		if(p_sType=="iron")then
+			AddSkulls(p_fValue.ToInt());
+			return 0.0;
+		endif;
+		var bool bMCheck = m_bSlave&&!p_bSkipCheck&&m_pxMaster!=null&&!m_pxMaster^.IsDead()&&p_fValue>0.0f/*&&p_sType!="iron"*/;
+		if(bMCheck)then
+			var real fTax=p_fValue*0.25f;
+			m_pxMaster^.AddResource(p_sType,p_fValue,p_fValue,true);
+			p_fValue-=fTax;
+		endif;
+		var bool bResUnlimited=CMirageSrvMgr.Get().ResourcesUnlimited();
+		if(bResUnlimited)then
+			if(p_sType=="wood")then
+				AddWood(p_fValue.ToInt());
+			elseif(p_sType=="stone")then
+				AddStone(p_fValue.ToInt());
+			elseif(p_sType=="food")then
+				AddFood(p_fValue.ToInt());
+//			elseif(p_sType=="iron")then
+//				AddSkulls(p_fValue.ToInt());
+			endif;
+			return 0.0;
+		endif;
+		var int iCurValue=pxAttr^.GetValueInt(p_sType);
+		var int iMaxValue=pxAttr^.GetValueInt("max_"+p_sType);
+		if(iCurValue>=iMaxValue)then return Math.Min(p_fValue,p_fOriginalValue); endif;
+		var real fReturnValue;
+		if((iCurValue.ToReal()+p_fValue)<=iMaxValue.ToReal())then
+			iCurValue=(p_fValue+iCurValue.ToReal()+0.5).ToInt();
+			fReturnValue=0.0;
+		else
+			fReturnValue=(p_fValue-(iMaxValue-iCurValue).ToReal());
+			iCurValue=iMaxValue;
+		endif;
+		fReturnValue=Math.Min(p_fOriginalValue,fReturnValue);
+		var int iStatisticValue=(p_fValue-fReturnValue).ToInt();
+		if(p_sType=="wood")then
+			AddWood(iStatisticValue);
+		elseif(p_sType=="stone")then
+			AddStone(iStatisticValue);
+		elseif(p_sType=="food")then
+			AddFood(iStatisticValue);
+		endif;
+		return Math.Min(p_fOriginalValue,fReturnValue);
+	endproc;
+	
+	export proc void IWasAttacked(CObjHndl p_xVictim, CObjHndl p_xAggressor,bool p_bVoice)
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		var CGameTimeSpan xDiff=xNow-m_xLastAttackTime;
+		var int iSeconds=xDiff.GetSecondsI();
+//		KLog.LogSpam("UISound","IWasAttacked"+iSeconds.ToString());
+		if(iSeconds>WARN_UNDER_ATTACK_TIME)then
+			m_bCanPlayWarnUnderAttackSound=true;
+		endif;
+		m_xLastAttackTime=xNow;
+		if(m_bCanPlayWarnUnderAttackSound)then
+			var string sName="Someone",sType="";
+			var ^CFightingObj pxObj=cast<CFightingObj>(p_xVictim.GetObj());
+			if(pxObj!=null)then
+				sName=pxObj^.GetClassName();
+				sType=pxObj^.GetReportCode();
+				if(sType=="")then
+					sType="dummy";
+					p_bVoice=false;
+				endif;
+				var string sSound;
+				var ^CAttribs pxAttr=pxObj^.GetAttribs();
+				sSound=pxObj^.GetClassName();
+				CSrvWrap.SendGenericEvtToPlayer(GetID(), "WasAttacked\t"+sSound+"\t"+p_bVoice.ToString()+"\t"+sType);
+			endif;
+			if(cast<CDefenderObj>(pxObj)==null)then
+				CFeedback.Print(GetID(), CFeedback.ATTACK,"_NT_UnitWasAttacked\t"+pxObj^.GetTechTreeDesc(),pxObj^.GetPos());
+			else
+				CFeedback.Print(GetID(), CFeedback.ATTACK,"_NT_Defender_CrystalAttacked",pxObj^.GetPos());
+			endif;
+			m_bCanPlayWarnUnderAttackSound=false;
+			SetLastEventPos(p_xVictim.GetObj()^.GetPos());
+		endif;
+		var CEvtPointer xEvt=CEvtPointer.CreateEvent("Attacked");
+		xEvt.SetInt(0, p_xVictim.AsInt());
+		xEvt.SetInt(1, p_xAggressor.AsInt());
+		m_xAttackEvtSource.Broadcast(xEvt);
+	endproc;
+	
+	export proc void SetLastEventPos(vec3 p_vPos)
+		m_vLastEventPos=p_vPos;
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs==null)then return();endif;
+		pxAttribs^.SetValue("lastevent",m_vLastEventPos.ToString());
+	endproc;
+	
+	export proc void AddScalps(int p_iScalps)
+		var ^CAttribs pxAttr=GetAttribs();
+		if(pxAttr!=null)then
+			var int iScalps=(p_iScalps.ToReal()*m_fScalpsModifier+0.5f).ToInt();
+			AddSkulls(iScalps);
+		endif;
+	endproc;
+	
+	export proc void AddHide(int p_iValue)
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs==null)then return();endif;
+		var int iHide=pxAttribs^.GetValueInt("hide");
+		pxAttribs^.SetValue("hide",iHide+p_iValue);
+//		var int iNew=pxAttribs^.GetValueInt("hide");
+	endproc;
+	
+	export proc void UpdateResCaps()
+		var array string asResses;
+		asResses.AddEntry("food");
+		asResses.AddEntry("wood");
+		asResses.AddEntry("stone");
+		var ^CAttribs pxA=GetAttribs();
+		var int i, iC=asResses.NumEntries();
+		for(i=0) cond(i<iC) iter(++i) do
+			var int iVal=pxA^.GetValueInt("rescap_"+asResses[i]);
+			var int iIdx=m_asResLimits.FindEntry("max_"+asResses[i]);
+			if(iIdx<0)then
+				pxA^.SetValue("max_"+asResses[i], iVal);
+				continue;
+			endif;
+			m_aiResLimits[iIdx]=Math.Max(m_aiResLimits[iIdx], iVal);
+			pxA^.SetValue("max_"+asResses[i], m_aiResLimits[iIdx]);
+		endfor;
+	endproc;
+	
+	export proc void AddResCapacity(string p_sResType, int p_iAmount)
+		var ^CAttribs pxPlAttr=GetAttribs();
+		var int iIndex=m_asResLimits.FindEntry(p_sResType);
+		if(iIndex<0)then return; endif;
+		m_aiResLimits[iIndex]+=p_iAmount;
+		if(pxPlAttr!=null)then
+			var int iMinMax=300;
+			if(p_sResType=="max_wood"||p_sResType=="max_food"||p_sResType=="max_stone")then
+				var string sRes=p_sResType;
+				sRes.Replace("max_","");
+				iMinMax=pxPlAttr^.GetValueInt("rescap_"+sRes);
+			endif;
+			if(p_sResType=="max_units")then
+				iMinMax=3;
+			endif;
+			if(p_sResType=="max_supply")then
+				iMinMax=3;
+			endif;
+			m_aiResLimits[iIndex]=Math.Max(m_aiResLimits[iIndex],iMinMax);
+			pxPlAttr^.SetValue(p_sResType, m_aiResLimits[iIndex]);
+		endif;
+	endproc;
+	
+	export proc void DestroyResCapacity(string p_sResType, int p_iAmount)
+		var ^CAttribs pxPlAttr=GetAttribs();
+		var int iIndex=m_asResLimits.FindEntry(p_sResType);
+		if(iIndex<0)then return; endif;
+		m_aiResLimits[iIndex]-=p_iAmount;
+		if(pxPlAttr!=null)then
+			var int iMinMax=300;
+			if(p_sResType=="max_wood"||p_sResType=="max_food"||p_sResType=="max_stone")then
+				var string sRes=p_sResType;
+				sRes.Replace("max_","");
+				iMinMax=pxPlAttr^.GetValueInt("rescap_"+sRes);
+			endif;
+			var int iValue=pxPlAttr^.GetValueInt(m_asRes[iIndex]);
+			if(iIndex==0)then
+				iMinMax=3;
+			elseif(iIndex==8)then
+				iMinMax=3;
+			elseif(iValue>m_aiResLimits[iIndex])then
+				pxPlAttr^.SetValue(m_asRes[iIndex], Math.Min(iValue, Math.Max(m_aiResLimits[iIndex],iMinMax)));
+			endif;
+			m_aiResLimits[iIndex]=Math.Max(m_aiResLimits[iIndex],iMinMax);
+			pxPlAttr^.SetValue(p_sResType, m_aiResLimits[iIndex]);
+		endif;
+	endproc;
+	
+	export proc void RemoveResCapacity(string p_sResType, int p_iAmount)
+		if(p_iAmount<=0)then return; endif;
+		var ^CAttribs pxPlAttr=GetAttribs();
+		var int iIndex=m_asResLimits.FindEntry(p_sResType);
+		if(iIndex<0)then return; endif;
+		m_aiResLimits[iIndex]-=p_iAmount;
+		if(pxPlAttr!=null)then
+			var int iMinMax=300;
+			if(p_sResType=="max_wood"||p_sResType=="max_food"||p_sResType=="max_stone")then
+				var string sRes=p_sResType;
+				sRes.Replace("max_","");
+				iMinMax=pxPlAttr^.GetValueInt("rescap_"+sRes);
+			endif;
+			if(iIndex==0)then
+				iMinMax=3;
+			elseif(iIndex==8)then
+				iMinMax=3;
+			endif;
+			m_aiResLimits[iIndex]=Math.Max(m_aiResLimits[iIndex],iMinMax);
+			pxPlAttr^.SetValue(p_sResType, m_aiResLimits[iIndex]);
+		endif;
+	endproc;
+	
+	export proc ^CPropDB GetLevelTable()
+		return m_pxLevels;
+	endproc;
+	
+	export proc ^CPropDB GetXPTable()
+		return m_pxXP;
+	endproc;
+	
+	export proc ^CPropDB GetSkillTable()
+		return m_pxSkills;
+	endproc;
+	
+	export proc ^CPropDB GetResourceTable()
+		return m_pxResources;
+	endproc;
+	
+	export proc void UpdateSelectionGroup(int p_iIndex, CObjList p_xList)
+		var array int aiHandles;
+		var int i, iC=p_xList.NumEntries();
+		aiHandles=iC;
+		for(i=0) cond(i<iC) iter(++i) do
+			var ^CGameObj pxO=p_xList[i].GetObj();
+			if(pxO==null)then continue; endif;
+			aiHandles[i]=pxO^.GetHandle().AsInt();
+		endfor;
+		var string sString;
+		CDucentiquinquagintagintamal.IntArrayToString(aiHandles, sString);
+		var ^CAttribs pxA=GetAttribs();
+		if(pxA!=null)then
+			if(sString.GetLength()>=255)then
+				pxA^.SetValue("selgroup_"+p_iIndex.ToString()+"_a", sString.Left(255));
+				pxA^.SetValue("selgroup_"+p_iIndex.ToString()+"_b", sString.Mid(255,255));
+			else
+				pxA^.SetValue("selgroup_"+p_iIndex.ToString()+"_a", sString);
+				pxA^.SetValue("selgroup_"+p_iIndex.ToString()+"_b", "");
+			endif;
+		endif;
+	endproc;
+	
+	export proc void SetAttribs(string p_sName, int p_iValue)
+		if(m_pxAttribs!=null)then m_pxAttribs^.SetValue(p_sName, p_iValue); endif;
+	endproc;
+	
+	export proc void SetAttribs(string p_sName, real p_fValue)
+		if(m_pxAttribs!=null)then m_pxAttribs^.SetValue(p_sName, p_fValue); endif;
+	endproc;
+	
+	export proc void SetAttribs(string p_sName, bool p_bValue)
+		if(m_pxAttribs!=null)then m_pxAttribs^.SetValue(p_sName, p_bValue); endif;
+	endproc;
+	
+	export proc void SetAttribs(string p_sName, string p_sValue)
+		if(m_pxAttribs!=null)then m_pxAttribs^.SetValue(p_sName, p_sValue); endif;
+	endproc;
+	
+	export proc int GetAIDifficulty()
+		return -2;
+	endproc;
+	
+	export proc bool GeneralSetupDone()
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+		if(pxLevelInfo==null)then return false; endif;
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		var ^CPropDB.CNode pxCSNode=^((pxGenericDB^)["ClientSettings"]);
+		if(pxCSNode==null)then return false; endif;
+		begin GeneralSetup;
+			var ^CPropDB.CNode pxSetup=^(pxCSNode^.Get("GeneralSetupDone"));
+			if(pxSetup==null)then
+				var bool bClear=CMirageSrvMgr.Get().Purify();
+				var bool bInited=CMirageSrvMgr.Get().Inited();
+				pxSetup=^(pxCSNode^.AddValue("GeneralSetupDone",1));
+			endif;
+		end GeneralSetup;
+		return true;
+	endproc;
+	
+	export proc void CheckEpochs()
+		if(!CMirageSrvMgr.Get().FreeSpecials())then return; endif;
+		var CTechTree xTechTree=GetPlayerTechTree();
+		var ^CTechTreeDef pxTTDef=^(GetPlayerTechTreeDef());
+		if(pxTTDef==null)then return; endif;
+		var array string asFilters, asTribes;
+		asTribes.AddEntry("Aje");
+		asTribes.AddEntry("Hu");
+		asTribes.AddEntry("Ninigi");
+		asTribes.AddEntry("SEAS");
+		var int i, iC=asTribes.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(xTechTree.GetValueB("/Objects/"+asTribes[i]+"/InventObjects/age_5/invented",false))then
+				asFilters.AddEntry("/Filters/"+asTribes[i]+"/Upgrades/xenage/epoch_5");
+			endif;
+			if(xTechTree.GetValueB("/Objects/"+asTribes[i]+"/InventObjects/age_4/invented",false))then
+				asFilters.AddEntry("/Filters/"+asTribes[i]+"/Upgrades/xenage/epoch_4");
+			endif;
+			if(xTechTree.GetValueB("/Objects/"+asTribes[i]+"/InventObjects/age_3/invented",false))then
+				asFilters.AddEntry("/Filters/"+asTribes[i]+"/Upgrades/xenage/epoch_3");
+			endif;
+			if(xTechTree.GetValueB("/Objects/"+asTribes[i]+"/InventObjects/age_2/invented",false))then
+				asFilters.AddEntry("/Filters/"+asTribes[i]+"/Upgrades/xenage/epoch_2");
+			endif;
+		endfor;
+		iC=asFilters.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!pxTTDef^.HasFilter(asFilters[i]))then
+				pxTTDef^.EnableFilter(asFilters[i]);
+			endif;
+		endfor;
+	endproc;
+	
+	export proc string GetPName()
+		return m_sPName;
+	endproc;
+	
+	export proc void SetPName(string p_sNew)
+		m_sPName=p_sNew;
+	endproc;
+	
+	export proc bool IsHuman()
+		return false;
+	endproc;
+	
+	export proc void SetPhantomRole(int p_iRole)
+		m_iPhantomRole=p_iRole;
+		switch(p_iRole)
+			case(0)do m_bConqueror=m_bPaladin=m_bDefender=m_bSlave=false; endcase;
+			case(1)do m_bConqueror=true; m_bPaladin=m_bDefender=m_bSlave=false; endcase;
+			case(2)do m_bPaladin=true; m_bConqueror=m_bDefender=m_bSlave=false; endcase;
+			case(3)do m_bDefender=true; m_bConqueror=m_bPaladin=m_bSlave=false; endcase;
+			case(4)do m_bSlave=true; m_bConqueror=m_bPaladin=m_bDefender=false; endcase;
+			case default do endcase;
+		endswitch;
+	endproc;
+	
+	export proc int GetPhantomRole()
+		return m_iPhantomRole;
+	endproc;
+	
+	export proc void SetConqueror(bool p_bConqueror)
+		m_bConqueror=p_bConqueror;
+	endproc;
+	
+	export proc bool IsConqueror()
+		return m_bConqueror;
+	endproc;
+	
+	export proc void SetPaladin(bool p_bPaladin)
+		m_bPaladin=p_bPaladin;
+	endproc;
+	
+	export proc bool IsPaladin()
+		return m_bPaladin;
+	endproc;
+	
+	export proc void SetDefender(bool p_bDefender)
+		m_bDefender=p_bDefender;
+	endproc;
+	
+	export proc bool IsDefender()
+		return m_bDefender;
+	endproc;
+	
+	export proc void SetSlave(bool p_bSlave)
+		m_bSlave=p_bSlave;
+	endproc;
+	
+	export proc bool IsSlave()
+		return m_bSlave;
+	endproc;
+	
+	export proc bool IsGuardian(ref bool p_rbP, ref bool p_rbD, ref bool p_rbS)
+		p_rbP=m_bPaladin;
+		p_rbD=m_bDefender;
+		p_rbS=m_bSlave;
+//		return (m_bPaladin||m_bDefender||m_bSlave);
+		return (m_bPaladin||m_bDefender);
+	endproc;
+	
+	export proc void SetLastDamage(int p_iLast)
+		if(p_iLast==GetID()||p_iLast<0||p_iLast>7)then return; endif;
+		m_iLastDmg=p_iLast;
+	endproc;
+	
+	export proc bool GoToMaster(ref string p_rsName, ref int p_riMaster)
+		if(!m_bDefender)then return false; endif;
+		var ^CLevel pxLvl=CSrvWrap.GetCurLevel();
+		if(pxLvl==null)then return false; endif;
+		var ^CLevelInfo.CPlayerSlot pxPlayerSlot=GetPlayerSlot();
+		if(pxPlayerSlot==null)then return false; endif;
+		var ^CLevelInfoHost pxLevelInfo=CSrvWrap.GetLevelInfo(false);
+		if(pxLevelInfo==null)then return false; endif;
+		var ^CGameOverMgr pxGOM=^(CGameOverMgr.Get());
+		var int iMe=GetID();
+		var ^CBasePlayer pxTemp;
+		Random.Seed();
+		var int iAlive=pxGOM^.GetStateCode("alive");
+		// Henry: maybe if a slave kills the player, its master should be chosen instead of random pick
+		if(m_iLastDmg>-1&&m_iLastDmg<8&&m_iLastDmg!=iMe&&pxGOM^.CheckPlayerState(m_iLastDmg,iAlive))then
+			m_iMaster=m_iLastDmg;
+		else
+			var array int aiCandidates;
+			var int i, iC=8;
+			for(i=0)cond(i<iC)iter(i++)do
+				if(i==iMe)then continue; endif;
+				if(!pxGOM^.CheckPlayerState(i,iAlive))then continue; endif;
+				pxTemp=cast<CBasePlayer>(pxLvl^.GetPlayer(i));
+				if(pxTemp==null)then continue; endif;
+				aiCandidates.AddEntry(i);
+			endfor;
+			iC=aiCandidates.NumEntries();
+			if(iC<1)then return false; endif;
+			m_iMaster=aiCandidates[Random.GetInt()%iC];
+		endif;
+		m_pxMaster=cast<CBasePlayer>(pxLvl^.GetPlayer(m_iMaster));
+		if(m_pxMaster==null)then return false; endif;
+		m_pxMaster^.SetMaster(true);
+		p_rsName=m_pxMaster^.GetPName();
+		p_riMaster=m_iMaster;
+		var ^CGameObj pxO=m_xStartLocation.GetObj();
+		if(pxO==null)then return false; endif;
+		CSrvWrap.GetDiplomacyMgr().SetRelation(iMe, m_iMaster, 2);
+		CSrvWrap.GetDiplomacyMgr().SetRelation(m_iMaster, iMe, 1);
+		var CTechTree xTree;
+		var string sObjPath;
+		begin MakingNewHQ;
+			var vec3 vNew, vPos=pxO^.GetPos();
+			var Quat qRot=pxO^.GetRot();
+			var real fStandRange=3.0f;
+			var string sChar, sHQ, sTribe=pxPlayerSlot^.GetTribe();
+			var ^CGameObj pxTmp;
+			var ^CAttribs pxAttr;
+			var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+			var real fAngle;
+			if(!pxBaseNode^.GetValue("DefaultCamera",fAngle))then
+				fAngle=0.785f;
+			endif;
+			var int iSlot=0, iTmp=(fAngle*1000.0f).ToInt();
+			vPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vPos.GetX(),vPos.GetY()));
+			if(sTribe=="Aje")then
+				sHQ="aje_resource_collector";
+				sChar="aje_worker";
+			elseif(sTribe=="Ninigi")then
+				sHQ="ninigi_fireplace";
+				sChar="ninigi_worker";
+			elseif(sTribe=="SEAS")then
+				sHQ="seas_headquarters";
+				sChar="seas_worker";
+			else
+				sHQ="hu_fireplace";
+				sChar="hu_worker";
+			endif;
+			pxTmp=CSrvWrap.GetObjMgr()^.CreateObj(sHQ,iMe,vPos);
+			if(pxTmp!=null)then
+				if(CSrvWrap.GetObjMgr()^.GetFreePos(vNew, pxTmp, vPos, null, true, false, true, pxTmp^.GetCollisionRadius(), 010b, 50.0f))then
+					pxTmp^.SetPos(vNew);
+					vPos=vNew;
+				endif;
+				cast<CFightingObj>(pxTmp)^.SetSlaveInvincible(true);
+				if(sHQ!="aje_resource_collector")then
+					cast<CBuilding>(pxTmp)^.SetReady();
+				else
+					pxAttr=pxTmp^.GetAttribs();
+					if(pxAttr!=null)then
+						pxAttr^.SetValue("clientpyramid_slotid",5);
+					endif;
+				endif;
+//				CSrvWrap.GetCurLevel()^.GetStatisticMgr().AddSample(CStatisticSample.EcoBuildings.ToInt(), iMe, 1);
+//				pxTmp^.Rotate(pxTmp^.GetRotation());
+				pxTmp^.SetRot(qRot);
+				fStandRange=pxTmp^.GetRadius();
+				xTree=pxTmp^.GetTechTree();
+				sObjPath=cast<CFightingObj>(pxTmp)^.GetObjPath();
+			endif;
+			begin AddWorkers;
+				var vec3 vTmp, vGroupPos, vOffset={0.7,0.7,0.0};
+				var int i, iC=5;
+				for(i=0)cond(i<iC)iter(i++)do
+					pxTmp=(CSrvWrap.GetObjMgr()^.CreateObj(sChar,iMe,vPos));
+					if(pxTmp==null)then continue; endif;
+					pxAttr=pxTmp^.GetAttribs();
+					if(pxAttr!=null)then
+						pxAttr^.SetValue("clientpyramid_slotid",i);
+					endif;
+					vOffset=vOffset.RotZ((Random.GetInt()%629).ToReal()/100.0);
+					vGroupPos=vPos+(vOffset*fStandRange);
+					CSrvWrap.GetObjMgr()^.GetFreePos(vTmp,pxTmp,vGroupPos);
+					vTmp.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vTmp.GetX(),vTmp.GetY()));
+					var ^CFightingObj pxTmpObj=cast<CFightingObj>(pxTmp);
+					if(pxTmpObj!=null)then
+						pxTmpObj^.HandleGamePlayCommand("Action", null, vTmp, "/SetPos");
+						pxTmpObj^.UpdateGfx();
+						pxTmpObj^.GetBestWeapon(null,true);
+						pxTmpObj^.SetRot(qRot);
+						pxTmpObj^.UpdateAggressionPos(vTmp);
+						pxTmpObj^.UpdateBuildCosts();
+					else
+						pxTmp^.SetPos(vTmp);
+					endif;
+				endfor;
+			end AddWorkers;
+			CSrvWrap.SendGenericEvtToPlayer(iMe,"start_pos\t"+vPos.ToString()+"\t"+iTmp.ToString());
+		end MakingNewHQ;
+		begin SetResis;
+			var ^CTechTree.CNode pxLimitsNode=xTree.FindNode(sObjPath+"/UpdateLimits");
+			if(pxLimitsNode!=null)then
+				var int iFood=Math.Max(pxLimitsNode^.GetSubValueI("max_food",0),300);
+				var int iWood=Math.Max(pxLimitsNode^.GetSubValueI("max_wood",0),300);
+				var int iStone=Math.Max(pxLimitsNode^.GetSubValueI("max_stone",0),300);
+//				if(iFood==0&&iWood==0&&iStone==0)then return; endif;
+				m_pxMaster^.AddResource("food",Math.Max(GetFood()-iFood,0).ToReal(),true);
+				m_pxMaster^.AddResource("wood",Math.Max(GetWood()-iWood,0).ToReal(),true);
+				m_pxMaster^.AddResource("stone",Math.Max(GetStone()-iStone,0).ToReal(),true);
+				var ^CAttribs pxPA=GetAttribs();
+				if(pxPA!=null)then
+					SetAttribs("food",iFood);
+					SetAttribs("wood",iWood);
+					SetAttribs("stone",iStone);
+				endif;
+			endif;
+		end SetResis;
+		return true;
+	endproc;
+	
+	export proc int GetMaster()
+		return m_iMaster;
+	endproc;
+	
+	export proc void SetMaster(bool p_bMaster)
+		m_bMaster=p_bMaster;
+		CGameOverMgr.Get().SetMaster(GetID(),p_bMaster);
+	endproc;
+	
+	export proc void SetStartLocation(CObjHndl p_xSL)
+		m_xStartLocation=p_xSL;
+	endproc;
+	
+	export proc bool IsDead()
+		return m_bDead;
+	endproc;
+	
+	export proc void SetDead(bool p_bDead)
+		m_bDead=p_bDead;
+	endproc;
+	
+	export proc bool IsRevealed()
+		return m_bRevealed;
+	endproc;
+	
+	export proc void SetRevealed(bool p_bRevealed)
+		m_bRevealed=p_bRevealed;
+	endproc;
+	
+	export proc void UpdateMaster()
+		if(m_iMaster!=-1)then
+			m_pxMaster=CBasePlayer.GetPlayer(m_iMaster);
+		endif;
+	endproc;
+	
+	export proc void CheckBlood()
+		if(!CMirageSrvMgr.Get().BloodBrothers() || CMirageSrvMgr.ms_pxPoolMixer==null || !CMirageSrvMgr.ms_pxPoolMixer^.IsTheReapingOver())then return; endif;
+		if(m_bDefender)then
+			CMirageSrvMgr.ms_pxPoolMixer^.IncreaseBounty();
+		elseif(m_bPaladin)then
+			CMirageSrvMgr.ms_pxPoolMixer^.PaladinBloodIncrease();
+		elseif(m_bConqueror)then
+			CMirageSrvMgr.ms_pxPoolMixer^.PhantomBloodIncrease();
+		endif;
+	endproc;
+	
+	export proc void PopulationIncr(int p_iL0, int p_iL1, int p_iL2, int p_iL3, int p_iL4, int p_iSupply)
+		if(!m_bConqueror||m_bDead)then return; endif;
+		var ^CAttribs pxA=GetAttribs();
+		if(pxA==null)then return; endif;
+		m_iBonusSupply+=p_iSupply;
+		var array int aiBoni;
+		aiBoni.AddEntry(p_iL0);
+		aiBoni.AddEntry(p_iL1);
+		aiBoni.AddEntry(p_iL2);
+		aiBoni.AddEntry(p_iL3);
+		aiBoni.AddEntry(p_iL4);
+		var int i;
+		for(i=0)cond(i<5)iter(i++)do
+			pxA^.SetValue("ac_bonus_"+i.ToString(), pxA^.GetValueInt("ac_bonus_"+i.ToString())+aiBoni[i]);
+			m_iBonusUnits+=aiBoni[i];
+		endfor;
+		pxA^.SetValue("bonus_supply", m_iBonusSupply);
+		pxA^.SetValue("bonus_units", m_iBonusUnits);
+		UpdateLimits(false);
+	endproc;
+	
+	export proc void ReduceProductionTime()
+		var ^CTechTreeDef pxDef=^(GetPlayerTechTreeDef());
+		if(pxDef==null)then return; endif;
+		var array string asFilters;
+		asFilters.AddEntry("/Filters/Aje/Upgrades/xenage/phantom_production");
+		asFilters.AddEntry("/Filters/Hu/Upgrades/xenage/phantom_production");
+		asFilters.AddEntry("/Filters/Ninigi/Upgrades/xenage/phantom_production");
+		asFilters.AddEntry("/Filters/SEAS/Upgrades/xenage/phantom_production");
+		var int i, iC=asFilters.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!pxDef^.HasFilter(asFilters[i]))then
+				pxDef^.EnableFilter(asFilters[i]);
+			endif;
+		endfor;
+	endproc;
+	
+	export proc void Replace()
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+		var CPlayerSlotID xPlayerSlotID=GetPlayerSlotID();
+		var ^CLevelInfo.CPlayerSlot pxWalk=^(pxLevelInfo^.GetPlayerSlot(xPlayerSlotID));
+		var int k, kC=8;
+		for(k=-1)cond(k<kC)iter(k++)do
+			CSrvWrap.SendGenericEvtToPlayer(k, "setplayername\t"+GetID().ToString()+ "\t"+m_sPName+" [AI]");
+		endfor;
+		pxWalk^.SetName(m_sPName+" [AI]");
+//		var ^CPlayer pxPlayer=new CAiPlayer(14);
+//		pxPlayer^.SetPlayerSlotID(xPlayerSlotID);
+//		pxPlayer^.SetID(GetID());
+//		pxPlayer^.SetTeamID(GetTeamID());
+//		pxPlayer^.SetGfxPrefix(GetGfxPrefix());
+//		pxPlayer^.Init();
+//		pxLevel^.AddPlayer(pxPlayer);
+//		SetDead(true);
+//		Kill();
+	endproc;
+	
+	export proc bool CreateSpiritCards()
+		return m_bSpiritCards;
+	endproc;
+	
+	export proc void EnableSpiritCards(bool p_bOn)
+		m_bSpiritCards=p_bOn;
+	endproc;
+	
+	export proc void SetHandicap(string p_sHandicap)
+		m_sHandicap=p_sHandicap;
+	endproc;
+	
+	export proc string GetHandicap()
+		return m_sHandicap;
+	endproc;
+	
+	export proc void SetForcedToBeNeutral(bool p_bNeutral)
+		var ^CAttribs pxAttr=GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("neutral_to_anmls", p_bNeutral);
+		endif;
+		CMirageSrvMgr.Get().SetNeutralToWildAnimals(GetID(), p_bNeutral);
+	endproc;
+	
+	export proc void SetSpentTime(CGameTimeSpan p_xSpent)
+		m_xSpentTime+=p_xSpent;
+	endproc;
+	
+	export proc CGameTimeSpan GetSpentTime()
+		return m_xSpentTime;
+	endproc;
+	
+	export proc void Kill()
+		delete this;
+	endproc;
+	
+endclass;
+
+class CHumanPlayer inherit CBasePlayer
+	
+//	const string SCORPION = "/Filters/SEAS/Upgrades/xenage/scorpion_invisible";
+//	const string TRICERATOPS = "/Filters/Hu/Upgrades/xenage/triceratops_invisible";
+	
+	export constructor()
+	endconstructor;
+
+	export proc void OnInit()
+		super.OnInit();
+//		var ^CTechTreeDef pxDef=^(GetPlayerTechTreeDef());
+//		if(pxDef!=null)then
+//			if(!pxDef^.HasFilter(SCORPION))then
+//				pxDef^.EnableFilter(SCORPION);
+//			endif;
+//			if(!pxDef^.HasFilter(TRICERATOPS))then
+//				pxDef^.EnableFilter(TRICERATOPS);
+//			endif;
+//		endif;
+	endproc;
+	
+	export proc bool IsHuman()
+		return true;
+	endproc;
+	
+endclass;
+
+class CAiPlayer inherit CBasePlayer
+
+	const string AJE_ZEPPELIN = "/Filters/Aje/Upgrades/xenage/super_zeppelin";
+	const string HU_ZEPPELIN = "/Filters/Hu/Upgrades/xenage/super_zeppelin";
+	const string NINIGI_ZEPPELIN = "/Filters/Ninigi/Upgrades/xenage/super_zeppelin";
+	const string SEAS_ZEPPELIN = "/Filters/SEAS/Upgrades/xenage/super_zeppelin";
+	
+	var int m_iType;
+	var int m_iDifficulty;
+
+	export constructor()
+		//std ctor used by loading only
+	endconstructor;
+
+	export constructor(int p_iType)
+		m_iType=p_iType;
+	endconstructor;
+
+	export proc void OnInit()
+		super.OnInit();
+		var ^CTechTreeDef pxDef=^(GetPlayerTechTreeDef());
+		if(pxDef!=null)then
+			if(!pxDef^.HasFilter(AJE_ZEPPELIN))then
+				pxDef^.EnableFilter(AJE_ZEPPELIN);
+			endif;
+			if(!pxDef^.HasFilter(HU_ZEPPELIN))then
+				pxDef^.EnableFilter(HU_ZEPPELIN);
+			endif;
+			if(!pxDef^.HasFilter(NINIGI_ZEPPELIN))then
+				pxDef^.EnableFilter(NINIGI_ZEPPELIN);
+			endif;
+			if(!pxDef^.HasFilter(SEAS_ZEPPELIN))then
+				pxDef^.EnableFilter(SEAS_ZEPPELIN);
+			endif;
+		endif;
+		var ^CLevelInfo.CPlayerSlot pxPlayerSlot=GetPlayerSlot();
+		if(pxPlayerSlot==null)then return; endif;
+//		var int iDiff=pxPlayerSlot^.GetValueInt("Difficulty");
+		m_iDifficulty=pxPlayerSlot^.GetValueInt("Difficulty");
+//		if(iDiff==7||iDiff==8||iDiff==9)then
+			SetAttribs("ai_level",m_iDifficulty);
+//		endif;
+	endproc;
+
+	proc bool Save(^CUOFWriterNode p_pxWriterNode)
+		if(!super.Save(p_pxWriterNode))then return false; endif;
+		var CFourCC xType="AIty";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		(pxArc^) << m_iType;
+		pxWalk^.Close();
+		return true;
+	endproc;
+
+	proc bool Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="AIty")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			(pxArc^) << m_iType;
+		else
+			if(!super.Load(p_pxReaderNode))then return false; endif;
+		endif;
+		return true;
+	endproc;
+
+	export proc real AddResource(string p_sType, real p_fValue)
+		if(m_bSlave)then return AddResource(p_sType,p_fValue,p_fValue,false); endif;
+		var ^CLevelInfo.CPlayerSlot pxPlayerSlot=GetPlayerSlot();
+		if(pxPlayerSlot==null)then return p_fValue; endif;
+		var int iDiff=pxPlayerSlot^.GetValueInt("Difficulty");
+		var real fNewValue=p_fValue;
+		if(iDiff==5)then
+			fNewValue*=1.25;
+		elseif(iDiff==6)then
+			fNewValue*=1.5;
+		elseif(iDiff==7)then
+			fNewValue*=1.75;
+		elseif(iDiff==8)then
+			fNewValue*=2.0;
+		elseif(iDiff==9)then
+			fNewValue*=2.5;
+		endif;
+		return AddResource(p_sType,fNewValue,false);
+	endproc;
+	
+	export proc real AddResource(string p_sType, real p_fValue, bool p_bSkipCheck)
+		return super.AddResource(p_sType, p_fValue, p_fValue, p_bSkipCheck);
+	endproc;
+	
+	export proc real AddResource(string p_sType, real p_fValue, real p_fOriginalValue, bool p_bSkipCheck)
+		return super.AddResource(p_sType, p_fValue, p_fOriginalValue, p_bSkipCheck);
+	endproc;
+	
+	export proc int GetAIDifficulty()
+		return m_iDifficulty;
+	endproc;
+	
+endclass;
+
+class CDucentiquinquagintagintamal // ;)
+	export static proc string StringFromInt(int p_iVal)
+		var bitset dwVal=p_iVal.ToBitset();
+		var char cA=((dwVal>>28)&07Fh).ToInt()+1;
+		var char cB=((dwVal>>21)&07Fh).ToInt()+1;
+		var char cC=((dwVal>>14)&07Fh).ToInt()+1;
+		var char cD=((dwVal>>7)&07Fh).ToInt()+1;
+		var char cE=((dwVal)&07Fh).ToInt()+1;
+		return cA+cB+cC+cD+cE;
+	endproc;
+
+	export static proc int IntFromString(string p_sVal)
+		if(p_sVal.GetLength()<5)then return 0; endif;
+		var bitset dwRes=0b;
+		dwRes=((p_sVal.GetAt(0).ToInt()-1).ToBitset()<<28)&(07Fh<<28) |((p_sVal.GetAt(1).ToInt()-1).ToBitset()<<21)&(07Fh<<21) |
+				((p_sVal.GetAt(2).ToInt()-1).ToBitset()<<14)&(07Fh<<14) |((p_sVal.GetAt(3).ToInt()-1).ToBitset()<<7)&(07Fh<<7) |
+				((p_sVal.GetAt(4).ToInt()-1).ToBitset()&(07Fh));
+		return dwRes.ToInt();
+	endproc;
+
+	export static proc void IntArrayToString(ref array int p_raiInts, ref string po_rsString)
+		po_rsString="";
+		var int i, iC=p_raiInts.NumEntries();
+		for(i=0) cond(i<iC) iter(++i) do
+			po_rsString+=StringFromInt(p_raiInts[i]);
+		endfor;
+	endproc;
+
+	export static proc int ExtractFromString(string p_sString, ref array int po_raiInts)
+		var int iMod=p_sString.GetLength()%5;
+		var int iNumInts=p_sString.GetLength()/5;
+		if(iMod>0)then --iNumInts; endif;
+		var int i, iC=iNumInts;
+		po_raiInts=iC;
+		for(i=0) cond(i<iC) iter(++i) do
+			po_raiInts[i]=IntFromString(p_sString.Mid(i*5,5));
+		endfor;
+		return iC;
+	endproc;
+	
+endclass;
+

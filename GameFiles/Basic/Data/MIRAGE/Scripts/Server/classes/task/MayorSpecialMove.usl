@@ -1,0 +1,424 @@
+class CMayorSpecialMove inherit CSpecialActionTask
+
+	var CObjHndl 		m_xActor;
+	var string 			m_sState;
+	var string			m_sAnim;
+	
+	export constructor()
+		SetName("MayorSM");
+		SetCivil(false);
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="MaSM";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xActor.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_sAnim;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="MaSM")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xActor.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_sAnim;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xActor, string p_sAnim, string p_sPath)
+		m_sState="calc_dmg";
+		if(!p_xActor.IsValid())then
+			m_sState="EndTask";
+			return false;
+		elseif(p_xActor.GetObj()^.GetClassName()!="mayor_s0")then
+			m_sState="EndTask";
+			return false;
+		endif;
+		SetSpecialActionPath(p_sPath);
+		m_xActor = p_xActor;
+		m_sAnim = p_sAnim;
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xActor.GetObj());
+		if(pxFightingObj==null || !pxFightingObj^.CheckSpecialActionTimer(GetSpecialActionPath()))then
+			EndTask();
+			return;
+		endif;
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxActor = cast<CCharacter>(m_xActor.GetObj());
+		if(pxActor==null)then EndTask(); return; endif;
+		if(m_sState == "calc_dmg")then
+			//calc
+			if(!StartSpecialActionTimer(pxActor))then EndTask();return;endif;
+			pxActor^.MemorizeCurrentFightState(CObjHndl.Invalid(),false,false);
+			SetUnStoppable(true);
+			var int iOwner = pxActor^.GetOwner();
+			if(iOwner>=0)then
+				//Badgun Tuning: Mayor Special Move
+				var real fRange			= 6.0; // must NOT be 0.0; 
+				var real fDmgPercentage	= 25.0;
+				var real fMinDmg		= 300.0;
+				var real fMaxDmg		= 2000.0;
+				var CObjList xList;
+				var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
+				if(pxEnemies==null) then return; endif;
+				pxEnemies^.CopySorted(xList, pxActor^.GetPos(), fRange);
+				var int i, iC = xList.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CFightingObj pxFight = cast<CFightingObj>(xList[i].GetObj());
+					if(pxFight!=null && !pxFight^.GetTransportObj().IsValid() && !pxFight^.GetOnWall())then
+						var real fDamageDone = Math.Clamp(pxFight^.GetHitpoints()*fDmgPercentage*0.01, fMinDmg, fMaxDmg);
+						pxFight^.TakeDirectMeleeDmg(fDamageDone,pxActor^.GetOwner(),m_xActor);
+						var ^CCharacter pxChar = cast<CCharacter>(pxFight);
+						if(pxChar!=null && !pxChar^.GetTransportObj().IsValid())then
+							var real fDiffTime=((Random.GetInt()%150).ToReal())/100.0f;
+							var real fDiffDistance=(Random.GetInt()%40).ToReal()/10.0;
+							var vec3 vDir = (pxChar^.GetPos() - pxActor^.GetPos());
+							vDir.Normalize();
+							vDir.SetZ(vDir.GetZ()+0.5);
+							vDir.Normalize();
+							pxChar^.SetHitReactionTimer(0.1+fDiffTime,vDir*(1.0f+fDiffDistance));
+						endif;
+					endif;
+				endfor;
+			endif;
+			pxActor^.AnimAction(m_sAnim);
+			m_sState = "finished";
+		elseif(m_sState=="finished")then
+			SetUnStoppable(false);
+			m_sState = "finished";
+			pxActor^.ReturnToFight();
+		elseif(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc bool Break()
+		if(GetUnStoppable())then
+			return false;
+		endif;
+		return false;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+	
+	export proc void EndTask()
+		UpdateAggressionPos(m_xActor);
+		super.EndTask();
+	endproc;
+
+endclass;
+
+class CWardenSpecialMove inherit CSpecialActionTask
+
+	var CObjHndl 		m_xActor;
+	var string 			m_sState;
+	var string			m_sAnim;
+	
+	export constructor()
+		SetName("MayorSM");
+		SetCivil(false);
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="MaSM";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xActor.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_sAnim;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="MaSM")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xActor.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_sAnim;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xActor, string p_sAnim, string p_sPath)
+		m_sState="calc_dmg";
+		if(!p_xActor.IsValid())then
+			m_sState="EndTask";
+			return false;
+		elseif(p_xActor.GetObj()^.GetClassName()!="darwin_s0")then
+			m_sState="EndTask";
+			return false;
+		endif;
+		SetSpecialActionPath(p_sPath);
+		m_xActor = p_xActor;
+		m_sAnim = p_sAnim;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xActor.GetObj());
+		if(pxFightingObj==null || !pxFightingObj^.CheckSpecialActionTimer(GetSpecialActionPath()))then
+			EndTask();
+			return;
+		endif;
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxActor = cast<CCharacter>(m_xActor.GetObj());
+		if(pxActor==null)then EndTask(); return; endif;
+		if(m_sState == "calc_dmg")then
+			//calc
+			if(!StartSpecialActionTimer(pxActor))then EndTask();return;endif;
+			pxActor^.MemorizeCurrentFightState(CObjHndl.Invalid(),false,false);
+			SetUnStoppable(true);
+			var CObjQuery xQuery;
+			xQuery.SetOwner(pxActor^.GetOwner());
+			CSrvWrap.GetDiplomacyMgr().AddMyFriendsToSearch(pxActor^.GetOwner(), xQuery); //allies
+			xQuery.SetType("CHTR");
+			xQuery.SetType("ANML",true);
+			xQuery.SetType("VHCL",true);
+			xQuery.SetType("SHIP",true);
+			xQuery.SetType("BLDG",true);
+			xQuery.RegionCircle(pxActor^.GetPos(),20.0);
+			var CObjList xList;
+			xQuery.Execute(xList);
+			var int i,iC=xList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxObj=cast<CFightingObj>(xList[i].GetObj());
+				if(pxObj==null)then continue; endif;
+				pxObj^.StartANMLImmunityTimer();
+			endfor;
+			pxActor^.AnimAction(m_sAnim);
+			m_sState = "finished";
+		elseif(m_sState=="finished")then
+			SetUnStoppable(false);
+			m_sState = "finished";
+			pxActor^.ReturnToFight();
+		elseif(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+	
+	export proc bool Break()
+		if(GetUnStoppable())then
+			return false;
+		endif;
+		return false;
+	endproc;
+	
+	export proc void Skip()
+	endproc;
+	
+	export proc void EndTask()
+		UpdateAggressionPos(m_xActor);
+		super.EndTask();
+	endproc;
+	
+endclass;
+
+class CSacrifice inherit CSpecialActionTask
+
+	//BadGun Tuning: Kleemann Sacrifice
+	const real			RANGE = 5.0;
+	const real			HEAL_PERCENT = 100.0;
+	const real			KILL_ANIMDELAY = 0.9;
+
+	var CObjHndl 		m_xCharacter;
+	var CObjHndl		m_xTarget;
+	var string 			m_sState;
+	var int				m_iRetryCounter;
+	var CGameTime		m_xStart;
+	var real			m_fAnimLength;
+
+	export constructor()
+		SetName("Sacrific");
+		SetCivil(false);
+	endconstructor;
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Sacr";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xCharacter.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		m_xStart.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_iRetryCounter;+
+		(pxArc^) << m_fAnimLength;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Sacr")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xCharacter.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			m_xStart.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_iRetryCounter;
+			(pxArc^) << m_fAnimLength;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xCharacter,CObjHndl p_xTarget, string p_sPath)
+		m_sState="EndTask";
+		if(!p_xCharacter.IsValid()||!p_xTarget.IsValid())then
+			return false;
+		endif;
+		var ^CFightingObj pxTarget=cast<CFightingObj>(p_xTarget.GetObj());
+		if(pxTarget==null)then
+			return false;
+		endif;
+		if(pxTarget^.GetType()!="ANML" && pxTarget^.GetType()!="CHTR" && pxTarget^.GetType()!="VHCL" && pxTarget^.GetType()!="SHIP")then
+			return false;
+		endif;
+//		if(pxTarget^.GetOwner()!=p_xCharacter.GetObj()^.GetOwner())then
+		if(!CSrvWrap.GetDiplomacyMgr().GetIsFriend(pxTarget^.GetOwner(), p_xCharacter.GetObj()^.GetOwner()))then
+			return false;
+		endif;
+		m_sState="goto_target";
+		m_xCharacter = p_xCharacter;
+		m_xTarget = p_xTarget;
+		SetSpecialActionPath(p_sPath);
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xCharacter.GetObj());
+		if(pxFightingObj==null || !pxFightingObj^.CheckSpecialActionTimer(GetSpecialActionPath()))then
+			EndTask();
+			return;
+		endif;
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		var ^CFightingObj pxTarget = cast<CFightingObj>(m_xTarget.GetObj());
+		if(pxCharacter==null)then EndTask(); return; endif;
+		if(pxTarget==null)then EndTask(); return; endif;
+		if(m_sState == "goto_target")then
+			var bool bInvalid;
+			var CObjHndl xInvalid;
+			if(!pxCharacter^.IsInCombatRange(pxTarget, bInvalid, xInvalid, RANGE))then
+				if(pxCharacter^.GetOnWall())then
+					EndTask();
+					return;
+				endif;
+				pxCharacter^.AdvanceAction(pxTarget^.GetHandle(),RANGE,pxCharacter^.GetDefaultSpeed());
+			endif;
+			m_sState = "rotate";
+		elseif(m_sState == "rotate")then
+			var bool bInvalid;
+			var CObjHndl xInvalid;
+			if(!pxCharacter^.IsInCombatRange(pxTarget, bInvalid, xInvalid, RANGE))then
+				if(m_iRetryCounter>3)then
+					EndTask();
+					return;
+				else
+					m_iRetryCounter++;
+					m_sState = "goto_target";
+					return;
+				endif;
+			endif;
+			var vec3 vDir=pxTarget^.GetPos()-pxCharacter^.GetPos();
+			var Quat qTRot;
+			qTRot.FromXYDir(vDir.GetX(),vDir.GetY());
+			pxCharacter^.RotateAction(qTRot);
+			m_sState = "throw";
+			if(!StartSpecialActionTimer(pxCharacter))then EndTask();return;endif;
+			SetUnStoppable(true);
+			return;
+		elseif(m_sState == "throw")then
+			m_xStart = CTimeMgr.Get().GetTime();
+			pxCharacter^.SetAnim("aje_velo_strike_0",1);
+			m_fAnimLength = pxCharacter^.GetCurrentAnimLength();
+			m_sState = "strike";
+		elseif(m_sState=="strike")then
+				if((CTimeMgr.Get().GetTime()-m_xStart).GetSecondsF()<KILL_ANIMDELAY)then
+					return;
+				endif;
+			var real fHitpoints = pxTarget^.GetHitpoints();
+			var ^CHero pxHero=cast<CHero>(pxCharacter);
+			if(pxHero!=null)then
+				pxHero^.KleemanDamageBoostStart(fHitpoints);
+			endif;
+			pxTarget^.SetLastDamage(pxTarget^.GetOwner());
+			pxTarget^.ResetDamagePortion();
+			pxTarget^.DiePerHarakiri();
+			m_sState = "finished";
+		elseif(m_sState == "finished")then
+			if((CTimeMgr.Get().GetTime()-m_xStart).GetSecondsF()<m_fAnimLength)then
+				return;
+			endif;
+			SetUnStoppable(false);
+			m_sState="EndTask";
+			pxCharacter^.ReturnToFight();
+			return;
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CFightingObj pxFighter = cast<CFightingObj>(m_xCharacter.GetObj());
+		if(pxFighter!=null)then
+			pxFighter^.ShowWeapons();
+		endif;
+	endproc;
+	
+	export proc bool Break()
+		if(GetUnStoppable())then
+			return false;
+		endif;
+		if (m_xCharacter.IsValid()) then
+			m_xCharacter.GetObj()^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+	
+	export proc void Skip()
+	endproc;
+	
+	export proc void EndTask()
+		UpdateAggressionPos(m_xCharacter);
+		super.EndTask();
+	endproc;
+	
+endclass;

@@ -1,0 +1,2415 @@
+MIRAGE 2.6.5 (May 09 2023)
+===============================================================
+
+Change Log:
+
+MIRAGE 2.6.5
+------------------
+General:
+- Updated discord integration with join feature
+- Attacking buildings can now use stances
+- Buildings will leave collectable and deco debris when destroyed (if corpses enabled)
+- Multi-campaign and custom gameplay maps are highlighted in the map list
+- Unit corpses no longer block building construction
+- New ui icons for the SDK
+- The replay loading window has been increased so that the full name of the replay fits in the list
+- Buildings can no longer be mounted in transporters
+- ReColor and Wintermod mods have been added to mirage launcher (on/off in the PWTool)
+- Fixed crash on single_b42_seas
+- Fixed missing Nest_Anurognathus_Fruit_Bush texture
+- Fixed missing seas wg textures
+- Fixed seas nest crash
+- Fixed a typo in TT that broke the passive stance button of seas carriers
+- Fixed hu_portal_terminus redefinition
+- Deleted unused portraits_dialog.tga and ingame_ui.tga from All_def.txt
+- Deleted unused entries Buttons/portraits_dialog.tga and Buttons/ingame_ui.tga from All_def.txt
+
+Heroes:
+- Taslow will play a unique animation when destroying vehicles from now on
+
+Dragon clan:
+- Telescope tower is available from epoch 5 from now on
+- Minimal building explosion damage is increased from 100 to 350
+- New headquarter model for epoch 6
+
+Dustriders:
+- New epoch 6 building: watchtower which increases visibility for all units and reveals camouflaged units and traps
+- Headquarters has 5 infantry passenger slots from now on
+- Headquarters wagons will use destruction models when taking damage from now on
+- Harbours will leave collectable barrels with food when destroyed (if corpses enabled)
+- New headquarter model for epoch 6
+
+Norsemen:
+- Battle tank new upgrade: steam cannon which equips the battle tank with a secondary long range weapon
+- Zombie warrior can use jetpack from now on (requires Taslow on epoch 4)
+- Kleemann on epoch 4 will also give zombie archers from now on
+- New epoch 6 building: mud pit which slows down enemy units passing through it
+- Druid will play a unique animation when using insects from now on
+- New headquarter model for epoch 6
+
+SEAS:
+- Carriers will leave collectable barrels with food when destroyed (if corpses enabled)
+- New headquarter model for epoch 6
+- HD textures for the wg scaffoldings
+
+
+MIRAGE 2.6.4
+------------------
+General:
+- Fixed missing seas wg textures
+- Fixed a typo in TT that broke the passive stance button of seas carriers
+- The replay loading window has been increased so that the full name of the replay fits in the list
+- Taslow now uses a unique previously unused animation when destroying vehicles
+- Druid now uses a unique previously unused animation when using insects
+- Dustriders hq has 5 infantry passenger slots from now on
+- Buildings now leave collectable and deco debris when destroyed
+- Attacking buildings can now use stances
+- Sound feedback enabled by default
+- Default mirage settings are now reorganized
+- Buildings can no longer be mounted
+- Seas nest crash fixed
+- Updated discord integration with join feature
+- New ui icons for SDK
+- Deleted unused portraits_dialog.tga and ingame_ui.tga from All_def.txt
+- Wintermod 1.7 included (enable/disable in PWTool)
+- Wintermod: wrong hu_triceratops_transporter lod fixed
+- Wintermod: fixed missing lemur_catta,ice_sloth_a textures for hu_fireplace
+- Unused shielbars ui textures removed
+- Unused old_loadbg_seas2.jpg deleted
+- Added missing objbrush textures for aje_skull_protector, ninigi_dilophosaurus_nest, hu_magic_cauldron
+- Added maintheme reduced score to the mainmenu
+- Added seas big cannon crater, seas gunner, seas marksman textures for oasis setting
+- Fixed missing avatar texture
+- Fixed missing hu rider helmet texture
+- New launcher (.NET Framework required)
+- New Oasis setting
+- Added new maps for skirmish and multiplayer
+- Heterodontosaurus corpse have food now
+- The hu_avatar have icons on all 5 levels from now on
+- The pirate ship_chain have icon and hitpoints from now on
+- All multicampaign maps have now localized names
+- Fixed bug in multicampaign maps when the quest description was not displaying
+- Fixed bugs in multicampaign maps: Pirates and Hostages and The Devil's Advocate: from now on the Pirates will no longer attack you until you attack first, during the bargain subquest. The Norsemen and Dustriders tribe will now join Heroes team after the Keystone destruction.
+- Diplomacy window being locked in multicampaign maps.
+- Neutral allies will no longer gain vision to the heroes until its necessary.
+- Some multiplayer maps got their name changed for better script work.
+- The Quest window from now on available only in singleplayer and multicampaign mode.
+- The brown color replacer was now changed to dark green.
+- Mission 11: The arena of the multicampaign are no longer counts auto_victory from the level_start
+- All ships (including dustrider's floating harbor and seas_carrier) and vehicles have poison and ice immunity from now on
+- Seas now are fully playable on mission b42 in multicampaign
+- The allied defenders for heroes are now allies and enemies to paraworld tribes on mission b41
+- Removed falling stones for norsemen on mission b41
+- The tents and dinofarms of dustriders can again be converted from now on
+- All army production buildings, taverns and tribe HQ's have building limit up to 5 from now on
+- Fixed bug on mission 7:The Water Temple of singleplayer campaign that kill black widows quest was not counting as completed after spiders death
+- Fixed pointbuy problem on multiplayer map "Prisoners" for infantry only game mode
+- On mission 12: The seas battle of the multicampaign building limit on seas_carriers was increased up to 5 ships
+- Reworked building limit on mission 4:The Dustriders
+- Seas_headquarters map was optimized by removing useless triggers and using IdiObj
+- Multicampaign maps 06, 15, B41 and b43 now being switched in new game mode system
+- Some settings of custom_level_data were removed which were probably causing the connection problems in multicampaign
+- Added unused icon for winter version of mammal cave
+- Fixed bug with undead and zombie warrior lvl 4 shield model
+- Changed description for hu_undead_killer, hu_berserk_statue, hu_undead_warrior, for hu_avatar, for hu_colossi, for hu_kennel, for hu_kennel smilodon, for pirate_boss_ship parts
+- Added Gigantopithecus description
+- Changed descriptions for special_mobile_suit, ship_regeneration
+- Added babbage_mobile_suit (hero and creep) as exclude unit for Taslow lvl 3 ability
+- Created two Valhalla units which doesnt needs the to be activated by triggers first. Their stats same as their original - hu_zombie_killer (hu_undead_killer), hu_stone_statue (hu_berserk_statue)
+- Added filter to aje_rodeo, aje_weapons_builder, aje_huge_farm which replaces models on hc_ones
+- Added filter which enabling producing babbage_mobile_suit instead of seas_scorpion in seas_garage
+- Aje_Tent_Dem_Fx class redefinition fix
+- hu_zombie_killer class redefinition fix
+- Canged "value" attrib type from "real" to "float" (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
+- Canged "duration" attrib type from "real" to "float" (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
+- Canged "damage_value" attrib type from "real" to "float" (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
+- Canged "GROUP" to "GROU" since it should be maximal 4 character long (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
+- Canged "maxenergy" to "maxenergyamount" (FightingObj.usl lines 8720, 10370)
+- Fixed no type for attrib Root\HELP\attribs\player (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
+- Fixed "is_sequence" attrib type mismatch (MIRAGE\Scripts\Server\misc\action_attrib_def.txt & StartLocation.usl lines 43, 346)
+- Fixed "ignore_pointbuy" attrib type mismatch (MIRAGE\Scripts\Server\misc\action_attrib_def.txt & StartLocation.usl line 428)
+- Fixed "illusion" attrib type mismatch (MIRAGE\Scripts\Server\misc\action_attrib_def.txt & FightingObj.usl line 14757)
+- Fixed missing text color "giw_red" - changed to "cored"
+- Fixed missing text color "giw_yellow" - changed to "coyellow"
+- Fixed missing text line _GameInputController_NotImplementedYet
+- Fixed missing text line _NT_RscWaring_WOOD
+- Fixed missing text line _NT_TransportCannotUnboard
+- Fixed missing text line _seq_1060_cole_01a
+- Fixed missing text line _seq_1060_cole_01c
+- Fixed missing text line _seq_1060_cole_02
+- Fixed missing text line _seq_1120_LOYALHU_01
+- Fixed missing text line _MN_MP_6_JUNGLEFEVER_DOOM_DESC
+- Fixed missing gsf sound 09_buildings/hs_arena_door_open.wav
+- Fixed missing gsf sound 09_buildings/hs_arena_door_close.wav
+- Fixed missing gsf sound 09_buildings/hs_arena_train_weapon_1.wav
+- Fixed missing gsf sound 09_buildings/hs_arena_train_weapon_2.wav
+- Fixed missing gsf sound 09_buildings/hs_arena_train_weapon_3.wav
+- Fixed missing gsf sound 09_buildings/hs_arena_train_weapon_4.wav
+- Fixed missing gsf sound 09_buildings/hs_arena_dummy_move_1.wav
+- Fixed missing gsf sound 09_buildings/hs_arena_dummy_move_2.wav
+- Fixed missing gsf sound 02_battle/hx_druid_insects.wav
+- Fixed missing gsf sound 05_ui/ui_hx_stonequarry.wav
+- Fixed missing gsf sound 02_battle/hx_druid_heal.wav
+- Fixed missing gsf sound 02_battle/ajx_shaman_heal.wav
+- Fixed missing gsf sound 02_battle/ajx_shaman_termites.wav
+- Fixed missing gsf sound 02_battle/ajx_shaman_tornado.wav
+- Fixed missing gsf sound 02_battle/ninigx_monk_heal.wav
+- Fixed missing gsf sound 02_battle/seax_medic_heal.wav
+- Fixed missing sound file "07_speech_acks/ui_task_attack.wav" in file "UI_feedback_task_attack.txt"
+- Fixed missing sound file "07_speech_acks/ui_click_success.wav" in file "UI_feedback_task_attack.txt"
+- Fixed missing sound file "07_speech_acks/ui_click_fail.wav" in file "UI_feedback_task_attack.txt"
+- Fixed missing sound file "05_ui/ui_ninigi_mineship_mine.wav" in file "ui_select_building.txt"
+- Fixed missing sound file "05_ui/ui_seas_fence.wav" in file "ui_select_building.txt"
+- Fixed missing sound file "05_ui/ui_seas_gate_open.wav" in file "ui_select_building.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_1.wav" in file "unitacks_hu_undead_warrior.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_2.wav" in file "unitacks_hu_undead_warrior.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_1.wav" in file "unitacks_hu_undead_warrior.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_4.wav" in file "unitacks_hu_undead_warrior.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Unigue4/Hu_Killer_die_2.wav" in file "unitacks_hu_undead_killer.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Unigue4/Hu_Killer_die_die_3.wav" in file "unitacks_hu_undead_killer.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_1.wav" in file "unitacks_hu_undead_killer.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_4.wav" in file "unitacks_hu_undead_killer.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_2.wav" in file "unitacks_hu_undead_killer.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Unigue4/Hu_Killer_die_2.wav" in file "unitacks_hu_zombie_killer.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Unigue4/Hu_Killer_die_die_3.wav" in file "unitacks_hu_zombie_killer.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_1.wav" in file "unitacks_hu_zombie_killer.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_4.wav" in file "unitacks_hu_zombie_killer.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_2.wav" in file "unitacks_hu_zombie_killer.txt"
+- Fixed missing sound file "07_speech_acks/Heroes/Larry/hero_Trader_die_1.wav" in file "unitacks_Barry_s0.txt"
+- Fixed missing sound file "07_speech_acks/Heroes/Larry/hero_Trader_die_1.wav" in file "unitacks_Harry_s0.txt"
+- Fixed missing sound file "07_speech_acks/Heroes/Larry/hero_Trader_die_1.wav" in file "unitacks_Larry_s0.txt"
+- Fixed missing sound file "07_speech_acks/Heroes/Miyagi/hero_Miyagi_die.wav" in file "unitacks_Miyagi_s0.txt"
+- Fixed missing sound file "07_speech_acks/Heroes/Larry/hero_Trader_die_1.wav" in file "unitacks_Tarna_s0.txt"
+- Fixed missing sound file "07_speech_acks/SEAS/Misc/Aje_Archer_prod_1.wav" in file "unitacks_aje_scythian.txt"
+- Fixed missing sound file "07_speech_acks/SEAS/Misc/Ni_Fire_prod_2.wav" in file "unitacks_aje_zeppelin.txt"
+- Fixed missing sound file "07_speech_acks/SEAS/Misc/Ni_Fire_prod_2.wav" in file "unitacks_hu_zeppelin.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_1.wav" in file "unitacks_hu_zombie_warrior.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_2.wav" in file "unitacks_hu_zombie_warrior.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_1.wav" in file "unitacks_hu_zombie_warrior.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_4.wav" in file "unitacks_hu_zombie_warrior.txt"
+- Fixed missing sound file "07_speech_acks/SEAS/Misc/Ni_Fire_prod_2.wav" in file "unitacks_ninigi_cargolifter.txt"
+- Fixed missing sound file "07_speech_acks/SEAS/Misc/Ni_Fire_prod_2.wav" in file "unitacks_ninigi_zeppelin.txt"
+- Fixed missing sound file "07_speech_acks/Hu/Rider3/Hu_Ram_gag_1.wav" in file "unitacks_seas_wehrspinne.txt"
+- Fixed missing sound file "07_speech_acks/SEAS/Misc/Ni_Fire_prod_2.wav" in file "unitacks_seas_zeppelin.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_sel_1.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_sel_2.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_sel_3.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_gag_1.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_gag_2.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_gag_3.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_prod_1.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_move_1.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_move_2.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_move_3.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_atk_1.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_atk_2.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_atk_3.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_die_1.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_hit_1.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_hit_2.wav" in file "unitacks_ninigi_kong.txt"
+- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_hit_3.wav" in file "unitacks_ninigi_kong.txt"
+
+AI:
+- The AI on multicampaign maps will have behavior close to singleplayer ones.
+- On missions: Pirates and hostages, The New World Order and Operation Neptune unplayable bases controlled by AI will no longer be dumb.
+- The AI will no longer loot the items in multicampaign.
+- Added ability to produce seas_hovercraft in garage
+- Added ability to produce seas_gunner, rocketman, flamethrower and medic in barracks
+- Added ability to produce seas_executioner on lvl 4 in garage
+- Added ability to produce seas_executioner_MKII on lvl 4 in garage
+- Added ability to produce seas_executioner_MKII on lvl 5 in garage
+- Added ability to produce seas_exo_flamethrower on lvl 2 in garage
+- Added ability to produce seas_stinger on lvl 3 in carrier
+- Added ability to produce norsemen_battle_tank on lvl 4 in machine_maker
+- SEAS hq_bunker now can produce gunners
+
+Heroes:
+- Taslow lvl 5 bonus doesnt gives resources for killing vehicles, ships and buildings. Its now makes all workers build faster globally
+- Miyagi lvl 5 bonus doesnt gives armor to vehicles anymore. It now gives armor only to ships
+- Zombie Kleemann weapon was highly buffed (early versions)
+- Kleemann zombie has poison effect from now on
+- Babbage mobile suit has armorpiercing for melee attack and increased max damage from 120 to 150 rangedattack on lvl 5
+- Added weapon levels for Kleemann_zombie
+
+Dragonclan:
+- Smokebomber radius increased
+- Hermit's cauldron cost being increased
+- Hunting lodges, lumbermills and stone quarries have their building limit up to 10 from now on
+- Dilophosaurus nest building limit is increased from 6 to 8
+- Reduced machine regeneration
+- Reduced scorpion default damage
+- Rocket ramp and Telescope tower are available from epoch 6 from now on
+- Spike trap damage reduced
+- Ninja's ability to mask on enemies being removed
+- Ninja's ability to build traps being removed
+- Added description, increased skulls and hitpoints for campaign pirate_boss
+- Changed weapon stats for dragon clan kong
+- Added weapon level ups for pirate_boss
+- Added ship_regeneration for ninigi_trading_boat, ninigi_pirate_boss_ship and PT_Citywall_Gate
+
+Dustriders:
+- Dustriders resource tool upgrade no longer boosts harvesting speed, now its increase worker carrying capacity like for other tribes. This is a temporary edit!
+- Dustriders Tarna's Tyrannosaurus cost being increased
+- The allosaurus cost is being increased
+- Wild and Dustrider's stegosauruses melee damage being reduced
+- The Scarecrow's and skull totem costs being swapped between each other
+- The skulls requirement for next epochs increased
+- Poison default damage of poisoner enhanced up to 1500
+- Gallimimus nest building limit increased from 6 to 8
+- Amazon temple building limit reduced from 2 to 1
+- Increased building cost of amazon temple
+- Added dustriders structures upgrade for holy city walls, gates, and water sanctuary gates from now on
+
+Norsemen:
+- Hu warrior lvl3 aura radius increased
+- Melee damage done by the triceratops titan is reduced back
+- Smilodon kennel cost is now the same as for the rest three tribes
+- Lumberjack cottage and stone quarries have their building limit up to 5 from now on
+- Smilodon kennel building limit is increased from 6 to 8
+- Changed weapon stats for norsemen avatar
+- Fixed bug that weapon smith doesnt changed it's icon in build menu after anvil upgrade is done
+
+SEAS:
+- Babbage mobile suits (campaign and normal) and terminator attack frequency is increased to 60 for machine gun weapon
+- Fixed that some upgrades in main seas jail were using one same slot
+- Returned back all tribe healers and their ability upgrades from now on
+- The sumo wrestler can be produced in jail 1 from now on
+- All broken units: undead killer, undead warrior, dragon clan archer, norsemen jetpack warrior and killer now can be produced in jail 1 finally
+- Fixed broken norsemen infantry defense upgrade in seas_jail
+- The icon of dustrider's armor upgrade not overlay on seas reactor core from now on
+- The dustriders catapult hitrange and range upgrades are now in the same category as other upgrades which reduced size of jail toolbar a lot
+- In seas jail 2 no missing slots between units anymore
+- For making the units abilities (healers abilities f.e) from jails work, you need to enable TechTreeSteal and United advancement in MIRAGE server settings.
+- Greenhouses from now have building limit since they can be converted in automatic mode of resource harvesting
+- Removed ability to produce seas_scorpion in garage
+- Removed ability to produce seas_turtle in carrier
+- Greenhouses from epoch 3 can be used by 4 workers
+- Stone mines were returned
+- Added jails for epoch six. They increase army limit and produce infantry of other tribes even the heroes ones without the heroes itself. Casual seas building upgrades also works on them. (early versions)
+- SEAS sniper's range was reduced
+- Changed weapon stats for seas_scorpion
+- Increased cost for babbage's transformation into exo suit
+- Original seas small cannons, mg_nests and big cannon are have seas buildings upgrades from now on
+
+MIRAGE 2.6.3
+build 35
+------------------
+
+General:
+ - Added OverVored's new defender map, based on mission 15 and 16
+ - Revamped many UI decoration, including MIRAGE launcher's buttons - thanks to Zidell
+ - Added -2 player option to SFOW trigger action (Uncover Fog-Of-War), which removes FOW for all players at the same time
+ - Added rider link to Apatosaurus and Archeopteryx - thanks to Zidell
+ - Transport units, which have unload animation, will play it while mounting or dismounting units
+ - Added several (mostly seas) units player colors (thanks to Zidell)
+ - Siege units and buildings can be used on all walls (not just enemy ones) from now on
+ - Updated siege and eating cursors (thanks to Zidell)
+ - Several new buildings (like nm mine) got buildup animation like original buildings (thanks to Zidell's model editing)
+ - Some ships could be mounted into class 2 transport units (like transport ships) -> this has been fixed
+ - Fixed several link and model bugs
+ - Important server settings are colored red at the overview sections if enabled/disabled from now on (i.e. warpgate is enabled, or FOW disabled)
+ - Enhanced saving function of buildings has been fixed
+ - Single clicking or just higlighting an item in the object insert list (in leveleditor) will activate the ghost of the appropriate object
+ - Options menu can be opened from endscreen menu
+ - Added the new cursors (ladder, staircase, eating) to the help files
+ - Passengers won't be excluded from healer's query, but units on foot will be prioritized
+ - The properties window in leveleditor won't jump to first tab (/full reset) if you select another object of the same type (like switching to another nest)
+ - The installer includes from now on a cheats file (altered a bit to mirage) and if there is a cheat file already present in bin folder, it will ask you about keeping that or not
+ - On a dedicated server only the maps from Base folder were usable, trying to play on a Boosterpack or Mirage map was impossible (the game crashes on client side) -> this has been fixed
+ - Fixed an underground treasure on Blood Island (Norsemen) and Blood Island (Dragon Clan) and changed spino islands on both
+ - Added Death Valley map
+ - Wild animals won't be scared if a player controlled animal unit dies from now on
+ - Neutral animals (like sauropods, armored dinosaures, etc) won't be scared if they are fighting
+ - Youngling animals won't autoattack enemy of the adult animals, unless the target is in safezone (close to nest basically)
+ - Savannah forest blocks contained FanPalms, Palms and Koekerbooms instead of default forest trees, but they were converted into regular trees at chopping anyways -> forest blocks have only default trees from now on
+ - Added new "Production" command to ACDO trigger action, which can be used for normal unit production, or upgrade invention
+ - Several automatic abilities were broken -> this has been fixed
+ - Inlcuded textures with higher resolution of Arch Druid, Bela, Cole, DR warrior, DR rider, NM jetpack and normal warrior, NM lancer, NM marksman, NM riders - thanks to Zidell
+ - Changed the SEAS rallypoint's texture - thanks to Zidell
+ - Inlcuded climate specific textures of landobjects, so that they can be used in different zones as well - thanks to Zidell
+ - Included fixed amazon texture - thanks to Zidell
+ - Added several model names (like destruction objects) to the class txt files - thanks to Zidell
+ - Ghost object of DC, NM and SEAS hq buildings will have epoch 1 model from now on
+ - Minimum value of building rotation can be 0 from now on
+ - Added a Wiggles quote (which is a phrase used by Bela ingame) - thanks to Zidell
+ - Deleted testset textures, because testset is not playable
+ - Made a cleanup in textures folder - thanks to Zidell
+ - Updated loading image and mini preview image of Mission 1: Seeking Ada - thanks to Zidell
+ - Updated scorch effect textures for Cave1 and Cave2 settings - thanks to Zidell
+ - Updated texture of Eagle pistol - thanks to Zidell
+ - Updated texture of black gigantopithecus - thanks to Zidell
+ - Added modified seismosaurus model (mainly for transporting units) - thanks to Zidell
+ - Added updated cloud textures (for full effect, some settings need to be changed manually) - thanks to Zidell
+ - Wild animals with ranged weapons didn't attack ships automatically, only when they were attacked by them, or transport ships with units inside -> this has been fixed
+ - Added new server option: Continue domination (not listed on the overview pages though) -> domination times doesn't reset if a team loses all its flags, but continues when they get them back
+ - Added immunity timer against throwing, which means that a unit can only be throwed again after 5 seconds (starting at the moment of falling)
+ - Updated several ObjBrushes used by placed buildings to change scape - thanks to Zidell
+ - Trap effects are not working on jet jumping and siege climbing units anymore
+ - Many textures has been fixed and/or updated - thanks to Zidell
+ - Game will only close automatically after changing observer or cheat settings once the user returns to main menu
+ - Trapped units won't forget what they did before, and continue doing it once they are free (from now on)
+ - Trapped units will have a new card overlay (in army controller)
+ - Newly produced transport units, returned to the producing building instead of going to the rally building's rally point, if passengers were mounted on them while they were walking to that location -> this has been fixed
+ - Improved the installer: latest version's readme can be read on one early page (like in 1.01 patch), and the option to keep own cheats and presets are now simple checkboxes
+ - Queueing up tasks is heavily improved
+ - Removed ranged defense bonus infantry units got when being on walls
+ - Infantry units on walls can't be attacked or affected by area damage (except for tornado) from now on
+ - Zeppelin can only transport infantry units from now on
+ - Zeppelin can be built or produced on level 1 from now on
+ - If infantry units were told to climb on a damaged staircase or ladder, they didn't start to do so just went to the corresponding building, only workers started to repair it instead -> this has been fixed
+ - Zeppelin didn't get the trade cursor when a trade building was hovered, depite being able to trade -> this has been fixed
+ - Raging units get their atatck boost from 3/7 health from now on (previously it was from 1/3 HP)
+ - Leveling up jetjumping units broke their task -> this has been fixed
+ - Icons of epoch 6 units and buildings won't pre occupy a slot in the commandbar anymore, but will push the icons of hero units and buildings to the right when they become visible
+ - Icons of flying units won't pre occupy a slot in the commandbar anymore, but will push the next icons to the right when they become visible
+ - Healing units doesn't cost mana from now on (if mana system is enabled)
+ - Brush icons has been restored
+
+AI:
+ - AI will once again use zeppelins for unit transportation
+ - AI won't produce DC siege towers from now on
+ - AI won't build SEAS healing wells from now on
+ - AI's mechanic of using special abilities is improved
+ - AI thinking has been changed to be more constant (it was based on random number generation heavily before), and more faster in general
+ - AI duration bonus on upgrades (like epoch ones) and unit production has been tuned
+ - AI got attack frequency bonus on level 9 and 8 originally, which has been removed -> this bonus has been restored
+
+Heroes:
+ - Taslow's level 5 (global) bonus gave 100% production costs for destroyed vehicles as well -> for killing vehicles it will grant only 50% from now on
+ - Increased Miyagi's swimming speed from 2 to 3 (thanks to Zidell's model editing)
+ - Updated Tarna's icon to have 1.0 style - thanks to Zidell
+ - Stina's hypnosis duration has been reduced from 20 to 10 seconds
+ - Leighton's level 5 bonus increases the close combat damage done by infantry units from now on
+ - Ada's level 5 bonus also reduces the cool down of special abilities from now on (except of her own)
+ - Babbit's level 5 bonus also increases armor of infantry units by 20/20
+ - Miyagi's hitpoints have been changed from 900/1500/2000/2500/3000 to 800/1600/2400/3200/4000)
+ - Governor's level 5 bonus makes workers better fighters too (again) from now on
+
+Dragonclan:
+ - DC launcher frequency upgrade increases only by 2 instead of 5 the following weapons: salta launcher, sordes tower, mortar
+ - DC scorpion (harvester) deals double damage against buildings from now on
+ - Deadly traps upgrade allows ninja to build traps too from now on
+ - DC scorpion (harvester) can collect food too from now on
+ - Added rider link and helmet and armor to Gigantopithecus' model - thanks to Zidell
+ - Pirate boss ship production cost increased from 2000/1500/500 to 3000/2000/1000 (suggested by Scrat)
+ - Enabled extended buildup animation for rocket ramp
+ - Increased Battle blimp's flying speed from 2 to 4 (thanks to Zidell's model editing)
+ - Increased baryonyx' swimming speed from 2 to 4 (thanks to Zidell's model editing)
+ - DC scorpion's close combat and ranged defense is decreased by 10 on each level
+ - DC scorpion's damage is decreased by 10 on each level
+ - DC scorpion's lacerate deals increased damage on higher levels (lvl1: 200, lvl2: 250, lvl3: 300, lvl4: 350, lvl5: 400)
+ - Lacerate's cooldown duration has been decreased from 60 seconds to 20 seconds
+ - Lacerate's angle has been increased from 120 to 150
+ - Lacerate in only available from epoch 4 (again)
+ - DC archers will be able to use Multi arrows and Explosive arrow abilities from now on
+ - Salta launcher gets +25 range (from 25 to 50), and -75% damage against buildings
+ - Salta launcher gets +5 sightrange (from 50 to 55)
+ - Salta launcher can attack flying units from now on
+ - Styraco transporter has only 3 passenger slots from now on (previously 4)
+ - Stinger benefits from gatling upgrades from now on
+ - Fixed smoke and large towers lamps and alpha channel and soft light, and added old large tower - thanks to Zidell
+ - Dragon tank and Rocket boat have only 25% armor piercing damage from now on, only 20 defense against ranged attack from buildings (reduced from 50), but gets +75 defense against rocket ramps and great cannons, and deal only 15% damage against infantry, animals and vehicles
+ - Transport blockade ability channel time has been removed, and the duration of the effect has been reduced from 30 to 15 seconds
+ - Decreased flying speed of barrels used by King Kong from 120 to 70
+ - DC Eusmilus rider has +50 armor against animals, deals +5 damage on each level, but the archer build-up is removed
+ - Gatling rider gets +5 range on each level and has 10% (previously 0%) armor piercing from now on
+ - Gatling rider will finally be able to move and attack at the same time
+ - DC marksman's weapon damage has been changed from 5/10/13/17/25 to 5/8/11/15/23 (level 1/2/3/4/5)
+ - Salta launcher's attack frequency is decreased from 30 to 25
+ - Seismosaurus' Gatling damage has been changed from 5/10/15/20/25 to 5/8/11/15/20 (level 1/2/3/4/5)
+ - DC scorpion's (harvester) attack frequency has been increased from 30 to 35 (apm) and damage has been increased by 40 on each level (from 30/40/50/70/110 to 70/80/90/110/150)
+ - DC scorpion's (harvester) armor is increased by 20 on each level (from 0/0 to 20/20)
+ - DC scorpion's lacerate deals increased damage on higher levels
+ - Lacerate's cooldown duration has been decreased from 60 seconds to 15 seconds
+ - Lacerate's angle has been increased from 120 to 180
+ - DC triceratops has 20% armor piercing attack from now on
+ - DC triceratops' attack frequency has been increased from 30 to 32 (attacks per minute)
+ - Samurai gets +50 close combat defense against robots and other mechanical units
+ - Ninja gets +50 close combat defense against robots and other mechanical units
+ - Sumo wrestler gets +50 close combat defense against robots and other mechanical units
+ - Ninja remains invisible to the opponent even while attacking from now on (like dark templars in SC/SC2)
+ - Baryonyx rider's hitpoints have been increased by 300 on each level (from 550/650/850/1150/1650 to 850/950/1150/1750/1950)
+ - Styraco transporter's hitpoints are increased by 200 on each level (from 700/800/1000/1300/1800 to 900/1000/1200/1500/2000)
+ - DC Trike's hitpoints are increased by 300 on each level (from 300/400/600/900/1400 to 600/700/900/1200/1700)
+ - DC Dilophosaurus' hitpoints have been increased by 450 on each level (from 250/350/550/850/1350 to 700/800/1000/1300/1800)
+ - DC Stinger' hitpoints have been increased by 400 on each level (from 300/400/600/900/1400 to 700/800/1000/1300/1800)
+ - Gatling rider's hitpoints have been increased by 300 on each level (from 500/600/800/1100/1600 to 800/900/1100/1400/1900)
+ - Spike trap deals 100% armor piercing damage by default from now on
+ - Deadly traps upgrade gives spike trap +650 damage from now on
+ - Defense tower's buildup duration has been reduced from 100 to 80 seconds
+ - Smoke tower's buildup duration has been reduced from 120 to 90 seconds
+ - Telescope tower's buildup duration has been reduced from 120 to 90 seconds
+ - Dilophosaurus nest's buildup duration has been reduced from 25 to 10 seconds
+ - Defense tower benefits from archer range and damage upgrades from now on
+ - Sordes upgrade gives +5 range to defense towers from now on
+ - Sordes tower benefits from launcher upgrades from now on
+ - Seismosaurus titan's main weapon has 20% armor piercing from now on
+ - Seismosaurus titan's secondary weapons have 10% armor piercing from now on
+ - Firework's range has been increased from 150 to 200, and cooldown duration has been decreased from 60 to 30 seconds
+ - Baryonyx rider get +10 damage on each level (from 8/18/28/48/88 to 18/28/38/58/98)
+
+Dustriders:
+ - T-Rex titan's walk speed has been increased from 3 to 4 (thanks to Zidell's model editing)
+ - DR trade muraeno's swimming speed has been increased from 2 to 3 (thanks to Zidell's model editing)
+ - Floating harbour's movement speed has been increased from 1 to 2 (thanks to Zidell's model editing)
+ - Transport turtle's movement speed has been increased from 2 to 3 (thanks to Zidell's model editing)
+ - Decreased Psittacosaurus' hit points on each level by 70 (now it has 20/30/50/80/130)
+ - Psittacosaurus has the same attack bonus values as kamikaze velociraptor from now on
+ - Stunning roar's area of effect is decreased from 12 m to 10 m
+ - Sand storm's duration has been decreased from 30 seconds to 15 seconds
+ - Poison thrower benefit from catapult range and hitrange upgrades from now on
+ - Feign death ability has been removed (until we find a better usage for it and fix the crashes)
+ - Shaman's far sight upgrade increases the casting range of his abilities to a lesser extent than before
+ - Stance of poisoner can be changed from now on
+ - Brachio catapult and Catamaran have only 25% armor piercing damage from now on, only 20 defense against ranged attack from buildings (reduced from 50), but gets +75 defense against rocket ramps and great cannons, and deal only 15% damage against infantry, animals and vehicles
+ - DR Eusmilus rider has +50 armor against animals, deals +5 damage on each level, but the archer build-up is removed
+ - Sand storm affect own and allied units too from now on
+ - Sand trap's lifetime has been decreased from 20 to 10 seconds
+ - Decreased the effect radius of sand trap from 20 to 10 meters
+ - Tornado affects own and allied units and buildings too from now on
+ - Sand trap affects own and allied units too from now on
+ - Sand storm also protects units from being damaged by projectiles (like dark swarm in sc:bw)
+ - Velociraptor used by Ankylo catapult gets 50% armor piercing damage from now on
+ - Allosaurus scrunch deals 100% armor piercing damage now
+ - Stegosaurus transporter's attack frequency has been decreased from 30 to 22 (attacks per minute)
+ - Stegosaurus transporter benefits from the stegosaurus armor upgrade from now on
+ - Brachio transporter, catapult and mobile camp benefit from the brachiosaurus armor upgrade from now on
+ - Stegosaurus whiplash' cooldown duration has been decreased from 60 seconds to 20 seconds
+ - Cooldown of Spearman's Spin attack duration has been decreased from 40 seconds to 25 seconds
+ - Cooldown of Spearman's Twist attack duration has been decreased from 30 seconds to 20 seconds
+ - DR Scout's spit range is increased from 12 to 14
+ - DR Scout's close combat attack does causeus also poison damage from now on (amount is the same as for the ranged attack)
+ - DR Warrior gets +50 close combat defense against robots and other mechanical units
+ - DR Amazon Warrior gets +50 close combat defense against robots and other mechanical units
+ - Rammer gets +50 close combat defense against robots and other mechanical units
+ - DR Stegosaurus' hitpoints have been increased by 400 on each level (from 700/800/1000/1300/1800 to 1100/1200/1400/1700/2200)
+ - DR Ankylosaurus' hitpoints have been increased by 300 on each level (from 600/700/900/1200/1700 to 900/1000/1200/1500/2000)
+ - DR Tamed Gallimimus' hitpoints have been increased by 400 on each level (from 400/500/700/1000/1500 to 800/900/1100/1400/1900)
+ - DR Scout's spit range is increased from 14 to 16 meters
+ - DR Ankylo catapult has no minimum attack distance from now on (it had 20 meters)
+ - Harder bone armor increases armor by 20/20 instead of 10/10 from now on (close combat/ranged)
+ - Hitpoints of Poisoner has been screwed up since many versions, so it has been fixed and buffed to the following values: 50/150/350/650/1150
+ - Poisoner benefits from bone armor upgrade from now on
+ - Transport turtle can be healed at temples too from now on
+ - Taslow tower's hitpoints increased from 5500 to 6000.
+ - Small tower's buildup duration has been reduced from 120 to 90 seconds
+ - Large tower's buildup duration has been reduced from 180 to 120 seconds
+ - Taslow tower's buildup duration has been reduced from 210 to 140 seconds
+ - Small tower benefits from archer upgrades from now on
+ - Large tower benefits from archer upgrades from now on
+ - T-Rex titan deals 50% area damage instead of 40% from now on
+ - Taslow Tower range increased from 60 to 65
+ - Ankylo bash upgrade makes the animal cause more damage to units instead of buildings from now on
+
+Norsemen:
+ - Work mammoth deals double damage against buildings from now on
+ - Work mammoth can be commanded to harvest wood even if injured by holding the Shift key
+ - Triceratops titan's walk speed has been increased from 2 to 3
+ - Taslow's level 4 bonus will give jetpack ability to all other nm infantry units as well, but they can only use it, as long as Taslow in on level 4 or 5
+ - Warrior weapons 3 upgrade's resource costs changed from 500/40 to 500/375 (Wood/Stone)
+ - Warrior defense 3 upgrade's resource costs changed from 500/675 to 500/450 (Wood/Stone)
+ - Foresters lodge used to create an unwalkable scape point after placement -> this has been fixed - thanks to Zidell
+ - Tric titan's passengers were unevenly placed if extra titan slots was enabled -> this has been fixed
+ - If infantry units were quickly mounted into a bunker and the bunker was quickly deleted, the units got trapped inside, unavailable to be used anymore -> this has been fixed
+ - Log cannon and Battleship have only 25% armor piercing damage from now on, only 20 defense against ranged attack from buildings (reduced from 50), but gets +75 defense against rocket ramps and great cannons, and deal only 15% damage against infantry, animals and vehicles
+ - NM Eusmilus rider has +50 armor against animals, deals +5 damage on each level, but the archer build-up is removed
+ - Players won't get warning message and minimap ping about meteor impact from now on
+ - Wild boar get +7 damage on each level (from 8/18/28/48/88 to 15/25/55/95)
+ - Wild boar rage's cooldown duration has been decreased from 30 seconds to 15 seconds
+ - Cooldown of Warrior's Thunderclap duration has been decreased from 40 seconds to 25 seconds
+ - Cooldown of Warrior's Roar duration has been decreased from 30 seconds to 20 seconds
+ - Cooldown of Warrior's Knockdown duration has been decreased from 20 seconds to 15 seconds
+ - NM Warrior gets +50 close combat defense against robots and other mechanical units
+ - NM Jetpack warrior gets +50 close combat defense against robots and other mechanical units
+ - Berserker gets +50 close combat defense against robots and other mechanical units
+ - Undead warrior gets +50 close combat defense against robots and other mechanical units
+ - NM Wild boar's hitpoints have been increased by 400 on each level (from 400/500/700/1000/1500 to 800/900/1100/1400/1900)
+ - NM Kentrosaurus' hitpoints have been increased by 200 on each level (from 900/1000/1200/1500/2000 to 1100/1200/1400/1700/2200)
+ - NM Battle ram's hitpoints are increased by 200 on each level (from 400/500/700/1000/1500 to 600/700/900/1200/1700)
+ - NM Chariot's hitpoints are increased by 100 on each level (from 300/400/600/900/1400 to 400/500/700/1000/1500)
+ - Kennel Smilodon's hitpoints are increased by 350 on each level (from 550/650/850/1150/1650 to 800/900/1100/1400/1900)
+ - Steam tank armor is increased from 20/40 to 40/40 (close combat/ranged defense)
+ - Berserker isn't uncontrollable because of fighting enemy units from now on (for now)
+ - Ballista tower benefits from ballista upgades too (range, damage, frequency)
+ - Steam tank is a level 3 unit from now on
+ - Small tower's buildup duration has been reduced from 120 to 90 seconds
+ - Large tower's buildup duration has been reduced from 180 to 120 seconds
+ - Bunker's buildup duration has been reduced from 40 to 30 seconds
+ - Smilodon kennel's buildup duration has been reduced from 35 to 10 seconds
+ - Increased sightrange of large tower from 60 to 65
+ - Small tower benefits from archer upgrades from now on
+ - Large tower benefits from archer upgrades from now on
+ - Triceratops titans (epoch 6 version too) benefit from animal blades upgrade too from now on
+ - Ballista range upgrade is available at epoch 3 instead of 4 from now on
+ - Ballista damage upgrade is available at epoch 3 instead of 4 from now on
+ - Decreased the production costs of steam tank from 50/400/400 to 50/400/300 (Food/Wood/Stone)
+ - Decreased steam tank's hitpoints by 200 on each level: from 2400/2600/2700/3000/3500 to 2200/2300/2500/2800/3300
+ - Structural Engineering increases steam tank's hitpoints only by 500 from now on (1000 before)
+ - Structural Engineering increases steam ram's hitpoints too by 500 from now on
+ - Structural Engineering upgrade costs have been decrased from 500/300 to 400/200 (Wood/Stone)
+ - Increased steam ram's hitpoints by 300 on each level: from 600/700/900/1200/1700 to 900/1000/1200/1500/2000
+ - NM Exo enforcer gets +40 damage on each level (from 25/35/45/65/105 to 65/75/85/105/145)
+ - Mammoth harvester has 4 passenger slots from now on
+ - From now on Jetpack warriors get only +30 ranged defense (instead of +50) when defense mode is activated
+
+SEAS:
+ - Cannon turtle's movement speed is 3 on land too, but it can only attack when it is in water from now on
+ - Added resource keeping link to mechanical walker, where the collected type of resources is attached to the model - thanks to Zidell
+ - Gunner's and Marksman's weapon animation has been enabled
+ - Improved weaponry upgrade also increases carrier's swimming speed from 2 to 3 (thanks to Zidell's model editing)
+ - Cannon turtle's swimming speed has been increased from 2 to 3 from now on (thanks to Zidell's model editing)
+ - Improved harvesting mechanics upgrade also increases sentinel's walk speed from 3 to 4 (thanks to Zidell's model editing)
+ - Updated selection sound for seas fence (thanks to Zidell)
+ - Taslow's machine can be used for non-seas buildings as well
+ - Taslow's machine can be used by allied players as well
+ - SEAS trade muraeno's swimming speed has been increased from 2 to 3 (thanks to Zidell's model editing)
+ - Added trading muraeno's missing corpse
+ - Added appropriate textures for new seas buildings (like hospital) on the icewaste climate setting - thanks to Zidell
+ - Path blocking space of small and big tent has been reduced to a realistic size - thanks to Zidell
+ - Added appropriate textures for small tent on the savannah climate setting - thanks to Zidell
+ - Added different textures for seas marksman and gunner on the various climate settings - thanks to Zidell
+ - Added appropriate textures for original seas buildings on the icewaste, jungle and ashvalley climate settings - thanks to Zidell
+ - Blocking space of big cannon has been reduced to a realistic size - thanks to Zidell
+ - SEAS infantry units will be able to use stimpack ability from titan, polakanthus, triceratops and mosasaurus transporters from now on
+ - Marksman has +10 ranged attack damage on each level
+ - Increased the production costs of Exo enforcer from 120/170 to 120/200 (Food/Wood)
+ - Increased the hitpoints of Exo enforcer from 500/600/800/1100/1600 to 900/1000/1200/1500/2000
+ - Updated model of SEAS warpgate - thanks to Zidell
+ - Black widow and Bombarder have only 25% armor piercing damage from now on, only 20 defense against ranged attack from buildings (reduced from 50), but gets +75 defense against rocket ramps and great cannons, and deal only 15% damage against infantry, animals and vehicles
+ - Exo terminator will benefit from the poison ammo upgrade from now on
+ - SEAS textures are more like to those in the alpha game - thanks to Zidell
+ - Added new texture to Bombarder and SEAS spearman - thanks to Zidell
+ - Great cannon has only 15% armorpiercing damage from now on (reduced from 100%)
+ - SEAS Eusmilus rider has +50 armor against animals, deals +5 damage on each level, but the archer build-up is removed
+ - SEAS gunner's weapon damage has been changed from 5/10/15/20/25 to 5/8/11/15/23 (level 1/2/3/4/5)
+ - Scorpion's defense has been increased from 25/25 to 40/40
+ - Triceratops gore deals 100% armor piercing damage now
+ - Cooldown of Exo enforcer's Legkick duration has been decreased from 40 seconds to 30 seconds
+ - Exo enforcer's skulls have been increased by 10 on each level
+ - Production costs of Exo enforcer are increased from F:120/W:170/S:0 to F:140/W:200/S:60
+ - Wreckages restore reactivated robots to full health from now on (previously the reactivated robot had the same percentage of health as the wreckage did)
+ - Guard gets +50 close combat defense against robots and other mechanical units
+ - Mercenary gets +50 close combat defense against robots and other mechanical units
+ - Exo enforcer's hitpoints have been increased by 400 on each level (from 900/1000/1200/1500/2000 to 1300/1400/1600/1900/2400)
+ - Hit points of JDT-200 (Polakanthus) are increased by 200 on each level (from 700/800/1000/1300/1800 to 900/1000/1200/1500/2000)
+ - SEAS Stygimoloch's hitpoints have been increased by 500 on each level (from 500/600/800/1100/1600 to 1000/1100/1300/1600/2100)
+ - SEAS Stinger' hitpoints have been increased by 400 on each level (from 200/300/500/800/1300 to 600/700/900/1200/1700)
+ - Bombarder can move and attack at the same time from now on
+ - Executioner is a level 3 unit from now on
+ - Executioner MKII is a level 3 unit from now on
+ - Machine gun nest's buildup duration has been reduced from 45 to 30 seconds
+ - Small cannon's buildup duration has been increased from 90 to 120 seconds
+ - Turret tower's buildup duration has been reduced from 120 to 90 seconds
+ - Stygimoloch nest's buildup duration has been reduced from 25 to 10 seconds
+ - Executioner's hitpoints have been increased by 300 on each level (from 2400/2500/2700/3000/3500 to 2700/2800/3000/3300/3800)
+ - Executioner MKII's hitpoints have been decreased by 700 on each level (from 3400/3500/3700/4000/4500 to 2700/2800/3000/3300/3800)
+ - Production costs of Executioner are changed from F:250/W:500/S:400 to F:250/W:700/S:350 (reactivation costs changed accordingly)
+ - Production costs of Executioner MKII are changed from F:250/W:1000/S:400 to F:300/W:800/S:400 (reactivation costs changed accordingly)
+
+MIRAGE 2.6.2
+------------------
+General:
+ - Added updated polish translation
+ - Increased the size of add passenger window of CPLX trigger action, because some unit classes couldn't be read (they are too long)
+ - To avoid compatibility issues at saving maps, the standard units, buildings, etc were only saved with values already present in original game, but this restricted maps which could be used only in MIRAGE as well, like buildups with offsets -> this is now solved
+ - The default dr hq (in 25th slot) was forced on client side, independently from preset file, but this was not implemented on server side, which was causing problems if dustriders were selected as random tribe and with a preset which had that slot empty or occupied with another unit class -> this has been fixed
+ - Because of recent trigger tree refresh change the game crashes if a trigger directly under Root is deleted -> this has been fixed
+ - Removed sound alert at closing any of the tavern clients (it was rather annoying)
+ - The launcher and tavern clients won't pop up a message box if the user tries to start multiple instances of them anymore, the additional instances will simply terminate themselves on their own
+ - Reduced the number of random tribe options on maps/hq locations, where not all 4 tribes were available
+ - Added warning to players using the same cd key, because they wouldn't be able to play together anyways
+ - Added 2 new multiplayer maps (deathmatch and defender version of the same map) - thanks to Zidell (and Tric for the concept)
+ - Updated some description
+ - Updated texture of War blimp - thanks to Zidell
+ - Updated leftover classes - thanks to Zidell
+
+Dragonclan:
+ - Added Styracosaurus transporter from epoch 2
+
+Norsemen:
+ - Jet flying ability remained invisible even after achiving epoch 6 -> this has been fixed
+
+SEAS:
+ - After SEAS sniper's texture change a wrong model name was associated with the unit, making it useless -> this has been fixed
+
+MIRAGE 2.6.1
+------------------
+General:
+ - Last color remembering feature was still bugged for other than host, but its fixed now
+ - Random tribe selection caused either crash or units got killed (depending on which spirit system was in use) right at the start for certain army presets (like dustrider boomer 1000 points) -> the multiple cause for these bugs have all been fixed
+ - Reduced the CPU consumption of new tavern client
+
+Norsemen:
+ - Illusions can heal once again, but they have only 25% healing power (compared to real druid)
+
+MIRAGE 2.6.0
+------------------
+General:
+ - Fixed issues with last color remembering feature
+ - Fixed issues with last tribe remembering feature
+ - Fixed issues because of the AbortTask trigger command change
+ - Balanced some missions (like preventing seas to produce scorpions)
+ - Locked units won't be selected by commands, like F2 (all ground fighting units)
+ - Pointbuy menu could still be accessed and changed after player slot was set to ready (unless any of the random tribes was selected) -> this has been fixed
+ - Fixed issues with new random tribe selection method
+ - Tavern button in launcher opens www.para-welt.com/tavern from now on (the irc chat client is renamed to IRC.exe, and can still be used if the main site's phpfreechat is down)
+ - Nest respawn works in campaign missions too from now on (nests which have to be killed for various reasons are exceptions)
+ - Flying units can be used in campaign missions too from now on
+ - Updated campaign missions
+
+AI:
+ - Fixed the reason SEAS AI used to build turret towers in mass as of lately
+
+Dragon Clan:
+ - Pirate boss attack animation couldn't be played in its entirety because of high attack frequency -> damage has been doubled and attack frequency halved (so that dps stays the same)
+ - Mortar can attack air units again
+
+Dustriders:
+ - Fixed issue with torpedo turtle causing server crashes in certain situations...
+ - Poison thrower can attack air units from now on
+ - Increased the range of titan bonus defense from 15 to 25
+
+Norsemen:
+ - Increased duration of second ship defense and damage upgrades by 10 seconds (20->30) and of third by 20 (20->40)
+ - Ship defense upgrades increased armor by 10/10, which gave norsemen ship too good armor -> each upgrades gives +5/5 from now on
+ - Illusions can't heal anymore (it was way to overpowered)
+
+SEAS:
+ - Exo flamethrower was too cheap in point buy menu. Costs updated to 2700/lvl3, 5400/lvl4 and 7800/lvl5
+ - SEAS Sniper's texture has been updated - thanks to Zidell
+ - Rocketman can attack air units from now on
+
+MIRAGE 2.5.9
+------------------
+General:
+ - Rearranged mirage client settings (this time), because there were too many and it was hard to navigate through them (and once again, many more are still planned, so there would not have been enough space...)
+ - Resetting rally point after walk command is now optional (at client settings)
+ - Players can disable loading their own units into allied transporters now (at client settings)
+ - To use the old, easier disembarking (also exploitable) there is a new server option available
+ - Sadly, the crash rpg map was broken because the installer didn't have the necessary sequence file -> its fixed now
+ - Healers on open transporters stopped healing if the transporting unit was trapped, even if the free buildups option was on -> this has been fixed
+ - Added aura sharing server option, which can prevent/allow allied players to benefit from certain aura effects from one another (like smoke tower's effect)
+ - For certain single player maps (like mission 4.3) the available credits (points) were used up for skulls by default, and couldn't be removed -> this has been fixed
+ - Painting material inaccuracy has been fixed in the map editor
+ - On original SEK maps, where the default harbours were disabled the seas carrier was still visible in the build menu -> this has been fixed
+ - After the server options rearranging the supply mod became unusable -> this has been fixed
+ - Forest blocks on maps with Cave1 or Cave2 settings didn't give any usable wood material -> this has been fixed
+ - When a steam tank was destroyed, the passengers started in a sitting idle animation -> this has been fixed
+ - The build-up animation of the Tesla tower was different, when sss was on or off -> this has been fixed
+ - Several riders of animal units with single weapon buildups didn't play their attack animation -> this has been fixed
+ - Levelling up healers on open transporters broke their healing animation -> this has been fixed
+ - Added new server option: random colour
+ - Added pteranodon and archaeopteryx as placable wild animals
+ - Gameover manager counted un-built headquarters if there was a constructed one also, that means if the constructed one was destroyed, it didn't start the hq timer -> this has been fixed
+ - Defender maps can have multiple defenders from now on (map needs to be edited manually)
+ - Scaring of wild animals works differently from now on: only amicable animals will be scared of building placement, and animals having higher size class than killed animals won't be scared
+ - HP drop list in pre-game lobby will be invisible if handicap is disabled from now on
+ - Defender object can't be ignited from now on
+ - Epoch 6 units can't be bought from point buy menu if epoch 6 is disabled (from now on)
+ - Holy City wall has been put into the techtree, so that its icon and description is linked to it now
+ - Remade handicap system because the previous one was buggy (someone else got the hp boost/nerf)
+ - Grid rendering while switching from normal to tower class building placement has been fixed
+ - Defender time is displayed in the mirage overview tab (2nd)
+ - All units and buildings of defeated players will be destroyed from now on
+ - Domination time can be set from now on
+ - Domination time is displayed in the mirage overview tab (2nd)
+ - Added MIRAGE specific BfPW Highland map
+ - Changed 'Replace object' trigger, so that it can replace multiple objects at the same time (like walls)
+ - Sixth epoch was sometimes shown to be reachable in the AC bar, although max epoch was only 5 -> this has been fixed
+ - New artefact manager was preventing world owned objects/units from taking treasures (like wild animals by map triggers on missions) -> this has been fixed
+ - If unlimited storage is disabled, losing storage buildings will cut excess resources once again
+ - Zeppelin's speed has been decreased from 4 to 3
+ - Added new artefact: Drawbar of richness, which increases income from trading
+ - Wild animal nests of aggressive animals are always treated as aggressive once again
+ - The hardcoded techtree filters were not working in tutorial -> this has been fixed
+ - Frozen units don't get armour bonus from now on
+ - Removed the Internet button from Multiplayer menu, because the Gamespy server replacement isn't working anymore
+ - Added new command bar button for transporters, which can be used to pick up allied units (also own units)
+ - Added new server option: skull sharing
+ - Several sound alert options were broken -> they have been fixed
+ - At the repair building, the owner of the building used to pay for the repair, but from now on the owner of the unit (which does the repairing) will pay
+ - Observer chat functionality has been solved (in game)
+ - Added auto scroll checkbox to lobby chat
+ - Added new server option: disable limp (the way heavily injured units walk)
+ - Pellet used to give animals +5% hit points -> this has been increased to +15%
+ - Aura of power used to give animals and vehicles +10% attack power -> this has been increased to +15%
+ - Healing artefact adds an additional type of bonus to healing, which increases the healing from even foreign sources (like being healed from a neutral fountain)
+ - Units and buildings having the "Destructible" attrib (enabled in map editor) can't be killed/deleted by the player from now on
+ - Player units in crash rpg get automated after 90 seconds inactivity, once the player gives any command to the unit, it will be returned to player control
+ - Added new server option: remove titans
+ - If any warp gate or domination timer is still active, then the game goes on, even if the timer until draw is over
+ - Added new server option: remove trading
+ - Units causing area damage with their body in close combat (like DR brachiosaurus, DC sumo) didn't get damaged by NM Kentrosaurus, DC defence skewer (etc) -> now they get damaged by them (unit causing area damage with their weapon, like flamethrowers aren't affected by this change)
+ - Taking direct ranged or melee damage used to make the unit display invalid armour bonus (like +100 ranged defence after death shot) -> this has been fixed
+ - Mirage launcher will ask you before resetting the settings file from now on
+ - Healers (shaman, druid, monk and medic) don't have the set aggro stance command bar button/menu anymore, just like NM berserker or DR poisoner
+ - Rearranged the icon positions of heroes at each tavern
+ - Zeppelins can now trade between harbours (or between harbour and normal trading building) from now on as well
+ - Healers (shaman, druid, monk and medic) can heal themselves too from now on
+ - Added new stance: Passive -> the unit doesn't attack even if being attacked
+ - Added new command bar button: Locked -> the unit doesn't accept any commands
+ - Increased the default resource value of stones from 2000 to 5000 (affects newly placed stones in SDK)
+ - Increased the default resource value of fruit bushes from 150 to 250 (affects newly placed bushes in SDK)
+ - Weapon damage cache hasn't been cleared upon damage and defence bonus changes, resulting in false damage calculations -> this has been fixed
+ - Added new server option: infantry war (the 3 basic infantry units type can be produced on all of the first 3 levels)
+ - Added new server option: unbound delivery (unit production is finished regardless of the current population limit)
+ - Added new server option: disable put down (units can't put down artefacts except for Miyagi ofc)
+ - Custom starting time must be enabled from now on to be used (still only for new games)
+ - Mana feature option is available again
+ - Auto attacking buildups which are the main weapon of given units (like rhino ballista) used to break fighting the enemy, if the unit was attacking them, but then was commanded to walk away (like at kiting) -> this is less likely to happen from now on
+ - Initiating unit production or upgrade invention was prohibited at non finished buildings, which have virtual produce unit (swimming harbours and recently towers, like NM large tower) -> now it is possible
+ - Recycling pre-placed DR buildings (on defender maps for example) which were disabled to be built (like walls/towers) could be recycled in 10 seconds -> this has been fixed
+ - Added new server option: united advancement (inventing a new epoch at any tribe makes it invented at all the others too)
+ - Sending tributes used an unsafe method, which could be abused for cheating -> this has been fixed
+ - Fixed texture of Carcha: teeth, etc - thanks to Zidell
+ - Enabled texture of Eusmilus with 512 resolution
+ - Fixed level flags on some new animal units (nm carcha, etc)
+ - At hosting or joining direct IP games the title was LAN game -> this has been changed to Internet game
+ - Added new (duplicate) models with new textures thanks to Zidell (like seas wall, seas warp gate)
+ - Tribe filter drop list also added to point buy preset window
+ - Added index numbers to the various server options on the overview pages (idea from Zidell)
+ - Made black player colour a bit lighter
+ - Versus Nests value is removed from default tooltip window, and VS Ships is after VS Buildings from now on
+ - Enabled 1024x1024 resolution textures of stegosaurus and iguanodon, and also made 512x512 versions
+ - Since an (unknown) old change, auto save worked only if the player was on HQ 1 -> this has been fixed now
+ - Added a checkbox to options menu, which enables or disables making saves states, or make auto saves work during multiplayer matches
+ - CEP missions are included now
+ - CEP holy city custom map is included now
+ - Miyagi and Stina couldn't be selected in Campaign Point buy menu, despite being selected in map editor -> this has been fixed
+ - Repairing SEAS Carrier and DR Floating harbour should be easier now
+ - Increased the resource value of every tree by 300 in fast game mode
+ - Increased the resource value of corpses by 300 in fast game mode
+ - Passengers affected by ACDO trigger action won't leave their transport object from now on
+ - Jet jumping abilities (NM jetpack warrior, Tesla in bfpw, etc.) started cool down timer at the start of jump, and by the time the unit landed on the destination location, the cool down was almost over -> from now on the cool down starts after landing
+ - Healers on transporters will also rotate to their healing target from now on
+ - Added box of heroes for each tribe on epoch 6 (to honour the developers in the modding community)
+ - Healing animation on (open) transporters got broken after a healer got linked to a different position in the basket -> this has been fixed
+ - Changed the order (/sequence) of tooltip bonus/penalty images to the following: vs infantry, vs animals, vs vehicles, vs ships, vs buildings (buildings and ships got swapped)
+ - In map editor, the default camera position buttons' label changed if they were clicked on -> this is removed, and they are labelled by their correct meaning (Northwest, Southwest, etc)
+ - Added new client display option, to allow custom camera position/angle at resetting the camera
+ - Sometimes server.exe crashes at Auto save, which corrupts the file, and that makes having an auto save pointless -> from now on, the last 10 auto saved files will have different names (Autosave_0.ula, etc)
+ - Updated all the ++,--,etc bonus values - thanks to Scrat
+ - Added fixed Textures of Cave3 and Test setting - thanks to Zidell
+ - If Group walking is disabled on client side, and a group containing units unable to fight (shaman, para drum, etc) received attack command, only those started moving which could fight -> this has been fixed
+ - Passengers of trapped transporters can be dismounted from now on
+ - Changed how notification of next available epoch works, to (hopefully) fix the problems with it (like stating the next epoch can be researched, despite it not the case)
+ - Fast game option only reduces the duration of epoch upgrades from now on, not all upgrades, build-up times and production durations (harvesting increasing stuff remains the same)
+ - Added client option to change number of building rotations steps (at Control options)
+ - Removed lvl 1, 2 and 3 units on epoch 6
+ - Epoch 6 upgrades has been moved to epoch 5 instead
+ - Fixed attack mode switching units, which were broken since a recent change (mammoth log cannon and black widow to be exact)
+ - Had to fix fountains healing method, since the last change in the arena mission the fountains couldn't be used
+ - Updated arena mission (polkanthus has no level flag, and mostly hard difficulty got harder...)
+ - Increased the weapon stats of many wild animals, and hp for a few (the list is too long, but obviously those, which should be dangerous in reality)
+ - Reduced the max distance the finishing move can be initiated from 20 meters to 10 meters
+ - If locked units were levelled up or down, the server didn't invalidate the client changes, so that the unit stayed on the same level on server side and on a different one on client side, causing army controller problems -> this has been fixed
+ - Added destruction objects to SDK - thanks to Zidell
+ - Fixed an issue with unit production task, which didn't give back resources, if the queue was full already
+ - Blocker attribute can be changed in level editor for (most?) Fighting Objects from now on
+ - Added 'SetBlocker', 'SetNoParticles', 'SetDisableShadowCast' and 'SetDisableShadowReceive' commands to ACDO trigger action in level editor
+ - Deleting triggers or copy-pasting triggers or trigger nodes will update tree controller on a smaller scale
+ - A recent change made it impossible for most infantry units to attack flying units -this has been fixed
+ - Added Auto Scout hotkey (Ctrl+Shift+S)
+ - Units in map editor couldn't be truly levelled up, because levelling up function checked for owning player's existence and attributes, which are missing in sdk -> this has been fixed
+ - Entrenched and feign death units will get the camouflage icon overlay (like shaman with camouflage) from now on
+ - Added new server option, which allows allied players to build up each other's buildings
+ - If the host clicked ready button on for Random AI, then his own army setting got changed too -> this has been fixed
+ - If a player finished (/helped to finish) a resource harvesting building (corn fields, etc) of allied player's, his workers tried to start using that building -> this has been fixed
+ - Added new client option (at Control options) which makes workers continue repairing, or waiting until there is something to repair again (unless given another direct command)
+ - If fast game is enabled, predefined set has double stats (6 workers and 2 times as many resources)
+ - From now on server handles random tribe selection, and checks if the selected tribe is really allowed on the map and hq location
+ - The error which produced the "Your point buy preset is empty..." message (original one was: "no units or resources chosen") won't prevent the player to set ready (because it happened only (?) with Predefined settings and it doesn't make sense to stop the game being started if Server by Predefined setting overwrites the point buy results anyways...)
+ - The tribe filter option which was used until now, has been removed
+ - Added new Random items with custom filtering to tribe selection drop list
+ - In pre game lobby the last used tribe will be (or at least tried to be) selected by default from now on (for AI as well, per slot number...)
+ - In pre game lobby the last used colour will be (or at least tried to be) selected by default from now on
+ - Shopping list (the tab controller having the 3 tabs in point buy menu) won't be disabled if points are set to predefined state (units can be viewed in waiting time...)
+ - CPLX trigger action (create complex unit -> like ship, and inside passengers) had the server side capability to create sub passengers, but the level editor didn't support this functionality -> from now on, each passenger 'token' can be edited manually in a new edit field, which allows to create sub passengers, or simply create passengers from different tribes (requires proper knowledge though)
+ - SNFA (set player neutral to wild animals and the other way around) was not preventing units and buildings engaging wild carnivores automatically at sight -> this has been fixed
+ - Included the fixed textures for small flying reptiles - thanks to Zidell
+ - Added Ceratosaurus - thanks to Zidell
+ - Added Nothosaurus - thanks to Zidell
+
+AI:
+ - AI didn't produce Tyrants after its conversion option was added -> this has been fixed
+ - AI uses Demolition charge upgrade from now on
+ - Default AI army setting is Balanced instead of Random from now on
+ - Killed players can be allied with from now on even if diplomacy is locked (for gaining vision)
+
+Heroes:
+ - Stina gives all infantry units defence bonus from now on (like Cole gives all infantry units melee damage bonus or Bela buffs also spearmen)
+ - Flying animals can't be targeted by Stina's ability from now on
+ - Tarna's freezing effect has been reduced (lasts 5 seconds less on each level; starting value was 7 before)
+ - Stina (on eusmilus, not campaign, infantry one) has +15 damage more on each level, and 50 armour piercing now
+ - All Eusmilus riders have +150 hp from now on (300 -> 450)
+ - Hypnosis' cool down has been decreased from 60 seconds to 30 seconds
+ - Warden's lvl3 special ability negates all incoming damages, not just from animals from now on (for testing/balancing him)
+ - Hypnosis' works on infantry units from now on (including heroes)
+ - Kleemann's sacrifice works on allied units too from now on
+ - Reduced Barry's attack frequency from 40 to 39 (like Cole's)
+ - Tarna isn't ice immune anymore
+ - Tarna's hit points have been reduced from 700/1400/2100/2800/3500 to 500/1000/1500/2000/2500
+ - Taslow's lvl3 special ability can incapacitate buildings from now on
+ - Tarna range bonus works only on spearmen from now on
+ - Bela's range bonus doesn't work on spearmen from now on
+ - Bela's sniper shot reduces movement speed of infantry units to 1 instead of stopping them
+ - All of Tarna's special units now have the production costs, time, skulls, hit points and base damage (excluding weapon buildups!), which means Tyranno and Giganto are slightly weakened and Carcha and Tarbo are slightly buffed
+ - Tarna's freezing time is always 1.5 seconds from now on (no increase on higher levels)
+ - Tesla (and dr infantry) went to nearest resources after finishing resource collection buildings -> this has been fixed
+ - Miyagi gave on level 4 norsemen ships +25/25 defence and gave the same bonus to all tribes on level 5 -> this has been fixed (removed)
+ - Level 5 bonus of Leighton reduces the cool down of special abilities from now on
+ - Level 5 bonus of Miyagi gives vehicles and ships +20/20 armour from now on
+ - Level 5 bonus of Taslow gives resources for killing enemy buildings, ships and vehicles from now on
+ - Level 5 bonus of Stina gives animals +20/20 armour from now on
+ - Increased Warden's attack frequency from 31 to 38 (attacks per minute)
+ - Increased Taslow's attack range by 5 (from 30 to 35)
+ - Larry's attack has 100% armour piercing from now on
+ - Increased Arch Druid's ranged attack frequency from 25 to 38 (attacks per minute)
+ - Increased Arch Druid's melee attack frequency from 31 to 38 (attacks per minute)
+ - Increased Arch Druid's attack range by 10 (from 15 to 25)
+ - Miyagi can't steal artefacts from wild animals from now on (even if they belong to players)
+ - Stina's new lvl2 aura wasn't working perfectly on all units (some having more defence than intended, etc) -> this has been fixed
+ - Taslow's crossbow on level 2 used a model having a wrong rotation (since original game!), resulting in a stupid looking attack animation -> this has been fixed (by replacing model "tesla_revolvercrossbow_b" with "tesla_revolvercrossbow_c" on level 2 (tesla_revolvercrossbow_c, tesla_revolvercrossbow_d, tesla_revolvercrossbow_e are the same))
+ - Bela's sniper shot deals less damage against buildings from now on (it was better than Babbits's lvl3 ability)
+ - Ada's death shot has been reworked: it has a 90 seconds cool down only, and deals max 4000 and minimum 1000 damage from now on
+ - Reduced cool down of Plunder from 70 to 60 seconds
+ - Arch druid's level 5 bonus gives an additional type of bonus to healing, which increases the healing from even foreign sources (like being healed from a neutral fountain)
+ - Increased jaw_size (value for how many flesh she is taking out from corpses) of Stina from 90 to 270
+ - Bela's sniper shot will deal armour piercing damage from now on
+ - Babbit's minigun will deal armour piercing damage from now on
+ - Increased max damage of Babbit's minigun from 2000 to 3000
+ - Miyagi can now steal from trading units too (double of their last profit)
+ - Miyagi can be unloaded from flying zeppelin, if it’s above water from now on
+ - Increased ranged defence of Stina from 0 to 15
+ - Bela's sniper shot doesn't slow down enemy movement speed from now on
+ - Bela's sniper shot removes armour or target unit from now on
+ - Bela's sniper shot range is increased from 50 to 60 meters
+ - Tarna deals full damage against every enemy type from now on
+ - Larry has no more defence bonus against buildings from now on
+ - Miyagi doesn't deal extra damage against buildings and vehicles from now on
+ - Changed Miyagi's attack bonus vs buildings from 30 to 40
+ - Changed Kleemann's attack bonus vs buildings from 25 to 40
+ - Tarna's level 3 riders has now only 40% armour piercing
+ - Kleemann's sacrifice bonus time depends from now on the hit points of the sacrificed unit (time = hit points/20 -> sacrificing 5k hp titan gives him around 4 minutes)
+
+Dragon clan:
+ - Removed the launcher rider
+ - Removed the samurai squirrel
+ - Fixed German unit description file error
+ - Production costs of water turret has been restored to booster pack state (from 200 wood to 250)
+ - Water turrets range has been decreased from 40m to 30m (bp stat)
+ - Added a new ship upgrade (available from epoch 5) at the harbour -> layer repair, which allows minelayer and corsair to repair/heal floating mines and turrets (respectively)
+ - Floating mines didn't lose the getting healed ranged buff once they got healed (by a harbour for example) -> this has been fixed
+ - Damage done by pirate ship is reduced (lvl5 stat: 210 from 1190)
+ - Range of pirate ship is increased (85 from 80)
+ - Stinger didn't get the vehicle healing ability icon -> this has been fixed
+ - Water turret's placement animation wasn't used, unlike water mine's -> this has been fixed
+ - Water turret played placement animation (most of the times) when it attacked air units -> this has been fixed
+ - Seismo's enchain ability had a min attack range check -> this has been taken out
+ - Salta transporter and Salta launcher have +300 hit points on each level
+ - Doping effect time has been increased from 7 seconds to 10 seconds
+ - Doped Saltasurus can't be frozen
+ - Scorpion has +300 hit points on each level
+ - Seismo's main weapon could attack while retreating in some cases -> this has been fixed
+ - Seismosaurus titan gets a temporary speed bonus after using Barrage ability
+ - Decreased battle triceratops' attack frequency from 35 to 30, and reduced defence values from 20/20 to 0/0
+ - Baryonyx rider's hit points has been increased by 200 on each level
+ - Baryonyx rider has 25 armour piercing from now on
+ - Gatling rider has +100 hit points on each level from now on
+ - Added new upgrade which increases range and damage of dc spearmen (epoch 3)
+ - Added new upgrade which improves traps (epoch 4)
+ - Added new upgrade which increases hit range of certain dc attacks (like sumo, demolition charge, or exploding projectiles) (epoch 4)
+ - Added new upgrade which increases attack frequency of dc flamethrowers (epoch 4)
+ - Added new upgrade which increases attack range of dc Gatling guns (epoch 4)
+ - Added new upgrade which increases attack damage of dc Gatling guns (epoch 5)
+ - Added new upgrade which increases attack damage of dc launchers (epoch 5)
+ - Added new upgrade which increases attack frequency of dc launchers (epoch 6)
+ - Snare trap's damage is increased from 3 to 5
+ - Battle blimp could be picked in point buy menu, despite flying units being disabled -> this has been fixed
+ - Seismosaurus has no armour piercing from now on
+ - Enchain's requirements (build-up being not busy, or having to rotate towards enemy, etc) has been removed or changed, so that it can use it a lot easier and sooner
+ - Increased resource costs of smoke tower from 250/250 to 400/400 (wood/stone)
+ - Reduced duration of enchain from 15 to 9 seconds, and reduced cool down duration from 60 to 36 seconds
+ - Voracity works on biological ships too from now
+ - Increased ranged defence of dc flamethrower from 0 to 30
+ - Transport blockade isn't a target ability now, but affects all enemy transports around the monk; cool down is decreased from 80 to 60 seconds
+ - DC Spearman's attack deals 50% damage against infantry and vehicles from now on
+ - DC weapon maker is available from epoch 2 from now one (previously epoch 3)
+ - DC mortar is available from epoch 2 from now on (previously epoch 3)
+ - Rocket ramp does only 25% armour piercing damage from now on (instead of 100%)
+ - Rocket ramp's damage has been decreased from 400 to 200 and end damage from 200 to 100 (the Launcher damage upgrade increases them back to 300/150)
+ - Rocket ramp's build-up duration is decreased from 160 to 120
+ - If building limitation is on, only 4 rocket ramps can be built at the same time
+ - Newly produced monk start with cool down on each ability
+ - Scorpion can't harvest whole trees any more, only max 400 per trip (most trees had this value before)
+ - Moved DC Worker weapon upgrade to HQ, and its damage bonus has been doubled
+ - DC marksman's weapon damage has been decreased back to booster pack state (from 5/10/13/17/25 to (1/)6/9/14/20)
+ - DC Eusmilus rider has +250 hit points more on each level, resource costs changed from 210/50 to 200/150 (Food/Wood), production duration increased from 17 to 20, and it has an archer build-up too from now on
+ - Epoch 6 increases bamboo farm's and paddy's worker capacity by 2
+ - DC Demolition charge upgrade couldn't be cancelled by right clicking -> this has been fixed
+ - DC Eusmilus rider's sight range is increased from 45 to 55
+ - DC Zeppelin is moved from engineer to emporium
+ - Samurai gets a new, epoch 3 upgrade at the temple: Keen eyes (it gives him an aura, which reduces defence values of nearby enemies. like war cry and war paint, this aura works on level 3 Samurai and above, and the higher the level the Samurai has, the stronger this aura becomes)
+ - DC Temple can restore mana too from now on (if mana feature is enabled ofc)
+ - DC Gigantopithecus isn't ice immune anymore
+ - DC Vehicle damage and defence upgrades have new icons
+ - Reduced hit range of Gigantopithecus' range attack from 15 to 5 (meters)
+ - Mechanisation upgrade's duration (at Babbit) is decreased from 50 to 35 seconds
+ - DC Hammock upgrade gives 11 extra slots instead of 10 from now on
+ - Gigantopithecus' production time is increased from 60 to 90 seconds
+ - Emporium's first capacity increasing upgrade is becomes available at epoch 3 from now on
+ - Taslow on level 4/5 not only gave DC the vehicle repair automatic upgrade, but also +20/20 defence for vehicles -> the defence bonus has been removed
+ - DC stinger's defence is increased from 10/10 to 35/35
+ - Changed skin of DC stinger - thanks to Zidell
+ - Lacerate ability reduces enemy armour by only 20/20 from now on
+ - DC stinger has 25% armour piercing from now on
+ - Changed DC Baryonyx' attack bonus vs ships from -50 to 0
+ - Changed DC fire boat's attack bonus vs buildings from -50 to 0
+ - Changed DC trike's attack bonus vs buildings from -50 to 0
+ - Changed DC Scout's attack bonus vs buildings from -50 to -75
+ - Changed DC Spearman's attack bonus vs ships from -75 to -50
+ - Changed DC muraeno submarine's attack bonus vs buildings from 0 to -25
+ - Changed DC muraeno submarine's attack bonus vs infantry from 0 to -50
+ - Changed DC Dilophosaurus' (Warden nest animal) attack bonus vs buildings from 0 to -50
+ - Changed DC trike's attack bonus vs vehicles from -50 to -60
+ - Added new lvl3 air unit to Dragon Clan from epoch 4
+ - DC battle blimp has only 0/5 (close/ranged) armour from now on (30/30 was previously)
+ - Added a new upgrade at epoch 5, which allows War drums to fight, and also increases the defence values of Gatling rider by 30/30
+
+Dust riders:
+ - Changed (fixed) English description of Cronosaurus to Kronosaurus
+ - Added a new upgrade from epoch 5 at the mobile hq -> fast iguanodons, which increases the movement speed of mobile hq and allows it to fight
+ - Added a new upgrade from epoch 5 at the bazaar -> improved tools, which reduces the conversion durations of animal farms, and convertible animals (ankylosaurus, brachiosaurus), and also makes default infantry units build faster (spearman, warrior, etc)
+ - Raptor handler deals 9 more damage on each level (from 6-11-21-41-81 to 15-20-30-50-90)
+ - Added second spear damage upgrade, available from epoch 5
+ - Added second spear range upgrade, available from epoch 5
+ - Added a new, lvl 1 animal from epoch 6 -> iguanodon rider (melee)
+ - From the antiactions section of the techtree the small tower got deleted, allowing to build small towers on maps, where it was disabled (like on ancient fortress) -> it has been restored
+ - Tornado's time-stats has been restored to booster pack setting (10 in game seconds) and range or aoe too
+ - Rammer's knocking over ability has been heavily weakened
+ - Added ankylo catapult with dino ammo to point buy menu
+ - Raptor handler has the same animal on each level once again
+ - Liopleurodon can't freeze enemy units from now on
+ - Liopleurodon has +8 skulls and +500 hit points and +40 damage on each level
+ - T-Rex titan's T-Rex scrunch ability gives nearby units (also allied ones) a temporary defence bonus
+ - Amazon warrior can be produced at the Amazon temple from now on
+ - Newly produced shamans start with cool down on each ability
+ - T-Rex titan does 40% splash damage to secondary targets from now on (increased from 20%)
+ - Stegosaurus' whiplash (caudal bash) gives 40 armour piercing from now on
+ - Ankylo bash does +30 damage on each level from now on
+ - Added new upgrade which increases range of dr catapults (epoch 4)
+ - Added new upgrade which increases defence of dr melee infantry (epoch 3)
+ - DR animal ships benefit from animal damage and defence upgrades from now on
+ - New upgrade is added: hardened structures -> gives all dr buildings, catamaran and zeppelin +500 hp (epoch 5)
+ - Transport turtle has +500 hit points on each level from now on
+ - Ankylo catapult with dino egg ammo and brachiosaurus spawn stronger dinos on higher levels from now on
+ - Moved reveal ability from Liopleurodon to Mosasaurus
+ - Torpedo turtles didn't attack carrier -> this has been fixed
+ - Reduced the hit points of gallimimus nest from 1000 to 500
+ - Increased assassin's attack frequency from 20 to 28
+ - Reduced cool down of tornado from 180 to 90 seconds
+ - Reduced cool down of sand trap from 90 to 60 seconds
+ - Shaman's sand trap effect time has been decreased from 10 seconds to 7 seconds
+ - Increased ranged defence of dr flamethrower from 0 to 30
+ - Scarecrow works from now on infantry and vehicles too
+ - Shaman's far sight upgrade increases the range he can use his tornado, quicksand, termites, sand storm and resurrect abilities
+ - Shaman's far sight upgrade has been changed: duration increased from 30 to 60, costs increased from 150 Food, 100 Wood, 20 Skulls to 400/250/50, has been moved to epoch 4
+ - DR Spearman's attack deals 50% damage against infantry and vehicles from now on
+ - Quicksand ability (of shaman) has been redesigned: it no longer traps/freezes units, but reduces movement speed of and enemy units inside its effect radius, also reduces their attack frequency; radius is 12 meters, lifetime 15 seconds
+ - Blinding storm doesn't affect own and allied unit from now on
+ - Reduced cool down of Shaman's Blinding storm ability from 90 to 60 seconds
+ - Reduced cool down of Shaman's Tornado ability from 90 to 60 seconds
+ - Reduced range of Scarecrow from 75 to 60 (it was 50 in original game)
+ - Swapped icon position of blinding storm and far sight at DR temple
+ - DR tracker dino has the same background sound velociraptor has from now on
+ - DR kennel gallimimus has the same background sound DC Scout has from now on
+ - Moved DR Worker weapon upgrade to HQ, and its damage bonus has been doubled
+ - DR Eusmilus rider has +250 hit points more on each level, resource costs changed from 210/50 to 200/150 (Food/Wood), production duration increased from 17 to 20, and it has an archer build-up too from now on
+ - Torpedo turtle production time is once again 15 seconds (it was decreased from 15 to 10 a while ago, it was just not listed, but now it increased from 10 to 15...)
+ - DR Eusmilus rider's sight range is increased from 45 to 55
+ - DR Cyborg triceratops has from now on 25 armour piercing
+ - DR Temple can restore mana too from now on (if mana feature is enabled ofc)
+ - DR Scarecrow can drain mana from now on (if mana feature enabled ofc)
+ - Allosaurus' aura is called from now on "Infrared vision"
+ - DR transport turtle can't be bought in point buy anymore
+ - DR Liopleurodon isn't ice immune anymore
+ - DR Tyrant isn't ice immune anymore
+ - Brachio catapult's production duration is decreased from 75 to 70
+ - Tyrant's production time is increased from 60 to 90 seconds
+ - Tyrant's both versions can be produced at huge farm from now on
+ - Tyrant's conversion time is increased from 20 to 30 seconds
+ - Decreased Psittacosaurus' hit points on each level by 100 (now it has 90/100/120/150/200)
+ - Decreased Psittacosaurus' attack damage on each level by 2 (now it has 1/5/15/35/75)
+ - Transport slots DR cyborg triceratops is increased from 3 to 4
+ - Reduced defence values of DR cyborg triceratops from 50/50 to 35/35 (with 3 upgrades they will be 50/50)
+ - Changed DR Mosasaurus's attack bonus vs infantry from -75 to -50
+ - Changed DR Rammer's attack bonus vs ships from -50 to 0
+ - Changed DR Scout's attack bonus vs buildings from -50 to -75
+ - Changed DR Spearman's attack bonus vs ships from -75 to -50
+ - Changed DR Stego transporter's attack bonus vs ships from 0 to -75
+ - Changed DR tracker dino's attack bonus vs ships and vehicles from -50 to 0
+ - Changed DR Cyborg triceratops transporter's attack bonus vs ships from 0 to -25
+ - Changed DR tyranno rider's attack bonus vs ships from -25 to 0
+ - Changed DR tyranno rider's attack bonus vs buildings from -75 to -50
+ - DR small farm and huge farm use the same place before placing as medium farm from now on
+ - DR pteranodon has only 0/5 (close/ranged) armour from now on (0/20 was previously)
+ - Brachio catapult can use dino ammo also from now on
+ - Faster Iguanodons upgrade is now only a local upgrade for each mobile hq, giving the HQ more speed and fighting capability
+ - DR Tyrant has poison damage too (once again)
+ - DR Liopleurodon is from now on an open transporter
+ - DR Allosaurus has 20% armour piercing from now on
+ - Added dino catapult versions of Tyrant and Brach catapult to point buy menu
+
+Norsemen:
+ - Although the description of mobile suit stated, that it has armour piercing attack, it didn't have it -> now it really has 'ap' attack
+ - Changed Mammoth harvester's design -> its a transporter unit from now on (has 2 slots)
+ - Battle tank can attack air units from now on
+ - Changed the deco equipment of some riders (like spear, shield)
+ - Added shield to lancer, flamethrower and killer
+ - Lancer, spearman, killer and flamethrower benefit from shield upgrades from now on
+ - Kleemann's undead warrior wasn't benefitting from warrior damage and defence upgrades since its class type has changed -> this has been fixed
+ - Mammoth's stampede upgrade makes also battle rhino use stampede of its own from now on
+ - Added a new upgrade (available from epoch 4): ballista range, which increases the range of all ballista weapons
+ - Added a new upgrade (available from epoch 5): ballista damage, which increases the attack power of all ballista weapons
+ - Added a new upgrade (available from epoch 5): vehicle armour, which increases the close combat and ranged defence values of all vehicles
+ - Added a new upgrade (available from epoch 6): ballista frequency, which increases the rate of fire of all ballista weapons
+ - Tric titan's armour has been increased from 25/25 to 50/50
+ - Paw is decreasing enemy attack values by 50% from now on (previously it was only a 20% reduction)
+ - Increased supply cost of steam/battle tank to 10 (from 7)
+ - Triceratops titan's Titan rage ability reduces speed of affected enemies to 1 for a short period of time (12 seconds)
+ - Added new upgrade which converts small nm tower into medium one (epoch 4)
+ - NM gets 3 ship attack and 3 defence upgrades (epoch 3/4/5)
+ - Added anti action to make nm ladder's icon invisible
+ - NM Flamethrower didn't create corpse upon dying (since booster pack) -> this has been fixed
+ - Changed Mobile Suit's production costs from 200 Wood/300 Stone to 400 Wood/150 Stone
+ - Increased killer's attack frequency from 20 to 28
+ - Increased ranged defence of nm flamethrower from 0 to 30
+ - Structural Engineering upgrade of steam tank has been changed: now it doesn't increase the passengers slots, but the hit points of tank by 1000; costs increased from 800 wood 4000 stone to 500/300; moved to epoch 5 from 4
+ - Increased the range the druid can use meteor from 31 meters to 70 meters; opponents get both mini map ping and feedback warning about meteor attack beforehand
+ - Decreased the 'channelling time' of meteor ability from 12 to 7 seconds
+ - Spearman's attack deals 50% damage against infantry from now on (previously it was only 25%)
+ - NM Spearman's attack deals 50% damage against infantry and vehicles from now on
+ - NM Lancer's attack deals 30% damage against infantry and vehicles from now on
+ - Jetpack warrior's close defence is increased from 0 to 20 and ranged defence is decreased from 40 to 30 (both like normal warrior has them)
+ - Jetpack warrior has 25% bonus damage against buildings instead of having -50% against animals
+ - Increased Undead warriors speed from 2 to 3
+ - Undead warriors have the same close (20) and ranged (30) defence as normal warriors from now on
+ - Undead warrior has the defensive ability too from now on
+ - Increased the casting range of the druid's locust ability from 20 to 50
+ - NM jetpack warrior's jumping distance is increased from 120 meters to 240 meters
+ - Increased healing amount of steam tank from 10 to 30
+ - Reduced hit points of NM ladder from 1000 to 400
+ - Newly produced druid start with cool down on each ability
+ - Reduced cool down of meteor attack from 180 to 90 seconds
+ - Reduced damage of meteor from 700 to 250
+ - Moved NM Worker weapon upgrade to HQ, and its damage bonus has been doubled
+ - Increased harvester mammoth's defence from 20/20 to 30/30 (as battle mammoth has it by default)
+ - Increased the stone amount harvester mammoth can mine from 150 to 300
+ - Harvester mammoth can collect max 1000 food per trip as well from now on
+ - Harvester mammoth can't harvest whole trees any more, only max 400 per trip (most trees had this value before)
+ - NM Eusmilus rider has +250 hit points more on each level, resource costs changed from 210/50 to 200/150 (Food/Wood), production duration increased from 17 to 20, and it has an archer build-up too from now on
+ - Epoch 6 increases corn field’s worker capacity by 2
+ - Rearranged icon positions of upgrades at NM Machine shop
+ - NM Eusmilus rider's sight range is increased from 45 to 55
+ - NM Zeppelin is moved from machine maker to warehouse
+ - NM Mobile suit's movement speed is increased from 2 to 3
+ - NM Mobile suit's armour piercing is decreased from 100 to 25
+ - NM Temple can restore mana too from now on (if mana feature is enabled ofc)
+ - NM Magic cauldron can restore mana too from now on (if mana feature is enabled ofc)
+ - NM Golem is replaced by Avatar (name, icon and model has been changed)
+ - NM Avatar is not ice immune (unlike Golem)
+ - NM Avatar has no area damage unlike Golem used to have
+ - NM Avatar's attack frequency is only 15 (Golem had 20)
+ - NM Avatar's defence values are only 40/40 (Golem had 50/50)
+ - NM Avatar deals +450 damage more on each level than Golem did (620/630/640/700)
+ - Tric titan doesn't have conversion on epoch 6 anymore
+ - Triceratops log cannon titan is a standalone unit (on epoch 6) from now on
+ - Triceratops log cannon titan can carry 1 infantry unit, fight in close combat, and has a log cannon build-up and 2 ballista buildups as additional weapons
+ - Triceratops log cannon titan can use both skills the normal Tric titan has
+ - Log cannon mammoth's production time is increased from 60 to 70
+ - Avatar's production time is increased from 60 to 90 seconds
+ - Mammoth trumpet has been changed: it increases the attack frequency of nearby units for 10 seconds
+ - Placement ghosts of NM animal farm, warehouse and weapon smith stayed the same after their respective upgrade has been finished -> this has been fixed
+ - Added a new upgrade for NM Spearmen and Lancers: sharp edges, which gives their weapons 30% armour piercing (available from epoch 4 at weapon smith anvil)
+ - Reduced NM mobile suit's defence values from 50/50 to 40/40 (with the upgrade they will be 50/50)
+ - Replaced NM Avatar's weapon by the hammer used by Golem
+ - NM Avatar uses the death animation of Golem now
+ - NM bunker benefits from archer range and damage upgrades from now on
+ - NM Titan's Titan rage ability removes enemy close combat armour from now on for a short duration
+ - NM Druid's Plague of locusts ability works also on ordinary units as well, with a different set of effects (blinding, slowing down movement speed and lowering attack frequency)
+ - Changed NM chariot's attack bonus vs buildings from 0 to -75
+ - Changed NM mammoth log cannon's attack bonus (on each level because they were different...) -75 vs infantry, animals, vehicles and ships
+ - Changed NM rhino transporter's attack bonus vs buildings from -50 to -25
+ - Changed NM Scout's attack bonus vs buildings from -50 to -75
+ - Changed NM Spearman's attack bonus vs ships from -75 to -50
+ - NM Locust ability once again dies off, if there are nothing left to eat
+ - NM pteranodon has only 0/5 (close/ranged) armour from now on (0/30 was previously)
+ - NM warrior's level 3 model is bigger than level 4 one, so they have been swapped at levelling up a warrior
+
+SEAS:
+ - Fixed point buy icons for scorpion and mg triceratops
+ - Increased the hit points of all triceratops units by 500 (on lvl3 they have now 2000 hp instead of 1500)
+ - Removed feedback messages from scorpion and big cannon
+ - Added basic spearman to the barracks (available from epoch 2)
+ - Cyborg roar is increasing attack values of own/allied units by 50% from now on (previously it was only a +20% bonus)
+ - Increased supply cost of executioner to 8 (from 6)
+ - Increased supply cost of MKII to 10 (from 7)
+ - MKII's Burst Mode has been balanced (less damage, less armour piercing, less frequency increasing, more self-damaging, etc)
+ - Cyborg explosion also decreases enemy defence value for a short period of time (10 seconds, penalty is -30/-30)
+ - Mercenary has from now on the pirate warrior model
+ - Sniper does only 10% damage against buildings and ships from now on
+ - Sniper's armour piercing is reduced from 100% to 25%
+ - Stimpack couldn't be used by sniper and mercenary -> this has been fixed
+ - Sniper's attack range is increased from 80 to 90
+ - Sniper's attack frequency is increased from 25 to 30
+ - Added a new upgrade which increases attack frequency of seas ships (epoch 4)
+ - Speaker defence bonus has been increased from 15/15 to 20/20
+ - Cannon turtle has only walk-speed 1 on land from now on
+ - Explosive rounds have been weakened (e.g. it used to give mkii 50% armour piercing -> this has been reduced to 10, and damage bonus is decreased as well)
+ - Explosive rounds should have been increasing MKII's attack frequency, but it was disabled -> now it’s enabled again
+ - Reduced the hit points of stygimoloch nest from 1500 to 600
+ - Increased ranged defence of seas flamethrower from 0 to 30
+ - Regenerative Gene upgrade is replaced by Selective breeding, which increases hit points of seas animals
+ - Reduced the hit range of SEAS big cannon from 25 to 5
+ - Big cannon of SEAS does full damage against buildings from now on (previously it did only 30%)
+ - JDT-200 no longer damages enemy units attacking it in close combat
+ - JDT-200 gets 20 close and ranged defence
+ - Increased production costs of JDT-200 from 150/30 to 240/170 (Food/Wood)
+ - Increased production duration of JDT-200 from 20 to 25 seconds
+ - Reduced hit points of SEAS staircase from 1000 to 400
+ - Increased production duration of cannon turtle from 20 to 50 seconds (like siege ships of other tribes)
+ - Increased SEAS Laboratory's buildup duration from 20 to 35 seconds
+ - SEAS rocket man is available from epoch 2 from now on (previously epoch 3)
+ - Newly produced medic start with cool down on each ability
+ - Reduced hit points of JDT-200 on each level by 300
+ - Sentinel is only available from epoch 2 from now on
+ - Increased production costs of Sentinel from 150/50 to 150/100 (Food/Wood)
+ - SEAS Exo flamethrower's icon was before stingers and apache's -> this has been fixed
+ - Sentinel can't harvest stone by default, only wood and food and 50/50 of both instead of 25/25, the upgrade doesn't change this value anymore
+ - Mechanised harvesting allows only Sentinel's stone harvesting from now on (50 per trip)
+ - SEAS Worker weapon upgrade's damage bonus has been doubled
+ - SEAS Exo flamethrower's icon was before stinger's and apache's -> this has been fixed
+ - Auto tracking upgrades is available from epoch 4 from now on (instead of 5)
+ - The following units benefit from Auto tracking upgrade too from now on: Corythosaurus rider, CBT-M1500, Cyborg Titan, Stinger, Apache, Black widow, Executioner MKII, Bombardier
+ - The following units benefit from Improved ammunition upgrade too from now on: Corythosaurus rider, CBT-M1500, Cyborg Titan, Stinger, Apache, Black widow, Executioner MKII, Bombardier
+ - SEAS Eusmilus rider has +250 hit points more on each level, resource costs changed from 210/50 to 200/150 (Food/Wood), production duration increased from 17 to 20, and it has an archer build-up too from now on
+ - Rearranged icon positions of upgrades at SEAS HQ
+ - Increased production time of SEAS Stinger and Apache from 15 to 30 seconds
+ - Increased production time of SEAS Hovercraft from 30 to 40 seconds
+ - SEAS Diamond Plating upgrade is available from epoch 4 from now on (previously epoch 5)
+ - SEAS Steel coating upgrade is available from epoch 4 from now on (previously epoch 5)
+ - SEAS Hardened skin upgrade is available from epoch 4 from now on (previously epoch 5)
+ - SEAS Eusmilus rider's sight range is increased from 45 to 55
+ - SEAS Zeppelin is moved from laboratory to steelwork
+ - Removed the 2 automatic ability upgrades of Exo enforcer, and those abilities are their default abilities from now on
+ - The animals used to be produced at SEAS Laboratory (Giganoto, Corytho, Pentaceratops and Eusmilus) are produced at the Garage from now on
+ - SEAS Scorpion can be produced at the Garage too from now on
+ - Wreckages can't be healed from now on
+ - SEAS Hospital can restore mana too from now on (if mana feature is enabled ofc)
+ - SEAS hovercraft can't be bought in point buy anymore
+ - SEAS Scorpion isn't ice immune anymore
+ - Parasite casting range is increased from 15 to 30 meters
+ - Black widows production time is increased from 50 to 70
+ - Production duration of CNT-100 (Carno scout) is decreased from 30 to 14 seconds
+ - Steelworks build up duration is increased from 20 to 50 seconds
+ - SEAS Pub's build up duration is increased from 25 to 30 seconds
+ - SEAS Gate's build up duration is increased from 25 to 30 seconds
+ - SEAS Scorpion production/build-up time is increased from 60 to 90 seconds
+ - Mechanisation upgrade's duration (at laboratory) is increased from 30 to 35 seconds
+ - MKII's burning mode doesn't give area damage anymore
+ - Dropping resources at SEAS small tent is easier from now on
+ - SEAS workers have now only 1 upgrade, which improves their repairing speed
+ - Removed almost all spears from Cyborg titan's model - thanks to Zidell)
+ - Placing SEAS Scorpion had no disable/anti action -> this has been fixed
+ - Changed weapon models of SEAS spearman, guard, sniper and mercenary
+ - Decreased attack frequency of SEAS sniper from 30 to 15, and increased weapon damage by 25 on each level
+ - Only Exo flamethrower, Executioner, MKII and Scorpion are rebuildable from now on
+ - Increased reactivation duration of Exo flamethrower from 10 to 30 seconds
+ - Increased reactivation duration of Executioner from 10 to 35 seconds
+ - Increased reactivation duration of Executioner MKII from 10 to 35 seconds
+ - Increased reactivation duration of Scorpion from 25 to 45 seconds
+ - Removed hospital's Auxiliary station upgrade
+ - Upgrading SEAS carrier's weapons won't disable the other upgrades from now on
+ - Removed SEAS fence upgrades
+ - SEAS fence has 6000 hit points from now on, its corresponding gate 5000
+ - Removed SEAS mechanization upgrade, which allowed Babbit to turn into mobile suit (this unit is removed from general game play, but can be activated per map)
+ - SEAS small cannon is from now on a default defence building at epoch 5
+ - Babbit gives on level 4/5 his special mobile suit as a standalone unit (with different captain)
+ - Disabled particle effects on SEAS titan, to remove the green poison cloud in its mouth
+ - Immortality protocol's mechanic has been reworked to have less animation anomalies
+ - SEAS gunner's melee weapon deals full damage against vehicles from now on
+ - Changed SEAS Scout's attack bonus vs buildings from -50 to -75
+ - Changed SEAS marksman's attack bonus vs buildings from -50 to -75
+ - Changed SEAS mobile suit flamethrower's attack bonus vs buildings from -50 to 0
+ - Changed SEAS rocketman's attack bonus vs ships and vehicles from -25 to 0
+ - Changed SEAS Spearman's attack bonus vs ships from -75 to -50
+ - Changed SEAS stygimoloch's attack bonus vs ships and vehicles from -25 to 0
+ - Changed SEAS stygimoloch's attack bonus vs buildings from -25 to -50
+ - Changed SEAS CBT 500's attack bonus vs vehicles from -10 to 0
+ - Changed SEAS CBT 500's attack bonus vs buildings from -50 to -25
+ - Changed SEAS CBT T1000's attack bonus vs vehicles from -10 to 0
+ - Changed SEAS CBT T1000's attack bonus vs buildings from -50 to -25
+ - Changed SEAS CBT M1500's attack bonus vs buildings from -50 to -60
+ - Changed SEAS Exo flamethrower's attack bonus vs vehicles from 0 to -25
+ - Changed SEAS Executioner's attack bonus vs buildings from -25 to 0
+ - SEAS parasites live only 8 minutes from now on
+ - SEAS apache has only 0/5 (close/ranged) armour from now on (5/5 was previously)
+ - SEAS Dunkleosteus is replaced by Mosasaurus transporter
+
+MIRAGE 2.5.8
+------------------
+General:
+ - Unfinished buildings won't receive production commands, if there is any finished building in the active selection
+ - Flying units didn't take damage from weapon build-up, even if the build-up could attack flying units -> this has been fixed
+ - Fixed the bug with giving for remaining points (from point buy) skulls (the game always gave a static number of skulls, no matter how many points the players have left)
+ - Updated supply values -> added missing units (like new seas wreckages) and increased supply value of several units (all basic infantry, infantry specialist and basic and some level 2 animals of all tribes)
+ - Updated the description of several units (e.g. some special units don't have certain abilities by now)
+ - I did a sloppy work with caching the last (5) used IP addresses (the IP used at joining always got saved again, no matter if it was already, and this way if the same IP is used for several times, the cache would contain only that one, not older but different IP addresses) -> it is working now as it intended to be in the first place
+ - Changed how camera style toggling works: the camera styles aren't mixed anymore, if new zooming is disabled, only the old system works and vice versa
+ - Dot and comma ('.' ',') don't serve camera functions anymore -> their functions are inherited by the PgUp and PgDn keys (in free style zooming mode)
+ - Although the new weapon tooltips provide better information about weapon and defence bonuses, the old ++,--,etc. system is restored now
+ - In point buy menu (shopping list) the vehicles tab is removed, the vehicles (and dr transport turtle) can be found on the cavalry tab once again
+ - With 200 supply system enabled, placing certain buildings (like dr floating harbour) caused always crashes -> this has been fixed
+ - Players can buy skulls in Point buy menu from now on (current price is: 15 points for 1 skull)
+ - Remaining (unused) points from point buy will be given as food for the player
+ - 1000000 points are (once again) available in level settings
+ - Damage caused by big corpses falling to the ground (like titans) can be disabled from now on (within mirage sever settings)
+ - 99% maximal defence is once again the default value, but 100% defence can be enabled (within mirage sever settings)
+ - Diplomacy locked status will be saved from now on
+ - Daytime bar and server setting of it have been removed
+ - If IP address (to join game via TCP/IP) is copy-pasted, and at the end, any whitespace characters (space/tab) got also copied, those will be removed, once the player clicks on the join button
+ - Heroes unlock special stuff for the tribes from level 4 once again
+ - Changed default hotkey to open Special actions submenu from 'A' to 'E'
+ - Added new hotkey to select all controllable, fighting (relevant) animals, infantry and vehicles: Ctrl+F2
+ - Added new hotkey to select all controllable, fighting (relevant) ships: Ctrl+F4
+ - Nest of aggressive animals is once again marked as aggressive objects if nest respawn option is on
+ - Hero pool is not a default feature but a game play option from now on
+ - Free hero specials is not a default feature but a game play option from now on
+ - Kill count increasing skulls given by the death of unit is not a default feature but a game play option from now on
+ - Added 6th epoch for all tribes
+ - Healers will from now on heal allied units more frequently (own units are still prioritized)
+ - Animals will play 'victory' animations (roaring, scratching, etc) from now on
+ - Resources gained by killing trading units has been changed -> profit from the last trip of the trade unit will be given from now on (i.e. trade units, which didn't make any profit before getting destroyed, won't give any resources)
+ - Players minimal population capacity is increased from 2 to 3
+ - Units thrown to the ground can't be commanded until they get up (from now on)
+ - Treasure chests can be picked up even from water (caused sometimes because of special scape) with amphibious (Miyagi, stinger, etc)
+ - The 'No HQ timer' option is removed from server settings page -> to disable HQ timer, the hq timer value must be set to -1
+ - Shift+F4 is from now on a shortcut key for opening/closing help menu window
+ - Walls and gates can't be ignited anymore
+ - Anti-building units (like long range catapults, rammer, battle ram) has ranged defence increase against buildings from now on (the actual values are different for the various units)
+ - Shift-right clicking on any icon in the army controller will level up the corresponding unit to the highest level possible (if the requirements are fulfilled)
+ - By Alt-clicking (if the object selection is empty!) on any icon in the army controller, will dismount the corresponding unit from its transporter(s) (even if it’s a passenger of allied object)
+ - There is a new client option, to filter out tribes (like seas) from random tribe selection
+ - Adder's Map editor-Symmetrie-Mod is included from now on
+ - Map editor has been a bit modified (like nests) to make things easier...
+ - Heterodontosaurus although being categorized as a small carnivore was neutral (fights back when attacked) -> it’s an aggressive animal from now on
+ - Wild predators (carnivores) will hunt wild animals from now on
+ - Teleport gates will release the units in front of the gate from now on
+ - Teleport gates can have a rally point from now on, so that units released from them will go to the rally position
+ - Henodus (turtle) and Bothriolepis (fish) can be used as spawn animals from swimming animals nests from now on
+ - New server option has been added: down-levelling, which gives various permission for levelling down units (works via ac)
+ - Maximal speed of wild Euoplocephalus has been increased from 1 to 2
+ - The change to remove fruit bushes at building placement is now only optional (there is a new settings at mirage server page for this)
+ - New server option has been added: treasure sharing - if enabled, then the bonus effect from artefacts are shared amongst team members, but it works only with locked diplomacy
+ - New server option has been added: wild animals in FOW, which makes wild animals and nests visible in the fog of war
+ - New server option has been added: no flying units, which can remove flying units from now on (Zeppelin is still available always, but can't fly over anything if flying units are disabled)
+ - New server option has been added: titan slots, which adds each titan +2 transport slots
+ - When cheats are activated, a message will be displayed in the main menu as well as in multiplayer menu and the chat window in the pre-game lobby (source code from CEP, thanks to AyCe :))
+ - The current MIRAGE version (and build number in the case of test versions) will be displayed in the main menu from now on (under the menu buttons)
+ - The version button in main menu has been modified: it no longer opens a window which displays the current MIRAGE version, only opens the MIRAGE webpage from now on
+ - From now on newly produced units will enter portals automatically if the rally point of their producing building is set on portals
+ - Since the map-makers can place multiple items of the same artefacts (2-3 ankhs of power) to avoid the effect bugs, any player can obtain only one item form any artefact classes at the same time. Furthermore, if treasure sharing is enabled, only one artefact of the same class can be obtained by the corresponding team
+ - Maximal speed of wild Macrolemys has been increased from 1 to 2
+ - Healing from transport basket option has been reworked; so that the healing value in percentage (from 0% to 100%) can be set from now on (0% means that the option is disabled)
+ - Fixed a bug, which removed unfinished buildings from player's building-condition-list, which could in certain cases prevent dc players from epoch advancing
+ - Info window shows from now on seismo-titan's secondary weapon-build-up stats (same goes for all similar units, like logcannon-tric-titan)
+ - Fixed ranged weapons of several units (where the end damage was bigger than the base damage)
+ - Added 160%-200% handicap levels
+ - Handicap wasn't working if player chose SEAS (on certain maps) -> this has been fixed
+ - Default game speed (a value used for resetting game speed in multiplayer games) can be set freely between 0.01 and 4.0 in the options menu from now on
+ - Added a new function to version checker, which allows it to save the external IP to a temporary file, and the game reads it and displays this address instead of the local one
+ - Added a new server option to enable/disable transport ships from epoch 1 (if disabled they are to producible from epoch 2)
+ - Auto cast abilities have been broken since a couple of versions -> this has been fixed
+ - Added new client option to use WASD keys instead of arrow keys for moving the camera
+ - Added new sub-game play mode for death matches -> Phantom mode (you may know this from Supreme Commander or Starcraft 1/2, probably the latter)
+ - Added new server setting -> maximum game time, which limits the length of the matches, i. e. if the time is over its a draw (for non defender games only)
+ - Since a hotkey for retry button at end screen was added, it could be activated even if it was invisible -> this has been fixed
+ - Armour piercing value (since it can be different) will be shown on from now on
+ - In multiplayer window (opened from main menu) the Internet button has been restored, because we found a way to replace gamespy functionality. Internet button is now the last (for this to work, you need to have hex edited executables, for more info & help, ask us on the forum)
+ - Added new server setting: pause limitation, which means any player can pause the game max. 'x' times
+ - Added new server setting: unpause, which allows other players to unpause the game. If pause limit is set, unpausing someone else's pause takes away one tactical pause
+ - Added new server setting: speed up, which reduces the duration to build, produce and upgrade (most) stuff and increases resource harvesting cap. of workers (and co.)
+ - Rearranged mirage server settings, because there were too many and it was hard to navigate through them (and some more are still planned, so there would have been not enough space...)
+ - Usage and working mechanic of Siege units/buildings have been improved (also fixed some bugs related to them)
+ - Using healing wells will be now easier. Also if the selected unit is already at the target, it won't try to find a suitable and free position around it
+ - Fixed Deco-Archaeopteryx texture
+ - Added new client option to display markers for aura, healing, attack and sight range (sight range has blue colour, attack range has red, alarm range has purple, healing radius yellow, other auras green). With Crtl+Shift+R/T/F the range markers can be enabled/disabled (by default only healing and aura markers are visible)
+ - Removed Switch off SSS button is replaced by Start PWTool button
+ - Added training dummy animals for new units, and for old units which didn't have beforehand (like most dragon clan animals...). Dustrider animal farms keep their gates open, while the training dummy animal is outside. Training dummies gets deleted, before the actual unit appears from now on (it was ugly, when duration was shortened by effects like Ada's T5, or treasures and both the unit and the dummy were visible at the same time.
+ - Made a workaround to solve the stacking of air units (also enabled a flight action for most of them when they are in idle state)
+ - Flying units were activating water mines by flying over them (although they didn't suffer damage from the explosion) -> this has been fixed (they don't activate the mines anymore)
+ - Frozen units played sometimes various idle animations -> with a client-sided idle anim-manager check its fixed now (probably)
+ - Added new client option to display object lines to rally points and for portals, to show their exit points
+ - Sending units to new locations, which have rally points (like seas carrier, or dr mobile hq), used to reset their rally points -> this has been fixed
+ - Trap effects (timed or object based) used to cancel each other -> this has been fixed
+ - Area throwing effects (like area damage from seismo's attack) used to break animation of units catched by snare traps -> this has been fixed
+ - Injured Baryonyx used to hump walk on water instead of swimming -> this has been fixed
+ - Big, wild animals like mammoths and brachiosaurus deal aoe damage from now on
+ - A new spirit system has been made (the changes are just too much to list them all...), but its optional
+ - Biological ships leave food corpses behind and they can be resurrected as well from now on
+ - While the game is paused, any player could place multiple lines of walls on top of each other -> this has been fixed
+ - Improved unloading mechanic, so that units will less likely be unloaded at inaccessible locations, thus preventing them to walk on mountains, etc
+ - Added new server option: techtree stealing, which allows players to use the build/produce menu and special abilities of other tribes (if they get any of their units, like via Tarna's resurrection)
+ - Added new server option, which allows players to produce the workers of other tribes from the get-go
+ - The launcher's update notification function was not working (because the wrong value type was used for comparison) -> this has been fixed
+
+AI:
+ - AI will use all of the hero abilities from now on
+ - AI will use also old abilities, which it couldn't before (like resurrect)
+ - AI can only have 1 unit on level 5 (since 2.5.3 version it could have 3)
+ - AI will try to place water turrets from now on
+ - Default AI setting will be Random once again
+ - AI usage of basic trade units (not the ships) has been improved
+ - AI couldn't place seas carrier properly -> this has been fixed
+ - For quite some time AI could produce dustrider brachios on level 1, and other units on non-standard levels -> this has been fixed
+ - AI couldn't use reveal ability -> this has been fixed
+ - AI is now capable of using zeppelins for transporting units
+
+Heroes:
+ - Changed Darkmoon's name back to Miyagi (he is now Captain Miyagi)
+ - AI can't use hero skills anymore, if the hero isn't on the required level (its also disabled on server side, so it hopefully will work)
+ - Maximum range of Headshot has been increased from 40 to 60 (in game) meters
+ - Mechanization ability had a scripting error, which resulted population count reducing at both converting Babbit into Exo suit form, and getting Babbit back from destroyed suit -> this has been fixed
+ - Barry and Harry will automatically start assisting Larry in his current task upon being summoned from now on
+ - Heroes once again are having only 1 special skill ability (on level 3)
+ - Mechanization upgrade of Babbit is now a new SEAS special upgrade for him, which has to be researched first (and one time) at laboratory, then at Babbit himself (every time the player want to convert him into a mechanical unit)
+ - Buildings got ranged buff icon in Miyagi's vicinity (although the increased attack frequency is not meant for buildings) -> this has been fixed
+ - Kleemann's T5 global bonus reduces the reactivation costs of SEAS robot-wreckages
+ - Taslow's lvl3 ability worked on dc battlecruiser and seas stinger even if it was in flying mode -> this has been fixed
+ - Miyagi's unit size is set from 5 to 0, (just like Stina), so that he can't be knocked down by bigger units
+ - Stina lvl5 bonus once again gives only +20 close combat defence for animal units
+ - Heroes on level 4/5 makes production buildings of their special units available even if the required epoch is not reached yet (e.g. dustrider medium animal farm can be built on epoch 1 if the player has Stina on level 4/5)
+ - Animation for Governor's Whirlwind ability has been replaced to a proper one
+ - Taslow's special, lvl3 ability lacked a position checking function, so even if he didn't arrive at the target's location, the action got still performed, and this allowed it to be exploited (like setting taslow into an area closed off by walls and killing visible enemy vehicles) -> this has been fixed
+
+Dragonclan:
+ - Battle cruiser was missing from NewPointbuyCost.txt, so that it couldn't be bought in point buy menu -> it is added now
+ - Accidentally removed Monk's hotkey -> its fixed now
+ - Swapped hotkey for producing level 1 and level 2 archers at dojo (lvl1-> E, lvl2 -> A)
+ - Battlecruiser deals from now on only 25% damage vs buildings (15% was before) and 25% vs ships (100% was before)
+ - Fire cauldron doesn't damage enemies around it anymore
+ - Zeppelin can't fight anymore
+ - Small tower deals from now on only 50% damage against buildings (100% was before)
+ - Production costs of water turret has been decreased (from 250 wood to 200)
+ - Added new submenu for traps (hotkey for opening it is: 'A')
+ - Water trading upgrade is from now on a local upgrade for each individual fishing boat (duration: 10s, costs: F:250/W:50/S:50)
+ - Kill count doesn't increase Sumo wrestler's max hit points anymore
+ - Seismosaurus titan has max speed 2 from now on
+ - Seismosaurus titan has no more explosive payload and high impact payload modes
+ - Seismosaurus titan has again (as in booster pack) 5m hit range and armour piercing attack
+ - Changed several hotkeys, because of new units, buildings, etc.
+ - Pirate ship is moved to epoch 6
+ - Emporium is available from epoch 2, but trade cart still only from epoch 3
+ - From now on only poison trap remains hidden even if it has been sprung
+ - Lacerate's damage has been decreased from 400 to 300, but it removes ranged defence of the target for 8 seconds
+ - Build-up duration of mine field has been decreased from 30 seconds to 20
+ - Build-up duration of spike trap has been decreased from 20 seconds to 10
+ - Build-up duration of poison trap has been decreased from 20 seconds to 10
+ - Build-up duration of snare trap has been decreased from 15 seconds to 10
+ - Build-up duration of fire trap has been decreased from 10 seconds to 8
+ - Monk gets ceasefire ability, which prevents the selected unit from fighting or being attacked
+ - Damage of demolition charge is restored to booster pack stat
+ - Duration of enchain is decreased from 20 to 15 seconds
+ - Biological ship units (Muraenosaurus) can be poisoned from now on
+ - Ice spearman's basic weapon damage is from now on pair with that of normal spearman
+ - Ice spearman has armour piercing from now on
+ - Spearman's attack deals 75% damage against vehicles from now on (previously it was only 25%)
+ - Seismosaurus titan's close and ranged defence values are decreased from 25 to 15
+ - Pirate boss ship does full damage vs all unit types once again
+ - There is a new level 3 dino unit from epoch 4: the Triceratops rider, which can deal splash damage
+ - The new Triceratops unit gets a (researchable) special ability: Frightening -> this ability decreases the attack rate of nearby enemies for a limited amount of time
+ - Mortars can't attack air units from now on
+(100% was before)
+ - Seismosaurus titan doesn't have any transport slots by default from now on
+ - Second archer range upgrade is now available from epoch 5
+ - There is a new level 3 dino unit from epoch 3: the Saltasurus launcher, which uses a ranged weapon and has armour piercing
+ - Water turrets range has been decreased from 50m to 40m
+ - Monk's temporarily fatal bonds and hourglass abilities has been removed
+ - War drums gets a new (researchable) special ability from epoch 3: Song of Valor -> this ability increases the attack rate of nearby allied units for a limited amount of time
+ - Rocket ramps have armour piercing once again
+ - Rocket ramps cost again 1500 wood and 1000 stone (back from 1000W/700S)
+ - Fishing boats can be produced as trading ships instantly from now on (duration: 20s, costs: F:250/W:100/S:50)
+ - Cool down for Lock picking ability was not working -> this has been fixed
+ - Increased muraeno submarine's damage to 100 (lvl 3) (from 70)
+ - Ice spearman is invisible to the enemy (until she attacks) from now on
+ - Fire boats got air weapon so that dc has now also a ship capable of fighting against flyers
+ - There is a new upgrade at the animal farm from epoch 3: Voracity, which allows predators a life steal ability against biological units
+ - There is a new upgrade at the temple from epoch 4: Monk enhanced range, which increases the healing and spell casting range of monk
+ - Seismo's Gatling guns had 30 minimum range somehow... -> its set back to bp stat (20)
+ - Changed production costs of salta launcher from 500/200/30 to 500/120/70 (Food/Wood/Stone)
+ - Added a new, lvl2 animal unit from epoch 3: launcher-rider
+ - Babbit gives a new unit from now on: dc stinger (lvl3 vehicle)
+
+Dustriders:
+ - After putting siege brachio back to big animal farm, I forgot to update the hotkey for it -> this has been fixed
+ - Increased Venom thrower's hit range from 5 to 10 (m)
+ - Accidentally removed Shaman's hotkey -> its fixed now
+ - After setting siege brachio back to be produced on level 3, I haven't updated its resource costs -> costs are increased from 600/200/70 to 1200/300/120 (Food/Wood/Stone)
+ - Catapult brachio conversion is only visible from epoch 4 onwards
+ - Brachio transporter has 5 passenger slots since 2.5.3, just forgot to mention in change log
+ - Brachio transporter couldn't be converted into other forms if it had passengers (maybe other units had same problem too) -> its fixed now
+ - Zeppelin can't fight anymore
+ - Pteranodon rider deals from now on only 25% vs ships (100% was before)
+ - Slaughterhouse will play its own animation from now on, if workers are occupied there
+ - Standard Ankylosaurus can be converted directly into raptor ammo using catapult version from now on
+ - For caudal bash/whiplash the minimal activation requirement has been reduced from 4 enemies to 3
+ - Rammer doesn't incapacitate buildings from now on
+ - Changed several hotkeys, because of new units, buildings, etc.
+ - Bazaar is available from epoch 2, but trade dino still only from epoch 3
+ - Slaughterhouse is available from epoch 2, but it has only 2 worker slots. On epoch 3, it gets +2 slots
+ - Added 3 new upgrades for spearman: increased range, increased frequency and increased damage
+ - Carcharadonto nest has been replaced with gallimimus nest
+ - Shaman can't heal by default anymore, it must be researched at the temple (the upgrade is available from epoch 4, costs -> F:400/W:200/S:150)
+ - Biological ship units (Mosasaurus, etc) can be poisoned from now on
+ - Spearman's attack deals 75% damage against vehicles from now on (previously it was only 25%)
+ - Archer rider on T-Rex titan deals full damage against buildings as well (previously it was only 25%)
+ - Stunning roar's effect time is increased from 7 to 8 seconds and area of effect from 10 m to 12
+ - Poison thrower's normal damage has been increased from 5/10/15/20/30 to 5/15/25/45/85
+ - Poison thrower's poison damage has been decreased from 20/20/25/35/50 to 5/15/20/30/45
+ - T-Rex titan doesn't have any transport slots by default from now on
+ - Tyranno rider doesn't have armour penalty aura from now on
+ - Tyranno rider gets an archer build-up for ranged attacks
+ - Allosaurus gets a new upgrade at epoch 5 -> Keen eyes, which gives the animal an armour penalty aura against enemy units
+ - Triceratops transporter has no longer armour piercing
+ - Triceratops transporter's defence values are increased from 0/0 to 50/50 (close combat/ranged)
+ - Second archer range upgrade is now available from epoch 5
+ - Mosasaurus has been redesigned -> it has no longer torpedoes, but a catapult build-up instead
+ - Liopleurodon has from now on an archer build-up
+ - Bone palisade can be (locally) upgraded into wall from now on (if the necessary requirements are fulfilled)
+ - Tracker dinos can reveal entrenched, disguised, and feign death units from now on
+ - Shaman's camouflage ability has been reworked, so that it will work more like in the original game, i.e. no fake animal will be produced, only the shaman will use an animal model, but it will still be invisible on the mini map for enemy players. additionally clicking on the ground with the special cursor will give the shaman the predefined animal model of that level. and non swimming aggressive animals can also be used for the camouflage
+ - Siege brachio is available from epoch 3 from now on
+ - Huge animal farm is available from epoch 3 from now on
+ - Weapon builder is available from epoch 3 (once again)
+ - T-Rex titan's basic attack deals only 20% area damage to secondary targets from now on
+ - Large tower had the same selection sound as small tower (since original game!) ->this has been fixed
+ - Pteranodon rider couldn't be resurrected -> this has been fixed
+ - Casting multiple tornadoes does not stack the damage anymore
+ - Removed brachio transporter's +200 HP bonus, now it has the same amount as other forms
+ - Assassin is invisible to the enemy (until he attacks) from now on
+ - Increased scouts’ attack range of spit from 10.0 to 12.0 (that is basically for making scouts be able to use their ranged attack. With 10.0 they almost always used their melee attack once they got into combat range to the target)
+ - Rammer is from now is good against everything (except for ships), has 300 hp more on each level, has 50 damage less on each level, 50-50 rc and cc armour, and gets the ability to knock over most enemy units
+ - Increased brachio mobile camp's range from 25 to 45
+
+Norsemen:
+ - Accidentally removed Druids's hotkey -> its fixed now
+ - Falling stones damage starts on 100 damage, then small wall upgrade increases it by +200, and reinforced wall upgrade by another +200
+ - Undead warrior (Kleemann t4) doesn't have poisoning aura anymore
+ - Zeppelin can't fight anymore
+ - Kennel smilodon's attack frequency has been decreased (from 36 apm to 28)
+ - Kennel smilodon's attack damage has been decreased (from 28/33/43/63/103 to 20/25/35/55/95)
+ - Water trading upgrade is from now on a local upgrade for each individual fishing boat (duration: 10s, costs: F:250/W:50/S:50)
+ - Detection radius of oracle ability has been increased from 20 to 30m
+ - Kill count doesn't increase Berserker's attack strength anymore
+ - Triceratops titan has max speed 2 from now on
+ - Changed several hotkeys, because of new units, buildings, etc.
+ - Log cannon titan is from now on an epoch 6 extra
+ - Flying mode for jetpack warrior is from now on an epoch 6 extra
+ - Ballista Pteranodon has been replaced by Pteranodon rider, which is like the Dustrider one, but benefits from archer upgrades
+ - Pteranodon rider deals from now on only 25% damage vs buildings (100% was before) and 25% vs ships (100% was before)
+ - Undead/zombie warrior will restore hit points while being entrenched from now on (15 hit points per second)
+ - Spearman's attack deals 75% damage against vehicles from now on (previously it was only 25%)
+ - Lancer's attack deals 75% damage against vehicles from now on (previously it was only 25% and 10%)
+ - Triceratops titan's close and ranged defence values are decreased from 35 to 25
+ - Battle rhino's pennant effect will once again work on the rhino itself
+ - Magic cauldron has no healing effect any longer
+ - Mobile suit deals no more armour piercing damage
+ - Second archer range upgrade is now available from epoch 5
+ - Battle tank has no more the Steam Cannon upgrade
+ - The rhino armour upgrade is moved back from epoch 4 to epoch 5 (like in bp)
+ - Dragon boat can attack air units from now on
+ - Illusions cast by druid will mimic the caster from now on, i.e. if the druid starts specific tasks (like meteor attack) the illusions will do the same (ofc they won't be able to cast additional meteors, they just pretend doing so)
+ - Log cannon titan's speed is increased from 2 to 3
+ - Jetpack warriors in flying mode uses slingshot as a weapon from now on
+ - Fishing boats can be produced as trading ships instantly from now on (duration: 20s, costs: F:250/W:100/S:50)
+ - Cool down of jetpack ability was not working properly -> this has been fixed
+ - Pteranodon rider couldn't be resurrected -> this has been fixed
+ - Animation for Warrior's Roar ability has been replaced to a proper one
+ - Weapon frequency of falling stones is set back to booster pack state (max 6 attacks every minutes from 12)
+ - Rhino transporter's speed is increased by 1 (SEK reduced it back previously, changing it from 3 to 2, that balance change is now reverted)
+ - Killer is invisible to the enemy (until he attacks) from now on
+ - Plague of locusts also affects wood inventory from now on
+ - Plague of locusts has now 60 seconds cool down (from 180)
+ - Illusions can heal now
+ - Illusion has now 60 seconds cool down (from 240)
+ - Oracle has now 40 seconds cool down (from 120)
+ - Meteor deals now 700 damage (also 700 end damage), but its true damage (100% armour piercing)
+
+SEAS:
+ - CBT-M1500 was missing from NewPointbuyCost.txt, so that it couldn't be bought in point buy menu -> is added now
+ - Stinger couldn't be bought on level 2 in point buy menu -> now it can be
+ - Burst Mode won't damage nearby allied units anymore
+ - Duration of Stinger's local upgrades has been decreased from 30 to 15 seconds (it took way too long to switch them into flying/walking mode)
+ - Enemy units will less likely attack robot wreckages automatically (their aggro priority is decreased)
+ - Helicopter in flying mode deals from now on only 25% damage vs buildings (50% was before) and 25% vs ships (100% was before)
+ - CNT-100 deals from now on only 50% damage vs vehicles, ships and buildings (100% was before)
+ - CBT-500 deals from now on only 50% damage vs buildings (100% was before) and 90% vs vehicles (100% was before)
+ - CBT-T1000 deals from now on only 50% damage vs buildings (100% was before)
+ - Zeppelin can't fight anymore
+ - Tower has been renamed to 'SEAS tower'
+ - SEAS tower deals from now on only 50% damage against buildings (100% was before)
+ - Machinegun nest deals from now on 100% damage against vehicles (50% was before)
+ - Defence turret deals from now on 50% damage against buildings (100% was before)
+ - ML Cross-Sword Cannon deals from now on only 30% damage against buildings (100% was before)
+ - Added automated harvest upgrade for greenhouse
+ - Decreased production costs of carnotaurus from 300/0/0 to 180/0/0 (Food/Wood/Stone)
+ - Decreased hit points of carnotaurus from 500/600/800/1100/1600 to 300/400/600/900/1400 (Lvl1/Lvl2/Lvl3/Lvl4/Lvl5)
+ - Decreased skulls of carnotaurus from 30/35/45/55/75 to 8/13/23/33/53 (Lvl1/Lvl2/Lvl3/Lvl4/Lvl5)
+ - Decreased attack strength of carnotaurus from 20/25/35/55/95 to 15/20/30/50/90 (Lvl1/Lvl2/Lvl3/Lvl4/Lvl5)
+ - Weapon of CBT-M1500 has been changed -> frequency: 50 attacks/minute, damage 12/18/24/36/60 (Lvl1/Lvl2/Lvl3/Lvl4/Lvl5), which is the same output as for nm ballista rhino
+ - Cyborg titan doesn't have the turret weapon build-up anymore
+ - Cyborg titan isn't poison immune anymore
+ - Regenerative coating upgrade has been removed
+ - Fortified buildings upgrade has been added, which increases buildings hit points by 25%
+ - Building plating upgrade has been added, which adds certain buildings 35/35 defence
+ - Changed several hotkeys, because of new units, buildings, etc.
+ - Scorpion and great/big cannon are moved to epoch 6
+ - Steelwork is available from epoch 2, but trade dino still only from epoch 3
+ - Cyborg titan got 2 new abilities: cyborg roar and cyborg explosion
+ - Reactivating robot wreckages costs more from now on (half of the costs of a new unit)
+ - Executor shake from now on doesn't give any attack bonus, but intimidates enemies around the executor
+ - Added new upgrade: internal progenitor, which increases the basic and fire damage dealt by flamethrower, flamethrower mobile suit and scorpion
+ - Added new upgrade: robot plating, which increases the defence values of all vehicles by +10
+ - Added new upgrade: improved repair tools, which increases worker's repairing frequency
+ - Added new upgrade: dna modification, which allows animal units to slowly restore health while out of combat
+ - Added new upgrade: suicide, which gives medic the suicide ability
+ - Added suicide ability for medic, which allows him to place bombs into own units, which explode after a short duration, killing the host and damaging nearby objects
+ - Added new upgrade: medkit, which increases medic's healing value
+ - Zeppelin is produced in the laboratory from now on
+ - Added reactor core upgrade for laboratory, which allows it to produce 2 units there simultaneously
+ - Added new upgrade: auto tracking, which increases attack range of turrets and other fighting buildings by 10%
+ - Added new upgrade: maelstrom rounds, which increases attack of turrets and other fighting buildings
+ - Added new upgrade: automation, which allows greenhouse to harvest food on its own (i.e. without workers)
+ - Stimpack ability wasn't working whit Shift key together -> its fixed now
+ - Hit points of JDT-200 (Polakanthus) are increased by +300 (each level)
+ - JDT-200 can transport only 3 infantry units
+ - JDT-200 has again a marksman rider
+ - JDT-200 once again damages opponents in close combat, this damage is increased on higher levels by +10 (on level 2 it is 25)
+ - Exo flamethrower is from now on a T3 unit (available from Epoch 4)
+ - Production times of Exo flamethrower is increased from 25 to 50 seconds
+ - Production costs of Exo flamethrower are increased from F:50/W:300/S:150 to F:200/W:400/S:300 (costs of reactivating are changed accordingly)
+ - Exo flamethrower's attack deals only 50% damage against buildings (it was 75% previously)
+ - Exo flamethrower's attack frequency is decreased from 25 to 20 attacks per minute
+ - Exo flamethrower's attack range is decreased from 20 to 15
+ - Exo flamethrower's close and ranged defence values are increased from 20 to 30
+ - Biological ship units (Dunkleosteus, etc) can be poisoned from now on
+ - Cyborg titan's attack frequency is decreased from 40 to 30 attacks per minute
+ - Cyborg titan's close and ranged defence values are increased from 0 to 10
+ - Cyborg titan's main weapon doesn't deal poison damage anymore
+ - Bunker's unit-slot number is increased from 5 to 10
+ - Scorpion's defence values are decreased from 40/40 to 25/25
+ - Scorpion's hit points are decreased by 3000 (on each level)
+ - Stinger's attack frequency in flying mode has been decreased from 60 to 40 attacks per minute
+ - Stinger's attack damage has been increased from 4/7/10/20/40 to 6/14/23/42/80
+ - Guards and Marksmen don't have individual upgrades for increased damage, defence and range anymore
+ - Infantry units get general 12 (4x3) new upgrades for increased damage, defence and range (for ranged weapons) on epoch 2, epoch 3, epoch 4 and epoch 5
+ - Rocketman's attack deals only 15% damage against infantry and animals (50% was previously)
+ - Cyborg titan doesn't have any transport slots by default from now on
+ - Giganto rider can't heal itself by attacking biological units from now
+ - Giganto rider ha from now on a rocketman weapon build-up
+ - Carrier can attack air units from now on
+ - Hunter seeker can reveal entrenched, disguised, and feign death units (well, mostly ships ofc) from now on
+ - Ada on level 4 gives the sniper instead of the tamer (level 3 infantry at the laboratory). This unit is a very long range assassin
+ - Arch druid on level 4 gives seas the loud speaker instead of the healing well, and this building increases surrounding unit's defence values
+ - Healing well in from now on an epoch 4 building
+ - Giganoto rider/guardian was written wrong (Giganto) -> it has been fixed
+ - SEAS finally got a siege construction to climb enemy walls (which is like Norsemen’s ladder) -> staircase
+ - Redesigned carrier: cost 75 wood only, it has 750 HP (level 1), and no armour, weapon deals 25 damage with an attack speed of 6 attacks/minute. On Epoch 3 it gets an upgrade (available for 150 wood and 150 stone), which gives all carriers 20 attacks per minute and a hit range of 15 (same size like the dr torpedo turtle has)
+ - Submarine's damage is reduced to 70 (level 3) (from 100)
+ - Cyborg Triceratopses: Each seas triceratops has 1500 HP (level 3) and 0 CC and RC armour. Attack speeds of CBT-500 and CBT-1000 are changed from 40 to 30 (attacks/minute) (level 3) and their attack damage to 40 (level 3). CBT-500 got armour piercing, so that it will be a good alternative to the CBT-1000 (which otherwise would be stronger per se, since it has 3 units to transport + the marksman riding it). The CBT-1500 has 60 attack speed and 20 damage (level 3).
+ - Exo flamethrower: it’s an epoch 4 unit from now on
+ - Executioner: it has 3000 HP on level 4 and 3500 HP on level 5, 30 rc and cc armour and on level 4 90, on level 5 130 armour piercing attack
+ - Minigun executioner: it has 4000 HP on level 4 and 4500 HP on level 5, with 80 dmg and 50 apm for range weapon on level 4, and 120 dmg and 50 apm for range weapon on level 5, 120 dmg for melee on level 4, 160 dmg for melee on level 5, it has no armour piercing attack by default.
+ - Great cannon's HP is reduced from 10k to 5k, range reduced from 1000 to 600, damage increased from 250 to 500, deals only 30% damage against buildings (50% previously), increased attack frequency from 4 to 6 apm
+ - Great cannon can't attack wild animals if they are in FOW, even if they are visible in FOW
+ - Changed building costs of turret tower from 0/250/250 to 0/350/350 (Food/Wood/Stone)
+ - Changed building costs of small cannon from 0/500/500 to 0/400/400 (Food/Wood/Stone)
+ - Changed building costs of laboratory from 0/200/150 to 0/150/150 (Food/Wood/Stone)
+ - Changed production costs of rocketman from 100/60/0 to 60/120/25 (Food/Wood/Stone)
+ - Changed production costs of medic from 150/30/20 to 150/80/50 (Food/Wood/Stone)
+ - Changed production costs of marksman from 50/50/0 to 50/70/0 (Food/Wood/Stone)
+ - Changed production costs of gunner from 100/50/20 to 60/120/0 (Food/Wood/Stone)
+ - Changed production costs of flamethrower from 80/80/0 to 80/100/0 (Food/Wood/Stone)
+ - Changed production costs of submarine from 150/150/0 to 100/130/0 (Food/Wood/Stone)
+ - Changed production costs of hovercraft from 0/80/50 to 0/120/0 (Food/Wood/Stone)
+ - Changed production costs of MKII from 1500/1500/750 to 250/1000/500 (Food/Wood/Stone) (changed wreck's reactivation accordingly)
+ - Changed production costs of Executioner from 1500/1500/750 to 250/500/400 (Food/Wood/Stone) (changed wreck's reactivation accordingly)
+ - Changed production costs of black widow from 400/300/200 to 400/500/350 (Food/Wood/Stone) (changed wreck's reactivation accordingly)
+ - Changed production costs of mobile suit flamethrower from 300/450/150 to 300/350/150 (Food/Wood/Stone) (changed wreck's reactivation accordingly)
+ - Changed production costs of mobile suit from 50/300/150 to 120/170/0 (Food/Wood/Stone) (changed wreck's reactivation accordingly)
+ - Changed production costs of sentinel from 50/140/60 to 150/50/0 (Food/Wood/Stone) (changed wreck's reactivation accordingly)
+ - Changed production costs of CNT-100 from 180/0/0 to 100/0/0 (Food/Wood/Stone)
+ - Changed production costs of CBT-500 from 500/140/60 to 400/90/40 (Food/Wood/Stone)
+ - Changed production costs of CBT-T1000 from 500/240/60 to 400/190/30 (Food/Wood/Stone)
+ - Changed production costs of CBT-M1500 from 500/140/60 to 400/120/70 (Food/Wood/Stone)
+ - Changed costs of greenhouse's automation from 500/300/0 to 500/500/0 (Food/Wood/Stone)
+ - Sniper is invisible to the enemy (until she attacks) from now on
+ - Balanced small cannon's and mg nest's stats...
+ - Removed the cyborg triceratops conversion upgrade (function can still be activated via map editor)
+ - Added a new upgrade, which increases defence of animal units (available from epoch 5)
+
+MIRAGE 2.5.7
+------------------
+General:
+ - Fire damage frequency has been decreased (from ticking each second it does now every 2 seconds)
+ - Probably fixed a bug causing client crashes using group hotkeys in certain situations
+ - Players without any hq or population buildings/units, will have a minimal of 2 population capacity (so like dustrider can still produce a mobile hq, if they only have a small farm left)
+ - Fixed zeppelin corpse's bug, which caused the wreck to move higher first, only then to sink
+ - Inventing epoch 2 was too fast for AI (since 2.5.3 probably) so it has been restored to original settings
+ - English help file about heroes had parsing error (missing tag), that was why heroes had no names or descriptions  -> this has been fixed
+ - Some animals (like kentrosaurus, parasaurolophus units of dc) had gfx issues because of scripting error -> the problem is fixed
+ - Formerly if the player wanted to level up a unit by 2 levels (like from AC level 1 to 3) while there were no free slots in the level between (in this case AC level 2) only with a drag-and-drop action on the pyramid card could this be done  -> from now on, right clicking on the pyramid (AC) card, or using the level up command bar button will level up the selected unit to the closest level, if it has a free slot (and the player has enough skulls to do so)
+ - From now on, if a player gives his ally shared unit control or takes it back, both players will receive text message about it
+ - Set rally point button in command bar could only set the rally target to a position, but not to a target, like a building -> from now on, if the hit object at left clicking is a building, the building itself will be the target
+ - Even if a trade building's rally point was set to an own or allied trade building, the newly produced trade units didn't start the trade route immediately, but only after a couple of seconds, while targeting the building which produced them -> this has been 'fixed'
+ - If a water trade unit started its route to the target building, but this building has changed its position (floating harbour or carrier) the trade unit once arriving at the target's old position, made the profit and started its way back, although at that location there was nothing to trade with anymore ('the building swam away') -> this has been fixed (if the target building isn't there anymore, the trade unit will go to the target again
+ - Zeppelin's boarding mechanic has been changed, so that the potential passengers gather to the same location, while the zeppelin moves to there
+ - The last 5 IP addresses - which the player has joined to - are saved from now on, and can be selected in the Join Direct IP window (multiplayer) in a droplets (the number of saved addresses can be increased manually in Settings.cfg)
+ - In multiplayer window (opened from main menu) the Internet button has been removed, since gamespy doesn't provide paraworld services anymore -> the Starting button from now on will be Host IP, next will be Join IP and the last is LAN
+ - Defence values can be from now on 100(%), which results in full protection against attacks without armour piercing
+ - Diplomacy changes didn't update effect regions (like war cry, war paint) which was at the very least unfortunate, but in some cases (like smoke tower's hiding) really bad -> this issue has been solved :)
+ - Resurrection started cool down for all abilities of the unit which was brought back to life -> from now on, only the cool downs the unit really had before death will be continued after resurrection
+ - Added some basic descriptions to the new hero abilities (they could still be described better)
+ - Zeppelin of all tribes got weakened -> hit points have been decreased from 1200/1300/1500/1800/2300 to 200/300/500/800/1300
+ - Initial search radius for finding wood to harvest has been increased from 5 to 15 m
+ - After clicking on the 'Abandon Game' button in game menu a message box will popup, and ask if the player really wants to abandon the game, so that miss-clicks in game menu won't result in premature game endings (at least less often)
+ - Delete function can be disabled in options menu - change applies to both Delete key on keyboard and Del button in command bar
+ - Updated a trigger action mechanic, which handled ownership changes (like the player gets units and villages under his control), so that many mission maps will be playable again
+ - Updated some other new game mechanics as well, which rendered many campaign missions unplayable
+ - Toolkit artefact's effect was not loaded correctly from a save game (mirage related problem) -> this has been fixed
+ - From now on repairing buildings takes only half the time than before. Repairing walls or gates is 6 times faster than before
+ - After clicking on the 'Retry Game' button in game menu a message box will popup, and ask if the player really wants to retry the game, so that miss-clicks in game menu won't result in accidental game retries (at least less often)
+ - Changed how weapon frequency data is displayed in info window's tooltip, so that will be easier to understand (formerly it showed a real number value, like 2.00000, now it will say 30 attacks per minutes)
+ - Tower upgrades (nm, dr and dc) conflicted with the fighting task of the respective tower -> this has been fixed
+ - Updated copyright's date from 2012 to 2014 at several occurrences
+
+AI:
+ - AI players will use flying units (nm and dr pteranodon, battle cruiser) from now on
+ - Changed army composition of dustrider AI, so that it will produce more Titans (hopefully)
+ - Dustrider AI couldn't place any animal farms (small/medium/huge) since version 2.5.3, which rendered them practically useless -> this has been fixed
+
+Heroes:
+ - If a player is annihilated, abandoned the game or got disconnected while having Babbit's mobile suit, then a normal Babbit got created in the player's ownership -> this has been fixed
+ - Babbit and his Mobile suit can't be frozen while performing jetpack action anymore
+ - Bribe ability of Miyagi had some problems, which have been fixed
+ - Graveyard ability was way too strong, so it got weakened -> only 5 zombies are produced from a single gravestone at a time
+ - Zombies from graveyard won't attack wild animals on their own from now on -> this has caused way to much server work and with is lagging in some cases (at nests which immediately spawned new animals once any has died)
+ - Arch Druid's level 5 ability, Sacred forest gas been replaced by Fatal Bonds (the forest created by previous ability wasn't blocking the path, so one of its main function was not working, without it, it's a pretty much useless ability - besides, if it was working (could be done) it would be OP)
+ - Anaesthetic dart ability had various scripting shortcomings -> these have been fixed
+
+Dragon clan:
+ - Battle cruiser was only producible as a level 1 unit, instead of 2 -> this has been fixed
+ - If a Seismosaurus (in explosive payload mode) was ordered to attack the scape, and was upgraded into high impact payload mode, the titan still attacked the scape, although it didn't deal area damage anymore -> this has been fixed
+ - Upgrade of High impact payload mode and explosive payload mode couldn't be cancelled by right clicking the icon, only by pressing the Backspace key -> this has been fixed
+ - Jitter of Battle Cruiser was removed, since the unit doesn't deal area damage anymore
+ - Attack frequency of Battle Cruiser has been increased (from 15 attacks/minute to 30)
+ - Battle Cruiser's weapon damage has been changed (from 6/12/20/30/50 to 10/20/30/50/90)
+ - Purification's channelling time is decreased from 7 to 5 seconds
+ - Monk can be produced only on level 3 (again)
+ - Battle cruiser didn't get icons for vehicle damage upgrades -> this has been fixed
+
+Dustriders:
+ - If normal Taslow towers and Taslow towers upgraded from small or medium towers were selected together, the Taslow tower upgrade was still visible -> this has been fixed
+ - If a small tower and a medium tower upgraded from small tower (or normal Tesla~ and Tesla~ upgraded) were selected together, changing the focus (with Tab key) didn't update the info window (and many other things neither) -> this has been fixed
+ - Double clicking on upgraded towers many times selected also different towers together -> this has been fixed
+ - If to a selection of small towers was added a medium tower (or vice versa the whole...), after changing the focus to medium tower and clicking (or using hotkey) on the Taslow tower upgrade, didn't start the upgrade, while individual producing option was enabled -> it is been fixed (the problem (probably) was also with different dr animal farms in the same selection)
+ - Feign death upgrade was moved from huge farm to small farm (for hotkey's sake) in version 2.5.3, but was not listed in the change log
+ - Carcha nest could spawn maximal 4 animals -> from now on it can only 3
+ - Pteranodon rider's weapon damage has been changed (from 5/15/25/35/60 to 5/15/25/45/85)
+ - Pteranodon rider can't be frozen anymore
+ - From now on if a player sets mobile centre or mobile camp to be a rally point for newly workers, the workers will start collecting automatically the closest resources
+ - Allosaurus-Brachiosaurus swap - with all the upgrades together - has been changed back
+ - Brachiosaurus siege is from now on producible from the huge farm (again) and on AC level 3
+ - Huge farm is buildable from epoch 2, but can only produce siege brachio on epoch 2
+ - Weapon builder is buildable from epoch 2
+ - Shaman can be produced only on level 3 (again)
+ - If the player started the 'tear down' (recycling) of a tower, that tower couldn't attack -> from now on, it can even during the recycling
+
+Norsemen:
+ - Meteor upgrade at temple didn't have any hotkey -> it has now: 'M'
+ - Ballista Pteranodon doesn't have armour piercing anymore
+ - Ballista Pteranodon's weapon damage has been increased (from 5/15/25/45/85 to 15/25/35/55/95)
+ - Jetpack warrior can't be frozen while performing jetpack action anymore
+ - Jetpack warrior can't be frozen while he is flying, ascending or descending
+ - Ballista Pteranodon can't be frozen anymore
+ - Battle ram doesn't have special armour (reducing projectile damages) anymore
+ - Battle tank doesn't have special armour (reducing projectile damages) anymore
+ - Battle ram's ranged defence is 90 from now on
+ - Battle tank's ranged defence is 90 from now on
+ - Battle rhino's pennant effect won't work on the rhino itself, so to have pennant effect on a battle rhino, at least 2 rhinos must be close to each other
+ - Druid can be produced only on level 3 (again)
+ - Point buy bug of steam tank (from 2.5.3) has been fixed
+
+SEAS:
+ - Exo flamethrower's fire damage (vs buildings) has been reduced for each level (from 30-30-40-50-100 to 10-20-30-40-60)
+ - Stinger in fighter mode can't be frozen anymore
+ - Upgrade of fighter mode and assault mode couldn't be cancelled by right clicking the icon, only by pressing the Backspace key -> this has been fixed
+ - Medic can be produced only on level 3 (again)
+ - Added new sound set for Cyborg Titan (from sc2)
+ - Construction costs of seas healing well were way too low (10 wood + 10 stone - probably stayed so after a testing) -> the costs are now 250 wood + 100 stone
+ - If immortality protocol is researched, the level 7, 8 or 9 AI players will automatically start the repair sequence
+ - Fixed reactor core producing system (it only worked properly with normal producing, not with individual one)
+ - Added basic icon and description for all robot-wreckages
+
+
+MIRAGE 2.5.6
+------------------
+General:
+ - Fixed game breaking bug from 2.5.5
+ - Fixed the issue with windows message boxes popping up when a stone corpse started to sink, but workers tried to harvest it
+ - Added buttons to installer to turn the music off and on
+
+Dustriders:
+ - Tyranno rider's production icon at huge farm has been moved before Brachiosaurus units
+ - Brachio stomp upgrade icon was bugged -> it has been fixed
+ - Updated Carcharodontosaurus' icon and description (same goes for their nest)
+ - Tracker dino is from now on a Deinonychus (its icon is updated)
+
+MIRAGE 2.5.5
+------------------
+General:
+ - In 2.5.4 there was a bug, which caused players to be unable click ready button -> this has been fixed
+ - Updated Copyright's date to 2014 in installer and launcher
+
+Dragonclan:
+ - Seismosaurus titan's close combat and range defence decreased from 30 to 25
+
+Dustriders:
+ - Tyranno rider's aura got disabled by accident -> it has been restored
+
+Norsemen:
+ - Triceratops titan's close combat and range defence decreased from 50 to 35
+ - Changed Triceratops log cannon titan -> from now on, it has only ranged attack
+
+SEAS:
+ - Scorpion could be upgraded after finishing construction but before getting activated, resulting in a level 5 scorpion which also blocked a t4 slot in army controller -> this has been fixed
+ - Great cannon could (somehow) destroy itself with internal damage after each attack -> this has been fixed
+ - Added minimal description to helicopter's local upgrades
+
+MIRAGE 2.5.4
+------------------
+General:
+ - Fixed bugs as god mode enabled for player on hq position 8, or skull cheat 
+ - Fixed that players who had shared unit control from each other couldn't enter one another's teleport gate
+ - Poison frequency has been decreased (from ticking each seconds it does now every 2 seconds)
+ - A new feedback message (_MIRAGE_NT_NeedMoreResis) wasn't localized -> this has been fixed
+ - If a heroes gets placed in level editor, and its owner is changed, did become unusable in game -> this has been fixed
+ - With shared unit control the 'Set Rally Point' command bar button didn't function for allied buildings (the rally point stayed the same) -> this has been fixed
+ - When starting a new game on some maps (like Druideninsel), the game time is incorrect (huge, negative number) -> this has been fixed
+ - Added a server side option, to receive SUC from allied AI players, if the players gives the AI SUC as well
+ - Added minimal description to several upgrades and some units
+
+Heroes:
+ - Larry's obliterate ability couldn't select an enemy building -> this has been Fixed
+
+Dragonclan:
+ - Newly produced Seismosaurus titans didn't have the high impact payload mode upgrade icon -> this has been fixed
+
+Dustriders:
+ - The icon for producing siege brachio at medium farm has been moved ahead of pteranodon rider and eusmilus rider, since it is sooner available
+ - Pteranodon rider's attack frequency has been increased (from 28 attacks/minute to 36)
+ - Allosaurus is from now on an epoch 3 unit
+ - Brachiosaurus, brachio transporter and brachio mobile camp are from now on epoch 4 units
+ - Upgrades for Allosaurus and Brachiosaurus at animal farm and weapon builder has been rearranged
+ - Standard tesla towers and others upgraded from small towers weren't selected together on double clicking them -> this has been fixed
+
+Norsemen:
+ - Pteranodon ballista is a new animal unit, available from epoch 3 (wasn't listed at the log of 2.5.3)
+ - Triceratops titan had only 25 ranged and close defence with log cannon build-up, instead of 50 -> this has been fixed
+ - Jetpack warriors flying mode is now only from epoch 5 available
+
+SEAS:
+ - If the great cannon got internal damages or got unusable because of low hit points, all players received feedback messages about it -> this has been fixed
+ - Barracks, Garage and Carrier get a new, local upgrade, which allows producing two units (also other upgrades) simultaneously from the corresponding building
+ - Resource harvesting upgrades have been moved from steelwork to small tent, since steelwork is only available from epoch 3, but the upgrades would be from epoch 2
+ - Hotkey for producing lvl3 medic was not present -> its added now
+ - The icon for producing hunter seeker wasn't visible -> it is now
+ - Recovery centre upgrade for garage didn't have any hotkey -> this has been fixed
+
+MIRAGE 2.5.3
+------------------
+General:
+ - GFX prefixes were not saved, so that if a player loaded a save game, the units which should have had pirate or Amazon custom 'outfit' had instead standard models -> this has been fixed
+ - Flying units could fly outside of the map -> this has been fixed
+ - If a passenger of a transport object which is also a passenger of a class 2 transporter (e.g. dr archer on brachio transporter in transport turtle) died (for example because of poisoning) the class 2 transporter's blocked slots didn't get reduced, so that a virtual blocked passenger slot got created -> this has been fixed
+ - Zeppelin's passenger boarding mechanic has been improved
+ - If a unit died 'fast and silent' (e.g. drowned with a transport ship together), the enemy unit which dealt the last damage to the killed one didn't get the skulls for it -> this has been fixed
+ - Biological water units can eat from now on (e.g. Cronosaurus, Muraeno submarine)
+ - A unit killed with a finishing move couldn't be resurrected -> this has been fixed
+ - If a transporter (like brachio) was killed with a finishing move, its passengers disappeared, and if a passenger was a hero, it couldn't be purchased again -> this has been (probably) fixed
+ - Turning off the music in the launcher will only pause it from now on
+ - Poison and fire damage will update the target's last damage source from now on
+ - Finishing moves are from now on much more frequent
+ - High level AI players are from now on way stronger
+ - Resurrected units kill count won't be reset anymore
+ - Unused (remaining) points from point buy will be given as skulls for the player (1 skull has a value of 100 points -> 100 points = 1 skull)
+ - Units and buildings can't anymore attack a target, which is hidden by the fog of war to their owner (no matter whether it’s an object or position)
+ - The construction costs of wall part deleted by gate placement are returned to the owner
+ - The hero pool system is from now on a standard game play feature/mechanic
+ - F11 is from now on a shortcut key for opening/closing diplomacy window
+ - F12 is from now on a shortcut key for the army controller sorting
+ - F10 is from now on a shortcut key for opening/closing game menu window
+ - F4 is from now on a shortcut key for opening/closing help menu window
+ - F9 is from now on a shortcut key for opening/closing chat-history window
+ - F1 is from now on a shortcut key for selecting an idle worker
+ - Shift+F1 is from now on a shortcut key for adding an idle worker to selection
+ - Ctrl+F1 is from now on a shortcut key for selecting all idle workers
+ - Added hotkeys for some windows: end screen menu, main menu and in game menu (0-9 keys are associated with the menu buttons)
+ - Longer quotes are displayed for a longer time on loading screen than shorter ones
+ - Quotes on loading screen has been placed () to the middle
+ - The client side idle animation manager can be turned off locally in the options menu
+ - Reveal ability will also reveal hidden ships and vehicles from now on
+ - Zeppelin of each tribe can trade between marketplaces
+ - Poison damage works faster from now on (frequency is 3 times higher)
+ - A new, shared unit control system is implemented
+ - If HQ timer is turned off (server setting) and a player doesn't have any (valid) HQ left, all his camouflaged units and buildings are revealed to the other players (exceptions are: units hidden by smoke bomber, buildings hidden by smoke tower, Leighton hidden by his t3 special ability and dc traps in general)
+ - Most previously hero-bound units and buildings are from now on unlocked either at certain epochs, or they got removed
+ - Flying units (like pteranodon rider, battle cruiser) are improved, so that they can attack and follow enemies better
+ - Tavern client uses from now on /identify command for identifying a username with the irc server (the /ident short form still works)
+ - Mirage launcher got new backgrounds (+51) and all original pw music files will be used
+ - Mirage launcher check from now on automatically for updates, and shows in the ui if there is a newer version (thanks for AyCe and CEP for the original code, and Anakey & Henry for the new update image)
+ - The default camera zooming for using the mouse wheel can be changed in the options menu (the other one is activated by using mouse wheel with Ctrl key together)
+ - Resurrected units were not added to the statistic -> this has been fixed
+ - Added camera hotkeys: the F5 through F8 keys are used to quickly zoom the main viewport to a specific location on the battleground (to automatically refocus the main display on an area of the map). To save a location as a camera hotkey: focus the main viewport of your UI on the area of the map you wish to have memorized; press Ctrl-F# to bind that location to a hotkey (here F# = F5, F6, F7, or F8). Using: pressing F5 through F8 will focus your screen on the section of the map which you have bound it to. (additional 4 camera positions can be used with the previous keys+Alt/Shift...)
+ - Treasures can from now on released (without killing the unit which carries it) by clicking on the item's icons or by pressing Alt+Q
+ - Info window is restored to its original form -> kill counter and other additional info are shown in tooltips of info window' attrib icons
+ - Ships have now a different unit type icon (not vehicles one anymore)
+ - New shortcut system implemented
+ - Group walking function can be turned off locally
+ - Transporter boarding has been changed (improved): if a potentially passenger and transporter were close to one another, but there were many units and/or buildings (like enemies) surrounding them, the boarding sometimes didn't happen, or most times the transport unit moved to further away, to a free position, and the passenger (e.g. a hero like Arch druid) could be killed in the meantime -> from now on, if the passenger is close enough to the transporter, it will be mounted immediately, without any delay
+ - If a transport unit (will mostly happen with class 2 type ones, like ships) gets killed, and the passengers can't be unloaded to safety and they die with the transporter together, the player who killed the transporter will also get the skulls for the passengers (and the actual unit the kill counts)
+
+Heroes:
+ - Arch Druid's healing aura was not always working properly while he was in a transport unit -> this has been (probably) fixed
+ - Tarna's level 2 effect, the archnabar aura has been replaced with an aura, which gives nearby allied infantry units ranged attack bonus
+ - Heroes have a second special ability from level 4 and a third from level 5
+ - Special units and buildings and upgrades come now with epochs
+
+Dragonclan:
+ - Monk can also be produced on ac lvl2 tier
+ - Zeppelin is available from epoch 3
+ - Sumo fighter can eat (fruit brushes, fishes (if it is in shallow water), and corpses) from now on
+ - War drums (Parasaurolophus) aura used the same method as the Norsemen Scout's Drums aura, so that the attack bonus didn't stack up -> this has been changed
+ - Marksman doesn't have the armour reducing passive ability anymore
+ - Seismosaurus titan gets new local modification options: explosive payload and high impact payload mode (newly produced titans are in explosive p. mode) -> with explosive payload, its rockets deal area damage at impact in a 10m radius, while in high impact payload mode it doesn't have are damage, but has armour piercing and deal +50 additional damage
+ - Trade dino can feed from now on
+ - Monk's peace gong ability has been removed
+ - Firetraps can't be ignited anymore
+ - Units caught by a snare trap got invisible -> this has been fixed
+ - Minelayer ship gets the reveal ability (same as the one of monk)
+ - Removed units: SEAS flamethrower (sdk only)
+ - Seismosaurus gets 2 transport slots (open basket), usable by infantry units
+ - Seismosaurus close combat and range defence increased from 15 to 30
+ - Smoke bomber’s effect doesn't work if it is in a transporter (like ship)
+
+Dustriders:
+ - Shaman can also be produced on ac lvl2 tier
+ - Zeppelin is available from epoch 3
+ - Standard Brachiosaurus, Ankylosaurus and Stegosaurus didn't get an animal level flag, if they were converted from their other form(s) -> this has been fixed
+ - Venom thrower doesn't have the healing disabling passive ability anymore
+ - Trade dino can feed from now on
+ - Trade dino can't use feign death ability, although it had the icon -> this has been fixed
+ - Tornados also damages hidden/cloaked units and buildings from now on
+ - Large and Taslow towers are from now on upgraded versions of small tower: small tower can be upgraded into large tower, and large towers into Taslow towers (each form is also buildable separately)
+ - Liopleurodon, a.k.a. Warlock gets the reveal ability (same as the one of shaman)
+ - Shaman's camouflage ability has been improved, so that he isn't showed on the mini map, while being disguised (but he can't go through gates set to auto open
+ - Resurrection has been improved, so that the height of the spirit doesn't affect the task (previously spirits being already in high couldn't be resurrected, although the player could see and click on them)
+ - The additional upgrade cost from small tent into big tent is also returned for recycling the tent
+ - Mobile resource collector (HQ) doesn't count as HQ, while its in feign death state
+ - The deinonychus nest has been replaced with a carcharodontosaurus nest (which spawns 2 hatchling dinos at first) - the spawn amount growth is still there
+ - Eusmilus rider is from now on a dustrider exclusive unit, unlocked from epoch 3
+ - Allosaurus can be produced from epoch 3
+ - Brachiosaurus can be produced from epoch 4 (except for siege variant)
+ - Siege brachio can be produced from epoch 2, as a level 2 unit at the medium dino farm, and can be converted into different form only at epoch 4 and on level 3 or higher
+ - Brachio catapult uses 'neck-down' animation while attacking
+ - SEAS flamethrower is removed
+ - Removed units: Triceratops transporter (sdk only), Arena rex
+ - Raptor handler dinosaur is from now on only an Oviraptor
+ - Titan's stunning roar radius is decreased from 20m to 15m, and the duration of it from 10 seconds to 7 seconds
+ - Ankylo bash upgrade makes the animal cause more damage to units instead of buildings from now on
+
+Norsemen:
+ - Triceratops titan's close combat and range defence increased from 25 to 50
+ - Druid can also be produced on ac lvl2 tier
+ - Crossbowman doesn't have the passive ability anymore to do extra damage randomly
+ - Jetpack warriors could enter/leave flying mode even if they were under a trap effect (e.g. Rex titan's roar) -> this has been fixed
+ - Jetpack warriors couldn't attack air units properly/at all in flying mode -> this has been (probably) fixed
+ - Druid's meteor ability has been removed (it's given to Bela)
+ - Dragon boat gets the reveal ability (same as the one of druid)
+ - Triceratops titan once again can be equipped with log cannon weapon build-up
+ - Removed units: SEAS flamethrower (sdk only), Eusmilus rider (sdk only), Exo enforcer (sdk only), Undead warriors (sdk only), Giganto guardian
+ - Zeppelin is available from epoch 3
+ - Magic cauldron is available from epoch 5
+ - Triceratops log canon restored
+ - Druid's 'plague of locusts' ability didn't worked on dragon clan's emporium -> this has been fixed
+ - Falling stones' damage has been reduced from 750 to (original) 500
+
+SEAS:
+ - Medic can also be produced on ac lvl2 tier
+ - Zeppelin is available from epoch 3
+ - Gunner doesn't have the armour reducing passive ability anymore
+ - Fortress is from now on the main 'temple' building for SEAS
+ - Trade dino can feed from now on
+ - Small cannon can't attack air units anymore
+ - Small cannon has a minimum attack range (15 in game meters)
+ - Medic's volcano and earthquake abilities has been removed
+ - Submarine gets the reveal ability (same as the one of medic)
+ - A new, epoch 5 animal unit is added (garage): the 'cyborg titan'
+ - Great cannon is once again buildable (from level 5)
+ - Helicopter is from now on a lvl2 default unit
+ - Helicopter can be upgraded locally into flying mode (can be converted as well into ground mode)
+ - Removed units: Poacher, Mercenary, Gigantopithecus, Apache, Eusmilus rider (sdk only)
+ - Helicopter can be produced in Garage too
+ - Fortress is buildable from epoch 2
+ - Small cannon is buildable from level 5
+ - Flamethrower, gunner are available from epoch 2
+ - New scout animal from epoch 2: Carnotaurus rider
+
+MIRAGE 2.5.2
+------------------
+Something probably happened here... void release oO
+
+MIRAGE 2.5.1
+------------------
+General:
+ - Fish shoals reappear after some (random) time
+ - Siege units are removed from normal game playing (they are still available in sdk, and can be enabled for custom maps)
+ - Fixed various bugs and issues within techtree and so on
+ - Added modified campaign maps (mission 11 and mission 16 not)
+ - Fixed SEAS upgrade bugs
+ - Fixed Norsemen upgrade bugs
+ - Balanced flying units
+ - Techtree antiactions (used in map editor) have been updated
+ - Balanced Norsemen tank to suffer minimal damage from ranged attacks
+ - Resource collecting buildings (HQs not) which were not assigned to any resource type (warehouses, bazaar, steelwork) and nm foresters lodge (which was assigned only to wood) are assigned to the closest resource
+ - Leighton’s flamethrowers can attack from open transporters
+ - Winter mode is removed from mirage, can be downloaded separately
+ - Added new launcher interface
+ - Added new irc chat client
+ - New option menu tabs for mirage specified tweaks
+ - Added 2 new cursor (for animal eating and ladder building)
+ - Added the option to chose normal or extended unit limit system
+ - Added unlimited resource option
+ - Fixed some descriptions and added new icons - thanks to Arvinder
+ - SEAS is available on multiplayer maps by SEK
+ - Proper localization is used from now on (like SEK made)
+ - Added a new mp map, designed for flying units - thanks to Scrat
+ - Added new command bar button for animal eating
+ - Added new command bar button for worker deforesting
+ - Added new command bar button for fishing
+ - Standard riders play more idle and attack animation
+ - Killing enemy trade units gives resources (food: 400, wood: 200, stone: 100)
+ - Hit points of animal corpses are updated
+ - Corpse of big animal units (titans for example) causes area damage upon falling to the ground
+ - Improved harvesting and trading
+ - Blood effects can be turned off/on via options menu
+ - Treasure chests appear on the closest shore (approximately) if the owning unit drowns. If it’s not possible, then they respawn at their starting position.
+ - Warden nests spawn more animals after a while, as the help files suggest
+ - Using the mouse wheel (with the new camera system) has been extended: holding the Ctrl key allows to use it like in normal version; holding the Shift key allows to zoom in and out faster
+ - Animal units, whose primary weapon is a close combat one, but they also have weapon buildups (like triceratops titan), will show in info panel the power of the weapon-build-up at ranged damage -> units which have multiple weapon-buildups (like tric. titan again) show the combined power of their weapon buildups (this may be changed later on);
+ - Continuation: archers on mounted units count as weapon buildups, so their attack strength will be shown too
+ - Wild animals can level up on their own, if they kill enough animals/units (mainly carnivores will level up) -> they get level up bonuses and better weapons -> same goes for warden animals
+ - Some special abilities (like trumpet, tornado, etc) have been modified so now if a number of units have that ability in a group only one unit will use the ability at a time (if no cool down) instead of all units using the ability simultaneously but the unit will be chosen random if there is more than one unit capable of performing the given action.
+ - Continuation: target abilities (like tornado, termites, etc) can be queued for the selected unit by pressing and holding Ctrl key, while clicking with the left mouse button, so they will perform the ability on the separately chosen targets (or locations)
+ - Continuation: holding the Shift key allows units to use a certain ability at the same time, like before
+ - Gates are no longer weaker than their wall counterparts
+ - If a player is producing a unit or inventing an upgrade, the resource costs are returned, if the corresponding building (or produce/invent capable unit, e.g. mobile hq) gets destroyed in the meantime
+ - Added option for building cancel, which gives back cc. 75% of the resource costs
+ - Added option to change warp gates function to teleporting
+ - Added option to make warp gates (with normal function) invisible in the fog of war
+ - Added option to disable hq timer
+ - Added option to change hq and warp gate timer duration
+ - Fruit bushes get removed (like tree trunks) at building placement
+ - Healers on open transporter have less healing power, but bigger healing radius
+ - Workers will search for buildings of allies to build up/repair too
+ - Compass item's effect reloads at each minute (granting vision of a map for an eye blink)
+ - Changing the aggression state of a class 2 transport unit (zeppelin/dr transport turtle) won't change the aggression state of its passengers
+ - Class 1 transporters are included in groups from now on, even if they carries units (class 1 transporters are units, which can transport only infantry (see triceratops titan))
+ - Pyramid collapse function is removed from Tab key, and now its associated with Ctrl+Backspace
+ - With Tab and Ctrl+Tab can players change the focused unit in a given group/selection, so that the info window shows its attributes and picture and the its soundest is used on group commands
+ - Mirage server settings can be found in game lobby to (new tab), and on an additional tab, which is visible for the clients too, shows the actual (mirage) settings
+ - In options menu mirage client side settings and server side settings are on different tabs
+ - Server settings from campaign menu have been removed
+ - Custom buildings (pub, scorpion, horn, etc.) get construction animation and cranes (construction animation is partly imported from CEP - credit to AyCe)
+ - Vehicles are on a new tab in shopping page (Point buy menu) -> Khargs suggestion :)
+ - Healing from open transporters is now a option
+ - Imported audio feedbacks from SEASMODE/CEP and made them on/off selectable
+ - Multiple new client setting in options menu
+ - Allies and opponents (or neutrals) gets an audio warning if a player starts building a warp gate
+ - If a warp gate is finished, the owner gets an audio feedback
+ - If a normal gate gets destroyed, the owner gets an audio warning
+ - If a player changes his diplomacy status to any other player, the corresponding player will get a sound warning/feedback about it
+ - If a player gets resources from his allies, then he will get an audio feedback about it
+ - If a player can't produce/invent because he need more resources, there will be an audio warning about it
+ - Continuation: if a worker can't find any more of the resource he is currently harvesting, there will be also a voice feedback
+ - If a player tries to buy resources at marketplaces, but don't have enough skull, there will be an audio warning about it
+ - In domination games the players get also audio feedback besides the text message whenever a flag gets captured or lost, or all flags belongs to someone
+ - If the opponents attack a defender object, the defender will get an audio feedback about it
+ - In campaign if a quest is accomplished, gets impossible to complete, or a new quest appears the players gets an audio feedback about it
+ - The previous audio feedbacks can be turned off in client settings
+ - Another new audio feedback will be given at end screen, depending on the outcome; win or failure (can't be turned off)
+ - Fixed army controller card bug with zeppelin launch pads and lumberjack (+MKII) wreckages
+ - Added a button to the main menu to open the help menu (Paraworld built-in encyclopaedia)
+ - Added clock bar to in game screen (shows how much time elapsed since game start (even for saved games shows the correct game time))
+ - Added option to change starting time of a game, i.e. that the host can set the starting in game time to e.g. 22:30, so in game it will be night
+ - Added option to enable very damaged buildings to catch fire spontaneously
+ - Weapons fire attribute is shown from now on in info window
+ - Added new buff icon for burning buildings
+ - Added option to set the starting epoch and highest available epoch for skirmish and multiplayer games (applies equally to all players)
+ - Change: if a certain hero dies while the player is producing one or more of its special unit (like 5 nm berserker), the production of these units can be cancelled (their action icon won't be invisible in the action menu of the producing building), but no further units of the certain type can be queued; if there are no more units of the specific type in production, the icon gets invisible
+ - Added Hungarian translation - thanks for Henry
+ - The author and the version of the chosen level in shown from now on in the game info window (multiplayer/skirmish)
+ - At a new skirmish/multiplayer game the tribe for a new AI will be automatically set to random (if there are at least 2 tribe options for the corresponding hq)
+ - At a new skirmish/multiplayer game the level for a new AI will be automatically set to 9
+ - At a new skirmish/multiplayer game the army for a new AI will be automatically set to balanced
+ - At the multiplayer lobby if a new player joins the game, and previously in the corresponding slot was an AI (with x difficulty level), the difficulty level will be reset to 0 (visual fix)
+ - Added a new hotkey to select all idle ground trade units -> F6
+ - Added a new hotkey to select all idle water trade units -> F7
+ - Added a new hotkey to sort the whole army controller -> F8
+ - Added option to enable nest of wild animals to respawn
+ - Looks like Gamespy shut down server for pw (if players click on Join tab at internet games, the server.exe always crashes, even with booster pack) -> join tab is removed as well as gamespy logo :|
+ - Players can choose which quotes are shown - from SEK, from SEASMOD/CEP/MIRAGE developers, both or none
+ - Installer will detect the language based on the Booster pack-language -> E.g.: You can play with polish texts while having a German version (thanks to Adder)
+ - Added new command bar button for hunting
+ - Updated many buff icons, descriptions, sound sets
+ - Added a new custom mp map, named Assassin's Creed ;) - thanks to Scrat
+ - Added a new, optional game play feature -> most animals sleep during night time, while they can't do anything else
+ - Probably more other small changes which I already forgot... if I remember then I’ll add them later on
+
+Heroes:
+ - Barry and Harry have now Larry’s icon and soundest
+ - Warden doesn't attack wild animals on its own, even if his stance is aggressive
+ - Units in Warden' level 2 aura don't attack wild animal on their own, even if their stance is aggressive
+ - Darkmoon can eat fishes from now on
+ - Kleeman' level 2 skull bonus aura has been restored (40 m radius)
+
+Dragonclan:
+ - Battle cruiser is a level 2 unit from now on
+ - Units can attack from the siege tower
+ - Burning buildings - hidden by smoke towers - are no longer invisible
+ - Seismosaurus doesn't have armour piercing
+ - Seismosaurus can shoot while moving with its main weapon
+ - Seismosaurus moves faster
+ - Monk got a new upgradable ability: blinding storm
+ - Monk got a new upgradable ability: peace gong
+ - Monk got a new upgradable ability: unload curse
+ - Units caught by snare traps can't die per harakiri (can't be deleted by owner) -> they must be liberated by other units, or take away supply from pop. limit as long as they live
+ - Baryonyx can eat fishes from now on
+ - Rocket ramp causes only 300 dmg, and costs only 1000 wood+700 stone
+ - Defence tower, smoke tower and telescope tower deal damage (10) to melee units attacking it (they have spikes)
+ - Control panel is removed
+
+Dustriders:
+ - Mobile resource collectors do not count as hq if they are in zeppelin (if every mobile hq is inside a zeppelin, the death timer starts to count down - unless there is any Amazon temple)
+ - Taslows towers frequency increased from 20 to 25
+ - Skull totems build time is decreased from 50 to 15
+ - Feedback and destruction animation of shaman's sand trap have been removed
+ - Tracker dino model is replaced with Heterodontosaurus
+ - Added new upgradable ability for brachiosaurus: stampede
+ - Mobile resource collector can invent upgrades (like epochs) while being transported (e.g. transport turtle)
+ - Archers get range and damage upgrades
+ - Torpedo turtle production time is decreased from 20 seconds to 15 sec.
+ - Amazon temple upgrade and watchtower are removed
+
+Norsemen:
+ - Battle tank gets 3 new upgrade (at the machine maker): Structural Engineering, Field Hospital, Steam Cannon
+ - Structural Engineering increases battle tanks transport capacity by 10
+ - Field Hospital: allows the battle tank to heal passengers inside
+ - Steam Cannon: equips the battle tank with a secondary long range weapon
+ - Ram head upgrade (for steam ram) can be researched at the machine shop
+ - Crossbowman has a 33% chance to cause double damage (only with ranged attack)
+ - Undead warriors speed increased from 1 to 2
+ - Battle rhino gets a new researchable ability: onslaught, which allows rhinos to charge their enemies just like mammoth stampede
+ - Kennel smilodon got weakened (less hp, less attack power)
+ - Druid got a new upgradable ability: meteor strike
+ - Bunker gets only 2 additional slots for the improved bunker upgrade
+ - Druids Plague of locusts ability doesn't inform the enemy about the attack anymore
+ - Large tower' ballista upgrade can be cancelled from now on
+ - Ballista Tric and bighorn (Horn of Loki) are removed
+
+SEAS:
+ - The heroes can be hired at the pub
+ - Added new warp gate
+ - Sentinel can't harvest (wood/stone) by default anymore -> instead there is a new upgrade for that from epoch 3 (location: engineering bay)
+ - Darkmoon on level 4 allows to produce the Donkey Kong (level 3, produced at the garage) [replacing seas tank]
+ - Babbit on level 4 receives Exo enforcer outfit (from mission 16)
+ - Taslow on level 4 allows seas to build the Auxiliary station, which is an all-in-one building allowing seas players to secure expansions and gaining map presence: can produce the basic infantry and cavalry/robotic units, heals units around and if mannered can shot with a double cannon
+ - There are new upgrades for various units
+ - Small cannon (from mission 14, 15) is available from epoch 4
+ - Mercenaries have a 33% chance to fully absorb damage
+ - Poacher gets hit points buff and can tame/steal animals easier
+ - Wild animals costs from now on supply (only with supply system), so that tamers can't tame infinite animals
+ - Poachers can't steal animals from ai
+ - Steelwork increases resource capacity by 1000 for each resource from now on (previously 500)
+ - Medic got a new upgradable ability: earthquake
+ - Medic got a new upgradable ability: parasite
+ - Medic got a new upgradable ability: eruption
+ - Lumberjack' executors shake throws away enemy light enemy units
+ - Sentinels sight range increased from 50 to 80 (like other scouts)
+ - Scorpion and big cannon are removed (can be placed in sdk)
+
+MIRAGE 2.1
+------------------
+Special:
+ - Integrated modified winter mode: winter mode can be started with booster pack or with mirage together
+
+General:
+ - FUNMODE has been renamed to MIRAGE
+ - Added version button to main menu and update check window
+ - Bug fix: Nest_Anurognathus_Fruit_Bush icon was not shown: this has been fixed
+ - The nests of wild carnivores are no longer treated as aggressive, so players units and other aggressive animals won't auto attack them
+ - Wild animals and nest get a slow self regeneration ability
+ - When an animal unit dies, it will leave a corpse which can be harvested for meat or eaten by carnivorous animal units in order to recover lost hp (based on the units attack value)
+ - When a buildings hit points are below 10% the building will start to burn down.
+ - Buildings burning can be put out by repairing
+ - Bug fix: dustrider animals in feign death state couldn't be revealed by spell casters: this has been fixed.
+ - Special actions like enchain of Seismosaurus, Bela's sniper shot, Adas head shot, Babbage's minigun can't be started by the AI against units on open transporters, which caused several bugs, like losing an arch druid from the transport basket of triceratops titan, or one unit hanging in the air because of the enchain of Seismosaurus
+ - Eusmilus riders are from now on invisible until they attack; good for raiding enemy outposts, or unprotected bases
+ - Bug fix: healers on open transporters didn't always started to heal their transporter animal if it was injured: this has been fixed
+ - Bug fix: healers on open transporters stopped to heal their transporter animal, if it changed its position: this has been fixed
+ - Leighton's flamethrowers have been boosted: they deal double damage against buildings, and deal 75% damage against vehicles and ships instead of only 25%
+ - Ranged infantry units on walls receive +10 range
+ - Infantry units on walls receive +90 Ranged defence
+ - Bug fix: some buildings which have an animation for the moment when a unit is created, didn't play that animation (like opening a gate): this has been fixed
+ - Units on transport objects (transport ships, zeppelin, etc.) get killed if the transport object is destroyed/killed, unless they can swim (like Baryonyx rider, Darkmoon)
+ - Flying units can be attacked only be enemies with air weapons (this must be set in tech tree)
+ - The search-radius of resources for workers is increased, and the search-radius to build-up buildings as well
+ - Healers (except for medic) get different staffs on each level and additional armour for higher levels
+ - The terrain adapts better to the new buildings in MIRAGE
+ - Big seas buildings can be built from now on even smaller places than before (already placed buildings still take the same place)
+ - Duration, supply and energy values are shown in tooltip
+ - Unit supply is shown on the info panel
+ - Added/updated lots of descriptions
+ - Army Controller can be made hidden in the option menu
+ - Bug fix: Healers didn't get healing cursor when the player put the cursor on a transporter which was fully loaded: this has been fixed
+ - Added default army presets in point buy menu for 100k and 1000k points
+
+Heroes:
+ - Kleemann' sacrifice has been boosted: it triples his attack power; it works for 25 seconds instead of 10; Kleemann gets his zombie model during the time of ability
+ - Bug fix: Kleemann can't anymore chose himself to sacrifice, which had no sense
+ - Kleemann level 3 sacrifice ability on mission 8 has been replaced by Kleemann' head shot
+ - Heroes range effect has a bigger radius: from 20m to 25m, except for Warden, his level 2 bonus aura gets 40m radius
+ - Coles level 2 bonus aura gives infantry unit +10 damage instead of 5
+ - Cole's level 5 global bonus gives infantry units +500 hit points instead of 100 (good to use it with nm killers)
+ - Bela's level 5 global bonus increases ranged infantry units attack strength by 20% instead of 10%
+ - Leighton has a new level 5 global bonus, which allows player gain the production resources when enemy infantry and animal units are destroyed
+ - Governor gets a new level 5 global bonus, which reduce the construction costs of buildings by 50%
+ - Kleemann' level 5 global bonus decreases the construction costs of all vehicles and ships by 60% instead of 50%
+ - Stina's level 5 global bonus gives animals also +20 ranged defence additionally
+ - Tarna level 5 global bonus reduces the cool-down time of special attacks (also for heroes actions)
+ - Tarna on level 3 can resurrect, just as dr shamans
+ - Heroes won't be more expensive if a player hires a hero
+
+Dragonclan:
+ - Sumo fighter gets the special ability, which makes him have more and more hit points with each killed enemy (+50 hp/number of killed enemies)
+ - Dilophosaurus nest gets boosted: its range is increased from 50 to 90 meter, and spawns 3 dinos from now on
+ - Traps with the exception for snare traps remain invisible after attack, forcing opponent players using spell casters reveal ability
+ - Kleemann' level 4 special has been replaced with poison trap (previously Taslows t4 special)
+ - Poison traps has been boosted: their poison damage is increased from 20 damage with 25 tick count to 30 damage with 100 count (this makes in 300 seconds (5 minutes) 3000 damage)
+ - Taslow's level 4 special has been replaced: on level 4 and 5 he gives vehicles and ships self heal ability; when Taslow dies, the ability turns off
+ - Marksman has been boosted: it gets the ability to reduce the ranged defence of its current target for 4 seconds (with each hit from the marksman, the timer restarts)
+ - Baryonyx riders can be unloaded from transport ship even its far from the shore
+ - The big pirate ships parts can be healed at harbours (unless they are already destroyed)
+ - Smoke bomber effect doesn't work on zeppelin, preventing the use of invisible and undetectable attacks
+ - Bug fix: the big pirate ship couldn't attack the scape using the command bars button: this have been fixed
+ - Tarna on level 4 gives a new t3 animal unit: the Tarbosaurus rider, which is good in melee fight, and has a weapon build-up, which automatically attacks the enemy; it has a bonus aura, which adds surrounding own and allied units +20 extra ranged defence
+ - Darkmoon on level 4 gives a new level 4 unit: Pirate boss ship
+ - From epoch 5 the Control Panel becomes available
+ - Epoch 3 gives a new level 3 unit, the battle cruiser: this is a flying unit, which shoots rockets on enemies and can be produced by the Engineer
+
+Dustriders:
+ - Brachiosaurus mobile camp has been boosted: it can transport 10 infantry units (closed transporter, like Norsemen tank), can train also shamans, poisoners, and the special infantry units of heroes
+ - Fixed resurrection bug, which additionally increased unit capacity (actually decreased free capacity)
+ - Different versions of Brachiosaurus (mobile camp, catapult, transporter, siege), ankylo catapult and Stego transporter are now available in point buy menu, and their own sound set is enabled
+ - Shamans camouflage ability has been renewed; it’s a target ability, so the animal form must be selected before the shaman can use it; only wild herbivores can be chosen; the shaman doesn't need to be close to the animal, the player only need vision to the animal (since animals are now hidden in fog of war)
+ - Shamans camouflage ability also replaces his description and icon in info panel and reduces his speed to default: 2 and max: 2; in camouflaged state he receives the standard animation of the animal model he has
+ - Triceratops transporter has been boosted: it can't be poisoned, frozen, targeted by Stina's Hypnosis, tamed by SEAS Trainers, and doesn't get negative effects from enemy units; it gets a new train animation at large dinofarm
+ - Triceratops transporter dealt only 25% damage against animals and vehicles, this has been increased to 75% (form -- to +)
+ - Rammer gets the special ability which incapacitates enemy building, preventing it from carrying out any activity (attack, heal units, produce units, invent upgrades, build down (Dustriders) and be built)
+ - Thrower gets the special ability which prevent enemy units to be healed for 7 seconds (each attack starts the timer from the beginning)
+ - Skull protector has been renamed to skull totem and gets additional bonus: it sets own and allied units skulls to 50% and if the unit is within range of the totem, the owner gets the skull/skulls for the lost unit, it also doubles the skulls of enemies, also gets an increased radius: from 30 to 50 meters
+ - Bug fix: Brachiosaurus mobile camps produced in the large animal farm didn't get their Set Rally Site button in command bar, only when upgraded from another form: this has been fixed
+ - Assassins get boosted: can kill workers immediately
+ - Assassins poison damage has been changed: it deals the same damage, but in shorter time (from 20 poison damage with 100 tick counts to 80 damage with 25 tick counts)
+ - Venom Throwers damage has been increased from 4 to 10 
+ - War paint penalty has been increased: a level 4 warrior decreases attack strength by 20%, a level 5 by 30% (previously it was 15% and 20%); it also changes Governors level 2 bonus to 30% penalty
+ - Bug fix: fake corpses produced by feign death special ability could be consumed by players carnivores, and harvested by workers: this has been fixed
+ - Enabled different sounds for dr big and medium animal farm, and the Amazon temple
+ - Tarna on level 4 gives a new t3 animal unit: the Tyrannosaurus rider; it has a special aura, which gives enemies a defence penalty in a radius
+ - Darkmoon on level 4 gives a new t4 animal: the arena rex which fights in close combat, but it is also equipped with two catapults to fire tracker dinos on the enemy; it has also a conversion into Gatling mode which replaces the catapults with Gatling guns (conversion is reversible)
+ - From epoch 5 the Watchtower becomes available
+ - Shamans far sight upgrade allows them to temporarily removes smoke effect with reveal
+
+Norsemen:
+ - Kentrosaurus armour upgrade available from epoch 3
+ - Mammoth harvester gets a new tree chopping animation
+ - Wild boar rage which formerly increased wild boars attack strength at 25% health level, has been renewed: the wild boar will get after every 10 percent health loss additional strength
+ - Berserker gets the special ability which makes him stronger with each killed enemy (+10 damage/number of killed enemies)
+ - Magic cauldron gets boosted: its radius is increased from 30 meter to 40, and the bonus given by it from 10 percent to 20; also got the ability to heal surrounding units
+ - Darkmoon gives a new unit from level 4: Avatar of Valhalla, takes a slot 4 in ac, has a special action, which destroys an enemy buildings instantly (warp gates are exceptions)
+ - Eusmilus nest has been changed: its new name is Smilodon nest, its range is increased from 50 meter to 100 meter, and it spawns 3 smilodons from now on
+ - From now on bunker deals damage against units fighting it in close range
+ - Bunker gets 4 additional slots for the improved bunker upgrade
+ - Governors level 4 special has been renewed: he gives on level 4 and 5 palisade, small wall and reinforced wall and their corresponding gates as well towers the falling stones ability without upgrade, anyways without Governor this ability turns off
+ - Falling stones damage has been increased from 500 to 750, hit range from 20 meter to 25 meter, and the time interval between stone fallings has been halved
+ - Killers hit points have been increased: lvl3 100 form 75; lvl4 150 from 100; lvl5 200 from 150
+ - Killer gets a new ability, which turns him a into stone killer statue: as a statue he can't move or be mounted to transport units, but suffers minimal damage, and gains health regeneration; the ability has a 1 minute cool-down (ps: in statue mode the killer doesn't have his hammer)
+ - Undead warrior has been modified: he deals poison damage not only with its weapon, but has a poisonous aura as well, which poisons enemies in a 15 m radius (doesn't poison while entrenched); the poison damage increases on higher levels
+ - Undead warriors weapon damage has been increased to: lvl2 20; lvl3 30; lvl4 40; lvl5 70
+ - Triceratops titans paw decreases enemy units attack strength by 30% instead of 20%
+ - War cry bonus has been increased: a level 4 warrior increases attack strength by 20%, a level 5 by 30% (previously it was 15% and 20%)
+ - Tarna on level 4 gives a new level 4 animal unit: the Giganto guardian, a good close combat unit, with an additional ballista weapon, and the ability to heal himself by causing damage
+ - Bug fix: the help info of the wild boars rage ability suggested, that this cavalry unit should perform a savage attack at low hit points, but it got only more damage at deaths edge: this ability has been renewed
+ - Wild boars rage allows this cavalry unit to automatically perform a savage attack, and if it loses two-thirds of his hit points, it becomes even stronger
+ - Steam tank has been boosted: gets the special ability to reduce ranged damage to 5 (caused by projectiles)
+ - From epoch 5 the Horn of Loki becomes available: it can open enemy gates
+ - Druids oracle ability removes temporarily smoke effect
+ - Jetpack warrior has been renewed: it gets ground-mode and fly-mode (enable/disable fly-mode per button)
+
+SEAS:
+ - Carrier gets a new destruction animation
+ - Infantry units (no heroes) gets a researchable upgrade: the Burnout, which allows the user to attack at higher frequency for 10 seconds and cost the unit 80 hit points
+ - Bug fix: Carrier couldn't heal hovercrafts and stingers: this has been fixed
+ - Submarine gets a new researchable upgrade (at the carrier) to be cloaked (invisible) until it attacks (like muraeno submarine)
+ - SEAS epoch upgrades needs only resources like at the Norsemen
+
+MIRAGE 2.0
+------------------
+General:
+ - Standard Game Speed is 1.2x (this is set at every game start)
+ - Fire units (flamethrower trike, Leighton's flamethrowers, Exo flamethrower, scorpion in flamethrower mode) cause fire damage to buildings (works like poison), building gets a fire effect
+ - Injured animal units of the player can eat to gain hit points: carnivores can eat the corpses of animal units and wild animals, herbivores can eat fruit bushes, forest trees and wood logs
+ - Buildings, which don't have ordinary destruction animation (building corpse) receives a fake corpse with a burning effect, which slowly sinks to the bottom
+ - All tribes receives a trade ship, called Flagship, which enables trade on water (between harbours)
+ - Penalty values are shown with red colour in Info panel (bonus still green)
+ - Resources like stone and fruit bushes, also wild animals and nests are not shown on the mini map and are hidden in fog of war by default (there is a check box in options menu to make them visible)
+ - Newly born wild animals have reduced attack power in info panel
+ - Units which the player can't control receives kill command, so they can be deleted (see Wardens nest animals)
+ - The 3 default tribes siege units (to mount enemy walls) have been reactivated
+ - Units like dr kamikaze velociraptors, tracker dino or Wardens nest animals won't create spirits anymore (which could be resurrected by shamans)
+ - Losing a storage capacity increasing building won't anymore make the player lose the accumulated resources
+ - A new mana system has been initiated, to be used by spell casters, which is shown in info panel
+ - Healers can heal from open transporter
+ - The time the player needs to hold the warp gate to win the game is increased from 10 minutes to 15 minutes
+ - Harvester units, such as mammoth harvester, scorpion or sentinel get the collectable stone amount direct from the techtree
+ - The dead time for players without town centre (HQ) is increased from 5 minutes to 10 minutes
+ - Transport ships are available from epoch 1 immediately, allowing early rushes via water
+ - Freeze ability has been fixed/balanced: units really got an immunity time ("Once they thaw these units are in turn immune to the spears' frost effect for a while"), so after 10 seconds, the unit has 10 seconds immunity time, after that it is again susceptible to frost ability
+ - Units can be changed via techtree to make them frost immune all the time
+ - Ice spearman, Tarna and Warlock are frost immune
+
+Heroes:
+ - Darkmoon is a Baryonyx rider hero, so he can walk and swim as well
+ - Darkmoon on level 5 gives a global bonus, which allows player gain the production resources when enemy vehicles and ships are destroyed
+ - Darkmoon on level 2 gets an area bonus, which makes surrounding own and allied units have a higher attack frequency
+ - Darkmoon on level 3 gets the Walking Bomb ability, which equips an own unit with an explosive charge, which makes the unit explode in 10 seconds, causing area damage (depending on current hp value) to enemies
+ - Larry is a harvesting hero, can collect more resources than a normal worker
+ - Larry on level 2 gives surrounding workers a harvest bonus, to allow them collect more resources
+ - Larry on level 3 gets the ability to call his 2 brothers to help: Harry and Barry
+ - Larry on level 4 can build the zeppelin (at each tribe)
+ - Larry on level 5 gives every tribe a global trade bonus which increases the profit from land and water trading
+ - Leighton's vanish time increased from 10 seconds to 30 seconds
+ - Kleemann' level 2 skull bonus aura replaced by a bonus aura for ranged fighters which increases their attack strength (only for their ranged weapon)
+ - Cole's level 2 melee damage bonus works on every infantry units with close range attack, but boosts only their melee strength
+ - Tarna on level 1 can freeze enemy units and wild animals
+ - Tarna on level 2 gets the aura of the aschnabars, which prevents enemy units in a 30 m radius to use their special actions
+ - Wardens no animal aggression aura on level 2 works also for buildings, allowing workers to build a resource collection point near to wild carnivores territory, and allowing the safe harvesting
+ - Arch Druids animal healing works on allies as well
+
+Dragonclan:
+ - Bug fix: the pirate ship not always went to the destination, instead it started to rotate: this has been fixed
+ - Bug fix: the pirate ship had quite a few problems with deleting it (e.g.: the corpse did not always vanish or it still could go for a short time even if the three parts were destroyed): these have been fixed
+ - The big pirate ship serves as secondary HQ, so the owner won't lose the game even if every town centre is destroyed, as long as this ship remains
+ - Centre house has 3 additional unit capacity upgrade (for epoch 3,4,5) which increase population limit (if supply mode is enabled)
+ - Siege tower is reactivated, available from epoch 2, can transport ten infantry units, and if the tower already mounted a wall, own and allied infantry units can use it as a ladder
+ - Scorpions Lacerate attacks strength increased from 200 to 400 and the reload time if shorter
+ - Water turrets range has been increased from 30m to 50m
+ - Telescope tower gets its rotate animation enabled
+ - Monks firework ability removes the fog of war in a 150-meter radius for 15 seconds and removes temporarily smoke effect
+ - Smoke tower and smoke bomber also hide allied units (from all tribes)
+ - Fire cauldrons range is increased from 35 meter to 40; deals damage to surrounding enemies; the bonus aura increases damage by 30% instead of 25%
+ - Seismosaurus enchain ability has been balanced: effect time from 20 to 10 seconds reduced
+ - Bug fix: the camouflaged buff icon will be removed when an infantry unit quits the entrench state
+ - Disguised ninjas remain invisible during lock picking
+ - Rocket ramp has been weakened: it has no more armour piercing, so that units with good armours won't die instantly if 3-5-9 rockets hit them at the same time
+ - Buildings explode causes more damage in a bigger area
+
+Dustriders:
+ - Siege Brachiosaurus works again, can be produced from large dino farm, or upgraded from any other variation of brachio; it can't fight, but gets the armour for the Brachiosaurus armour upgrade
+ - Brachiosaurus catapult gfx bug fixed, which caused sometimes the catapult build-up hanging in the air without any base
+ - Velociraptor handler has different dinos on each level, just as the help text says: "At higher levels the Raptor handler receives a larger dino that he can lead on a leash."
+ - Mobile centres (HQ) gfx bug is fixed, which caused newly produced mobile centres wagon have the gfx of level 1 even on higher epochs
+ - At epoch 5 the temple gets a new upgrade, which converts it into the Amazon temple itself, which serves as secondary HQ, as resource collection point, increases unit and resource limit, and workers can be trained there; it’s a local upgrade, must be individually researched at each temple
+ - There is a new level 2 flying dino unit from epoch 3 in medium animal farm: the Observer (pteranodon rider) which is good to scout enemy movements and rushing workers
+ - There is a new dino upgrade from epoch 5, which lets Dustriders dinos (mobile centre and pteradon riders are exceptions) pretend to be dead
+ - Warden on level 4 gives Dustriders a new nest: the deinonychus nest: this nest spawns 4 deinonychus
+ - Tracker dinos are used only by the catapult trex
+ - Trex titan has been boosted: it can carry two infantry units on its back, and causes area damage
+ - War paint ability radius has been increased on each level (from 15,20,25 to 20,25,30)
+ - Shaman's quicksand radius is increased from 8 meter to 10, and the effect time is increased from 5 seconds to 10 seconds
+ - Shaman's tornado holds no more the enemy units trapped; lifetime reduced from 10 to 7 seconds, and damage is increased by 25%
+ - Ankylo catapults dino eggs works also in shore (previously at that height the egg didn't spawn Velociraptor)
+ - Scarecrow's effect penalty is increased from 20 to 25 and its radius from 50 meter to 75
+ - Torpedo turtles lifetime has been increased from 45 to 1 minute
+ - Floating harbour can produce a new level 2 unit from epoch 3: the Aquatic Ravenger, which shoots dustrider torpedoes at enemy ships and aquatic units
+ - Floating harbour can produce a new level 3 unit from epoch 4: the Warlock, which can freeze enemy ships
+ - Trex titans stunning roar ability has been boosted: the radius is increased from 10 to 20 meter, and the effect time from 7 to 10 seconds
+ - Allosaurus scrunch actions strength has been increased to do triple damage instead of double
+
+Norsemen:
+ - The siege ladder can be built on enemy walls by workers; the ladder placement works with a special cursor
+ - Mammoth harvester has an additional animation to collect the chopped trees
+ - Kentrosaurus armour will also show an armoured saddle
+ - Triceratops titan gets an additional upgrade, which is available as a conversion like at Dustriders Brachiosaurus; this make triceratops carry a log cannon, but can't transport units on its back; the conversion is reversible
+ - Battle rhinos pennant effect also works on units which don't have attack strength (see healers)
+ - Jetpack warriors get all the upgrades the standard warrior has, including the war cry bonus aura, and gets also the defensive mod ability
+ - War cry ability radius has been increased by 5 meter on each level (from 15,20,25 to 20,25,30)
+ - Druids illusion ability creates 4 imitation of himself (previously 3)
+ - Steam ram no longer suffers damage from projectile attacks, but can be damaged in melee fight
+ - Steam rams starts with a smaller head, and the ram head upgrade replaces it with a bigger head (which was used previously always)
+ - Triceratops titans Titan rage has been boosted: it causes more damage
+ - Exo enforcer gets boosted: it gets armour piercing attacks and the special action which instantly kill an enemy infantry unit (useful against heroes)
+
+SEAS:
+ - Carrier can fish
+ - Fixed triceratops transporters captain attack animation bug (it was bow_1; it’s used by archers)
+ - Babbit's Exo enforcer can't be targeted by Taslow's vehicle destruction action anymore
+ - Babbit's Exo gets a researchable special ability to use his jet packs to fly
+ - Medic gets an animation for the traps searching ability
+ - Workers gets a slingshot and they will use it in a loop animation
+ - On epoch 5 the ML Cross-Sword Cannon (big cannon from mission 15) will be available to build
+ - On epoch 5 the scorpion will be available to build
+ - Arch druid on level 4 gives seas the healing well, which can heal units, depending on its mana amount, and the unit which gets healed by that well, becomes invincible for a short time, depending on the consumed water; also detoxifies the healed unit
+ - Tarna on level 4 gives the amargasaurus transporter (level 4 unit) which is produced at the garage; it can transport 4 infantry units and has 2 additional machine gun nests as secondary weapons with poisonous bullets
+ - Kleemann on level 4 gives the Metabolic disruptor, which slows down enemy units attack frequency in a 50m radius
+ - Governor on level 4 (or 5) gives seas buildings additional bonuses: the self repair ability, resistance to fire, and +50 close and ranged defence
+ - Bela on level 4 gives the Gunner (renewed) -> level 2 unit produced from barracks, which gets the special ability to slow down enemy units movement speed to 1 for 5 seconds (at each impact the timer restarts)
+ - Ada on level 4 gives the tamer (level 3 infantry at the barracks), which allows SEAS players to tame wild animals which have few hit points (bigger dinos must be injured to that) and tame badly injured enemy animal units
+ - Cole on level 4 gives the mercenary (level 3 infantry at the barracks)
+ - Warden on level 4 allows to build a stygymoloch nest which spawns 3 stygimoloch
+ - Stina on level 4 allows the production of the eusmilus rider from the engineering bay
+ - Barracks and garages get a local upgrade which makes them temple: barracks with healing upgrade can heal surrounding infantry, garage animals and vehicles
+ - Carrier can produce a new level 3 aquatic unit: the Bombardier, which is the amphibious siege unit of the seas, it can travel across both land and water; useful against buildings
+ - Bug fix: the corpse of buildings imported from missions 14, 15 (machine gun nest, small cannon, bunker, big cannon) disappear from the game: this has been fixed
+ - Sentinel plays an animation while collecting wood logs
+ - The CBT 1500 (triceratops) carries a machine gun on its back and uses it as a weapon (similar to ballista rhino)
+ - A new level 2 animal is available from epoch 2 at the garage: the JDT-100 (polakanthus rider), which is a moderate close combat unit with high attack frequency, and when it gets injured it becomes stronger
+ - The trade dino (produced at the steelwork) has the resource collector triceratops build-up
+
+MIRAGE 1.0
+------------------
+General:
+ - First version of the mod start to use the 200 supply system, like Starcraft: each unit has a different supply value (also there are units which doesn't have any, see: torpedo turtle), and these values are stored in tech tree
+ - Tech tree has been reorganized
+ - Improved camera system: can be further zoomed in and out, and there are more camera angles (zoom in and out can be done with mouse scroll, or using dot and comma ('.' ',')
+ - Max slots in a row of the command bar is increased, so that more units can be show in the command bar without placing cards to the next row

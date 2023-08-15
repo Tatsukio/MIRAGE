@@ -1,0 +1,169 @@
+class CLockPicking inherit CSpecialActionTask
+	
+	var CObjHndl 		m_xCharacter;
+	var CObjHndl		m_xTarget;
+	var CGameTime		m_xStartTime;
+	var CGameTimeSpan	m_xDuration;
+	var string 			m_sState;
+	var int				m_iRetryCounter;
+	var bool			m_bFirst;
+	
+	export constructor()
+		SetName("LockPick");
+		SetCivil(false);
+		m_iRetryCounter = 0;
+		m_bFirst = true;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="LoPi";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xCharacter.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		m_xStartTime.DoKArc(pxArc^);
+		m_xDuration.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_iRetryCounter;
+		(pxArc^) << m_bFirst;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="LoPi")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xCharacter.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			m_xStartTime.DoKArc(pxArc^);
+			m_xDuration.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_iRetryCounter;
+			(pxArc^) << m_bFirst;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xCharacter,CObjHndl p_xTarget, CGameTimeSpan p_xDuration, string p_sPath)
+		m_sState="goto_target";
+		if(!p_xCharacter.IsValid() || !p_xTarget.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		var ^CGate pxGate = cast<CGate>(p_xTarget.GetObj());
+		if(pxGate==null || pxGate^.IsOpen())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(p_xCharacter, p_sPath, true);
+		m_xCharacter = p_xCharacter;
+		m_xTarget = p_xTarget;
+		m_xDuration = p_xDuration;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+		var ^CFightingObj pxObj=cast<CFightingObj>(m_xCharacter.GetObj());
+		if(pxObj==null)then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		var ^CGate pxTarget = cast<CGate>(m_xTarget.GetObj());
+		if(pxCharacter==null || pxTarget==null)then EndTask(); return; endif;
+		if(m_sState == "goto_target")then
+			var real fAttackRange = 0.0; //pxCharacter^.GetAttackRange();
+			if(!IsInRange())then
+				if(pxCharacter^.GetOnWall())then
+					pxCharacter^.WallWalkAction(pxTarget^.GetPos(),true,pxCharacter^.GetDefaultSpeed(),false);
+				else
+					pxCharacter^.WalkAction(pxTarget^.GetPos(),pxCharacter^.GetDefaultSpeed(),true,true);
+				endif;
+			endif;
+			m_sState = "start";
+		elseif(m_sState == "start")then
+			if(!IsInRange())then
+				if(m_iRetryCounter>3)then
+					EndTask();
+				else
+					m_iRetryCounter++;
+					m_sState = "goto_target";
+					return;
+				endif;
+			else/*
+				if(pxCharacter^.CanDisguise())then
+					pxCharacter^.RemoveCamouflageEffect("disg");
+				endif;*/
+				if(!pxCharacter^.CheckSpecialActionTimer(GetSpecialActionPath()))then EndTask(); return; endif;
+				pxTarget^.AddHacker(m_xCharacter);
+				m_xStartTime = CTimeMgr.Get().GetTime();
+				m_sState = "pick";
+			endif;
+		elseif(m_sState == "pick")then
+			var CGameTime xNow = CTimeMgr.Get().GetTime();
+			if((xNow-m_xStartTime) < m_xDuration)then
+				pxCharacter^.AnimAction("potter",1,m_bFirst,false);
+				if(m_bFirst)then
+					m_bFirst = false;
+				endif;
+			else
+				if(!StartSpecialActionTimer(pxCharacter))then EndTask(); return; endif;
+				pxTarget^.OpenViolently(false);
+				pxCharacter^.AnimAction("potter",0,false,true);
+				EndTask();
+			endif;
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc bool IsInRange()
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		var ^CGameObj pxTarget = m_xTarget.GetObj();
+		if(pxCharacter==null || pxTarget==null)then return false; endif;
+		var real fTargetRadius = pxTarget^.GetRadius();
+		var real fAttackRange = 4.0; //pxCharacter^.GetAttackRange();
+		var real fDistance = (pxTarget^.GetPos() - pxCharacter^.GetPos()).Abs2S();
+		return fDistance <= (fAttackRange+fTargetRadius)*(fAttackRange+fTargetRadius);
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CGate pxGate = cast<CGate>(m_xTarget.GetObj());
+		if(pxGate!=null)then
+			pxGate^.RemoveHacker(m_xCharacter);
+		endif;/*
+		var ^CFightingObj pxObj=cast<CFightingObj>(m_xCharacter.GetObj());
+		if(pxObj!=null && pxObj^.CanDisguise())then
+			pxObj^.AddCamouflageEffect("disg");
+		endif;*/
+	endproc;
+	
+	export proc bool Break()
+		SetPrepareActionPath(m_xCharacter, GetSpecialActionPath(), false);
+		if (m_xCharacter.IsValid()) then
+			m_xCharacter.GetObj()^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+	
+	export proc void Skip()
+	endproc;
+	
+	export proc void EndTask()
+		SetPrepareActionPath(m_xCharacter, GetSpecialActionPath(), false);
+		UpdateAggressionPos(m_xCharacter);
+		super.EndTask();
+	endproc;
+	
+endclass;

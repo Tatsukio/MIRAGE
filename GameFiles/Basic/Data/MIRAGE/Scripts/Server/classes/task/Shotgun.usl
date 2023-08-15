@@ -1,0 +1,530 @@
+class CShotgun inherit CSpecialActionTask
+
+	//Badgun Tuning: Cole Shotgun
+	const real	m_fDoesCollateralDamage=1.0f;				// Any other value than "0.0" will let the shotgun cause collateral damage.
+
+	const real	m_fDamageOnMainTarget=50.0f; 				// Damage in percent inflicted on the main target.
+	const real	m_fMinimalDamageOnMainTarget=200.0f; 		// Minimal damage in hitpoints the weapon inflicts on the main target.
+	const real	m_fMaximalDamageOnMainTarget=2000.0f; 		// Maximal damage in hitpoints the weapon inflicts on the main target.
+
+	const real	m_fDamageOnCollateralTargets=50.0f; 		// Damage in percent inflicted on the collateral targets.
+	const real	m_fMinimalDamageOnCollateralTargets=200.0f;	// Minimal damage in hitpoints the weapon inflicts on the collateral targets.
+	const real	m_fMaximalDamageOnCollateralTargets=2000.0f;// Maximal damage in hitpoints the weapon inflicts on the collateral targets.
+
+	const real	m_fRange=15.0f;								// Range of the weapon.
+	const real	m_fCollateralDamageRange=8.0f;				// Maximum distance from impact, collateral damage is inflicted.
+	////////////////////////////////////////////////////
+
+	var CObjHndl	m_xFighter;
+	var CObjHndl	m_xEnemy;
+	var string 		m_sState;
+	var bool		m_bGroundShot;
+	var vec3		m_vGroundShotPos;
+	var CObjList	m_xCollateralDamage;
+
+	var CFourCC		m_xFCCRightHandLink;
+	var CFourCC		m_xFCCShieldLink;
+	var CFourCC		m_xFCCLeftHandLink;
+	var CFourCC		m_xFCCHeadLink;
+	var CFourCC		m_xFCCBackLink;
+
+	export constructor()
+		SetName("Shotgun");
+		SetCivil(false);
+		m_xFCCShieldLink="Shld";
+		m_xFCCRightHandLink="HndR";
+		m_xFCCLeftHandLink="HndL";
+		m_xFCCHeadLink="Head";
+		m_xFCCBackLink="Back";
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="ShGu";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xFighter.DoKArc(pxArc^);
+		m_xEnemy.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_bGroundShot;
+		(pxArc^) << m_vGroundShotPos;
+		m_xCollateralDamage.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="ShGu")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVersion = p_pxReaderNode^.GetVersion();
+			m_xFighter.DoKArc(pxArc^);
+			m_xEnemy.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_bGroundShot;
+			(pxArc^) << m_vGroundShotPos;
+			if(iVersion==1)then
+				var string sInvalid;
+				var bool bInvalid;
+				(pxArc^) << sInvalid;
+				(pxArc^) << bInvalid;
+				var int i,iC;
+				(pxArc^) << iC;
+				var array CObjHndl axInvalid;
+				axInvalid=iC;
+				for(i=0) cond(i<iC) iter(i++) do
+					axInvalid[i].DoKArc(pxArc^);
+				endfor;
+			endif;
+			if(iVersion>=2)then
+				m_xCollateralDamage.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xFighter, CObjHndl p_xEnemy, vec3 p_vPos, string p_sTTPath)
+		SetSpecialActionPath(p_sTTPath);
+		SetName("Shotgun");
+		m_xFighter=p_xFighter;
+		m_xEnemy=p_xEnemy;
+		m_vGroundShotPos=p_vPos;
+		if(!m_xFighter.IsValid())then return(false);endif;
+		if(!m_xEnemy.IsValid())then
+			m_bGroundShot=true;
+		else
+			m_bGroundShot=false;
+		endif;
+		if(m_xFighter.GetObj()==null)then return(false);endif;
+		if(m_xFighter.GetObj()^.GetClassName()!="Cole_s0")then return(false);endif;
+		m_xFighter.GetObj()^.TerminateAction();
+		//m_xFighter.GetObj()^.SetDbgCrashOnSetAction(true);
+		return(true);
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xFighter.GetObj());
+		if(pxFightingObj==null || !pxFightingObj^.CheckSpecialActionTimer(GetSpecialActionPath()))then
+			EndTask();
+			return;
+		endif;
+		pxFightingObj^.HideWeapons();
+		pxFightingObj^.SetLinkGFX(m_xFCCRightHandLink,"Cole_Shotgun");
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		if(!m_xFighter.IsValid())then EndTask();return;endif;
+		var ^CFightingObj pxFighter = cast<CFightingObj>(m_xFighter.GetObj());
+		var ^CFightingObj pxEnemy;
+		if(pxFighter==null)then
+			EndTask();
+			return;
+		endif;
+		if(!m_bGroundShot)then
+			if(!m_xEnemy.IsValid())then EndTask();return;endif;
+			if(m_xFighter==m_xEnemy)then EndTask();return;endif;
+			pxEnemy = cast<CFightingObj>(m_xEnemy.GetObj());
+			if(pxEnemy==null)then EndTask();return;endif;
+			pxFighter^.MemorizeCurrentFightState(m_xEnemy,true,false);
+			//Update target, in case, the enemy gets on a mount.
+			if(pxEnemy^.GetType()=="CHTR")then
+				var ^CCharacter pxChar = cast<CCharacter>(m_xEnemy.GetObj());
+				if(pxChar!=null)then
+					if(pxChar^.GetTransportObj().IsValid())then
+						m_xEnemy=pxChar^.GetTransportObj();
+					endif;
+				endif;
+			endif;
+			if(m_sState!="finished" && m_sState!="reaction")then
+				if(IsInCombatRange())then
+					if(!pxEnemy^.IsDead())then
+						var vec3 vTarget=GetLookAtRot(pxEnemy^.GetPos()-pxFighter^.GetPos());
+						pxFighter^.SetRotation(vTarget);
+						m_sState="fire";
+					endif;
+				else
+					if(pxFighter^.GetMovableInFight() && !pxFighter^.GetOnWall())then
+						pxFighter^.AdvanceAction(pxEnemy^.GetHandle(),m_fRange,pxFighter^.GetDefaultSpeed());
+					else
+						EndTask();
+						return;
+					endif;
+				endif;
+			endif;
+		else
+			if(m_sState!="finished" && m_sState!="reaction")then
+				if(IsInCombatRange())then
+					var vec3 vTarget=GetLookAtRot(m_vGroundShotPos-pxFighter^.GetPos());
+					pxFighter^.SetRotation(vTarget);
+					m_sState="fire";
+				else
+					if(pxFighter^.GetMovableInFight() && !pxFighter^.GetOnWall())then
+						var vec3 vTarget=GetAdoptedDest(pxFighter^.GetPos(),m_vGroundShotPos,m_fRange);
+						pxFighter^.WalkAction(vTarget,pxFighter^.GetDefaultSpeed());
+					else
+						EndTask();
+						return;
+					endif;
+				endif;
+			endif;
+		endif;
+		if(m_sState=="fire")then
+			if(m_fDoesCollateralDamage!=0.0f)then
+				GetCollateralDamage();
+			endif;
+			pxFighter^.UpdateAggressionPos(pxFighter^.GetPos());
+			if(!StartSpecialActionTimer(pxFighter))then EndTask();return;endif;
+			SetUnStoppable(true);
+			CUniversalTriggerMgr.Get().ProcessCommand("shotgun","");
+			var vec3 vPT;
+			var vec3 vPE;
+			var vec3 vDir;
+			pxFighter^.AnimAction("shotgun");
+			if(!m_bGroundShot)then
+				vPT=pxEnemy^.GetPos();
+				vPE=pxFighter^.GetPos();
+				vDir=vPT-vPE;
+				if(pxEnemy^.GetType()=="CHTR" && !pxEnemy^.GetTransportObj().IsValid() && pxFighter^.m_iSizeClass>pxEnemy^.m_iSizeClass && !pxEnemy^.GetOnWall())then
+					if(vDir.Abs()>0.0001f) then
+						vDir.Normalize();
+						vDir.SetZ(vDir.GetZ()+0.5);
+						vDir.Normalize();
+					endif;
+					pxEnemy^.SetHitReactionTimer(1.95f,vDir*9.0f);
+				endif;
+				//Do collateral damage
+				var int i;
+				if(m_fDoesCollateralDamage!=0.0f)then
+					for(i=0)cond(i<m_xCollateralDamage.NumEntries())iter(i++)do
+						var ^CFightingObj pxCollateralDamageObj = cast<CFightingObj>(m_xCollateralDamage[i].GetObj());
+						if(pxCollateralDamageObj==null)then continue; endif;
+						if(pxCollateralDamageObj^.GetType()=="CHTR" && !pxCollateralDamageObj^.GetTransportObj().IsValid() && pxFighter^.m_iSizeClass>pxCollateralDamageObj^.m_iSizeClass && !pxCollateralDamageObj^.GetOnWall())then
+							Random.Seed();
+							var vec3 vVariation={0.0,0.0,0.0};
+							vVariation.SetX((Random.GetInt()%150).ToReal()/100.0f);
+							vVariation.SetY((Random.GetInt()%150).ToReal()/100.0f);
+							vPT=pxCollateralDamageObj^.GetPos()+vVariation;
+							vPE=pxFighter^.GetPos();
+							vDir=vPT-vPE;
+							if(vDir.Abs()>0.0001f) then
+								vDir.Normalize();
+								vDir.SetZ(vDir.GetZ()+0.5);
+								vDir.Normalize();
+							endif;
+							//Randomize impact on bystanders
+							var real fDiffTime=((Random.GetInt()%15).ToReal())/100.0f;
+							var real fDiffDistance=(Random.GetInt()%4).ToReal();
+							pxCollateralDamageObj^.SetHitReactionTimer(1.95f+fDiffTime,vDir*(6.0f+fDiffDistance));
+						endif;
+					endfor;
+				endif;
+			else
+				//Do collateral damage only (collateral only bonus 1.0f)
+				var int i;
+				if(m_fDoesCollateralDamage!=0.0f)then
+					for(i=0)cond(i<m_xCollateralDamage.NumEntries())iter(i++)do
+						var ^CFightingObj pxCollateralDamageObj = cast<CFightingObj>(m_xCollateralDamage[i].GetObj());
+						if(pxCollateralDamageObj==null)then continue; endif;
+						if(pxCollateralDamageObj^.GetType()!="CHTR")then continue; endif;
+						if(pxCollateralDamageObj^.GetTransportObj().IsValid()||pxCollateralDamageObj^.GetOnWall())then continue; endif;
+						if(pxFighter^.m_iSizeClass<pxCollateralDamageObj^.m_iSizeClass)then continue; endif;
+						var vec3 vVariation={0.0,0.0,0.0};
+						vVariation.SetX((Random.GetInt()%150).ToReal()/100.0f);
+						vVariation.SetY((Random.GetInt()%150).ToReal()/100.0f);
+						vPT=pxCollateralDamageObj^.GetPos()+vVariation;
+						vPE=pxFighter^.GetPos();
+						vDir=vPT-vPE;
+						if(vDir.Abs()>0.0001f) then
+							vDir.Normalize();
+							vDir.SetZ(vDir.GetZ()+0.5);
+							vDir.Normalize();
+						endif;
+						//Randomize impact on bystanders
+						var real fDiffTime=((Random.GetInt()%15).ToReal())/100.0f;
+						var real fDiffDistance=(Random.GetInt()%4).ToReal();
+						pxCollateralDamageObj^.SetHitReactionTimer(1.95f+fDiffTime,vDir*(6.0f+fDiffDistance));
+					endfor;
+				endif;
+			endif;
+			m_sState="reaction";
+		elseif(m_sState=="reaction")then
+			var real fDamage;
+			if(!m_bGroundShot)then
+				if(pxEnemy^.GetType()=="BLDG" || pxEnemy^.GetType()=="NEST")then
+					fDamage=(pxEnemy^.GetHitpoints()/100.0)*10.0f;
+				else
+					fDamage=(pxEnemy^.GetHitpoints()/100.0)*m_fDamageOnMainTarget;
+				endif;
+				fDamage=Math.Clamp(fDamage,m_fMinimalDamageOnMainTarget,m_fMaximalDamageOnMainTarget);
+				pxEnemy^.TakeDirectDmg(fDamage,100.0,pxFighter^.GetOwner(),m_xFighter);
+			endif;
+			var int i;
+			//Do collateral damage
+			if(m_fDoesCollateralDamage!=0.0f)then
+				for(i=0)cond(i<m_xCollateralDamage.NumEntries())iter(i++)do
+					var ^CFightingObj pxCollateralDamageObj = cast<CFightingObj>(m_xCollateralDamage[i].GetObj());
+					if(pxCollateralDamageObj==null)then continue; endif;
+					if(pxCollateralDamageObj^.GetType()=="BLDG" || pxCollateralDamageObj^.GetType()=="NEST")then
+						fDamage=(pxCollateralDamageObj^.GetHitpoints()/100.0)*10.0f;
+					else
+						fDamage=(pxCollateralDamageObj^.GetHitpoints()/100.0)*m_fDamageOnCollateralTargets;
+					endif;
+					fDamage=Math.Clamp(fDamage,m_fMinimalDamageOnCollateralTargets,m_fMaximalDamageOnCollateralTargets);
+					pxCollateralDamageObj^.TakeDirectDmg(fDamage,pxFighter^.GetOwner(),m_xFighter);
+				endfor;
+			endif;
+			m_sState="finished";
+		elseif(m_sState=="finished")then
+			SetUnStoppable(false);
+			if(!m_bGroundShot)then
+//				pxEnemy^.HandleGamePlayCommand("Action", pxFighter, pxFighter^.GetPos(),"/AttackSrv");
+				pxEnemy^.AttackSrv(pxFighter);
+			endif;
+			pxFighter^.ShowWeapons();
+			m_sState="finished";
+			pxFighter^.ReturnToFight();
+		elseif(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CFightingObj pxFighter = cast<CFightingObj>(m_xFighter.GetObj());
+		if(pxFighter!=null)then
+			pxFighter^.ShowWeapons();
+		endif;
+	endproc;
+
+	export proc bool Break()
+		if(GetUnStoppable())then
+			return false;
+		endif;
+		if(m_xFighter.IsValid())then
+			m_xFighter.GetObj()^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+
+	//Checks if enemy is in combat range
+	export proc bool IsInCombatRange()
+		var ^CFightingObj pxFighter = cast<CFightingObj>(m_xFighter.GetObj());
+		if(!m_bGroundShot)then
+			var ^CFightingObj pxEnemy = cast<CFightingObj>(m_xEnemy.GetObj());
+			var real fFightDistance = pxEnemy^.GetRadius()+pxFighter^.GetRadius();
+			var real fDistVariance = pxEnemy^.GetRadius();
+			return((pxFighter^.GetPos()-pxEnemy^.GetPos()).Abs()<=fFightDistance+fDistVariance+m_fRange);
+		else
+			return((pxFighter^.GetPos()-m_vGroundShotPos).Abs()<=5.0f+m_fRange);
+		endif;
+	endproc;
+
+	//Updates enemy
+	export proc void UpdateEnemy(CObjHndl p_xEnemy)
+		if(p_xEnemy.IsValid())then
+			m_xEnemy=p_xEnemy;
+		endif;
+	endproc;
+
+	//Determine collateral targets
+	proc bool GetCollateralDamage()
+		var CObjQuery xCollateralQuery;
+		xCollateralQuery.SetType("CHTR");
+		xCollateralQuery.SetType("ANML",true);
+		xCollateralQuery.SetType("VHCL",true);
+		xCollateralQuery.SetType("NEST",true);
+		xCollateralQuery.SetType("BLDG",true);
+		xCollateralQuery.SetType("FGHT",true);
+		if(m_bGroundShot)then
+			xCollateralQuery.RegionCircle(m_vGroundShotPos,m_fCollateralDamageRange);
+		else
+			xCollateralQuery.RegionCircle(m_xEnemy.GetObj()^.GetPos(),m_fCollateralDamageRange);
+		endif;
+		CSrvWrap.GetDiplomacyMgr().AddMyEnemiesToSearch(m_xFighter.GetObj()^.GetOwner(), xCollateralQuery);
+		var CObjList xList;
+		var int i;
+		if(xCollateralQuery.Execute(xList))then
+			for(i=0)cond(i<xList.NumEntries())iter(i++)do
+				if(!m_bGroundShot && xList[i]==m_xEnemy)then continue; endif;
+				var ^CFightingObj pxObj = cast<CFightingObj>(xList[i].GetObj());
+				if(pxObj==null)then continue; endif;
+				if(pxObj^.GetTransportObj().IsValid()||pxObj^.GetOnWall())then continue; endif;
+				m_xCollateralDamage.AddEntry(xList[i]);
+			endfor;
+		endif;
+		//L CSrvWrap.LogSpam("Shotgun","Bystander: "+m_xCollateralDamage.NumEntries().ToString());
+		return(true);
+	endproc;
+	
+	export proc void EndTask()
+		UpdateAggressionPos(m_xFighter);
+		super.EndTask();
+	endproc;
+	
+endclass;
+
+class CAdaDeathShot inherit CSpecialActionTask
+
+	const int STATE_GOTO_VICTIM=1;
+	const int STATE_SHOOT=2;
+	const int STATE_KILL=3;
+	const int STATE_WAIT=4;
+	const int STATE_ROTATE=5;
+	const int STATE_END=6;
+	
+//	const real DIST_TO_VICTIM_ADA = 80.0f;
+//	const real SQR_DIST_TO_VICTIM_ADA = 6400.0f;
+	const real DIST_TO_VICTIM = 60.0f;
+	const real SQR_DIST_TO_VICTIM = 3600.0f;
+
+	var CObjHndl m_xActor;
+	var CObjHndl m_xVictim;
+
+	var int m_iState;
+	var int m_iWalkTimeout;
+	var string m_sTTPath;
+	
+	export constructor()
+		SetName("AdaDeath");
+		SetCivil(false);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="AdDe";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xActor.DoKArc(pxArc^);
+		m_xVictim.DoKArc(pxArc^);
+		pxArc^ << m_iState;
+		pxArc^ << m_iWalkTimeout;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="AdDe")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xActor.DoKArc(pxArc^);
+			m_xVictim.DoKArc(pxArc^);
+			pxArc^ << m_iState;
+			pxArc^ << m_iWalkTimeout;
+			if(p_pxReaderNode^.GetVersion()==0)then
+				pxArc^<< m_sTTPath;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xActor, CObjHndl p_xVictim, string p_sTTPath)
+		if(!p_xActor.IsValid() || !p_xVictim.IsValid())then
+			m_iState=6;
+			return false;
+		endif;
+		m_xActor = p_xActor;
+		m_xVictim = p_xVictim;
+		SetSpecialActionPath(p_sTTPath);
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xActor.GetObj());
+		if(pxFightingObj==null || !pxFightingObj^.CheckSpecialActionTimer(GetSpecialActionPath()))then
+			EndTask();
+			return;
+		endif;
+		if(!m_xActor.IsValid() || !m_xVictim.IsValid()) then
+			EndTask();
+			return;
+		endif;
+		var ^CGameObj pxActor = m_xActor.GetObj();
+		var ^CGameObj pxVictim = m_xVictim.GetObj();
+		if(pxActor==null||pxVictim==null)then
+			EndTask();
+			return;
+		endif;
+		if(pxActor^.GetClassName().Find("lovelace")<0 && pxActor^.GetClassName().Find("schliemann")<0)then 
+			EndTask();
+			return;
+		endif;
+		var CFourCC xT = pxVictim^.GetType();
+		if(xT!="CHTR"&&xT!="VHCL"&&xT!="ANML"&&xT!="SHIP") then
+			EndTask();
+			return;
+		endif;
+		m_iState = STATE_GOTO_VICTIM;
+		m_iWalkTimeout = 10;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		if(!m_xActor.IsValid() || !m_xVictim.IsValid()) then
+			EndTask();
+			return;
+		endif;
+		var ^CFightingObj pxActor = cast<CFightingObj>(m_xActor.GetObj());
+		var ^CFightingObj pxVictim = cast<CFightingObj>(m_xVictim.GetObj());
+		if(pxActor==null || pxVictim==null)then EndTask();return;endif;
+		if(m_iState==STATE_GOTO_VICTIM) then
+			var real fDist=DIST_TO_VICTIM, fDistSquare=SQR_DIST_TO_VICTIM;
+//			if(pxActor^.GetClassName()=="lovelace_s0")then
+//				fDist=DIST_TO_VICTIM_ADA;
+//				fDistSquare=SQR_DIST_TO_VICTIM_ADA;
+//			endif;
+			if(m_iWalkTimeout<=0) then EndTask(); return; endif;
+			if((pxVictim^.GetPos()-pxActor^.GetPos()).Abs2S() > fDistSquare) then
+				pxActor^.AdvanceAction(pxVictim^.GetHandle(),fDist-(pxVictim^.GetCollisionRadius()+2.0),pxActor^.GetDefaultSpeed());
+				--m_iWalkTimeout;
+			else
+				m_iState = STATE_ROTATE;
+			endif;
+		elseif(m_iState==STATE_ROTATE) then
+			var vec3 vDir=pxVictim^.GetPos()-pxActor^.GetPos();
+			var Quat qTRot;
+			qTRot.FromXYDir(vDir.GetX(),vDir.GetY());
+			pxActor^.RotateAction(qTRot);
+			m_iState=STATE_SHOOT;
+			return;
+		elseif(m_iState==STATE_SHOOT) then
+			if(!StartSpecialActionTimer(pxActor))then EndTask();return;endif;
+			pxActor^.MemorizeCurrentFightState(m_xVictim,true,false);
+			SetUnStoppable(true);
+			pxActor^.UpdateAggressionPos(pxActor^.GetPos());
+			pxActor^.AnimAction("lovelace_musket");
+//			if(pxActor^.GetClassName()=="lovelace_s0")then
+//				pxActor^.CreateProjectileAndShoot(pxVictim, pxVictim^.GetPos(), "ada_toxic_dart");
+//			else
+				pxActor^.CreateProjectileAndShoot(pxVictim, pxVictim^.GetPos(), "ada_special_arrow");
+//			endif;
+			m_iState = STATE_WAIT;
+			return;
+		elseif(m_iState==STATE_WAIT) then
+			SetUnStoppable(false);
+			m_iState = STATE_END;
+			pxActor^.ReturnToFight();
+			return;
+		elseif(m_iState==STATE_END) then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc bool Break()
+		return !GetUnStoppable();
+	endproc;
+
+	export proc void EndTask()
+		UpdateAggressionPos(m_xActor);
+		super.EndTask();
+	endproc;
+
+endclass;

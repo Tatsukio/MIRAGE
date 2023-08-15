@@ -1,0 +1,1034 @@
+/*?
+	?group URS.Scripts.Game.UI
+	?item CPyramidCard
+	?desc Cards representing ingame Characters
+	?prefix CPyramidCard
+?*/
+class CPyramidCard inherit CProgressCard
+	
+	var CClntHndl													m_xOwner;
+	var ^CNewPyramid											m_pxPyramid;
+	var ^CTribeViewLayoutMgr							m_pxTribeView;
+	var ^CTribeViewLayoutMgr.CSlotInfo		m_pxLevelUpAlert;
+	var ^CDesktop													m_pxDesktop;
+	
+	var int								m_iSlotID, m_iLevel;
+	var bool							m_bXPAlert;
+	var bool							m_bAdditional;
+	var bool							m_bSelected;
+	var bool							m_bWasHovered;
+	var bool							m_bHovered;
+	var string						m_sCaste;
+	var string						m_sName;
+	var string						m_sObjPath;
+	var string 						m_sTask;
+	var string						m_sClass;
+	var string						m_sOldBitmappath;
+	var bool							m_bBlocked;
+	var bool							m_bCanLevel;
+	var bool							m_bIsPyCO; // is a PyramindCardObject: dummy object to display something in pyramid which is not there, i.e. dead units
+	var int								m_iHPBarState;
+	var int								m_iLastHPSlice;
+	var CGameTime					m_xTimerStart;
+	export var bool				m_bNeedUpdate;
+	export var bool				m_bBitmapChanged;
+	var int 							m_iFixedLevel;
+	var bool							m_bPreviewMode;
+	export var int				m_iSortComparator;
+	var bool							m_bSprtPyCO; // Henry: for dead units
+	var bool							m_bPreSpirit; // Henry: for dead units
+	var string						m_sSuccessor; // Henry: for dead units
+	var bool							m_bVertical;
+	
+	///constructor
+	export constructor(CClntHndl p_xHndl)
+		m_pxDesktop=CClientWrap.GetDesktop();
+		m_sOldBitmappath="";
+		m_bVertical=true;
+		m_iHPBarState = -1;
+		m_iLastHPSlice=100;
+		m_xOwner = p_xHndl;
+		m_iFixedLevel=-1;
+		m_sTask="";
+		var ^CObj pxObj=p_xHndl.GetObj();
+		if(pxObj!=null)then
+			var ^CAttribs pxA = pxObj^.GetAttribs();
+			if(pxObj^.GetType()=="PyCO")then
+				SetIsPyCO(true);
+				if(pxA!=null)then
+					SetPreSpirit(pxA^.GetValueBool("pre_spirit"));
+					m_sSuccessor=pxA^.GetValue("ac_successor");
+					m_bVertical=pxA^.GetValueInt("vertical_fill")==1;
+					m_bSprtPyCO=pxA^.GetValueInt("is_spirit")==1;
+				endif;
+			endif;
+			if(pxA!=null)then
+				SetObjectPath(pxA^.GetValue("ObjPath"));
+			endif;
+		endif;
+		if(pxObj!=null)then // SB#17136 overwrite tooltips
+			var string sTTTitle, sTTText, sTTID = CHelpMenu.GetObjHelpitemKey(pxObj);
+			var string sTemp=sTTID;
+			if(sTemp!="" && sTemp.GetAt(0)=='_')then
+				sTemp.Delete(0);
+			endif;
+			sTTText = CClientWrap.GetUIMgr().GetToopTipText(sTTID, sTTTitle);
+			var string sClassName=pxObj^.GetClassName();
+			var int iSupply = CMirageClnMgr.Get().GetSupply(sClassName);
+			if(iSupply==1)then
+				sTTText += "/spplcnt: "+iSupply.ToString() + CLocalizer.Get().Translate("_MIRAGE_Supply_1");
+			elseif(iSupply>1)then
+				sTTText += "/spplcnt: "+iSupply.ToString() + CLocalizer.Get().Translate("_MIRAGE_Supply_2");
+			endif;
+			if(!sTTID.IsEmpty() && !sTTTitle.IsEmpty())then
+				SetToolTipText(sTTTitle,sTTText);
+			endif;
+		endif;
+		SetDraggable(true);
+		CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this, p_xHndl, CSubscriptionMgr.CT_ObjAttribs, "CardUpdate");
+		CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this, p_xHndl, CSubscriptionMgr.CT_ObjAttribs, "level");
+		CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this, p_xHndl, CSubscriptionMgr.CT_ObjAttribs, "CurProcess");
+		CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this, p_xHndl, CSubscriptionMgr.CT_ObjAttribs, "MrgSprt");
+		CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this, p_xHndl, CSubscriptionMgr.CT_LostPlayerUnit, "");
+	endconstructor;
+	
+	///constructor with parameter
+	export constructor(string p_sClass,string p_sCaste)
+		SetClass(p_sClass);
+		m_sCaste = p_sCaste;
+		m_iFixedLevel=-1;
+		m_iHPBarState = -1;
+		m_sTask="";
+	endconstructor;
+	
+	export proc void SetDraggable(bool p_bDraggable)
+		//spectator / ingame only, campaign pointbuy hasn't a valid playerslot
+		if(!CGameWrap.GetClient().HasValidPlayerSlot()&&CUIStateMgr.Get().GetState()==CUIStateMgr.STATE_INGAME) then p_bDraggable=false; endif;
+		super.SetDraggable(p_bDraggable);
+	endproc;
+	
+	export proc void SetHPSlice(int p_iSlice)
+		if(m_iLastHPSlice!=p_iSlice) then
+			m_bBitmapChanged = true;
+		endif;
+	endproc;
+	
+	/*export proc void ResetHitFlash()
+		m_iHPBarState=-1;
+		m_iLastHPSlice=0;
+	endproc;*/
+
+	///destructor
+	export destructor()
+		if(m_xOwner.IsValid())then
+			CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this, m_xOwner, CSubscriptionMgr.CT_ObjAttribs, "CardUpdate");
+			CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this, m_xOwner, CSubscriptionMgr.CT_ObjAttribs, "level");
+			CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this, m_xOwner, CSubscriptionMgr.CT_ObjAttribs, "CurProcess");
+			CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this, m_xOwner, CSubscriptionMgr.CT_ObjAttribs, "MrgSprt");
+			CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this, m_xOwner, CSubscriptionMgr.CT_LostPlayerUnit, "");
+		endif;
+		CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this);
+	enddestructor;
+
+	///OnInit
+	export proc void InitParent(^CNewPyramid p_pxParent)
+		m_pxPyramid = p_pxParent;
+		m_bXPAlert = true;
+	endproc;
+
+	export proc void SetCanLevel(bool p_bL)
+		if(p_bL==m_bCanLevel) then return; endif;
+		m_bCanLevel = p_bL;
+		m_bBitmapChanged = true;
+		//UpdateBitmaps();
+	endproc;
+	
+	export proc void SetFixedLevel(int p_iFixedLevel)
+		if(m_iFixedLevel!=p_iFixedLevel)then
+			m_iFixedLevel=p_iFixedLevel;
+			m_bBitmapChanged = true;
+		endif;		
+	endproc;
+	
+	export proc int GetFixedLevel()
+		return m_iFixedLevel;
+	endproc;
+	
+	export proc bool GetIsPyCO()
+		return m_bIsPyCO;
+	endproc;
+	
+	export proc void SetIsPyCO(bool p_bValue)
+		m_bIsPyCO = p_bValue;
+	endproc;
+	
+	/// Set the classname of an object (for finding the right card)
+	export proc void SetClass(string p_sClass)
+		m_sClass = p_sClass;
+		//m_sClass.MakeLower();
+		if(m_sClass.GetAt(0)=='_')then
+			m_sClass.Delete(0);
+		endif;
+	endproc;
+
+	/// Returns the classname of an object
+	export proc string GetClass()
+		return m_sClass;
+	endproc;
+
+	export proc void SetPreviewMode(bool p_bMode)
+		m_bPreviewMode = p_bMode;
+		SetDraggable(!m_bPreviewMode);
+		SetSelected(IsSelected() && !m_bPreviewMode);
+		SetHovered(IsSelected() && !m_bPreviewMode);
+	endproc;
+
+	///Set method for TribeViewPointer
+	export proc void SetTribeViewPointer(^CTribeViewLayoutMgr p_pxTribeView)
+		m_pxTribeView = p_pxTribeView;
+	endproc;
+	
+	///Set method for blocked
+	export proc void SetBlocked(bool p_bBlocked)
+		m_bBlocked = p_bBlocked;
+	endproc;
+	
+	///get method for blocked
+	export proc bool IsBlocked()
+		return m_bBlocked;
+	endproc;
+	
+	export proc bool UpdateUnitCount()
+		if(m_pxPyramid^.IsPointBuyMode())then return true; endif;
+		if(!m_bAdditional)then
+			if(Random.GetInt()%10!=0)then return true; endif;
+		endif;
+		if(!m_xOwner.IsValid())then
+			m_pxPyramid^.KillCard(this);
+			return false;
+		endif;
+		var ^CAttribs pxAttr = m_xOwner.GetObj()^.GetAttribs();
+		if(pxAttr==null)then return true; endif;
+		if(!pxAttr^.GetValueBool("unit_count"))then
+			m_pxPyramid^.KillCard(this);
+			return false;
+		endif;
+		return true;
+	endproc;
+	
+	///Set method for additional cards
+	export proc void SetAdditionalCard(bool p_bAdditional)
+		m_bAdditional = p_bAdditional;
+	endproc;
+	
+	///Set methods for level
+	export proc void SetLevel(int p_iLevel)
+//		var ^CObj pxO = GetObj().GetObj();
+//		if(pxO!=null&&pxO^.GetClassName()=="seas_final_boss"&&pxO^.GetAttribs()^.GetValueInt("ReadyForWork")==0)then
+//			return;
+//		endif;
+		if(m_iLevel!=p_iLevel)then
+			m_iLevel = p_iLevel;
+			m_bXPAlert = true;
+			m_pxPyramid^.CardLevelChanged(this);
+		endif;
+	endproc;
+	
+	///Set method for Name
+	export proc void SetName(string p_sName)
+		m_sName = p_sName;
+	endproc;
+	
+	///Set method for ObjPath
+	export proc void SetObjectPath(string p_sPath)
+		m_sObjPath = p_sPath;
+	endproc;
+	
+	///Set method for SlotID
+	export proc void SetSlotID(int p_iID)
+		m_iSlotID = p_iID;
+		if(m_xOwner.IsValid())then
+			CEvt_SetPyramidSlotID.Send(m_xOwner.GetObj()^.GetGuid(),p_iID);
+		endif;
+	endproc;
+	
+	///Set method for caste
+	export proc void SetCaste(string p_sCaste)
+		m_sCaste = p_sCaste;
+	endproc;
+	
+	///Get method for handle
+	export proc ref CClntHndl GetObj()
+		return m_xOwner;
+	endproc;
+	
+	///Get method for level
+	export proc ref int GetLevel()
+		return m_iLevel;
+	endproc;
+	
+	///Get method for SlotID
+	export proc ref int GetSlotID()
+		return m_iSlotID;
+	endproc;
+	
+	///Get method for caste
+	export proc ref string GetCaste()
+		return m_sCaste;
+	endproc;
+	
+	///Called to check if card is selected
+	export proc ref bool IsSelected()
+		return m_bSelected;
+	endproc;
+	
+	///Set method for SetSelected
+	export proc void SetSelected(bool p_bSelected)
+		if(m_bSelected!=p_bSelected)then
+			m_bSelected = p_bSelected && !m_bPreviewMode;
+			m_bBitmapChanged = true;
+			//UpdateBitmaps();
+		endif;
+	endproc;
+	
+	///Called to check if card is hovered
+	export proc ref bool IsHovered()
+		return m_bHovered;
+	endproc;
+	
+	///Called to check if card was hovered before
+	export proc ref bool WasHovered()
+		return m_bWasHovered;
+	endproc;
+	
+	///Set method for SetHovered
+	export proc void SetHovered(bool p_bHovered)
+		if(m_bHovered!=p_bHovered)then
+			m_bHovered = p_bHovered && !m_bPreviewMode;
+			m_bBitmapChanged = true;
+			//UpdateBitmaps();
+		endif;
+	endproc;
+	
+	///get method for name
+	export proc string GetName()
+		return m_sName;
+	endproc;
+	
+	///get method for objectpath
+	export proc string GetObjectPath()
+		return m_sObjPath;
+	endproc;
+	
+	///Get method for additional cards
+	export proc ref bool GetAdditionalCard()
+		return m_bAdditional;
+	endproc;
+	
+	///called to update bitmaps
+	export proc void UpdateBitmaps();
+		m_bBitmapChanged = false;
+		if(m_bAdditional)then return; endif;
+		if((GetLevel() >= 0)&&(GetLevel() <= 4))then
+			m_bWasHovered = m_bHovered;
+			var string sPath = GetLevel().ToString()+", layer card_background";
+			if((m_sClass=="")||(!CGameInst.GetBitmapMgr().BlendSourceExists(m_sClass))) then
+				KLog.LogWarn("UI.NewPyramid",GetName()+" blendsource for class '"+m_sClass+"' not found");
+			elseif((m_sClass=="Blocked")) then
+				sPath = "";
+				KLog.LogError("UI.NewPyramid","slot blocked");
+			else
+				sPath += ",layer "+m_sClass;
+			endif;
+			var CConfig xConf;
+			var bool bShowBuildProgress;
+			bShowBuildProgress = xConf.GetSetB("Game/GraphicOptions/ShowBuildUpProgressInAC", true);
+//			bShowBuildProgress=true;
+			if(m_bIsPyCO && bShowBuildProgress)then
+				var real fProgress = 0.0f;
+				var ^CObj pxObj=m_xOwner.GetObj();
+				if(pxObj!=null) then
+					var ^CAttribs pxAttribs = pxObj^.GetAttribs();
+					if(pxAttribs!=null) then
+						fProgress = pxAttribs^.GetValueInt("CurProcess").ToReal();
+					endif;
+				endif;
+				var string sNAddon, sBAddon;
+				var string sLayer = ", layer "+m_sClass;
+				var int iFactor=30;
+				if(m_bSprtPyCO)then
+					iFactor=35;
+					sNAddon=", gamma 0.75";
+					sBAddon=", saturate 0, add -30 -30 -30 0";
+//					sLayer += ", saturate 100";
+				endif;
+				var string sBlend = ", blend "+m_sClass+" "+iFactor.ToString();
+				if(m_bVertical)then
+					SetProgressBitmaps(CGameInst.GetBitmapMgr().GetBlendBitmap(GetLevel().ToString()+", layer card_background"+sLayer+", layer card_frame"+sNAddon)^.GetBitmap(), CGameInst.GetBitmapMgr().GetBlendBitmap(GetLevel().ToString()+", layer card_background"+sBlend+", layer card_frame"+sBAddon)^.GetBitmap());
+				else
+					SetProgressBitmaps(CGameInst.GetBitmapMgr().GetBlendBitmap(GetLevel().ToString()+", layer card_background"+sBlend+", layer card_frame"+sBAddon)^.GetBitmap(), CGameInst.GetBitmapMgr().GetBlendBitmap(GetLevel().ToString()+", layer card_background"+sLayer+", layer card_frame"+sNAddon)^.GetBitmap());
+				endif;
+				SetProgress(fProgress);
+//				SetVertical(true);
+//				SetVertical(false);
+				SetVertical(m_bVertical);
+				SetUseProgress(true);
+				return;
+			elseif(m_bIsPyCO && !bShowBuildProgress)then
+				SetUseProgress(false);
+			endif;
+			if (m_bSelected && !m_bHovered) then
+				sPath += ",layer card_frame_down";
+			elseif (!m_bSelected && m_bHovered) then
+				sPath += ",layer card_frame_hover";
+			elseif (m_bSelected && m_bHovered) then
+				sPath += ",layer card_frame_down_hover";
+			else
+				sPath += ",layer card_frame";
+			endif;
+			if(m_iFixedLevel!=-1)then
+				sPath+=",layer card_fixed";
+			endif;
+			var bool bRenderAlternativeHitpointBars = false;
+			begin CheckSettings;
+				var string sTemp;
+				CSettings.Get("Game/GraphicOptions/AlternativeColoringACHP",sTemp);
+				if(sTemp=="true")then
+					bRenderAlternativeHitpointBars=true;
+					//Enable
+				else
+					bRenderAlternativeHitpointBars=false;
+					//Disable
+				endif;
+			end CheckSettings;
+			var string sTask, sAnml;
+			var int iHPSlice;
+			CheckAlerts(sTask, sAnml, iHPSlice);
+			var string sBar = "";
+			if(!m_pxPyramid^.IsPointBuyMode()) then
+				if (m_iHPBarState==1) then
+					if((CTimeMgr.Get().GetTime()-m_xTimerStart).GetSecondsF()>0.2f) then
+						m_iHPBarState=0;
+					else
+						m_bBitmapChanged=true;
+						sBar = ", blend ovl_hpbar_hploose 90";
+					endif;
+				elseif(iHPSlice<m_iLastHPSlice && m_iHPBarState<1) then
+					m_bBitmapChanged=true;
+					m_iHPBarState=1;
+					m_iLastHPSlice = iHPSlice;
+					m_xTimerStart = CTimeMgr.Get().GetTime();
+					sBar = ", blend ovl_hpbar_hploose 90";
+				endif;
+			endif;
+			var int iColorID = CClientWrap.GetClient().GetLevelInfo().GetPlayerColorID(CClientWrap.GetClient().GetPlayerID());
+			if(iColorID >= 0 && iColorID < 8 && !bRenderAlternativeHitpointBars)then
+				var int iR = (iColorID*3), iG = (iColorID*3)+1, iB = (iColorID*3)+2;
+				sPath += ",layer ovl_hpbar_bg"+sBar;
+				sPath += ", hslicebar ovl_hpbar 100 "+CUIStateMgr.Get().GetHPCounterColorValue(iR).ToString()+" "+CUIStateMgr.Get().GetHPCounterColorValue(iG).ToString()+" "+CUIStateMgr.Get().GetHPCounterColorValue(iB).ToString()+" 256";
+				sPath += ", hslicebar ovl_hpbar "+iHPSlice.ToString()+" "+CUIStateMgr.Get().GetHPColorValue(iR).ToString()+" "+CUIStateMgr.Get().GetHPColorValue(iG).ToString()+" "+CUIStateMgr.Get().GetHPColorValue(iB).ToString()+" 256";
+			elseif((m_sClass=="Blocked")) then
+				//no unit = no hp
+			else
+				sPath += ",layer ovl_hpbar_bg"+sBar+", hslicehp ovl_hpbar "+iHPSlice.ToString();
+			endif;
+			if(!sTask.IsEmpty()) then
+				sPath+=sTask;
+			else
+				sPath += m_sTask;
+			endif;
+			if(m_bCanLevel && !m_bIsPyCO)then 
+				sPath += ", layer card_canlevelup";
+			endif;
+			if(m_bIsPyCO)then
+				//sPath += ", saturate 40";
+				if(m_bSprtPyCO)then
+//					sPath += ", multiply 1.0 1.0 1.0 0.4";
+					sPath += ", saturate 0, add +20 +20 +20 0, multiply 1.0 1.0 1.0 0.4";
+				else
+					sPath += ", multiply 1.0 1.0 1.0 0.4";
+				endif;
+			endif;
+			if(sPath!=m_sOldBitmappath)then
+				var ^CCardBitmap pxBmp = CGameInst.GetBitmapMgr().GetBlendBitmap(sPath);
+				m_sOldBitmappath=sPath;
+				if(pxBmp!=null)then
+					SetBitmap(pxBmp^.GetBitmap());
+				else
+					KLog.LogWarn("BitmapMgr","invalid sBitmappath="+sPath);
+				endif;
+			endif;
+		else
+			//L KLog.LogSpam("UI.NewPyramid","CPyramidCard::UpdateBitmaps Invalid Level! "+GetLevel().ToString());
+		endif;
+	endproc;
+
+	export proc bool UpdateLevel()
+		var ^CObj pxObj=m_xOwner.GetObj();
+		if(pxObj!=null) then
+			var ^CAttribs pxAttribs = pxObj^.GetAttribs();
+			if(pxAttribs!=null) then
+				var int iOldLvl = GetLevel(), iNewLvl = pxAttribs^.GetValueInt("level");
+				SetLevel(iNewLvl);
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	export proc bool UpdateData()
+		var int iLvl;
+		var string sCaste;
+		var ^CObj pxObj=m_xOwner.GetObj();
+		if(pxObj!=null) then
+			var ^CAttribs pxAttribs = pxObj^.GetAttribs();
+			if(pxAttribs!=null) then
+				if(!pxAttribs^.GetValueBool("unit_count"))then
+					var ^CCommandBar pxCmd = null; 
+					var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+					if(pxIngameScreen!=null)then
+						pxCmd = pxIngameScreen^.GetCmdBar();
+					endif;
+					if(pxCmd!=null)then
+						pxCmd^.OnChangeValues(CInvoke.PYRAMIDCHG);
+						pxCmd^.PyraTimer();
+					endif;
+					m_pxPyramid^.KillCard(this);
+					return false;
+				endif;
+				SetCaste(pxAttribs^.GetValue("caste"));
+				var int iHP = pxAttribs^.GetValueInt("hitpoints");
+				var int iMaxHP = pxAttribs^.GetValueInt("maxhitpoints");
+				SetHPSlice((iHP*100)/iMaxHP);
+				//SetUnique(pxAttribs^.GetValue("unique_name"));
+				SetClass(CHelpMenu.GetObjHelpitemKey(pxObj));
+				if(m_bAdditional)then
+					m_pxPyramid^.TryAdditionalCards();
+					return true;
+				endif;
+				var string sTrspGuid = pxAttribs^.GetValue("transporter_guid");
+				if(!sTrspGuid.IsEmpty()) then
+					m_sTask = ", layer card_task_transport";
+				else
+					var string sTask = pxAttribs^.GetValue("TaskDescription");
+					if(sTask!="")then
+						//SB#17136 zzz is for workers only, all other units should use wait icon
+						if(pxObj^.GetClassName().Find("_wreckage")!=-1)then
+							m_sTask="";
+						elseif(sTask=="idle" &&
+							pxObj^.GetClassName().Find("_worker")==-1 &&
+							pxObj^.GetClassName().Find("_cart")==-1 &&
+							pxObj^.GetClassName().Find("_fishing_boat")==-1 &&
+							pxObj^.GetClassName()!="aje_trade_dino" &&
+							pxObj^.GetClassName()!="aje_muraenosaurus" &&
+							pxObj^.GetClassName()!="seas_muraenosaurus" &&
+							pxObj^.GetClassName()!="Barry_s0" &&
+							pxObj^.GetClassName()!="Harry_s0" &&
+							pxObj^.GetClassName()!="Larry_s0" &&
+							pxObj^.GetClassName()!="seas_trade_dino"
+						)then
+							m_sTask = ", layer card_task_wait";
+						else
+							m_sTask = ", layer card_task_"+sTask;
+						endif;
+					else
+						m_sTask="";
+					endif;
+				endif;
+				if(pxAttribs^.GetValueBool("is_locked") && m_sTask.Find("card_task_locked")==-1)then
+					m_sTask += ", layer card_task_locked";
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	///handle message
+	proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+		//var string sClass = p_rxEvt.GetClass().ToString();
+		//L KLog.LogSpam("UI.NewPyramid","CPyramidCard::HandleMessage "+sClass);
+		if(p_rxEvt.GetClass()==CSubscriptionMgr.GetEvtClass_ObjChange())then
+			var CClntHndl xObjHandle;
+			var bitset dwTypes, dwAttribGroups;
+			CSubscriptionMgr.EvtGetData_ObjChange(p_rxEvt,xObjHandle,dwTypes,dwAttribGroups);
+			if(CSubscriptionMgr.EvtGetData_ObjChange(p_rxEvt,xObjHandle,dwTypes,dwAttribGroups))then
+				if((dwTypes & CSubscriptionMgr.CT_LostPlayerUnit)!=0d) then
+					if(xObjHandle == m_xOwner)then
+						m_pxPyramid^.KillCard(this);
+						var ^CCommandBar pxCmd = null;
+						var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+						if(pxIngameScreen!=null)then
+							pxCmd = pxIngameScreen^.GetCmdBar();
+						endif;
+						if(pxCmd!=null) then
+							pxCmd^.OnChangeValues(CInvoke.PYRAMIDCHG);
+							pxCmd^.PyraTimer();
+						endif;
+//						m_pxPyramid^.CardGotDestroyed();
+						CMainController.Get().UpdateSpirits();
+						return false;
+					endif;
+				elseif((dwTypes & CSubscriptionMgr.CT_ObjAttribs)!=0d) then
+					if((CGameWrap.GetSubscriptionMgr().GetGroupMask("level")&dwAttribGroups)!=0d)then
+						UpdateLevel();
+					endif;
+					if((CGameWrap.GetSubscriptionMgr().GetGroupMask("CardUpdate")&dwAttribGroups)!=0d)then
+						UpdateData();
+					endif;
+					if((CGameWrap.GetSubscriptionMgr().GetGroupMask("CurProcess")&dwAttribGroups)!=0d)then
+						UpdateBitmaps();
+					endif;
+					if((CGameWrap.GetSubscriptionMgr().GetGroupMask("MrgSprt")&dwAttribGroups)!=0d)then
+						UpdatePreSpirit();
+					endif;
+					var ^CObj pxObj = m_xOwner.GetObj();
+					if(pxObj!=null)then // SB#17136 overwrite tooltips
+						var string sTTTitle, sTTText, sTTID = CHelpMenu.GetObjHelpitemKey(pxObj);
+						var string sTemp=sTTID;
+						if(sTemp!="" && sTemp.GetAt(0)=='_')then
+							sTemp.Delete(0);
+						endif;
+						sTTText = CClientWrap.GetUIMgr().GetToopTipText(sTTID, sTTTitle);
+						var string sClassName=pxObj^.GetClassName();
+						var int iSupply = CMirageClnMgr.Get().GetSupply(sClassName);
+						if(iSupply==1)then
+							sTTText += "/spplcnt: "+iSupply.ToString() + CLocalizer.Get().Translate("_MIRAGE_Supply_1");
+						elseif(iSupply>1)then
+							sTTText += "/spplcnt: "+iSupply.ToString() + CLocalizer.Get().Translate("_MIRAGE_Supply_2");
+						endif;
+						if(!sTTID.IsEmpty() && !sTTTitle.IsEmpty())then
+							SetToolTipText(sTTTitle,sTTText);
+						endif;
+						SetClass(sTTID);
+					endif;
+				endif;
+			else
+				KLog.LogWarn("BitmapMgr","HandleMessage() no Attrib");
+			endif;
+			if(this==null || m_pxPyramid==null)then return false; endif;
+			if(m_pxPyramid^.UpdateCardPos(this)) then
+				var ^CCommandBar pxCmd = null;
+				var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+				if(pxIngameScreen!=null)then
+					pxCmd = pxIngameScreen^.GetCmdBar();
+				endif;
+				if(pxCmd!=null) then
+					pxCmd^.OnChangeValues(CInvoke.PYRAMIDCHG);
+				endif;
+			endif;
+			m_bBitmapChanged = true;
+			//UpdateBitmaps();
+			m_pxPyramid^.HandleMessage(p_rxEvt);
+		endif;
+		return false;
+	endproc;
+	
+	///called to do ...erm...nothing :)
+	proc bool DoNothing()
+		return true;
+	endproc;
+	
+	///called to select check if obj is riding, to get sel obj
+	export proc CClntHndl GetObjToSelect()
+		return GetObjToSelect(true);
+	endproc;
+	
+	///called to select check if obj is riding, to get sel obj
+	export proc CClntHndl GetObjToSelect(bool p_bSecParent)
+		var CClntHndl xHndl = m_xOwner;
+		if(!m_xOwner.IsValid())then return xHndl; endif;
+		var ^CAttribs pxAttr = m_xOwner.GetObj()^.GetAttribs();
+		if(pxAttr!=null)then
+			var string sGuid = pxAttr^.GetValue("transporter_guid");
+			if(sGuid!="")then
+				var CGuid xGuid;
+				xGuid.FromString(sGuid);
+				var ^CObj pxObj = CClientWrap.GetObjMgr().GetObj(xGuid);
+				if(pxObj!=null)then
+					xHndl = pxObj^.GetHandle();
+					if(p_bSecParent)then
+						pxObj=pxObj^.GetGroupedParentObj();
+						if(pxObj!=null)then
+//							xHndl = pxObj^.GetHandle();
+							return pxObj^.GetHandle();
+						endif;
+					endif;
+				endif;
+			endif;
+		endif;
+		return xHndl;
+	endproc;
+	
+	///called to check if the char is not working or fighting or riding
+	export proc bool CheckAlerts(ref string po_rsTask, ref string po_rsRiddenAnml, ref int po_riHPSlice)
+		if(m_bAdditional)then return false; endif;
+		var ^CObj pxObj = m_xOwner.GetObj();
+		if(pxObj!=null)then
+			var ^CTribeViewLayoutMgr.CSlotInfo pxSLotInfo = m_pxTribeView^.GetSlotInfo(GetSlotID());
+			var ^CAttribs pxAttribs = pxObj^.GetAttribs();
+			if(pxAttribs!=null)then
+				var string sCurTask = pxAttribs^.GetValue("CurTask");
+/* SB#17136
+				if(sCurTask == "Idle" || sCurTask == "idle" || sCurTask == "none")then
+					if(pxSLotInfo!=null && (pxSLotInfo^.GetAlertCounter()==0 || pxSLotInfo^.m_iCurState!=2))then
+						pxSLotInfo^.SetAlertCounter(125);
+						pxSLotInfo^.m_iCurState = 2;
+					endif;
+					else
+*/
+				if(sCurTask=="Fight")then
+					if(pxSLotInfo!=null && (pxSLotInfo^.GetAlertCounter()==0 || pxSLotInfo^.m_iCurState!=3))then
+						var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+						if(pxSel^.FindEntry(pxObj^.GetHandle())==-1) then
+							pxSLotInfo^.SetAlertCounter(125);
+						endif;
+						pxSLotInfo^.m_iCurState = 3;
+					endif;
+				endif;
+				
+				var int iHitpoints = pxAttribs^.GetValueInt("hitpoints");
+				var int iMaxHitpoints = pxAttribs^.GetValueInt("maxhitpoints");
+/* SB#17136
+				if(pxAttribs^.GetValue("transporter_guid")!="")then
+					var string sGuid = pxAttribs^.GetValue("transporter_guid");
+					var CGuid xGuid;
+					xGuid.FromString(sGuid);
+					var ^CObj pxRiddenAnimal = CClientWrap.GetObjMgr().GetObj(xGuid);
+					if (pxRiddenAnimal!=null) then
+						po_rsRiddenAnml = pxRiddenAnimal^.GetClassName();
+						if(pxSLotInfo!=null && (pxSLotInfo^.GetAlertCounter()==0 || pxSLotInfo^.m_iCurState!=4))then
+							pxSLotInfo^.SetAlertCounter(125);
+							pxSLotInfo^.m_iCurState = 4;
+						endif;
+					endif;
+				else
+					po_rsRiddenAnml="";
+				endif;
+*/
+				if(iMaxHitpoints>0)then
+					po_riHPSlice = ((iHitpoints*100)/iMaxHitpoints);
+				else
+					po_riHPSlice = 0;
+				endif;
+			else
+				po_riHPSlice = 0;
+			endif;
+		else
+			po_riHPSlice = 0;
+		endif;
+		return(true);
+	endproc;
+	
+	///called when user double-clicks on this card; centers camera on associated character in game
+	proc bool OnDoubleClick(bitset p_dwKeyModifier)
+		var bool bAlt = (p_dwKeyModifier & Msg.KM_ALT) !=0d;
+		var ^CObj pxObj = GetObjToSelect().GetObj();
+		if(pxObj!=null)then
+			if(bAlt && GetObj().IsValid())then
+				m_pxPyramid^.SelectAllUnitsOfClass(GetObj(),GetLevel());
+			else
+				var vec3 vPos=pxObj^.GetPos();
+				CMultiCameraController.Get().SetCameraTarget(vPos,true);
+				CMultiCameraController.Get().SnapOnGround();
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+		///called when user right clicks
+	export proc bool OnRightClick(bitset p_dwKeyModifier)
+		if(m_bPreSpirit)then
+			var ^CObj pxO=m_xOwner.GetObj();
+			if(pxO!=null)then
+				CEvt_GamePlayCommand.Send(m_xOwner, "remove_pre_pyco", "");
+			endif;
+		endif;
+		if(GetDisabled())then return true; endif;
+		// This operation won't do anything in pointbuy mdoe
+		if(m_pxPyramid^.IsPointBuyMode())then
+			if(m_iFixedLevel==-1)then
+				m_pxPyramid^.KillCard(this);
+				return true;
+			endif;
+			return false;
+		endif;
+		//skip actions in spectator mode
+		if(!CGameWrap.GetClient().HasValidPlayerSlot())then return true; endif;
+		var bool bAlt = (p_dwKeyModifier & Msg.KM_ALT)!=0d;
+		var bool bCtrl = (p_dwKeyModifier & Msg.KM_CONTROL)!=0d;
+		var bool bShift = (p_dwKeyModifier & Msg.KM_SHIFT)!=0d;
+		if(bAlt)then
+			var ^CObj pxO = m_xOwner.GetObj();
+			if(pxO!=null)then
+				CMainController.Get().GetGameInputCtrl().HandlePyramidAction(pxO,bCtrl,bShift,GetObjToSelect());
+			endif;
+		else
+			//prevent unfinished buildings from leveling up
+			var ^CObj pxO = GetObj().GetObj();
+			if(pxO!=null&&pxO^.GetType()=="BLDG"&&(pxO^.GetAttribs()^.GetValue("CurTask")=="BuildUpB"||pxO^.GetAttribs()^.GetValueInt("ReadyForWork")==0))then
+				return true;
+			endif;
+			//pevent dead or production card from leveling up
+			if(m_bIsPyCO)then
+				return true;
+			endif;
+//			if(m_iLevel<4 && m_pxPyramid^.HasFreeSlots(GetLevel()+1) && CNewPyramid.HasEnoughScalpsForLevel(GetLevel()+1)) then
+//				var int iOldLevel = GetLevel();
+//				SetLevel(Math.Clamp(GetLevel().ToReal()+1.0,0.0,4.0).ToInt());
+//				if(iOldLevel!=GetLevel())then
+//					CEvt_GamePlayCommand.Send(m_xOwner, "setlevel", GetLevel().ToString());
+//				endif;
+//				m_bBitmapChanged = true;
+//				m_pxPyramid^.TryAdditionalCards();
+//			endif;
+			if(m_iLevel<4)then
+				var int i;
+				var bool bDone=false;
+				if(bShift)then
+					for(i=4)cond(i>GetLevel())iter(i--)do
+						if(m_pxPyramid^.HasFreeSlots(i)&&CNewPyramid.HasEnoughScalpsForLevel(i))then
+							var int iOldLevel = GetLevel();
+							SetLevel(Math.Clamp(i.ToReal(),0.0,4.0).ToInt());
+							if(iOldLevel!=GetLevel())then
+								CEvt_GamePlayCommand.Send(m_xOwner, "setlevel", GetLevel().ToString());
+								bDone=true;
+							endif;
+							m_bBitmapChanged = true;
+							m_pxPyramid^.TryAdditionalCards();
+							if(bDone)then break; endif;
+						endif;
+					endfor;
+				else
+					for(i=GetLevel())cond(i<4)iter(i++)do
+						if(m_pxPyramid^.HasFreeSlots(i+1)&&CNewPyramid.HasEnoughScalpsForLevel(i+1))then
+							var int iOldLevel = GetLevel();
+							SetLevel(Math.Clamp(i.ToReal()+1.0,0.0,4.0).ToInt());
+							if(iOldLevel!=GetLevel())then
+								CEvt_GamePlayCommand.Send(m_xOwner, "setlevel", GetLevel().ToString());
+								bDone=true;
+							endif;
+							m_bBitmapChanged = true;
+							m_pxPyramid^.TryAdditionalCards();
+							if(bDone)then break; endif;
+						endif;
+					endfor;
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	///called when user clicks on this card; selects / unselects associated character in game
+	export proc bool OnClick(bitset p_dwKeyModifier)
+		var ^CObj pxClickObj = m_xOwner.GetObj();
+		if(pxClickObj==null||!pxClickObj^.IsSelectable())then
+			if(pxClickObj!=null)then
+				if(CMainController.Get().GetSecondaryInputController())then
+					if(CMainController.Get().GetSecInputCtrl().IsReanimActive())then
+						CMainController.Get().GetSecInputCtrl().ReanimatePyCO(GetSpiritSrvHndl().ToString(), p_dwKeyModifier);
+						return false;
+					endif;
+				endif;
+			endif;
+			return false;
+		endif;
+		var string sEventName="ui_click_pyramid";
+		CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent(sEventName,"",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		var int i, iC=pxSel^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CClntHndl xHndl = pxSel^[i];
+			var ^CObj pxObj = xHndl.GetObj();
+			if(pxObj!=null)then
+				// Henry: added seas carrier
+				if (pxObj^.GetType()=="BLDG" && pxObj^.GetClassName()!="aje_floating_harbour" && pxObj^.GetClassName()!="seas_carrier")then
+					pxSel^.DeleteEntry(i);
+					i--;
+					iC--;
+					continue;
+				endif;
+			endif;
+		endfor;
+		if((p_dwKeyModifier & 01b)!=0b) then
+			pxSel^.Include(GetObjToSelect());
+			CGameInputController.ms_xUISoundMgr.PlayFeedbackSound("selected");
+			SetSelected(true);
+		elseif((p_dwKeyModifier & 010b)!=0b) then
+			if(pxSel^.FindEntry(GetObjToSelect()) >= 0) then
+				pxSel^.RemEntry(GetObjToSelect());
+				SetSelected(false);
+			else
+				pxSel^.Include(GetObjToSelect());
+				CGameInputController.ms_xUISoundMgr.PlayFeedbackSound("selected");
+				SetSelected(true);
+			endif;
+		elseif (p_dwKeyModifier.ToInt() == 0) then
+			var int i, iC = m_pxTribeView^.TotalSlotCount();
+			if(pxSel^.FindEntry(GetObjToSelect()) >= 0) then
+				for(i=0)cond(i<iC)iter(i++)do
+					if(m_pxTribeView^.GetSlotInfo(i)^.m_bUsed==true)then
+						var ^CPyramidCard pxCard = m_pxPyramid^.GetCard(i);
+						if(pxCard!=null)then
+							pxCard^.SetSelected(false);
+							if(pxSel^.FindEntry(pxCard^.GetObjToSelect()) >= 0) then
+								pxSel^.RemEntry(pxCard^.GetObjToSelect());
+							endif;
+						endif;
+					endif;
+				endfor;
+				pxSel^.Include(GetObjToSelect());
+				// dont play selected sound again if unit is already selected
+				//CGameInputController.ms_xUISoundMgr.PlayFeedbackSound("selected");
+				SetSelected(true);
+			else
+				for(i=0)cond(i<iC)iter(i++)do
+					pxSel^.Clear();
+					if(m_pxTribeView^.GetSlotInfo(i)^.m_bUsed==true)then
+						var ^CPyramidCard pxCard = m_pxPyramid^.GetCard(i);
+						if(pxCard!=null)then
+							pxCard^.SetSelected(false);
+							if(pxSel^.FindEntry(pxCard^.GetObjToSelect()) >= 0) then
+								pxSel^.RemEntry(pxCard^.GetObjToSelect());
+							endif;
+						endif;
+					endif;
+				endfor;
+				pxSel^.Include(GetObjToSelect());
+				CGameInputController.ms_xUISoundMgr.PlayFeedbackSound("selected");
+				SetSelected(true);
+			endif;
+		else
+			pxSel^.Select(GetObjToSelect());
+			SetSelected(true);
+		endif;
+		if(m_pxPyramid^.IsPointBuyMode()) then
+			m_pxPyramid^.m_pxPBOwner^.m_pxShoppingList^.UpdateInfoFromPyramid(m_sClass);
+		endif;
+		var ^CUTCmdSender pxUTCmdSender=CClientWrap.GetUTCmdSender();
+		if(pxUTCmdSender!=null)then
+			var bool bCtrl = ((p_dwKeyModifier&Msg.KM_CONTROL)!=0d);
+			var bool bShift = ((p_dwKeyModifier&Msg.KM_SHIFT)!=0d);
+			var bool bAlt = ((p_dwKeyModifier&Msg.KM_ALT)!=0d);
+			pxUTCmdSender^.SelectionChanged(pxSel^,false,true,bCtrl,bShift,bAlt);
+		endif;
+		return true;
+	endproc;
+	
+	///called when mouse enters the card
+	export proc bool OnMouseEnter(bitset p_dwKeyModifier)
+		CClientWrap.GetObjMgr().IncludeHoveredObj(GetObjToSelect());
+		if(m_pxPyramid^.IsPointBuyMode())then
+			SetHovered(true);
+			m_pxPyramid^.m_pxPBOwner^.m_pxShoppingList^.UpdateInfoFromPyramid(m_sClass);
+		endif;
+		return true;
+	endproc;
+	
+	///called when mouse leaves the card
+	export proc bool OnMouseLeave(bitset p_dwKeyModifier)
+		CClientWrap.GetObjMgr().ExcludeHoveredObj(GetObjToSelect());
+		if(m_pxPyramid^.IsPointBuyMode())then
+			SetHovered(false);
+		endif;
+		return true;
+	endproc;
+	
+	///submit changes (level, caste) to server if necessary
+	export proc void SubmitChanges()
+		var ^CObj pxObj = m_xOwner.GetObj();
+		if(pxObj!=null && pxObj^.GetAttribs()!=null)then
+			if(GetLevel()!=pxObj^.GetAttribs()^.GetValueInt("level"))then
+				CEvt_GamePlayCommand.Send(m_xOwner, "setlevel", GetLevel().ToString());
+			endif;
+			if(GetCaste()!=pxObj^.GetAttribs()^.GetValue("caste"))then
+				CEvt_GamePlayCommand.Send(m_xOwner, "setcaste", GetCaste());
+			endif;
+		endif;
+	endproc;
+	
+	//called when dragged card is over another card in tribeview
+	export proc bool AcceptDropWindow(^CDragWindow p_pxDragWnd , point p_xMousePos)
+		// This drag & drop operation won't do anything in pointbuy mode
+		if(m_pxPyramid^.IsPointBuyMode())then return false; endif;
+		var point xRealPos = p_xMousePos - GetAbsPos();
+		var int iNewLevel = GetLevel();
+		var int iNewSlotID = GetSlotID();
+		var ^CPyramidCard pxCard = cast<CPyramidCard>(p_pxDragWnd^.GetSource());
+		if(pxCard==null)then return false; endif;
+			var int iOldLevel = pxCard^.GetLevel();
+			var int iOldSlotID = pxCard^.GetSlotID();
+			if(iNewSlotID < 0)then return false; endif;
+			if(iOldLevel==iNewLevel)then return true; endif;
+			if(iOldLevel>iNewLevel)then return false; endif;
+			if(iOldLevel < iNewLevel)then
+				var int iNeedFood=CNewPyramid.GetScalpCost(iOldLevel, iNewLevel);
+				if((m_pxPyramid^.GetScalpsAvailable()<iNeedFood))then
+					return false;
+				endif;
+				return true;
+			endif;
+		return true;
+	endproc;
+	
+	//called when accept drop window return true
+	export proc void DropWindow(^CDragWindow p_pxDragWnd , point p_xMousePos)
+		// This drag & drop operation won't do anything in pointbuy mdoe
+		if (m_pxPyramid^.IsPointBuyMode())then return; endif;
+		var ^CPyramidCard pxCard = cast<CPyramidCard>(p_pxDragWnd^.GetSource());
+		if(pxCard==null)then return; endif;
+		var point xRealPos = p_xMousePos - GetAbsPos();
+		var int iNewLevel = GetLevel();
+		var int iNewSlotID = GetSlotID();
+		var int iOldLevel = pxCard^.GetLevel();
+		var int iOldSlotID = pxCard^.GetSlotID();
+		m_pxPyramid^.SwapSlotsAndCards(iNewSlotID, iOldSlotID);
+		CWindowMgr.Get().BringWindowToTop(m_pxDesktop, true);
+	endproc;
+	
+	export proc string GetObjPath()
+		var string sPath= "";
+		if(!m_xOwner.IsValid())then return sPath; endif;
+		var ^CAttribs pxAttr = m_xOwner.GetObj()^.GetAttribs();
+		if(pxAttr!=null)then
+			sPath = pxAttr^.GetValue("ObjPath");
+		endif;
+		return sPath;
+	endproc;
+	
+	export proc bool IsPreSpirit()
+		return m_bPreSpirit;
+	endproc;
+	
+	export proc void SetPreSpirit(bool p_bValue)
+		m_bPreSpirit = p_bValue;
+	endproc;
+	
+	export proc bool UpdatePreSpirit()
+		var ^CObj pxObj=m_xOwner.GetObj();
+		if(pxObj!=null) then
+			var ^CAttribs pxA = pxObj^.GetAttribs();
+			if(pxA!=null)then
+				var string sOld=m_sSuccessor;
+				m_bPreSpirit = pxA^.GetValueBool("pre_spirit");
+				m_sSuccessor = pxA^.GetValue("ac_successor");
+				if(m_sSuccessor!=""&&m_sSuccessor!=sOld)then
+					m_pxPyramid^.SuccessorAppeared(GetSlotID(),GetLevel(),m_sSuccessor);
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	export proc string GetSuccessor()
+		return m_sSuccessor;
+	endproc;
+	
+	export proc int GetSpiritSrvHndl()
+		if(!m_xOwner.IsValid())then return -1; endif;
+		var ^CAttribs pxAttr = m_xOwner.GetObj()^.GetAttribs();
+		if(pxAttr!=null)then
+			return pxAttr^.GetValueInt("spirit_handle");
+		endif;
+		return -1;
+	endproc;
+	
+endclass;

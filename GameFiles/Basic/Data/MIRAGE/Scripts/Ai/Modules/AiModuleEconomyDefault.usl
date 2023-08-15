@@ -1,0 +1,657 @@
+class CAiModuleEconomyDefault inherit IAiModuleEconomy
+
+	var ^CAiBrain											m_pxBrain;
+	var ^CAiSensor											m_pxSensor;
+	var array ^CAiGoalTargetRealization 					m_apxTRGoalsExt;
+	var array ^CAiGoalTargetRealization 					m_apxTRGoalsIntRes;
+	var array int 											m_aiMaxWorkersPerAge;
+	var array string										m_asForbiddenBuildings;	
+	var CAiGoalBuildVillage									m_xBuildVillageGoal;
+	var CAiGoalBuildArmy									m_xBuildArmyGoal;
+	var CAiGoalRepairBuildings								m_xRepairBuildingsGoal;
+	var CAiGoalCollectResources								m_xCollectResourcesGoal;
+	var CAiGoalUserInteraction								m_xUserInteractionGoal;
+	var CAiGoalManageMarketPlaces							m_xMarketPlaceMgr;
+	var CAiGoalKillEnclosedWorker							m_xKillEnclosedWorkerGoal;
+	var array ^CAiGoalBuildOutpost							m_apxBuildOutpostGoals;
+	var ^CAiNodeInstance 									m_pxWorkerNI;
+	var ^CAiTechTree 										m_pxTT;
+	
+	var int 												m_iCurrentAge;
+	var int													m_iPlayerID;
+	var string											m_sPlayerID;
+	var string											m_sBehavior;
+	var string											m_sGameType;
+	var string											m_sTribe;
+	var	string											m_sLevelName;
+	var bool												m_bMarketplace;
+	var bool												m_bAssist;
+
+	//maximum allowed goals in the appropriate goal list
+	const int 												m_kiNumTRGoalsExt = 10;
+	const int												m_kiNumTRGoalsIntRes = 5;
+	const int												m_kiMaxOutposts = 5;
+	var int 												m_iMaxAge;
+
+	var array CAiModuleEconomyDefault.CForbiddenBuilding	m_axForbiddenBuildings;
+	var array CActiveSolutionInfo							m_axActiveInternalSolutions;
+	var array CProcRefWrap									m_axActiveSolutionSubscribers;
+	
+	///CLASS CProcRefWrap
+	class CProcRefWrap
+		export var procref <void, ^CAiSolution, bool, bool, int> m_xProcRef;
+	endclass;
+	
+	/// Class CForbiddenBuilding
+	class CForbiddenBuilding
+	
+		export var ^CAiNodeInstance m_pxNI;
+		export var int m_iMaxInstanceCount;
+		
+		export constructor()
+		endconstructor;
+		
+		export destructor()
+		enddestructor;
+		
+	endclass;
+	
+	///CLASS CActiveSolutionInfo
+	class CActiveSolutionInfo
+		export var ^CAiSolution m_pxSol;
+		export var bool			m_bIsTarget;
+		export var bool			m_bGotToken;
+	endclass;
+	
+	///constructor
+	export constructor()
+		m_apxTRGoalsExt = m_kiNumTRGoalsExt;
+		m_apxTRGoalsIntRes = m_kiNumTRGoalsIntRes;
+		var int i;
+		for(i=0)cond(i<m_kiNumTRGoalsExt)iter(++i)do
+			var ^CAiGoalTargetRealization pxGoal = new CAiGoalTargetRealization();
+			m_apxTRGoalsExt[i] = pxGoal;
+		endfor;
+		for(i=0)cond(i<m_kiNumTRGoalsIntRes)iter(++i)do
+			var ^CAiGoalTargetRealization pxGoal = new CAiGoalTargetRealization();
+			m_apxTRGoalsIntRes[i] = pxGoal;
+		endfor;
+		m_apxBuildOutpostGoals = 0;
+		m_iMaxAge = 5;
+		m_aiMaxWorkersPerAge = 6;
+		m_iCurrentAge = 0;
+	endconstructor;
+	
+	///destructor
+	export destructor()
+		var int i;
+		for(i=0)cond(i<m_kiNumTRGoalsExt)iter(++i)do
+			var ^CAiGoalTargetRealization pxGoal = m_apxTRGoalsExt[i];
+			delete pxGoal;
+		endfor;
+		m_apxTRGoalsExt = 0;
+		for(i=0)cond(i<m_kiNumTRGoalsIntRes)iter(++i)do
+			var ^CAiGoalTargetRealization pxGoal = m_apxTRGoalsIntRes[i];
+			delete pxGoal;
+		endfor;
+		m_apxTRGoalsIntRes = 0;
+		var int iC = m_apxBuildOutpostGoals.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			var ^CAiGoalBuildOutpost pxGoal = m_apxBuildOutpostGoals[i];
+			delete pxGoal;
+		endfor;
+		m_apxBuildOutpostGoals = 0;
+	enddestructor;
+	
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain,bool p_bReInit)
+		Random.Seed();
+		ResetBuildings();
+		if(p_pxBrain==null)then return false; endif;		
+		m_pxBrain=p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null)then return false; endif;
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		m_sGameType=CAiUtilityMgr.Get()^.GetGameType(m_pxBrain);
+		m_sTribe=m_pxSensor^.GetTechTree().GetTribe();
+		m_sBehavior=CAiUtilityMgr.Get()^.GetPersonality(m_pxBrain);
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+//		SetThinkWait(pxCM^.GetDifficultyInt()+iType+20);
+		if(pxCM^.GetDifficulty()=="Easy")then
+			SetThinkWait(20+iType);
+		elseif(pxCM^.GetDifficulty()=="Medium")then
+			SetThinkWait(10+iType);
+		else
+			SetThinkWait(1+iType);
+		endif;
+		m_bMarketplace=m_pxSensor^.GetMarketplace();
+		m_bAssist=pxCM^.GetAIAssistEnabled();
+		// the BuildVillage goal is responsible for building the village
+//		CMirageAIMgr.Debug("flag init");
+		m_xBuildVillageGoal.Init(m_pxBrain);
+		AddGoal(^m_xBuildVillageGoal);
+		m_xBuildVillageGoal.SetPriority(5.0);
+		m_xBuildVillageGoal.Activate();
+		m_xBuildArmyGoal.Init(m_pxBrain);
+		AddGoal(^m_xBuildArmyGoal);
+		m_xBuildArmyGoal.SetPriority(5.0);
+		m_xBuildArmyGoal.Activate();
+		// the RepairBuildings goal is responsible forrepairing any damaged units
+		m_xRepairBuildingsGoal.Init(m_pxBrain);
+		m_xRepairBuildingsGoal.SetWorkerNI(m_pxWorkerNI);
+		AddGoal(^m_xRepairBuildingsGoal);
+		m_xRepairBuildingsGoal.SetPriority(15.0);
+		m_xRepairBuildingsGoal.Activate();
+		// this goal is forcollecting Resources with workers, who aren't currently used
+		m_xCollectResourcesGoal.Init(m_pxBrain);
+		AddGoal(^m_xCollectResourcesGoal);
+		m_xCollectResourcesGoal.SetPriority(1.0);
+		m_xCollectResourcesGoal.Activate();
+		// this goal is forbuilding two marketplaces and marketcars and getting resources from it and defending its trade route with towers
+		m_xMarketPlaceMgr.Init(m_pxBrain);
+		AddGoal(^m_xMarketPlaceMgr);
+		m_xMarketPlaceMgr.SetPriority(11.0);
+		// this goal is forAI Assist. If the player clicks one unit this goal locks it externaly and gives it back to the MOD,
+		// if the unit was a specific time in 'idle' state
+		m_xUserInteractionGoal.Init(m_pxBrain);
+		m_xUserInteractionGoal.SetPriority(1.0);
+		// this goal checks the workers forenclosure. If an worker is detected as enclosed it will be killed		
+		m_xKillEnclosedWorkerGoal.Init(m_pxBrain);
+		AddGoal(^m_xKillEnclosedWorkerGoal);
+		m_xKillEnclosedWorkerGoal.SetPriority(1.0);
+		m_xKillEnclosedWorkerGoal.Activate();
+		// create some TargetRealizationGoals that perform the work
+		var int i;
+		for(i=0)cond(i<m_kiNumTRGoalsExt)iter(++i)do
+			var ^CAiGoalTargetRealization pxGoal = m_apxTRGoalsExt[i];
+			pxGoal^.Init(m_pxBrain);
+			AddGoal(pxGoal);
+			pxGoal^.SetPriority(10.0);
+			pxGoal^.Activate();
+		endfor;
+		for(i=0)cond(i<m_kiNumTRGoalsIntRes)iter(++i)do
+			var ^CAiGoalTargetRealization pxGoal = m_apxTRGoalsIntRes[i];
+			pxGoal^.Init(m_pxBrain);
+			AddGoal(pxGoal);
+			pxGoal^.SetPriority(10.0);
+			pxGoal^.Activate();
+		endfor;
+		m_pxTT=^(m_pxBrain^.GetSensor().GetTechTree());
+		var CAiAttribs xAttribs;
+		var string sTTPath;
+		var string sTribe = m_pxTT^.GetTribe();
+		sTribe.MakeLower();
+		xAttribs.SetValue("level", "0");
+		sTTPath = "/Objects/" + m_pxTT^.GetTribe() + "/CHTR/" + sTribe + "_worker";
+		m_pxWorkerNI = m_pxTT^.GetNodeInstance(sTTPath, xAttribs);
+		if(m_pxWorkerNI == null)then
+			KLog.LogWarn("AiModuleEconomyDefault", "'" + sTTPath + "' NI not found! PlayerID: "+m_sPlayerID);
+		endif;
+		ComputeMaxWorkersPerAge();
+		m_axActiveSolutionSubscribers = 0;
+		return true;
+	endproc;
+	
+	///Deactivate
+	export proc void Deactivate()
+//		CMirageAIMgr.Debug("deactivated economy modul");
+		SetThinkWait(99999999);
+	endproc;
+	
+	export proc ref CAiGoalBuildArmy GetAttackOutpostGoal()
+		return m_xBuildArmyGoal;
+	endproc;
+	
+	///Activate
+	export proc void Activate()
+//	CMirageAIMgr.Debug("activate economy modul: '"+(m_pxBrain!=null).ToString()+"'");
+		if(m_pxBrain==null)then return; endif;
+//		var int iType = 1+Random.GetInt()%3;
+		var int iType = 1;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		if(pxCM^.GetDifficulty()=="Easy")then
+			SetThinkWait(30+iType);
+		elseif(pxCM^.GetDifficulty()=="Medium")then
+			SetThinkWait(10+iType);
+		else
+			SetThinkWait(1+iType);
+		endif;
+	endproc;
+	
+	///shut
+	export proc void Shut()
+		super.Shut();
+		// shut down goals
+//		CMirageAIMgr.Debug("shutting down");
+		m_xBuildVillageGoal.Shut();
+		m_xRepairBuildingsGoal.Shut();
+		m_xCollectResourcesGoal.Shut();
+		m_xBuildArmyGoal.Shut();
+		m_xUserInteractionGoal.Shut();
+		RemoveGoal(^m_xUserInteractionGoal, false);
+		m_xMarketPlaceMgr.Shut();
+		RemoveGoal(^m_xMarketPlaceMgr, false);
+		var int i;
+		for(i=0)cond(i<m_kiNumTRGoalsExt)iter(++i)do
+			var ^CAiGoalTargetRealization pxGoal = m_apxTRGoalsExt[i];
+			pxGoal^.Shut();
+		endfor;
+		for(i=0)cond(i<m_kiNumTRGoalsIntRes)iter(++i)do
+			var ^CAiGoalTargetRealization pxGoal = m_apxTRGoalsIntRes[i];
+			pxGoal^.Shut();
+		endfor;
+		var int iC = m_apxBuildOutpostGoals.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			var ^CAiGoalBuildOutpost pxGoal = m_apxBuildOutpostGoals[i];
+			pxGoal^.Shut();
+			RemoveGoal(pxGoal, false);
+		endfor;
+		m_axActiveSolutionSubscribers = 0;
+	endproc;
+	
+	///SubscribeForActiveSolution
+	export proc void SubscribeForActiveSolution(procref <void, ^CAiSolution, bool, bool, int> p_xCallBack)
+		var CProcRefWrap xPRWrap;
+		xPRWrap.m_xProcRef = p_xCallBack;
+		m_axActiveSolutionSubscribers.AddEntry(xPRWrap);
+	endproc;
+	
+	///UnSubscribeForActiveSolution
+	export proc void UnSubscribeForActiveSolution(procref <void, ^CAiSolution, bool, bool, int> p_xCallBack)
+		var int i, iC = m_axActiveSolutionSubscribers.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			if(m_axActiveSolutionSubscribers[i].m_xProcRef == p_xCallBack)then
+				m_axActiveSolutionSubscribers.DeleteEntry(i);
+				break;
+			endif;
+		endfor;
+	endproc;
+	
+	///IsSolutionActive
+	export proc bool IsSolutionActive(^CAiSolution p_pxSol, bool p_bGetToken)
+		var int i, iC = m_axActiveInternalSolutions.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			if(m_axActiveInternalSolutions[i].m_pxSol != p_pxSol)then
+				continue;
+			endif;
+			if(p_bGetToken == true)then
+				if(m_axActiveInternalSolutions[i].m_bIsTarget == true)then
+					continue;
+				endif;
+				if(m_axActiveInternalSolutions[i].m_bGotToken == false)then
+					continue;
+				endif;
+				m_axActiveInternalSolutions[i].m_bGotToken = false;
+			endif;
+			return true;
+		endfor;
+		return false;
+	endproc;
+	
+	///AddActiveSolution
+	export proc void AddActiveSolution(^CAiSolution p_pxSol, bool p_bIsTarget)
+		var CActiveSolutionInfo xASInfo;
+		xASInfo.m_pxSol = p_pxSol;
+		xASInfo.m_bIsTarget = p_bIsTarget;
+		xASInfo.m_bGotToken = true;
+		m_axActiveInternalSolutions.AddEntry(xASInfo);
+	endproc;
+	
+	///RemoveActiveSolution
+	export proc void RemoveActiveSolution(^CAiSolution p_pxSol, bool p_bIsTarget, bool p_bFinished, int p_iResultCount)
+		var int i, iC = m_axActiveInternalSolutions.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			if(m_axActiveInternalSolutions[i].m_pxSol != p_pxSol)then
+				continue;
+			endif;
+			if(m_axActiveInternalSolutions[i].m_bIsTarget != p_bIsTarget)then
+				continue;
+			endif;
+			break;
+		endfor;
+		if(i >= iC)then
+			return;
+		endif;
+		var int iSolIdx = i;
+		if(p_bFinished == true)then
+			iC = m_axActiveSolutionSubscribers.NumEntries();
+			for(i=0)cond(i<iC)iter(++i)do
+				if(m_axActiveSolutionSubscribers[i].m_xProcRef.IsNull() == true)then
+					continue;
+				endif;	
+				var ^CAiSolution	pxSol = m_axActiveInternalSolutions[iSolIdx].m_pxSol;
+				var bool bIsTarget = m_axActiveInternalSolutions[iSolIdx].m_bIsTarget;
+				var bool bGotToken = m_axActiveInternalSolutions[iSolIdx].m_bGotToken;
+				m_axActiveSolutionSubscribers[i].m_xProcRef.Call(pxSol, bIsTarget, bGotToken, p_iResultCount);
+			endfor;
+		endif;
+		m_axActiveInternalSolutions.DeleteEntry(iSolIdx);
+	endproc;
+	
+	///StartOutpost
+	export proc bool StartOutpost(int p_iIslandId, vec3 p_vPosition, string p_sType)
+		var int iDummy;
+		return StartOutpost(p_iIslandId, p_vPosition, p_sType, iDummy);
+	endproc;
+	
+	///StartOutpost
+	export proc bool StartOutpost(int p_iIslandId, vec3 p_vPosition, string p_sType, ref int p_riOutpostID)
+		if(m_apxBuildOutpostGoals.NumEntries() >= m_kiMaxOutposts)then return false; endif;
+		if(m_pxBrain==null)then return false; endif;
+		var ^CAiGoalBuildOutpost pxOPGoal = new CAiGoalBuildOutpost();
+		var bool bSucceeded;
+		pxOPGoal^.Init(m_pxBrain);
+		pxOPGoal^.SetPriority(5.0);
+		pxOPGoal^.Activate();
+		AddGoal(pxOPGoal);
+		bSucceeded = pxOPGoal^.StartOutpost(p_iIslandId, p_vPosition, p_sType, p_riOutpostID);
+		m_apxBuildOutpostGoals.AddEntry(pxOPGoal);
+		return bSucceeded;
+	endproc;
+	
+	///AddForbiddenBuilding
+	export proc void AddForbiddenBuilding(string p_sClassName)
+		if(m_pxSensor==null)then return; endif;
+		if(m_pxTT==null)then return; endif;
+		var ^CAiNodeInstance pxNI = m_pxTT^.GetNodeInstanceFromPartialName(p_sClassName);
+		if(pxNI==null)then return; endif;
+		var CAiModuleEconomyDefault.CForbiddenBuilding xBuilding;
+		xBuilding.m_pxNI = pxNI;
+		xBuilding.m_iMaxInstanceCount = pxNI^.GetMaxInstanceCount();
+		m_axForbiddenBuildings.AddEntry(xBuilding);
+		pxNI^.SetMaxInstanceCount(0);
+	endproc;
+	
+	///ResetBuildings
+	export proc void ResetBuildings()
+		var int i, iC = m_axForbiddenBuildings.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiNodeInstance pxNI = m_axForbiddenBuildings[i].m_pxNI;
+			if(pxNI!=null)then
+				pxNI^.SetMaxInstanceCount(m_axForbiddenBuildings[i].m_iMaxInstanceCount);
+			endif;
+		endfor;
+		m_axForbiddenBuildings = 0;
+	endproc;
+	
+	///ComputeMaxWorkersPerAge
+	export proc void ComputeMaxWorkersPerAge();
+		if(m_pxBrain==null)then return; endif;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		if(pxCM==null)then return; endif;
+		if(pxCM^.GetDifficulty()=="Easy")then
+			m_aiMaxWorkersPerAge[1] = 10;
+			m_aiMaxWorkersPerAge[2] = 11;
+			m_aiMaxWorkersPerAge[3] = 12;
+			m_aiMaxWorkersPerAge[4] = 13;
+			m_aiMaxWorkersPerAge[5] = 14;		
+		elseif(pxCM^.GetDifficulty()=="Medium")then
+			m_aiMaxWorkersPerAge[1] = 13;
+			m_aiMaxWorkersPerAge[2] = 14;
+			m_aiMaxWorkersPerAge[3] = 15;
+			m_aiMaxWorkersPerAge[4] = 15;
+			m_aiMaxWorkersPerAge[5] = 15;
+		else
+			m_aiMaxWorkersPerAge[1] = 15;
+			m_aiMaxWorkersPerAge[2] = 15;
+			m_aiMaxWorkersPerAge[3] = 15;
+			m_aiMaxWorkersPerAge[4] = 15;
+			m_aiMaxWorkersPerAge[5] = 15;
+		endif;
+	endproc;
+	
+	///SetBehavior
+	export proc bool SetBehavior(string p_sBehavior)
+//		CMirageAIMgr.Debug("SetBehavior: '"+p_sBehavior+"'");
+		var array string asTokens;
+		p_sBehavior.Split(asTokens," ",false);
+		if(asTokens.NumEntries()==1)then
+			if(asTokens[0]=="reset_buildings")then
+				ResetBuildings();
+				return true;
+			elseif(asTokens[0]=="disable_collect_resources")then
+				m_xCollectResourcesGoal.Deactivate();
+				return true;
+			elseif(asTokens[0]=="enable_user_interaction")then
+				AddGoal(^m_xUserInteractionGoal, false);
+				m_xUserInteractionGoal.Activate();
+				return true;
+			endif;
+		elseif(asTokens.NumEntries()==2)then
+			if(asTokens[0]=="max_age")then
+				var int iAge=Math.Clamp(asTokens[1].ToInt(),1,5);
+				m_iMaxAge=iAge;
+				return true;
+			elseif(asTokens[0]=="village_level")then
+				m_xBuildVillageGoal.SetVillageType(asTokens[1]);
+				ComputeMaxWorkersPerAge();
+				return true;
+			elseif(asTokens[0]=="forbid_building")then
+				AddForbiddenBuilding(asTokens[1]);
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+	//AllWorkersLocked
+	proc bool AllWorkersLocked()
+		if(m_pxWorkerNI==null)then return false; endif;
+		if(m_pxWorkerNI^.GetLockCount()>=m_pxWorkerNI^.GetInstanceCount())then return true; endif;		
+		return false;
+	endproc;
+	
+	///DumpPyramid
+	proc void DumpPyramid()
+		if(m_pxSensor==null)then return; endif;
+		if(m_pxTT==null)then return; endif;
+		var ^CAiNodeInstance pxNI;
+		var CAiAttribs xAttribs;
+		var int i, iC=5;
+		var ^CAiPyramid pxPyr=m_pxSensor^.GetPyramid();
+		if(pxPyr == null)then return; endif;
+		for(i=0)cond(i<iC)iter(++i)do
+			xAttribs.SetValue("level", i.ToString());
+			if((pxNI=m_pxTT^.GetNodeInstance("free_level", xAttribs))==null)then
+				continue;
+			endif;
+			var int iInstCount = pxNI^.GetInstanceCount();
+			var int iMaxInstCount = pxNI^.GetMaxInstanceCount();
+			var int iPyrLevelUnits = pxPyr^.GetNumUnits(i);
+		endfor;
+	endproc;
+	
+	///DumpActiveSolutions
+	proc void DumpActiveSolutions()
+	endproc;
+	
+	///think
+	export proc void Think()
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		if(m_pxSensor^.GetMultimap()&&(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&
+		m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&
+		m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+		m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&
+		m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&
+		m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&
+		m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then
+			CheckWorkerCount();
+//			if(m_sBehavior=="Schnecke")then
+//			if(m_sBehavior=="Schnecke"||m_sBehavior=="Giraffe")then
+				if(m_sGameType=="Deathmatch")then
+					if((!m_xMarketPlaceMgr.IsActive())&&(CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)>=2))then
+						if(m_bMarketplace)then
+							m_xMarketPlaceMgr.Activate();
+						endif;
+					endif;
+				endif;
+//			endif;
+		endif;
+		begin RealizeExternalTargets;
+			var CAiConstructionInfoPtr pxCInfo=ExternalGetTopRequestedConstruction();
+			if(pxCInfo!=null)then
+				var int iInst=0;
+				var int iNextGoal=0;
+				while(pxCInfo!=null)do
+					while(iNextGoal<m_kiNumTRGoalsExt)do
+						if(m_apxTRGoalsExt[iNextGoal]^.IsBusy()==true)then
+							iNextGoal++;
+						else
+							break;
+						endif;
+					endwhile;
+					if(iNextGoal<m_kiNumTRGoalsExt)then
+						begin;
+							pxCInfo=ExternalGetTopRequestedConstruction();
+							var int i,iC=m_apxTRGoalsExt.NumEntries();
+							for(i=0)cond(i<iC)iter(i++)do
+								m_apxTRGoalsExt[i]^.RemoveTarget(pxCInfo);
+							endfor;
+						end;
+						if(m_apxTRGoalsExt[iNextGoal]^.SetTarget(pxCInfo)==false)then
+							pxCInfo.GetConstructionInfo()^.NotifyOnRejected();
+						else
+							pxCInfo.GetConstructionInfo()^.NotifyOnAccepted();
+						endif;
+						ExternalRemoveTopRequestedConstruction();
+						pxCInfo.SetNull();
+						iInst++;
+					else
+						pxCInfo.SetNull();
+					endif;
+				endwhile;
+			endif;
+		end RealizeExternalTargets;
+		begin RealizeInternalTargets;
+			var CAiConstructionInfoPtr pxCInfo=InternalGetTopRequestedConstruction();
+			if(pxCInfo!=null)then
+				var int iInst=0;
+				var int iNextGoalRes=0;
+				while(pxCInfo!=null)do
+					var CAiNeedPtr pxNeed = pxCInfo.GetConstructionInfo()^.GetNeed();
+					if(pxNeed==null)then
+						KLog.LogWarn("AiModuleEconomyDefault", "An internal construction info was invalid (no need set)! PlayerID: "+m_sPlayerID);
+					else
+						var ^CAiNodeInstance pxNI = pxNeed.GetNeed()^.GetAt(0);
+						if(pxNI == null)then
+							continue;
+						endif;
+						var int iNextGoal=0;
+						while(iNextGoal<m_kiNumTRGoalsIntRes)do
+							if(m_apxTRGoalsIntRes[iNextGoal]^.IsBusy()==true)then
+								iNextGoal++;
+							else
+								break;
+							endif;
+						endwhile;
+						if(iNextGoal < m_kiNumTRGoalsIntRes)then
+							begin;
+								pxCInfo=InternalGetTopRequestedConstruction();
+								var int i,iC=m_apxTRGoalsIntRes.NumEntries();
+								for(i=0)cond(i<iC)iter(i++)do
+									m_apxTRGoalsIntRes[i]^.RemoveTarget(pxCInfo);
+								endfor;
+							end;
+							m_apxTRGoalsIntRes[iNextGoal]^.SetTarget(pxCInfo);
+							InternalRemoveTopRequestedConstruction();
+							pxCInfo=InternalGetTopRequestedConstruction();
+							iInst++;
+						else
+							pxCInfo.SetNull();
+						endif;
+					endif;
+				endwhile;
+			endif;
+		end RealizeInternalTargets;
+		begin RequestWorkers;
+			if(AllWorkersLocked() == true)then
+				var CAiConstructionInfoPtr pxCI;
+				var CAiNeedPtr pxNd;
+				if(m_pxWorkerNI != null)then
+					pxNd = CAiNeed.Create(true, 1);
+					pxNd.GetNeed()^.AddEntry(m_pxWorkerNI);
+					pxCI = CAiConstructionInfo.Create();
+					pxCI.GetConstructionInfo()^.SetNeed(pxNd);
+					InternalRequestConstruction(pxCI);
+				endif;
+			endif;
+		end RequestWorkers;
+		var int iAge=CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain);
+		var ^CAiNodeInstance pxAgeNI;
+		if(iAge!=m_iCurrentAge)then
+			if(m_pxWorkerNI == null)then
+				KLog.LogWarn("AiModuleEconomyDefault", "Worker NI is null! PlayerID: "+m_sPlayerID);
+			else
+				m_pxWorkerNI^.SetMaxInstanceCount(m_aiMaxWorkersPerAge[iAge]);
+				m_iCurrentAge = iAge;
+			endif;
+		endif;
+	endproc;
+	
+	///IsNodeInstanceQed
+	export proc bool IsNodeInstanceQed(^CAiNodeInstance p_pxNI)
+		return IsNodeInstanceQed(p_pxNI,0);
+	endproc;
+	
+	export proc bool IsNodeInstanceQed(^CAiNodeInstance p_pxNI,int p_iOutpostId)
+		if(super.IsNodeInstanceQed(p_pxNI,p_iOutpostId)) then return true; endif;
+		var int i,iC=m_apxTRGoalsExt.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiGoalTargetRealization pxGoal=m_apxTRGoalsExt[i];
+			if(pxGoal==null) then continue; endif;
+			if(!pxGoal^.IsBusy()) then continue; endif;
+			if(pxGoal^.GetOutpostId()!=p_iOutpostId) then continue; endif;
+			if(pxGoal^.GetNI()==p_pxNI) then return true; endif;
+		endfor;
+		return false;
+	endproc;
+	
+	///CheckWorkerCount
+	proc void CheckWorkerCount()
+		var CAiObjWrapList xWorkerList;
+		var CAiObjQuery xWorkerQuery;
+		xWorkerList.Clear();
+		xWorkerQuery.SetOwner(m_iPlayerID);
+		xWorkerQuery.SetClass("hu_worker");
+		xWorkerQuery.SetClass("aje_worker",true);
+		xWorkerQuery.SetClass("ninigi_worker",true);
+		xWorkerQuery.SetClass("seas_worker",true);
+		xWorkerQuery.Execute(xWorkerList);
+		var int i, iC=xWorkerList.NumEntries();
+		if(!m_bAssist)then
+			if(iC>15)then
+				for(i=15)cond(i<iC)iter(i++)do
+					if(xWorkerList[i].IsValid())then
+						m_pxSensor^.ExecuteGamePlayCommand(xWorkerList[i].GetHandle(), "Action", -1, {0.0, 0.0, 0.0}, "/Kill");	
+					endif;
+				endfor;
+			endif;
+		endif;
+	endproc;
+	
+	///SetOutpostReady
+	export proc bool GetOutpostReady()
+		return m_xMarketPlaceMgr.GetOutpostReady();
+	endproc;
+	
+	export proc ^CAiGoal GetGoalByName(string p_sGoal)
+		var int i,iC=NumGoals();
+		if(iC<1)then return null; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiGoal pxGoal=GetGoal(i);
+			if(pxGoal==null)then continue; endif;
+			if(pxGoal^.GetDbgString()==p_sGoal)then
+				return pxGoal;
+			endif;
+		endfor;
+		return null;
+	endproc;
+	
+endclass;

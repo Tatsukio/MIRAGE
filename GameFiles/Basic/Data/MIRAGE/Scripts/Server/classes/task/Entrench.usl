@@ -1,0 +1,123 @@
+class CEntrench inherit CSpecialActionTask
+
+	var CObjHndl			m_xCharacter;
+	var CGameTime			m_xStartTime;
+	var string				m_sState;
+	var string				m_sParam;
+	var CGameTimeSpan	m_xDigTime;
+	
+	export constructor()
+		SetName("Entrench");
+		m_xDigTime = 3.0; // how long does char need to dig in/out, during this the action cannot be canceled
+		SetCivil(false);
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Entr";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xCharacter.DoKArc(pxArc^);
+		m_xStartTime.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_sParam;
+		m_xDigTime.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Entr")then
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xCharacter.DoKArc(pxArc^);
+			m_xStartTime.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_sParam;
+			if(iVersion>=2)then
+				m_xDigTime.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xCharacter, string p_sParams)
+		if(!p_xCharacter.IsValid())then
+			return false;
+		endif;
+		m_sParam = p_sParams;
+		m_sState="start_digging";
+		m_xCharacter = p_xCharacter;
+		SetSpecialActionPath(p_sParams);
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xCharacter.GetObj());
+		if(pxFightingObj==null || !pxFightingObj^.CheckSpecialActionTimer(GetSpecialActionPath()))then
+			EndTask();
+			return;
+		endif;
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+		pxFightingObj^.SetTaskDescription("entrench");
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		if(pxCharacter==null)then EndTask(); return; endif;
+		var CGameTime xNow = CTimeMgr.Get().GetTime();
+		if((xNow-m_xStartTime)<m_xDigTime)then return; endif;
+		if(m_sState == "start_digging")then
+			m_xStartTime = CTimeMgr.Get().GetTime();
+			pxCharacter^.SetAnim("digandhide",1);
+			m_xDigTime = pxCharacter^.GetCurrentAnimLength();
+			pxCharacter^.SetEntrenched(2);
+			UpdateAggressionPos(m_xCharacter);
+			m_sState = "wait";
+		elseif(m_sState == "wait")then
+			if(pxCharacter^.GetEntrenched()!=1)then
+				pxCharacter^.SetEntrenched(1);
+				pxCharacter^.AddRangedBuff("is_camouflaged");
+			endif;
+		elseif(m_sState == "dig_out")then
+			m_xStartTime = CTimeMgr.Get().GetTime();
+			pxCharacter^.SetEntrenched(2);
+//			pxCharacter^.SetAnim("hideandstand",1);
+			pxCharacter^.SetAnim("getup",1);
+			m_xDigTime = pxCharacter^.GetCurrentAnimLength();
+			m_sState = "EndTask";
+		elseif(m_sState == "EndTask")then
+			pxCharacter^.SetEntrenched(0);
+			pxCharacter^.RemoveRangedBuff("is_camouflaged");
+			if(pxCharacter^.HasCamouflageEffect("disg"))then
+				pxCharacter^.SetCamouflage(true);
+			endif;
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CFightingObj pxChar=cast<CFightingObj>(m_xCharacter.GetObj());
+		if(pxChar==null)then return; endif;
+		pxChar^.SetTaskDescription("");
+	endproc;
+
+	export proc bool Break()
+		var ^CCharacter pxCharacter = cast<CCharacter>(m_xCharacter.GetObj());
+		if(pxCharacter==null)then EndTask(); return true; endif;
+		if(m_sState=="wait")then
+			pxCharacter^.TerminateAction();
+			m_sState = "dig_out";
+			StartSpecialActionTimer(pxCharacter);
+		endif;
+		return false;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+endclass;

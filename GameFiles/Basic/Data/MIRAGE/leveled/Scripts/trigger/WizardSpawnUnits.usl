@@ -1,0 +1,367 @@
+class CSpawnUnits1 inherit CWizardStepWnd
+
+	var ^CSpinCtrlNumber		m_pxPlayer;
+	var ^CEdit			m_pxPos;
+	var CSpawnUnitsCreator 		m_xCreator;
+	
+	export constructor()
+		if (!InitFromResource("Trigger/WizardSpawnUnits", "SpawnUnits_Step1")) then
+			KLog.LogError("UI.TriggerWizard", "InitFromResource failed");
+			return;
+		endif;
+		m_pxPlayer = cast<CSpinCtrlNumber>(GetControl("Player"));
+		m_pxPos = cast<CEdit>(GetControl("Position"));
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+
+	proc void StoreData()
+		var ^CPropDB.CNode pxNode = ^(m_pxParentWnd^.GetData().GetRoot());
+		if(pxNode!=null) then
+			pxNode^.SetValue("Player",m_pxPlayer^.GetValueInt());
+			pxNode^.SetValue("Position",m_pxPos^.GetText());
+		endif;
+	endproc;
+	
+	export proc void OnNext()
+		StoreData();
+	endproc;
+	
+	export proc void OnBack()
+		StoreData();
+	endproc;
+	
+	export proc bool IsLast()
+		return true;
+	endproc;
+
+	export proc ^CWizardTriggerCreater GetTriggerCreater()
+		StoreData();
+		return ^m_xCreator;
+	endproc;
+endclass;
+
+class CSpawnUnitsCreator inherit CWizardTriggerCreater
+
+	export constructor()
+	endconstructor;
+
+	export proc bool CreateTrigger(^CTriggerWizard p_pxWizard)
+		if(p_pxWizard==null) then return false; endif;
+		var ^CPropDB.CNode pxRoot = ^(p_pxWizard^.GetData().GetRoot());
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		var int iPlayer = pxRoot^.GetValueI("Player");
+		var string sPlayer = iPlayer.ToString();
+		var string sPos = pxRoot^.GetValueS("Position");
+		var array string asUnittypesBase;
+		var array string asUnittypesExtra;
+		var array int aiUnitlevelsBase;
+		var array int aiUnitlevelsExtra;
+		var int iIgnorePyramid = 1;
+		var int iRandomBase = 2;
+		var int iRandomExtra = 1;
+		var int iRandom = 3;
+		var int iMaxUnits = 15;
+		var int iTime = 8;
+		var CPropDB xUnitsDB;
+		var string sFilePath=CClientWrap.GetUrsRelPath()+"/Data/leveled/Scripts/SpawnUnits.txt";
+		if(!xUnitsDB.Load(sFilePath))then
+			CMessageBox.MsgBox("Wizard error","Can't open "+sFilePath);
+			return false;
+		endif;
+		var ^CPropDB.CNode pxUDBRoot = ^(xUnitsDB.GetRoot());
+		iIgnorePyramid = pxUDBRoot^.GetValueI("IgnorePyramid");
+		iRandomBase = pxUDBRoot^.GetValueI("RandomBase");
+		iRandomExtra = pxUDBRoot^.GetValueI("RandomExtra");
+		iRandom = iRandomBase+iRandomExtra;
+		iMaxUnits = pxUDBRoot^.GetValueI("MaxUnits");
+		iTime = pxUDBRoot^.GetValueI("Time");
+		var ^CPropDB.CNode pxBaseUnits=^(xUnitsDB["BaseUnits"]);
+		var ^CPropDB.CNode pxExtraUnits=^(xUnitsDB["ExtraUnits"]);
+		var int iCB=pxBaseUnits^.NumSubs();
+		asUnittypesBase = iCB;
+		aiUnitlevelsBase = iCB;
+		var int iCE=pxExtraUnits^.NumSubs();
+		asUnittypesExtra = iCE;
+		aiUnitlevelsExtra = iCE;
+		var string sUnitname;
+		var int i=0;
+		for()cond(i<iCB)iter(i++)do
+			sUnitname = pxBaseUnits^.Get(i).Name();
+			asUnittypesBase[i] = sUnitname;
+			aiUnitlevelsBase[i] = pxBaseUnits^.GetValueI(sUnitname);
+		endfor;
+		i=0;
+		for()cond(i<iCE)iter(i++)do
+			sUnitname = pxExtraUnits^.Get(i).Name();
+			asUnittypesExtra[i] = sUnitname;
+			aiUnitlevelsExtra[i] = pxExtraUnits^.GetValueI(sUnitname);
+		endfor;
+		var CTriggerDescMgr.CNode xRoot = pxTM^.GetHierarchyRoot();
+		var CTriggerDescMgr.CNode xMakroNode = xRoot.FindChild("SpawnUnits");
+		if(!xMakroNode.IsValid()) then
+			xMakroNode = pxTM^.CreateNewNode(xRoot, "SpawnUnits");
+		endif;
+		xMakroNode = xMakroNode.FindChild("SpawnUnits pl"+sPlayer);
+		if(xMakroNode.IsValid()) then
+			pxTM^.DeleteNodeAndSubs(xMakroNode);
+		endif;
+		xMakroNode = pxTM^.CreateNewNode(xRoot.FindChild("SpawnUnits"),"SpawnUnits pl"+sPlayer);
+		var ^CTriggerDesc pxPreTrigger=null;
+		var ^CTriggerDesc pxMainTrigger=null;
+		var ^CTriggerDesc pxReactivateTrigger=null;
+		var ^CTriggerDesc pxRandomTrigger=null;
+		var ^CTriggerDesc pxBaseTrigger=null;
+		var ^CTriggerDesc pxExtraTrigger=null;
+		var CGuid xGuid = pxTM^.CreateTrigger("SUPre_pl"+sPlayer);
+		var int iTriggerIdx = pxTM^.FindTrigger(xGuid);
+		if(iTriggerIdx>=0) then
+			pxPreTrigger = pxTM^.GetTrigger(iTriggerIdx);
+		else
+			return false;
+		endif;
+		xGuid = pxTM^.CreateTrigger("SUMain_pl"+sPlayer);
+		iTriggerIdx = pxTM^.FindTrigger(xGuid);
+		if(iTriggerIdx>=0) then
+			pxMainTrigger = pxTM^.GetTrigger(iTriggerIdx);
+		else
+			return false;
+		endif;
+		xGuid = pxTM^.CreateTrigger("SUReactivate_pl"+sPlayer);
+		iTriggerIdx = pxTM^.FindTrigger(xGuid);
+		if(iTriggerIdx>=0) then
+			pxReactivateTrigger = pxTM^.GetTrigger(iTriggerIdx);
+		else
+			return false;
+		endif;
+		xGuid = pxTM^.CreateTrigger("SURandom_pl"+sPlayer);
+		iTriggerIdx = pxTM^.FindTrigger(xGuid);
+		if(iTriggerIdx>=0) then
+			pxRandomTrigger = pxTM^.GetTrigger(iTriggerIdx);
+		else
+			return false;
+		endif;
+		xGuid = pxTM^.CreateTrigger("SUBase_pl"+sPlayer);
+		iTriggerIdx = pxTM^.FindTrigger(xGuid);
+		if(iTriggerIdx>=0) then
+			pxBaseTrigger = pxTM^.GetTrigger(iTriggerIdx);
+		else
+			return false;
+		endif;
+		xGuid = pxTM^.CreateTrigger("SUExtra_pl"+sPlayer);
+		iTriggerIdx = pxTM^.FindTrigger(xGuid);
+		if(iTriggerIdx>=0) then
+			pxExtraTrigger = pxTM^.GetTrigger(iTriggerIdx);
+		else
+			return false;
+		endif;
+		pxTM^.MoveTrigger(pxPreTrigger, xRoot, xMakroNode);
+		pxTM^.MoveTrigger(pxMainTrigger, xRoot, xMakroNode);
+		pxTM^.MoveTrigger(pxReactivateTrigger, xRoot, xMakroNode);
+		pxTM^.MoveTrigger(pxRandomTrigger, xRoot, xMakroNode);
+		pxTM^.MoveTrigger(pxBaseTrigger, xRoot, xMakroNode);
+		pxTM^.MoveTrigger(pxExtraTrigger, xRoot, xMakroNode);
+		var string sPreTGuid = pxPreTrigger^.GetGuid().ToString();
+		var string sMainTGuid = pxMainTrigger^.GetGuid().ToString();
+		var string sReactivateTGuid = pxReactivateTrigger^.GetGuid().ToString();
+		var string sRandomTGuid = pxRandomTrigger^.GetGuid().ToString();
+		var string sBaseTGuid = pxBaseTrigger^.GetGuid().ToString();
+		var string sExtraTGuid = pxExtraTrigger^.GetGuid().ToString();
+		//pxMainTrigger^.SetExpression("1 && 2");
+		pxRandomTrigger^.SetRandomAction(true);
+		pxBaseTrigger^.SetRandomAction(true);
+		pxExtraTrigger^.SetRandomAction(true);
+		var bitset dwType=pxMainTrigger^.GetEdgeType();
+		dwType &= ~CTriggerDesc.TF_InitialyEnabled;
+		pxMainTrigger^.SetEdgeType(dwType);
+		dwType=pxReactivateTrigger^.GetEdgeType();
+		dwType &= ~CTriggerDesc.TF_InitialyEnabled;
+		pxReactivateTrigger^.SetEdgeType(dwType);
+		dwType=pxRandomTrigger^.GetEdgeType();
+		dwType &= ~CTriggerDesc.TF_InitialyEnabled;
+		pxRandomTrigger^.SetEdgeType(dwType);
+		dwType=pxBaseTrigger^.GetEdgeType();
+		dwType &= ~CTriggerDesc.TF_InitialyEnabled;
+		pxBaseTrigger^.SetEdgeType(dwType);
+		dwType=pxExtraTrigger^.GetEdgeType();
+		dwType &= ~CTriggerDesc.TF_InitialyEnabled;
+		pxExtraTrigger^.SetEdgeType(dwType);
+		var CFourCC xT = "REGN";
+		var int iCondIdx = pxPreTrigger^.AddCondition(xT);
+		var ^CTriggerDesc.CCondition pxCond = pxPreTrigger^.GetCondition(iCondIdx);
+		pxCond^.SetName("units pl"+sPlayer+" < "+iMaxUnits.ToString());
+		if(pxCond!=null)then
+			var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+			if (pxAttr!=null) then
+				pxAttr^.SetValue("rgn_guid","UniqueWorldRegion");
+				pxAttr^.SetValue("obj_type","CHTR|ANML|VHCL|");
+				pxAttr^.SetValue("obj_owner",iPlayer);
+				pxAttr^.SetValue("obj_guid","NA");
+				pxAttr^.SetValue("obj_name","NA");
+				pxAttr^.SetValue("obj_class","NA");
+				pxAttr^.SetValue("exclude_class","NA");
+				pxAttr^.SetValue("char_tribe","All");
+				pxAttr^.SetValue("char_caste","All");
+				pxAttr^.SetValue("char_level",-1);
+				pxAttr^.SetValue("obj_count","<"+iMaxUnits.ToString());
+			endif;
+		endif;
+		xT = "TIME";
+		iCondIdx = pxReactivateTrigger^.AddCondition(xT);
+		pxCond = pxReactivateTrigger^.GetCondition(iCondIdx);
+		pxCond^.SetName((2).ToString()+" sec");
+		if(pxCond!=null) then
+			var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+			if (pxAttr!=null) then
+				pxAttr^.SetValue("duration",2);
+				pxAttr^.SetValue("repeat",0);
+				pxAttr^.SetValue("show",0);
+				pxAttr^.SetValue("countup",0);
+				pxAttr^.SetValue("reset",1);
+			endif;
+		endif;
+		iCondIdx = pxMainTrigger^.AddCondition(xT);
+		pxCond = pxMainTrigger^.GetCondition(iCondIdx);
+		pxCond^.SetName(iTime.ToString()+" sec");
+		if(pxCond!=null) then
+			var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+			if (pxAttr!=null) then
+				pxAttr^.SetValue("duration",iTime);
+				pxAttr^.SetValue("repeat",0);
+				pxAttr^.SetValue("show",0);
+				pxAttr^.SetValue("countup",0);
+				pxAttr^.SetValue("reset",1);
+			endif;
+		endif;
+		xT = "TRUE";
+		iCondIdx = pxRandomTrigger^.AddCondition(xT);
+		pxCond = pxRandomTrigger^.GetCondition(iCondIdx);
+		pxCond^.SetName("true");
+		iCondIdx = pxBaseTrigger^.AddCondition(xT);
+		pxCond = pxBaseTrigger^.GetCondition(iCondIdx);
+		pxCond^.SetName("true");
+		iCondIdx = pxExtraTrigger^.AddCondition(xT);
+		pxCond = pxExtraTrigger^.GetCondition(iCondIdx);
+		pxCond^.SetName("true");
+		xT="TRIG";
+		var int iActIdx = pxPreTrigger^.AddAction(xT);
+		var ^CTriggerDesc.CAction pxAct = pxPreTrigger^.GetAction(iActIdx);
+		pxAct^.SetName("activate Main");
+		if(pxAct!=null) then
+			var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+			if (pxAttr!=null) then
+				pxAttr^.SetValue("guid",sMainTGuid);
+				pxAttr^.SetValue("state",1);
+				pxAttr^.SetValue("difficulty",1);
+			endif;
+		endif;
+		iActIdx = pxMainTrigger^.AddAction(xT);
+		pxAct = pxMainTrigger^.GetAction(iActIdx);
+		pxAct^.SetName("activate Randomizer");
+		if(pxAct!=null) then
+			var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+			if (pxAttr!=null) then
+				pxAttr^.SetValue("guid",sRandomTGuid);
+				pxAttr^.SetValue("state",1);
+				pxAttr^.SetValue("difficulty",1);
+			endif;
+		endif;
+		iActIdx = pxMainTrigger^.AddAction(xT);
+		pxAct = pxMainTrigger^.GetAction(iActIdx);
+		pxAct^.SetName("activate Reactivator");
+		if(pxAct!=null) then
+			var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+			if (pxAttr!=null) then
+				pxAttr^.SetValue("guid",sReactivateTGuid);
+				pxAttr^.SetValue("state",1);
+				pxAttr^.SetValue("difficulty",1);
+			endif;
+		endif;
+		iActIdx = pxReactivateTrigger^.AddAction(xT);
+		pxAct = pxReactivateTrigger^.GetAction(iActIdx);
+		pxAct^.SetName("reactivate Pre");
+		if(pxAct!=null) then
+			var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+			if (pxAttr!=null) then
+				pxAttr^.SetValue("guid",sPreTGuid);
+				pxAttr^.SetValue("state",1);
+				pxAttr^.SetValue("difficulty",1);
+			endif;
+		endif;
+		for(i=0)cond(i<iRandomBase)iter(i++)do
+			iActIdx = pxRandomTrigger^.AddAction(xT);
+			pxAct = pxRandomTrigger^.GetAction(iActIdx);
+			pxAct^.SetName("use Base-Unit");
+			if(pxAct!=null) then
+				var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("guid",sBaseTGuid);
+					pxAttr^.SetValue("state",1);
+					pxAttr^.SetValue("difficulty",1);
+				endif;
+			endif;
+		endfor;
+		for(i=0)cond(i<iRandomExtra)iter(i++)do
+			iActIdx = pxRandomTrigger^.AddAction(xT);
+			pxAct = pxRandomTrigger^.GetAction(iActIdx);
+			pxAct^.SetName("use Extra-Unit");
+			if(pxAct!=null) then
+				var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("guid",sExtraTGuid);
+					pxAttr^.SetValue("state",1);
+					pxAttr^.SetValue("difficulty",1);
+				endif;
+			endif;
+		endfor;
+		xT = "COBJ";
+		var int iLvl;
+		var string sObj;
+		var int iC = iCB+iCE;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(i<iCB)then
+				iActIdx = pxBaseTrigger^.AddAction(xT);
+				pxAct = pxBaseTrigger^.GetAction(iActIdx);
+				iLvl = aiUnitlevelsBase[i]-1;
+				sObj = asUnittypesBase[i];
+			else
+				iActIdx = pxExtraTrigger^.AddAction(xT);
+				pxAct = pxExtraTrigger^.GetAction(iActIdx);
+				iLvl = aiUnitlevelsExtra[i-iCB]-1;
+				sObj = asUnittypesExtra[i-iCB];
+			endif;
+			pxAct^.SetName("spawn "+sObj);
+			if(pxAct!=null) then
+				var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("renderable",1);
+					pxAttr^.SetValue("renderable_type","CreationDummy");
+					pxAttr^.SetValue("obj_name",sObj);
+					pxAttr^.SetValue("obj_owner",iPlayer);
+					pxAttr^.SetValue("obj_pos",sPos);
+					pxAttr^.SetValue("obj_rot","0.0, 0.0, 0.0");
+					pxAttr^.SetValue("obj_level",iLvl);
+					pxAttr^.SetValue("ignore_pyramid",iIgnorePyramid);
+					pxAttr^.SetValue("trgt_rgn_guid","UniqueWorldRegion");
+					pxAttr^.SetValue("trgt_obj_type","All|");
+					pxAttr^.SetValue("trgt_obj_owner",-2);
+					pxAttr^.SetValue("trgt_obj_guid","NA");
+					pxAttr^.SetValue("trgt_obj_name","NA");
+					pxAttr^.SetValue("trgt_obj_class","NA");
+					pxAttr^.SetValue("trgt_exclude_class","NA");
+					pxAttr^.SetValue("trgt_char_tribe","All");
+					pxAttr^.SetValue("trgt_char_caste","All");
+					pxAttr^.SetValue("trgt_char_level",-1);
+					pxAttr^.SetValue("trgt_from_condition",-1);
+					pxAttr^.SetValue("pos_from_obj",0);
+					pxAttr^.SetValue("buildup","");
+					pxAttr^.SetValue("difficulty",1);
+				endif;
+			endif;
+		endfor;
+		return true;
+	endproc;
+
+
+endclass;

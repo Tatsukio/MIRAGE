@@ -1,0 +1,331 @@
+class CPointBuyMenu inherit CStaticCtrl
+
+	var ^CDesktop								m_pxDesktop;
+	export var CPlayerSlotID		m_xPlayerSlotID;
+	export var ^CShoppingList		m_pxShoppingList;
+	var ^CGameInfoWindow				m_pxGameInfoWindow;
+	var ^CPyramidDialog					m_pxPyramidDialog;
+	var string									m_sCurTribe;
+	var int											m_iCreditsTotal;
+	var int											m_iCredits;
+	var bool										m_bIncludeBuildings;
+	var ^CPropDB.CNode					m_pxPresetNode;
+	var ^CPropDB.CNode					m_pxResourcePreset;
+	var ^CPresetWindow					m_pxPresetWindow;
+	
+	var int m_iHP;
+	
+	export constructor(^CGameInfoWindow p_pxOwner,CPlayerSlotID p_xPlayerSlotID)
+		if(!InitFromResource("UI/PointBuy/PointBuyMenu","PointBuyMenu"))then
+			return;
+		endif;
+		m_pxDesktop=CClientWrap.GetDesktop();
+		m_pxGameInfoWindow=p_pxOwner;
+		m_xPlayerSlotID=p_xPlayerSlotID;
+		var ^CWindow pxBG = GetControl("LeftBackground");
+		m_pxPyramidDialog=cast<CPyramidDialog>(GetControl("Pyramid"));
+		m_pxPyramidDialog^.Init(this);
+		var real fPercentageX=4.0f;
+		var real fPercentageY=3.0f;
+		SetPos(20 * CGameInst.ms_iUIScaleFactor,25 * CGameInst.ms_iUIScaleFactor);
+		SetSize(989 * CGameInst.ms_iUIScaleFactor,720 * CGameInst.ms_iUIScaleFactor);
+		m_pxShoppingList=cast<CShoppingList>(GetControl("ShoppingList"));
+		m_pxShoppingList^.Init(this);
+	endconstructor;
+
+	destructor()
+	enddestructor;
+
+	export proc void SetPresetWindow(^CPresetWindow p_pxPresetWindow)
+		m_pxPresetWindow=p_pxPresetWindow;
+	endproc;
+
+	export proc ref CPyramidDialog GetPyramidDialog()
+		return (m_pxPyramidDialog^);
+	endproc;
+
+	export proc ref CShoppingList GetShoppingList()
+		return (m_pxShoppingList^);
+	endproc;
+	
+	export proc ^CGameInfoWindow GetGameInfoWindow()
+		return m_pxGameInfoWindow;
+	endproc;
+
+	export proc void SetCurTribe(string p_sTribe)
+		m_sCurTribe=p_sTribe;
+		//CPyramidRestrictionsMgr.Get().SetAjeBlockedSlot(m_sCurTribe=="Aje");	
+	endproc;
+
+	export proc string GetCurTribe()
+		return m_sCurTribe;
+	endproc;
+
+	export proc int GetCredits()
+		return m_iCredits;
+	endproc;
+
+	export proc int GetCreditsTotal()
+		return m_iCreditsTotal;
+	endproc;
+
+	export proc void Init(int p_iCredits,^CPropDB.CNode p_pxPresetNode,^CPropDB.CNode p_pxResourcePreset,bool p_bIncludeBuildings)		
+		m_iCreditsTotal=p_iCredits;
+		m_pxPresetNode=p_pxPresetNode;
+		m_pxResourcePreset=p_pxResourcePreset;
+		m_bIncludeBuildings=p_bIncludeBuildings;
+		LoadDefaults();
+		m_pxPyramidDialog^.SetDisabled(p_iCredits==-1);
+	endproc;
+	
+	export proc void LoadDefaults()
+		m_pxPyramidDialog^.LoadPreset(m_iCreditsTotal,GetCurTribe(),m_pxPresetNode,m_pxResourcePreset,m_pxGameInfoWindow^.GetType()==CGameInfoWindow.GIWT_SINGLEPLAYER,m_bIncludeBuildings);
+		InvalidateContent();
+	endproc;
+	
+	export proc void Clear()
+		m_pxPyramidDialog^.Clear();
+		InvalidateContent();
+	endproc;
+
+	export proc void OnBuyUnit(^CShoppingTab.CShoppingInfo p_pxShoppingInfo)
+		var int iLevel;
+		for(iLevel=0)cond(iLevel<5)iter(iLevel++)do
+			var int iCost = p_pxShoppingInfo^.m_aiCostAtLevel[iLevel];
+			if (iCost!=-1) then
+				if (!CheckRestrictions(p_pxShoppingInfo^.m_sClassName,iLevel)) then continue; endif;
+				var int iSlotID = m_pxPyramidDialog^.FindFreeSlot(iLevel);
+				if (iSlotID!=-1) then
+					OnBuyUnit(p_pxShoppingInfo,iLevel);
+					return;
+				endif;
+			endif;
+		endfor;
+	endproc;
+
+	export proc void OnBuyUnit(^CShoppingTab.CShoppingInfo p_pxShoppingInfo, int p_iLevel)
+		var int iValue = p_pxShoppingInfo^.m_aiCostAtLevel[p_iLevel];
+		var int iSlotID = m_pxPyramidDialog^.FindFreeSlot(p_iLevel);
+		if (iSlotID==-1) then return; endif;
+		begin CheckCost;
+			var int iUnitCost=CPointBuyMgr.GetCostForUnit(p_pxShoppingInfo^.m_sClassName, iSlotID,m_sCurTribe);
+			if((m_iCredits-iUnitCost)<0)then return; endif;
+		end CheckCost;
+		//m_pxPointBuyMgr^.AddUnit(p_pxShoppingInfo^.m_sClassName, iSlotID);
+		m_pxPyramidDialog^.CreateCard(p_iLevel, p_pxShoppingInfo^.m_sClassName);
+		InvalidateContent();
+	endproc;
+
+	export proc void OnSelectShoppingUnit(^CShoppingTab.CShoppingInfo p_pxShoppingInfo)
+		m_pxPyramidDialog^.SetCurShoppingInfo(p_pxShoppingInfo);
+	endproc;
+
+	export proc bool CheckRestrictions(string p_sClass, int p_iLevel)
+		// Check for multiple copies of the same hero
+		if(m_pxShoppingList^.IsHero(p_sClass))then
+			if(CGameWrap.GetGame().GetAttribInt("HeroPool")==1)then
+				return false;
+			elseif(m_pxPyramidDialog^.FindCard(p_sClass)!=-1)then
+				return false;
+			endif;
+			// Henry: extra coding for babbit and mobile suit counterpart...
+			if(p_sClass=="babbage_s0"&&m_pxPyramidDialog^.FindCard("special_mobile_suit")!=-1)then
+				return false;
+			elseif(p_sClass=="special_mobile_suit"&&(m_pxPyramidDialog^.FindCard("babbage_s0")!=-1||m_sCurTribe!="SEAS"))then
+				return false;
+			endif;
+		endif;
+		// Henry: disable flying units if needed
+		if(CGameWrap.GetGame().GetAttribInt("FlyingEnabled")==0)then
+			if(p_sClass=="aje_pteranodon"||p_sClass=="hu_pteranodon"||p_sClass=="ninigi_cargolifter"||p_sClass=="ninigi_dirigible"||p_sClass=="seas_helicopter_sec")then return false; endif;
+		endif;
+		// Henry: disable titans if needed
+		if(CGameWrap.GetGame().GetAttribInt("RemoveTitans")==1)then
+			if(p_sClass=="aje_atroxosaurus"||p_sClass=="hu_triceratops"||p_sClass=="hu_ballista_titan"||p_sClass=="ninigi_seismosaurus"||p_sClass=="seas_rex"||p_sClass=="hu_colossi"||p_sClass=="ninigi_kong"||p_sClass=="aje_catapult_rex"||p_sClass=="seas_scorpion")then return false; endif;
+		endif;
+		// Henry: disable traders if needed
+		if(CGameWrap.GetGame().GetAttribInt("RemoveTrading")==1)then
+			if(p_sClass=="aje_trade_dino"||p_sClass=="hu_cart"||p_sClass=="ninigi_cart"||p_sClass=="seas_trade_dino")then return false; endif;
+		endif;
+		// Henry: disable epoch 6 units if needed
+		if(CGameWrap.GetGame().GetAttribInt("MaxEpoch")<6)then
+			if(p_sClass=="aje_catapult_rex"||p_sClass=="hu_colossi"||p_sClass=="ninigi_kong"||p_sClass=="seas_scorpion"||p_sClass=="hu_ballista_titan")then return false; endif;
+		endif;
+		return true;
+	endproc;
+
+	export proc void GeneratePointBuyResult(ref CPointBuyResult po_rxPointBuyResult)
+		m_pxPyramidDialog^.GeneratePointBuyResult(po_rxPointBuyResult);
+		//USLEX void AddResource(const KStr& p_ksrType, int p_iValue)
+	endproc;
+	
+	export proc bool AcceptDropWindow(^CDragWindow p_pxDragWnd , point p_xMousePos)
+		if(p_pxDragWnd^.GetIdentifier()!="URSCARD")then return false; endif;
+		var ^CPyramidCard pxCard = cast<CPyramidCard>(p_pxDragWnd^.GetSource());
+		if(pxCard==null)then 
+			return false;
+		endif;
+		if(pxCard^.GetFixedLevel()!=-1 || pxCard^.GetDisabled())then
+			return false;
+		endif;
+		return true;
+	endproc;
+
+	proc void DropWindow(^CDragWindow p_pxDragWnd, point p_xMousePos)
+		if(p_pxDragWnd^.GetIdentifier()!="URSCARD")then return; endif;
+		var ^CPyramidCard pxCard = cast<CPyramidCard>(p_pxDragWnd^.GetSource());
+		if(pxCard==null)then return; endif;
+		m_pxPyramidDialog^.RemoveCard(pxCard);
+		InvalidateContent();
+		return;
+	endproc;
+	
+	export proc void SwapSlots(int p_iOldSlotID,int p_iNewSlotID)
+		InvalidateContent();
+	endproc;
+	
+	proc void OnUpdateContent()
+		//recalc credits
+		m_iCredits=m_iCreditsTotal;
+		m_iCredits-=m_pxPyramidDialog^.CalcCardCosts(m_sCurTribe);
+		m_iCredits-=m_pxPyramidDialog^.CalcResourceCosts(m_sCurTribe);
+		//todo ressource
+		m_pxPyramidDialog^.InvalidateContent();
+		m_pxGameInfoWindow^.InvalidateContent();
+	endproc;
+	
+	export proc void OnUpdatePyramid()
+		LoadDefaults();
+	endproc;
+	
+	export proc int GetCostForUnit(string p_sClass, int p_iSlotID)
+		return CPointBuyMgr.GetCostForUnit(p_sClass,p_iSlotID,m_sCurTribe);
+	endproc;
+	
+	export proc void OnUpdateEpochs()
+		if(m_pxPyramidDialog!=null)then
+			m_pxPyramidDialog^.UpdateEpochs();
+		endif;
+	endproc;
+	
+endclass;
+
+class CIDButton inherit CButton
+	
+	export var int m_iID;
+	export var procref<bool,int> m_xOnClickID;
+	export var procref<bool,int> m_xOnMouseEnterID;
+	export var procref<bool,int> m_xOnMouseLeaveID;
+	
+	export proc bool OnClick()
+		if (!m_xOnClickID.IsNull()) then
+			m_xOnClickID.Call(m_iID);
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool OnMouseEnter()
+		if (!m_xOnMouseEnterID.IsNull()) then
+			m_xOnMouseEnterID.Call(m_iID);
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool OnMouseLeave()
+		if (!m_xOnMouseLeaveID.IsNull()) then
+			m_xOnMouseLeaveID.Call(m_iID);
+		endif;
+		return true;
+	endproc;
+	
+endclass;
+
+
+//////////////////////////////////////////////////////////////////////////////
+class CPointBuyMgr
+	/*
+	static var ^CPointBuyMgr ms_pxInstance;
+
+	export static proc ref CPointBuyMgr Get()
+		if(ms_pxInstance==null)then
+			ms_pxInstance=new CPointBuyMgr;
+		endif;
+		return (ms_pxInstance^);
+	endproc;
+
+	export static proc void ShutStatic()
+		delete ms_pxInstance;
+	endproc;
+	*/
+
+	//Returns cost of unit in PB points
+	export static proc int GetCostForUnit(string p_sClass, int p_iSlotID, string p_sTribe)
+		//if(m_pxPointBuyMenu==null)then return(0);endif;
+		//var int iLevel=m_pxPointBuyMenu^.GetTribeView()^.SlotIndex2Level(p_iSlotID);
+		var int iLevel=0;
+		if(p_iSlotID==51)then
+			iLevel=4;
+		elseif(p_iSlotID>=48 && p_iSlotID<=50)then
+			iLevel=3;
+		elseif(p_iSlotID>=40 && p_iSlotID<=47)then
+			iLevel=2;
+		elseif(p_iSlotID>=25 && p_iSlotID<=39)then
+			iLevel=1;
+		elseif(p_iSlotID>=0 && p_iSlotID<=24)then
+			iLevel=0;
+		endif;
+		var ^CPropDB.CNode pxUnits=CPointBuyList.Get().GetList().GetRoot().Get("Units")^.Get(p_sTribe);
+		if(pxUnits==null)then
+			pxUnits=CPointBuyList.Get().GetList().GetRoot().Get("Units")^.Get("Heroes");
+			if(pxUnits==null)then
+				return(0);
+			endif;
+		endif;
+		var int i,iC=pxUnits^.NumSubs();
+		var ^CPropDB.CNode pxUnit;
+		var int iCost;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPropDB.CNode pxUnitType=^((pxUnits^)[i]);
+			var int iUnitIndex=pxUnitType^.Find(p_sClass);
+			if(iUnitIndex==(-1))then
+				continue;
+			else
+				pxUnit=^((pxUnitType^)[iUnitIndex]);
+				if(pxUnit==null)then
+					return(0);
+				endif;
+				iCost=pxUnit^.GetValueI("Level"+(iLevel+1).ToString());
+				return(iCost);
+			endif;
+		endfor;
+		//If not found within tribe take a look at the heroes
+		var ^CPropDB.CNode pxHeroes=CPointBuyList.Get().GetList().GetRoot().Get("Units")^.Get("Heroes");
+		if(pxHeroes==null)then return(0);endif;
+		var int iHeroIndex=pxHeroes^.Find(p_sClass);
+		if(iHeroIndex==(-1))then return(0);endif;
+		pxUnit=^((pxHeroes^)[iHeroIndex]);
+		if(pxUnit==null)then return(0);endif;
+		iCost=pxUnit^.GetValueI("Level"+(iLevel+1).ToString());
+		return(iCost);
+	endproc;
+	
+	// do not use this function to get the price for one unit an do your own calculations (rounding differences will occur)
+	export static proc int GetCostForResource(string p_sResource, int p_iAmount, string p_sTribe)
+		var ^CPropDB.CNode pxResList=CPointBuyList.Get().GetList().GetRoot().Get("Resources");
+		var ^CPropDB.CNode pxResources=pxResList^.Get(p_sTribe);
+		if(pxResources==null)then return(0); endif;
+		var real fCost=pxResources^.GetValueR(p_sResource,0.0f);
+		if(fCost==0.0f)then return(0);endif;
+		return Math.Ceil(fCost*p_iAmount.ToReal()).ToInt();
+	endproc;
+	
+	export static proc int GetNumResourceUnitsForPoints(string p_sResource, int p_iPoints, string p_sTribe)
+		var ^CPropDB.CNode pxResList=CPointBuyList.Get().GetList().GetRoot().Get("Resources");
+		var ^CPropDB.CNode pxResources=pxResList^.Get(p_sTribe);
+		if(pxResources==null)then return(0); endif;
+		var real fCost=pxResources^.GetValueR(p_sResource,0.0f);
+		if(fCost==0.0f)then return(0);endif;
+		return Math.Floor(p_iPoints.ToReal()/fCost).ToInt();
+	endproc;
+	
+endclass;

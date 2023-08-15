@@ -1,0 +1,266 @@
+class CTrade inherit CTask
+
+	var CObjHndl		m_xCar;
+	var CObjHndl		m_xTarget;
+	var CObjHndl		m_xHome;
+	var real				m_fDistance;
+	var vec3				m_vTarget;
+	var vec3				m_vBuilding;
+	var string			m_sState;
+
+	export constructor()
+		SetName("Trade");
+		m_vBuilding={0.0,0.0,0.0};
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Trad";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xCar.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		m_xHome.DoKArc(pxArc^);
+		(pxArc^) << m_fDistance;
+		(pxArc^) << m_vTarget;
+		(pxArc^) << m_sState;
+		(pxArc^) << m_vBuilding;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Trad")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xCar.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			m_xHome.DoKArc(pxArc^);
+			(pxArc^) << m_fDistance;
+			(pxArc^) << m_vTarget;
+			(pxArc^) << m_sState;
+			if(pxArc^.GetVersion()>=2)then
+				(pxArc^) << m_vBuilding;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;	
+
+	export proc bool Init(CObjHndl p_xCar,CObjHndl p_xTarget)
+		m_sState="goto_target";
+		if(CMirageSrvMgr.Get().RemoveTrading())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		if(!p_xCar.IsValid() || !p_xTarget.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		if(p_xTarget.GetObj()^.GetAttribs()^.GetValueInt("TradeBuilding")==0)then
+			m_sState="EndTask";
+			return false;
+		endif;
+		var ^CGameObj pxCar=p_xCar.GetObj();
+		if(pxCar!=null)then
+			var ^CAttribs pxAttr=pxCar^.GetAttribs();
+			if(pxAttr!=null)then
+				pxAttr^.SetValue("CurTask","Trade");
+			endif;
+		endif;
+		m_xCar = p_xCar;
+		m_xTarget = p_xTarget;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+		if(CMirageSrvMgr.Get().RemoveTrading())then
+			m_sState="EndTask";
+			EndTask();
+			return;
+		endif;
+		var ^CTradeTransporter pxTr = cast<CTradeTransporter>(m_xCar.GetObj());
+		if(pxTr!=null)then
+			var ^CAttribs pxAttr=pxTr^.GetAttribs();
+			if(pxAttr!=null)then
+				pxAttr^.SetValue("CurTask","Trade");
+			endif;
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CTradeTransporter pxCar = cast<CTradeTransporter>(m_xCar.GetObj());
+		var ^CFightingObj pxTarget = cast<CFightingObj>(m_xTarget.GetObj());
+		if(pxCar==null || pxTarget==null)then EndTask(); return; endif;
+		if(m_vBuilding=={0.0,0.0,0.0})then
+			m_vBuilding=pxTarget^.GetPos();
+		endif;
+		if(!pxCar^.CanTrade())then EndTask(); return; endif;
+		if(m_xTarget==pxCar^.GetHome())then EndTask(); return; endif;
+		if(!pxCar^.AppropriateTarget(pxTarget^.GetClassName()))then EndTask(); return; endif;
+		if(m_sState == "goto_target")then
+			var CFourCC xL="Ex_1";
+			if(!pxTarget^.GetLinkPosWorld(xL, m_vTarget))then
+				m_vTarget = GetAdoptedDest(pxCar^.GetPos(),pxTarget^.GetPos(),20.0f);
+			endif;
+			if(!CheckDistance())then
+				pxCar^.WalkAction(m_vTarget,pxCar^.GetDefaultSpeed(),true);
+			endif;
+			m_sState = "calculate_win";
+		elseif(m_sState == "calculate_win")then
+			if(!CheckDistance())then
+				m_sState = "goto_target";
+				return;
+			endif;
+			m_xHome = CObjHndl.Invalid();
+			var CObjList xList;
+			m_xHome = pxCar^.GetHome();
+			var ^CGameObj pxHome = m_xHome.GetObj();
+			if(pxHome!=null)then
+				var CFourCC xL="Ex_1";
+				var vec3 vHome,vTarget;
+				if(!pxTarget^.GetLinkPosWorld(xL, vTarget))then
+					vTarget=pxTarget^.GetPos();
+				endif;
+				if(!pxHome^.GetLinkPosWorld(xL, vHome))then
+					vHome=pxHome^.GetPos();
+				endif;
+				m_fDistance = ( (vTarget-vHome).Abs2());
+			else
+				CFeedback.Print(pxCar^.GetOwner(), CFeedback.ECONOMY,"_NT_TradeNoMarketFound\t"+pxCar^.GetName(), pxCar^.GetPos());
+				EndTask();
+				return;
+			endif;
+			m_sState = "trade";
+		elseif(m_sState == "trade")then
+			if(!m_xHome.IsValid())then
+				m_sState = "calculate_win";
+				return;
+			endif;
+			if(!CheckDistance())then
+				m_sState = "goto_home";
+				return;
+			endif;
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			if(pxLevel==null)then EndTask();return; endif;
+			var ^CPlayer pxPlayer = pxLevel^.GetPlayer(pxTarget^.GetOwner());
+			if(pxPlayer==null)then EndTask(); return; endif;
+			var ^CBasePlayer pxBasePlayer = cast<CBasePlayer>(pxPlayer);
+			if(pxBasePlayer==null)then EndTask(); return; endif;
+			var string sTribe = pxBasePlayer^.m_sTribe;
+			var CTechTree xTechTree = pxCar^.GetTechTree();
+			var ^CTechTree.CNode pxNode = xTechTree.FindNode("Resources/"+sTribe);
+			//BadGun Tuning Marktkarren
+			//	bei B meter gibt es A rohstoffe, bei B*2 erfolgt A*C
+			//							 A				C						 B
+			var real fWin = Math.Max(1.0,5.0 * Math.Pow(2.5,Math.Log(m_fDistance/50.0)/Math.Log(2.0)));
+			//Henry: Boni planned for Larry T5 effect...
+			pxCar^.AddTraderBoni(fWin);
+			// Henry: add treasure bonus...
+			pxCar^.AddDrawbarBoni(fWin);
+			var int iFood=0,iWood=0,iStone=0;
+			var int i, iC = pxNode^.NumSubs();
+			if(m_fDistance>50.0f||(pxCar^.AiOwner()&&pxTarget^.AiOwner()))then
+				for(i=0)cond(i<iC)iter(i++)do
+					var string sRes = pxNode^.GetSubValue(i);
+					if(sRes=="iron")then continue; endif;
+					var real fResPrice = CFlyingTraderMgr.GetResourcePrice(sRes);
+					if(fResPrice==0.0f)then fResPrice=1.0f; endif;
+					var real fTmpWin = fWin/fResPrice;
+					pxBasePlayer^.AddResource(sRes,fTmpWin);
+					if(sRes=="food")then
+						iFood=fTmpWin.ToInt();
+					elseif(sRes=="wood")then
+						iWood=fTmpWin.ToInt();
+					elseif(sRes=="stone")then
+						iStone=fTmpWin.ToInt();
+					endif;
+				endfor;
+			endif;
+			pxCar^.UpdateLastResis(iFood,iWood,iStone);
+			var ^CFightingObj pxDelivery = cast<CFightingObj>(m_xTarget.GetObj());
+			if(pxDelivery!=null)then
+				pxDelivery^.AcceptDeliveries();
+			endif;
+			if(m_xHome.IsValid() && m_xTarget.IsValid())then
+				pxCar^.SetHome(m_xTarget); 
+				m_xTarget=m_xHome;
+				m_xHome=pxCar^.GetHome();
+				var ^CGameObj pxNewTarget = m_xTarget.GetObj();
+				if(pxNewTarget==null)then
+					EndTask();
+					return;
+				else
+					m_vBuilding=pxNewTarget^.GetPos();
+				endif;
+			endif;
+			m_sState = "goto_target";
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc bool CheckDistance()
+		var ^CGameObj pxCar = m_xCar.GetObj();
+		var ^CGameObj pxTarget = m_xTarget.GetObj();
+		if(pxCar==null||pxTarget==null)then;
+			return false;
+		endif;
+		var vec3 vBuilding=pxTarget^.GetPos();
+		if(vBuilding!=m_vBuilding)then
+			m_vBuilding=vBuilding;
+			var vec3 vOldTarget=m_vTarget;
+			var CFourCC xL="Ex_1";
+			if(!pxTarget^.GetLinkPosWorld(xL, m_vTarget))then
+				m_vTarget=GetAdoptedDest(pxCar^.GetPos(),pxTarget^.GetPos(),20.0f);
+			endif;
+			if((m_vTarget-vOldTarget).Abs2S()>128.0)then
+				return false;
+			else
+				m_vTarget=vOldTarget;
+			endif;
+//			return false;
+		endif;
+		//Henry: HACK for muraeno tradeunits, because they have size problems...
+		if(pxCar^.GetClassName().Find("_muraenosaurus")!=-1)then
+			return( m_vTarget-pxCar^.GetPos()).Abs2S()<512.0;
+		endif;
+		return (m_vTarget-pxCar^.GetPos()).Abs2S()<200.0;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc bool Break()
+		if(m_xCar.IsValid())then
+			m_xCar.GetObj()^.TerminateAction();
+			var ^CGameObj pxCar=m_xCar.GetObj();
+			if(pxCar!=null)then
+				var ^CAttribs pxAttr=pxCar^.GetAttribs();
+				if(pxAttr!=null)then
+					pxAttr^.SetValue("CurTask","Idle");
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+	
+	export proc void EndTask()
+		UpdateAggressionPos(m_xCar);
+		var ^CGameObj pxCar=m_xCar.GetObj();
+		if(pxCar!=null)then
+			var ^CAttribs pxAttr=pxCar^.GetAttribs();
+			if(pxAttr!=null)then
+				pxAttr^.SetValue("CurTask","Idle");
+			endif;
+		endif;
+		super.EndTask();
+	endproc;
+
+endclass;

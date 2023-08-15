@@ -1,0 +1,426 @@
+class CBuildUp inherit CTargetTask
+
+	var CObjHndl		m_xWorker;			///< character raising
+	var CObjHndl		m_xBuilding;			///< this building
+	var CGameTime		m_xLastTick;
+	var CFourCC			m_xLink;
+	var vec3				m_vCurTarget;
+	var string			m_sState;
+	var real				m_fProgressStep;
+	var real				m_fDuration;
+	var bool				m_bFirstHit;
+	var bool				m_bLastHit;
+	var vec3				m_vGetInDir;
+	var bool				m_bNoLink;
+	var bool				m_bHasLink;
+	var int					m_iRetry;
+	var vec3				m_vOutPos;
+	var vec3				m_vSourcePos;
+	var vec3				m_vWallPos;
+	var real				m_fZRotation;
+	var bool				m_bWall;			///< we are building a wall, so check neighbour walls if ready
+
+	var CObjList		m_xIgnoreBuildUps;
+
+	var CObjList		m_xWallsDone;
+	var CFourCC			m_xFCCRightHandLink;
+	var string			m_sWeapon;
+	var bool			m_bDoLoadFix;
+
+	export constructor()
+		SetName("BuildUp");
+		m_bHasLink = false;
+		m_iRetry = 0;
+		m_bLastHit=false;
+		m_xFCCRightHandLink="HndR";
+		m_bDoLoadFix=false;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="BuUp";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xWorker.DoKArc(pxArc^);
+		m_xBuilding.DoKArc(pxArc^);
+		m_xLastTick.DoKArc(pxArc^);
+		(pxArc^) << m_xLink;
+		(pxArc^) << m_vCurTarget;
+		(pxArc^) << m_sState;
+		(pxArc^) << m_fProgressStep;
+		(pxArc^) << m_fDuration;
+		(pxArc^) << m_bFirstHit;
+		(pxArc^) << m_bLastHit;
+		(pxArc^) << m_vGetInDir;
+		(pxArc^) << m_bNoLink;
+		(pxArc^) << m_bHasLink;
+		(pxArc^) << m_iRetry;
+		(pxArc^) << m_vOutPos;
+		(pxArc^) << m_vSourcePos;
+		(pxArc^) << m_vWallPos;
+		(pxArc^) << m_fZRotation;
+		(pxArc^) << m_bWall;
+		m_xWallsDone.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="BuUp")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xWorker.DoKArc(pxArc^);
+			m_xBuilding.DoKArc(pxArc^);
+			m_xLastTick.DoKArc(pxArc^);
+			(pxArc^) << m_xLink;
+			(pxArc^) << m_vCurTarget;
+			(pxArc^) << m_sState;
+			(pxArc^) << m_fProgressStep;
+			(pxArc^) << m_fDuration;
+			(pxArc^) << m_bFirstHit;
+			(pxArc^) << m_bLastHit;
+			(pxArc^) << m_vGetInDir;
+			(pxArc^) << m_bNoLink;
+			(pxArc^) << m_bHasLink;
+			(pxArc^) << m_iRetry;
+			(pxArc^) << m_vOutPos;
+			(pxArc^) << m_vSourcePos;
+			(pxArc^) << m_vWallPos;
+			(pxArc^) << m_fZRotation;
+			(pxArc^) << m_bWall;
+			m_xWallsDone.DoKArc(pxArc^);
+			var ^CGameObj pxWorker = m_xWorker.GetObj();
+			if(pxWorker!=null)then
+				var ^CFightingObj pxFightingObj=cast<CFightingObj>(pxWorker);
+				if(pxFightingObj!=null && pxFightingObj^.CanBuild())then
+					m_sWeapon = pxFightingObj^.GetPlayerTribeName()+"_hammer";
+					m_bDoLoadFix=true;
+				endif;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool OnActionEnd(bool p_bBroken)
+		if(p_bBroken)then
+			ResetCounter();
+		endif;
+		return true;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xWorker,CObjHndl p_xBuilding, CObjList p_xIgnoreTargets)
+		if(!p_xBuilding.IsValid()||!p_xWorker.IsValid())then
+			return false;
+		endif;
+		m_bNoLink = false;
+		m_xWorker=p_xWorker;
+		m_xBuilding = p_xBuilding;
+		var ^CGameObj pxBuilding = m_xBuilding.GetObj();
+		var ^CGameObj pxBuilder = m_xWorker.GetObj();
+		if(pxBuilder!=null)then
+			m_vSourcePos = pxBuilder^.GetPos();
+			pxBuilder^.AnnounceState("harvest");
+		endif;
+		if(pxBuilding==null)then return false; endif;
+		if(pxBuilder==null)then return false; endif;
+		if(!CMirageSrvMgr.Get().AllyBuildup() && pxBuilder^.GetOwner()!=pxBuilding^.GetOwner())then return false; endif;
+		if(!pxBuilding^.GetIsTrap() && pxBuilder^.GetClassName()=="ninigi_ninja")then return false; endif;
+		//Check if unit may buid
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(pxBuilder);
+		if(!pxFightingObj^.CanBuild())then return false;endif;
+		m_bWall=((cast<CWall>(pxBuilding))!=null);
+		m_sWeapon = pxFightingObj^.GetPlayerTribeName()+"_hammer";
+		m_sState="goto_building";
+		begin CalculateIncDirection;
+			m_vWallPos = {10.0,0.0,0.0};
+			m_fZRotation = pxBuilding^.GetRotation().GetZ();
+			m_vWallPos.RotZ(m_fZRotation);
+		end CalculateIncDirection;
+		m_xIgnoreBuildUps=p_xIgnoreTargets;
+		//SetName(GetName()+"/"+pxBuilding^.GetName());
+		return true;
+	endproc;
+
+	proc void SetTarget(CObjHndl p_xBuilding)
+		m_xBuilding = p_xBuilding;
+		var ^CGameObj pxWorker = m_xWorker.GetObj();
+		if(pxWorker==null)then return; endif;
+		var ^CAttribs pxAttr = pxWorker^.GetAttribs();
+		if(pxAttr==null)then return; endif;
+		if(m_xBuilding.IsValid())then
+			pxAttr^.SetValue("CurProcessObj",m_xBuilding.AsInt().ToString());
+		else
+			pxAttr^.SetValue("CurProcessObj","");
+		endif;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker==null)then EndTask(); return; endif;
+		if(pxWorker^.GetType()!="CHTR")then EndTask();return; endif;
+		var ^CGameObj pxBldg=m_xBuilding.GetObj();
+		if(pxBldg==null)then EndTask(); return; endif;
+		if(pxBldg^.GetType()!="BLDG")then EndTask(); return; endif;
+		var ^CCharacter pxChar = cast<CCharacter>(m_xWorker.GetObj());
+		if(pxChar==null)then EndTask(); return; endif;
+		pxChar^.SetTaskDescription("buildup");
+		// RT#8432
+		var ^CAttribs pxAttr = pxChar^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+			SetTarget(m_xBuilding);
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxWorker;
+		begin CheckWorker;
+			var ^CGameObj pxTmp=m_xWorker.GetObj();
+			if(pxTmp==null)then EndTask();return; endif;
+			pxWorker=cast<CCharacter>(pxTmp);
+		end CheckWorker;
+		var ^CBuilding pxBuilding;
+		var string sAnim="hammer";
+		begin CheckBuidling;
+			var ^CGameObj pxTmp=m_xBuilding.GetObj();
+			if(pxTmp==null)then EndTask();return; endif;
+			if(pxTmp^.GetIsTrap())then sAnim="disembowel"; endif;
+			pxBuilding=cast<CBuilding>(pxTmp);
+		end CheckBuidling;
+		if(!CSrvWrap.GetDiplomacyMgr().GetIsFriend(pxWorker^.GetOwner(), pxBuilding^.GetOwner()))then EndTask(); return; endif;
+		if(m_sState=="goto_building")then
+			var ^CFightingObj pxFightTemp = cast<CFightingObj>(m_xWorker.GetObj());
+			if(pxFightTemp==null)then EndTask();return;endif;
+			pxFightTemp^.HideWeapons();
+			pxWorker^.RemoveRangedBuff("faster_buildup");
+			if(sAnim!="disembowel")then
+				pxWorker^.SetLinkGFX(m_xFCCRightHandLink, m_sWeapon);
+			endif;
+			var real fRadius=pxBuilding^.GetRadius();
+			m_xLink = pxBuilding^.OccupyLink(pxWorker^.GetPos());
+			m_vCurTarget = pxBuilding^.GetPos();
+			if(!pxBuilding^.GetLinkPosWorld(m_xLink,m_vCurTarget))then
+				var ^CWall pxWall = cast<CWall>(pxBuilding);
+				m_bNoLink = true;
+				if(pxWall!=null && pxWall^.GetBuildVector()!={0.0,0.0,0.0})then
+					m_vOutPos = pxWall^.GetBuildVector();
+				else
+					m_vOutPos = m_vSourcePos - pxBuilding^.GetPos();
+					m_vOutPos.Normalize();
+					m_vOutPos*= 5.0;
+				endif;
+				m_vCurTarget=pxBuilding^.GetPos() + m_vOutPos;
+			endif;
+			var bool bValidTarget=true;
+			if(pxBuilding^.GetWallMapObj()) then
+				var vec3 vWAccPos=pxBuilding^.GetPos();
+				var vec3 vPos=vWAccPos;
+				CSrvWrap.GetPathfinder().GetWallAccessPos(pxWorker^.GetOwner(),pxWorker^.GetPos(),vWAccPos,vWAccPos);
+				var real fSqDist=(vPos-vWAccPos).AbsSquare();
+				var real fRadius=pxBuilding^.GetCollisionRadius()*1.5;
+				if(fRadius<9.0f) then fRadius=9.0f; endif; //min radius for walls (small traps)
+				if(fSqDist>(fRadius*fRadius))then
+					bValidTarget=false;
+				else
+					//try GetBuildVector pos accessibility, use GetWallAccessPos as fallback
+					var bool bFreeLine=CSrvWrap.GetPathfinder().IsFreeLine(vWAccPos,m_vCurTarget);
+					//KLog.LogWarn("CHP","FL:"+bFreeLine.ToString());
+					if(!bFreeLine) then m_vCurTarget=vWAccPos; endif;
+				endif;
+			else
+				if(!CSrvWrap.GetObjMgr()^.GetFreePos(m_vCurTarget, pxWorker, m_vCurTarget, null, true, false, false, 1.0, 010b, fRadius+4.0))then
+					bValidTarget=false;
+				endif;
+			endif;
+			if(!bValidTarget)then
+				pxWorker^.WaitAction(1.0f); //stop worker
+				m_sState="exit";
+				m_xIgnoreBuildUps.Include(m_xBuilding); //don't restart
+				return;
+			endif;
+			if(pxWorker^.GetOnWall())then
+				pxWorker^.WallWalkAction(m_vCurTarget,true,pxWorker^.GetDefaultSpeed(),false);
+			else
+				pxWorker^.WalkAction(m_vCurTarget,pxWorker^.GetDefaultSpeed(),true);
+			endif;
+			SetCurrentTarget(m_vCurTarget);
+			SetMaxCounter(2);
+			m_sState="rotate_to_building";
+		elseif(m_sState=="rotate_to_building")then
+			//var real fMinDis = 4.0f;
+			var real fMinDis = CMirageSrvMgr.IsBigBuilding(pxBuilding^.GetClassName(), pxBuilding^.GetGfxName());
+			if(!HasArrivedTarget(pxWorker^.GetPos(),fMinDis))then
+				if(CanFollow())then
+					m_sState="goto_building";
+				else
+					m_xIgnoreBuildUps.Include(m_xBuilding);
+					EndTask();
+				endif;
+				return;
+			else
+				var Quat qTRot;
+				var vec3 vRot;
+				if(!pxBuilding^.GetLinkPosRotWorld(m_xLink,vRot,qTRot))then
+					var vec3 vDir=pxBuilding^.GetPos()-pxWorker^.GetPos();
+					qTRot.FromXYDir(vDir.GetX(),vDir.GetY());
+				endif;
+				pxWorker^.RotateAction(qTRot);
+				m_bFirstHit=true;
+				m_bLastHit=false;
+				var ^CTask pxTask = pxBuilding^.GetTaskMgr()^.GetCurTask();
+				if(pxTask==null || pxTask^.GetName()!="BuildUpB")then
+					m_sState="exit";
+				else
+					(cast<CBuildUpBuilding>(pxTask))^.AddWorker(m_xWorker);
+					m_sState="do_anim";
+				endif;
+			endif;
+		elseif(m_sState=="do_anim")then
+			var ^CTask pxTask = pxBuilding^.GetTaskMgr()^.GetCurTask();
+			if(pxTask==null || pxTask^.GetName()!="BuildUpB")then
+				m_sState="goto_exit";
+				m_bLastHit=true;
+				m_xWallsDone.Include(m_xBuilding);
+			endif;
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			// fix working weapon, saved during working
+			var ^CFightingObj pxFightingObj = cast<CFightingObj>(m_xWorker.GetObj());
+			if(m_bDoLoadFix && pxFightingObj!=null)then
+				pxFightingObj^.HideWeapons();
+				if(sAnim!="disembowel")then
+					pxFightingObj^.SetLinkGFX(m_xFCCRightHandLink, m_sWeapon);
+				endif;
+				m_bDoLoadFix=false;
+			endif;
+			if(!m_bFirstHit) then
+				if(pxWorker^.GetCurrentAnimName()!=sAnim && !m_bLastHit) then
+					m_bFirstHit=true;
+					m_bDoLoadFix=true;
+				endif;
+			endif;
+			if(m_bFirstHit) then
+				pxWorker^.SetSLEAnim(sAnim,9999,true,true);
+			elseif(m_bLastHit)then
+				pxWorker^.AnimActionStopLoop();
+			endif;
+			if(m_bFirstHit)then
+				m_bFirstHit=false;
+			else
+				//pxWorker^.ChangeRecovery(-0.5f);
+			endif;
+			m_xLastTick=xNow;
+		elseif(m_sState=="goto_exit")then
+/*			m_xLink = "Ex_1";
+			if(pxBuilding^.GetLinkPosWorld(m_xLink,m_vCurTarget))then
+				//m_vCurTarget=pxBuilding^.GetPos();
+				pxWorker^.WalkAction(m_vCurTarget,2,true);
+			endif;*/
+			var ^CTaskMgr pxTM=pxWorker^.GetTaskMgr();
+			if(pxTM!=null)then
+				if(pxTM^.NumSubs()<=1)then
+					if(m_bNoLink)then
+						m_vOutPos*=(pxBuilding^.GetRadius()/5.0);
+						pxWorker^.WalkAction(pxBuilding^.GetPos() + m_vOutPos,pxWorker^.GetDefaultSpeed(),true);
+					endif;
+				endif;
+			endif;
+			m_sState="exit";
+		elseif(m_sState=="exit")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	export proc CObjHndl GetBuilding()
+		return m_xBuilding;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		//L KLog.LogSpam("BuildUp","USLOnLeave");
+		var ^CCharacter pxChar = cast<CCharacter>(m_xWorker.GetObj());
+		if(pxChar==null)then return; endif;
+		pxChar^.RemoveRangedBuff("faster_buildup");
+		pxChar^.SetTaskDescription("");
+		SetTarget(CObjHndl.Invalid());
+		pxChar^.ShowWeapons();
+	endproc;
+
+	export proc bool Break()
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		var ^CGameObj pxBldg = m_xBuilding.GetObj();
+		if(pxBldg!=null)then
+			var ^CBuilding pxBuilding = cast<CBuilding>(pxBldg);
+			if(pxBuilding!=null && pxBuilding^.GetTaskMgr()!=null)then
+				pxBuilding^.FreeLink(m_xLink);
+				var ^CTask pxTask = pxBuilding^.GetTaskMgr()^.GetCurTask();
+				if(pxTask==null || pxTask^.GetName()!="BuildUpB")then
+					return true;
+				else
+					(cast<CBuildUpBuilding>(pxTask))^.RemWorker(m_xWorker);
+				endif;
+			endif;
+		endif;
+		if(pxWorker!=null)then
+			pxWorker^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+
+	export proc void EndTask()
+		UpdateAggressionPos(m_xWorker);
+		if (m_xBuilding.IsValid() == false) then
+			super.EndTask();
+			return;
+		endif;
+		var bool bReady=true;
+		var bool bAllyBuildup = CMirageSrvMgr.Get().AllyBuildup();
+		var ^CGameObj pxBldg = m_xBuilding.GetObj();
+		if(pxBldg!=null)then
+			var ^CBuilding pxBuilding = cast<CBuilding>(pxBldg);
+			if(pxBuilding!=null)then
+				pxBuilding^.FreeLink(m_xLink);
+				var ^CTask pxTask = pxBuilding^.GetTaskMgr()^.GetCurTask();
+				if(pxTask!=null && pxTask^.GetName()=="BuildUpB") then
+					var ^CBuildUpBuilding pxTmpBuildup = cast<CBuildUpBuilding>(pxTask);
+					if (pxTmpBuildup == null) then return; endif;
+					(cast<CBuildUpBuilding>(pxTask))^.RemWorker(m_xWorker);
+				endif;
+				if(!pxBuilding^.IsReady())then bReady=false; endif;
+			endif;
+		endif;
+		var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+		if(m_bWall)then
+			if(pxWorker!=null)then
+				var ^CTaskMgr pxTM=pxWorker^.GetTaskMgr();
+				if(pxTM!=null)then
+					if(pxTM^.NumSubs()<=1)then
+						var ^CWallMapSrv pxWM=CSrvWrap.GetObjMgr()^.GetObjPlaceChecker()^.GetWallMap();
+						if (pxWM == null) then return; endif;
+						var CObjList xWalls,xGates;
+						pxWM^.GetNextWalls(pxWorker^.GetPos(),50.0f,xWalls);
+						pxWM^.GetNextGates(pxWorker^.GetPos(),50.0f,xGates);
+						xWalls.Include(xGates);
+						xWalls.SortDistance(pxWorker^.GetPos());
+						var int i,iC=xWalls.NumEntries();
+						for(i=0)cond(i<iC)iter(i++)do
+							var ^CBuilding pxW=cast<CBuilding>(xWalls[i].GetObj());
+							if(pxW!=null && !pxW^.IsReady())then
+								if(!bAllyBuildup && pxW^.GetOwner()!=pxWorker^.GetOwner())then continue; endif;
+								if(m_xWallsDone.FindEntry(xWalls[i])==-1&&m_xIgnoreBuildUps.FindEntry(xWalls[i])==-1)then
+									SetTarget(xWalls[i]);
+									m_sState="goto_building";
+									return;
+								endif;
+							endif;
+						endfor;
+					endif;
+				endif;
+			endif;
+		endif;
+		if(pxWorker!=null&&bReady)then
+			pxWorker^.NextJob(m_xBuilding,m_xIgnoreBuildUps);
+		endif;
+		super.EndTask();
+	endproc;
+
+endclass;

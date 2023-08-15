@@ -1,0 +1,1766 @@
+class CViewLevelInfo inherit CEnhancedFrameWindow;
+	
+	var ^CTabCtrl								m_pxTabCtrl;
+	
+	var ^CLevelInfoOptions1			m_pxLevelInfoOptions1;
+	var ^CLevelInfoOptions2			m_pxLevelInfoOptions2;
+	var ^CLevelInfoWeather			m_pxLevelInfoWeather;
+	var ^CLevelInfoItems				m_pxLevelInfoItems;
+	var ^CLevelInfoMirage				m_pxLevelInfoMirage;
+	
+	export constructor()
+		if(!InitFromResource("options/ViewLevelInfo","LevelInfo")) then
+			CLevelEditorWrap.LogError("UI.ViewLevelInfo","InitFromResource failed");
+			return;
+		endif;
+		m_pxLevelInfoOptions1	= new CLevelInfoOptions1();
+		m_pxLevelInfoOptions2	= new CLevelInfoOptions2();
+		m_pxLevelInfoWeather	= new CLevelInfoWeather(this);
+		m_pxLevelInfoItems		= new CLevelInfoItems();
+		m_pxLevelInfoMirage		= new CLevelInfoMirage();
+		m_pxTabCtrl = cast<CTabCtrl>(GetControl("MainTabCtrl"));
+		m_pxTabCtrl^.AddTab(" General Level Info ",m_pxLevelInfoOptions1);
+		m_pxTabCtrl^.AddTab(" Game Settings ",m_pxLevelInfoOptions2);
+		m_pxTabCtrl^.AddTab(" Weather Settings ",m_pxLevelInfoWeather);
+		m_pxTabCtrl^.AddTab(" Items ", m_pxLevelInfoItems);
+		m_pxTabCtrl^.AddTab(" Mirage ", m_pxLevelInfoMirage);
+		LoadPosition("LevelInfo");
+	endconstructor;
+	
+	export proc ^CLevelInfoOptions1 GetLevelInfoOptions1()
+		return m_pxLevelInfoOptions1;
+	endproc;
+	
+	export proc ^CLevelInfoOptions2 GetLevelInfoOptions2()
+		return m_pxLevelInfoOptions2;
+	endproc;
+	
+	export proc ^CLevelInfoWeather GetLevelInfoWeather()
+		return m_pxLevelInfoWeather;
+	endproc;
+	
+	export proc bool SaveLevelInfo()
+		m_pxLevelInfoWeather^.SaveLevelInfo();
+		return(true);
+	endproc;
+	
+	export proc ^CLevelInfoMirage GetLevelInfoMirage()
+		return m_pxLevelInfoMirage;
+	endproc;
+	
+	proc void OnUpdateContent()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		if(pxBaseNode^.Get("Version")==null)then
+			pxBaseNode^.SetValue("Version",1);
+		endif;
+		m_pxLevelInfoWeather^.LoadLevelInfo();
+		m_pxLevelInfoOptions1^.Init(pxBaseNode);
+		m_pxLevelInfoOptions2^.LoadLevelInfo();
+		m_pxLevelInfoItems^.Init(^((pxLevelInfo^.GetGenericData())["Items"]));
+		m_pxLevelInfoMirage^.Init(^((pxLevelInfo^.GetGenericData())["ClientSettings"]));
+	endproc;
+	
+endclass;
+	
+class CLevelInfoOptions1 inherit CFrameWindow;
+	
+	var ^CDesktop				m_pxDesktop;
+	var ^CEdit					m_pxNameEdit;
+	var ^CEdit					m_pxPlayersEdit;
+	var ^CEdit					m_pxAuthorEdit;
+	var ^CEdit					m_pxVersionEdit;
+	var ^CEdit					m_pxDescriptionEdit;
+	var ^CButton				m_pxMapPreviewButton;
+	var ^CStaticCtrl		m_pxMapPreviewStatic;
+	var string					m_sMapPreviewPath;
+	var ^CPropDB.CNode	m_pxBaseNode;
+	
+	export constructor()
+		if(!InitFromResource("options/ViewLevelInfo","LevelInfoOptions1")) then
+			CLevelEditorWrap.LogError("UI.ViewLevelInfo","InitFromResource failed");
+			return;
+		endif;
+		m_pxDesktop=CClientWrap.GetDesktop();
+		
+		m_pxNameEdit=cast<CEdit>(GetControl("GroupBoxMain/NameEdit"));
+		m_pxNameEdit^.SetTabStop(true);
+		
+		m_pxAuthorEdit=cast<CEdit>(GetControl("GroupBoxMain/AuthorEdit"));
+		m_pxAuthorEdit^.SetTabStop(true);
+		
+		m_pxPlayersEdit=cast<CEdit>(GetControl("GroupBoxMain/PlayersEdit"));
+		m_pxPlayersEdit^.SetTabStop(true);
+		
+		m_pxVersionEdit=cast<CEdit>(GetControl("GroupBoxMain/VersionEdit"));
+		m_pxVersionEdit^.SetTabStop(true);
+		
+		m_pxDescriptionEdit=cast<CEdit>(GetControl("GroupBoxMain/DescriptionEdit"));
+		m_pxDescriptionEdit^.SetTabStop(true);
+		
+		m_pxMapPreviewButton=cast<CButton>(GetControl("GroupBoxMain/MapButton"));
+		m_pxMapPreviewButton^.m_xOnClick = OnChangeMap;
+
+/*
+		var string sTmp=CClientWrap.GetUrsRelPath()+"/Data/Base/UI/LevelEditor/Default_Map_Image.tga";
+		m_sMapPreviewPath=sTmp;
+		if(Filesystem.FileExists(m_sMapPreviewPath))then
+			m_pxMapPreviewButton^.SetBitmap(m_sMapPreviewPath);
+		endif;
+		*/
+	endconstructor;
+
+	export proc void Init(^CPropDB.CNode p_pxBaseNode)
+		m_pxBaseNode=p_pxBaseNode;
+		if(m_pxBaseNode==null)then return; endif;
+		var string sLevelName;
+		var string sAutor;
+		var string sPlayers;
+		var string sVersion;
+		var string sDesc;
+		if(m_pxBaseNode^.NumSubs()==0)then //old version
+			var ^CGameAttribs pxAttribs=^(CLevelEditorWrap.GetClient().GetLevelInfo().GetAttribs());
+			sLevelName=pxAttribs^.GetValue("LevelName");
+			if(sLevelName.IsEmpty())then sLevelName="Unnamed Map"; endif;
+			sAutor=pxAttribs^.GetValue("Author");
+			if(sAutor.IsEmpty())then sAutor="Unnamed Author"; endif;
+			sPlayers=pxAttribs^.GetValue("Recommended_Players");
+			if(sPlayers.IsEmpty())then sPlayers="1 - 8 Players"; endif;
+			sVersion=pxAttribs^.GetValue("Edit_Version");
+			if(sVersion.IsEmpty())then sVersion="1.0"; endif;
+			sDesc=pxAttribs^.GetValue("Description");
+		else
+			sLevelName=m_pxBaseNode^.GetValueS("LevelName","Unnamed Map");
+			sAutor=m_pxBaseNode^.GetValueS("Author","Unknown Author");
+			sPlayers=m_pxBaseNode^.GetValueS("Recommended_Players","1 - 8 Players");
+			sVersion=m_pxBaseNode^.GetValueS("Edit_Version","1.0");
+			sDesc=m_pxBaseNode^.GetValueS("Description","");
+		endif;
+		
+		m_pxNameEdit^.m_xOnChange.Clear();
+		m_pxNameEdit^.SetText(sLevelName);
+		m_pxNameEdit^.m_xOnChange=OnChangeName;
+		
+		m_pxAuthorEdit^.m_xOnChange.Clear();
+		m_pxAuthorEdit^.SetText(sAutor);
+		m_pxAuthorEdit^.m_xOnChange=OnChangeAuthor;
+		
+		m_pxPlayersEdit^.m_xOnChange.Clear();
+		m_pxPlayersEdit^.SetText(sPlayers);
+		m_pxPlayersEdit^.m_xOnChange=OnChangePlayers;
+		
+		m_pxVersionEdit^.m_xOnChange.Clear();
+		m_pxVersionEdit^.SetText(sVersion);
+		m_pxVersionEdit^.m_xOnChange=OnChangeVersion;
+		
+		m_pxDescriptionEdit^.m_xOnChange.Clear();
+		m_pxDescriptionEdit^.SetText(sDesc);
+		m_pxDescriptionEdit^.m_xOnChange=OnChangeDescription;
+		
+		var ^CLevelInfoClient pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		//Fiese Stelle
+		var CBitmapPtr pxTmp;
+		pxTmp=pxLevelInfo^.GetPreviewBitmap(m_pxMapPreviewButton^.GetWidth(),m_pxMapPreviewButton^.GetHeight());
+		//pxTmp=pxLevelInfo^.GetPreviewBitmap();
+		m_pxMapPreviewButton^.SetBitmap(pxTmp);
+	endproc;
+	
+	proc bool OnChangeName()
+		m_pxBaseNode^.SetValue("LevelName",m_pxNameEdit^.GetText());
+		return(true);
+	endproc;
+	
+	proc bool OnChangeAuthor()
+		m_pxBaseNode^.SetValue("Author",m_pxAuthorEdit^.GetText());
+		return(true);
+	endproc;
+	
+	proc bool OnChangePlayers()
+		m_pxBaseNode^.SetValue("Recommended_Players",m_pxPlayersEdit^.GetText());
+		return(true);
+	endproc;
+	
+	proc bool OnChangeVersion()
+		m_pxBaseNode^.SetValue("Edit_Version",m_pxVersionEdit^.GetText());
+		return(true);
+	endproc;
+	
+	proc bool OnChangeDescription()
+		m_pxBaseNode^.SetValue("Description",m_pxDescriptionEdit^.GetText());
+		return(true);
+	endproc;
+	
+	proc bool OnChangeMap()
+		var ^CEnhancedLoadSaveDialog pxTmp = new CEnhancedLoadSaveDialog(0,"");
+		pxTmp^.SetUniqueSettingName("LefelInfoMapPicLoadSaveDlg");
+		pxTmp^.ClearFilters();
+		pxTmp^.AddFilter("TGA Images","*.tga");
+		pxTmp^.AddFilter("JPEG Images","*.jpg");
+		m_pxDesktop^.AddChild(pxTmp);
+		pxTmp^.m_xReturnFileString=OnReturnLoadString;
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return(true);
+	endproc;
+	
+	proc bool OnReturnLoadString(string p_sFileString);
+		var ^CLevelInfoClient pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		if(pxLevelInfo^.LoadPicFromFile(p_sFileString))then
+			var CBitmapPtr	pxTmp;
+			pxTmp=pxLevelInfo^.GetPreviewBitmap(m_pxMapPreviewButton^.GetWidth(),m_pxMapPreviewButton^.GetHeight());
+			m_pxMapPreviewButton^.SetBitmap(pxTmp);
+		else
+			m_pxMapPreviewButton^.SetText("invalid bitmap");
+		endif;
+		return(true);
+	endproc;
+	
+	export proc bool ResetControls()
+		/*m_pxNameEdit^.SetText("Unnamed Map");
+		m_pxAuthorEdit^.SetText("Unknown Author");
+		m_pxPlayersEdit^.SetText("1 - 8 Players");
+		m_pxVersionEdit^.SetText("1.0");
+		m_pxDescriptionEdit^.SetText("No Description.");
+		m_pxAtmoSoundEdit^.SetText("No Atmos");
+		var string sTmp=CClientWrap.GetUrsRelPath()+"/Data/Base/UI/LevelEditor/Default_Map_Image.tga";
+		m_sMapPreviewPath=sTmp;
+		if(Filesystem.FileExists(m_sMapPreviewPath))then
+			m_pxMapPreviewButton^.SetBitmap(m_sMapPreviewPath);
+		endif;
+		CStatusBar.Get().SetLevelName("Unnamed Map");
+		*/
+		return(true);
+	endproc;
+	
+endclass;
+
+class CLevelInfoOptions2 inherit CFrameWindow;
+
+	var ^CSpinCtrlNumber	m_pxMaxPlayersValue;
+	var ^CRadioButton		m_pxSinglePlayerButton;
+	var ^CRadioButton		m_pxMultiPlayerButton;
+	var ^CCheckBox			m_pxTutorialLevelCheckBox;
+	var ^CCheckBox			m_pxBlackStartCheckBox;
+	
+	var ^CCheckBox			m_pxGTDeathmatch;
+	var ^CCheckBox			m_pxGTDomination;
+	var ^CCheckBox			m_pxGTDefender;
+	var ^CCheckBox			m_pxGTLastManStanding;
+	var ^CSpinCtrlNumber	m_pxDefenderTimer;
+
+	var ^CSpinCtrlNumber	m_pxSTHour;
+	var ^CSpinCtrlNumber	m_pxSTMinutes;
+	
+	var ^CGroupBox			m_pxAIOptBox;
+	var ^CCheckBox			m_pxAIOptWalls;
+	var ^CCheckBox			m_pxAIOptMarktPlaceOutPost;
+	var ^CCheckBox			m_pxAIOptHarbour;
+	var ^CCheckBox			m_pxAIOptWarpgate;
+	var ^CCheckBox			m_pxAIOptHuntAnimals;
+	var ^CCheckBox			m_pxAIOptWaterMap;
+	
+	
+	export var array ^CDefCamPosButton m_apxDefCamPosButtons;
+
+	export constructor()
+		if(!InitFromResource("options/ViewLevelInfo","LevelInfoOptions2")) then
+			CLevelEditorWrap.LogError("UI.ViewLevelInfo","InitFromResource failed");
+			return;
+		endif;
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());	
+		m_pxMaxPlayersValue=cast<CSpinCtrlNumber>(GetControl("GroupBoxMain/MaxPlayersValue"));
+		m_pxMaxPlayersValue^.m_xOnChange=OnChangeMaxPlayers;
+		m_pxSinglePlayerButton=cast<CRadioButton>(GetControl("GroupBoxMain/SinglePlayerButton"));
+		m_pxSinglePlayerButton^.m_xOnChange = OnChangeSMPlayer;
+
+		m_pxMultiPlayerButton=cast<CRadioButton>(GetControl("GroupBoxMain/MultiPlayerButton"));
+		m_pxMultiPlayerButton^.m_xOnChange = OnChangeSMPlayer;
+		
+		m_pxTutorialLevelCheckBox=cast<CCheckBox>(GetControl("GroupBoxMain/TutorialCheckBox"));
+		m_pxTutorialLevelCheckBox^.m_xOnStateChange=OnChangeTutorial;
+		
+		m_pxBlackStartCheckBox=cast<CCheckBox>(GetControl("GroupBoxMain/BlackStartCheckBox"));
+		m_pxBlackStartCheckBox^.m_xOnStateChange=OnChangeBlackStart;
+		
+		m_pxGTDeathmatch=cast<CCheckBox>(GetControl("GroupBoxMain/Deathmatch"));
+		m_pxGTDeathmatch^.m_xOnStateChange=OnChangeGameType;
+		m_pxGTDomination=cast<CCheckBox>(GetControl("GroupBoxMain/Domination"));
+		m_pxGTDomination^.m_xOnStateChange=OnChangeGameType;
+		m_pxGTDefender=cast<CCheckBox>(GetControl("GroupBoxMain/Defender"));
+		m_pxGTDefender^.m_xOnStateChange=OnChangeGameType;
+				
+		m_pxGTLastManStanding=cast<CCheckBox>(GetControl("GroupBoxMain/LastManStanding"));
+		m_pxGTLastManStanding^.m_xOnStateChange=OnChangeLastManStanding;
+		
+		m_pxDefenderTimer=cast<CSpinCtrlNumber>(GetControl("GroupBoxMain/DefenderTimer"));
+		m_pxDefenderTimer^.m_xOnChange=OnChangeDefenderTimer;
+
+		m_pxSTHour=cast<CSpinCtrlNumber>(GetControl("GroupBoxMain/Hour"));
+		m_pxSTHour^.m_xOnChange=OnChangeTime;
+		m_pxSTMinutes=cast<CSpinCtrlNumber>(GetControl("GroupBoxMain/Minutes"));
+		m_pxSTMinutes^.m_xOnChange=OnChangeTime;
+		
+		
+		m_pxAIOptBox=cast<CGroupBox>(GetControl("GroupBoxAIOptions"));
+		m_pxAIOptWalls=cast<CCheckBox>(m_pxAIOptBox^.GetControl("Walls"));
+		m_pxAIOptWalls^.m_xOnStateChange=OnChangeAIOptions;
+		m_pxAIOptMarktPlaceOutPost=cast<CCheckBox>(m_pxAIOptBox^.GetControl("MarkPlaceOutPost"));
+		m_pxAIOptMarktPlaceOutPost^.m_xOnStateChange=OnChangeAIOptions;
+		m_pxAIOptHarbour=cast<CCheckBox>(m_pxAIOptBox^.GetControl("Harbour"));
+		m_pxAIOptHarbour^.m_xOnStateChange=OnChangeAIOptions;
+		m_pxAIOptWarpgate=cast<CCheckBox>(m_pxAIOptBox^.GetControl("Warpgate"));
+		m_pxAIOptWarpgate^.m_xOnStateChange=OnChangeAIOptions;
+		m_pxAIOptHuntAnimals=cast<CCheckBox>(m_pxAIOptBox^.GetControl("HuntAnimals"));
+		m_pxAIOptHuntAnimals^.m_xOnStateChange=OnChangeAIOptions;
+		m_pxAIOptWaterMap=cast<CCheckBox>(m_pxAIOptBox^.GetControl("WaterMap"));
+		m_pxAIOptWaterMap^.m_xOnStateChange=OnChangeAIOptions;
+		
+		
+		
+		begin DefCamPos;
+			m_apxDefCamPosButtons=4;
+			m_apxDefCamPosButtons[1]=cast<CDefCamPosButton>(GetControl("GroupBoxMain/DefCamPos/NO"));
+			m_apxDefCamPosButtons[2]=cast<CDefCamPosButton>(GetControl("GroupBoxMain/DefCamPos/SO"));
+			m_apxDefCamPosButtons[3]=cast<CDefCamPosButton>(GetControl("GroupBoxMain/DefCamPos/SW"));
+			m_apxDefCamPosButtons[0]=cast<CDefCamPosButton>(GetControl("GroupBoxMain/DefCamPos/NW"));
+			m_apxDefCamPosButtons[0]^.Init(this,0);
+			m_apxDefCamPosButtons[1]^.Init(this,1);
+			m_apxDefCamPosButtons[2]^.Init(this,2);
+			m_apxDefCamPosButtons[3]^.Init(this,3);
+			var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+			var real fCamPos=pxBaseNode^.GetValueR("DefaultCamera");
+			
+			
+			var real fPI2F=			6.28318530718f;
+			var real fPIF=			3.14159265359f;
+			var real fPIHALFF=	1.5707963268f;
+			var real fPI15F=		4.712388980385f;
+			
+			while(fCamPos<0.0f)do fCamPos+=fPI2F; endwhile;
+			while(fCamPos>fPI2F)do fCamPos-=fPI2F; endwhile;
+			
+			if(fCamPos>=0.0f && fCamPos<=fPIHALFF)then
+				m_apxDefCamPosButtons[0]^.OnClick();
+			elseif(fCamPos>fPIHALFF && fCamPos<=fPIF)then
+				m_apxDefCamPosButtons[1]^.OnClick();
+			elseif(fCamPos>fPIF && fCamPos<=fPI15F)then
+				m_apxDefCamPosButtons[2]^.OnClick();
+			else//fCamPos>fPI15F && fCamPos<=fPI2F
+				m_apxDefCamPosButtons[3]^.OnClick();
+			endif;
+		end DefCamPos;
+		
+		//Init a bit
+		m_pxMultiPlayerButton^.SetSelected(true);
+		//m_pxGTFreeGame^.SetChecked(1);
+	endconstructor;
+
+	export proc void SetMaxPlayersLimit(int p_iLimit)
+		m_pxMaxPlayersValue^.SetLimits(0,p_iLimit,1);
+	endproc;
+
+	export proc int GetMaxPlayersLimit()
+		var int iMin;
+		var int iMax;
+		var int iStep;
+		m_pxMaxPlayersValue^.GetLimitsInt(iMin,iMax,iStep);
+		return iMax;
+	endproc;
+
+	proc bool OnChangeMaxPlayers()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		pxBaseNode^.SetValue("MaxPlayers",m_pxMaxPlayersValue^.GetValueInt());
+		CEnhancedMenu.Get().GetViewPlayerInfo()^.InvalidateContent();
+		
+		CLevelEditorInst.InitInternalLevelVariables();
+		return true;
+	endproc;
+
+	proc bool OnChangeSMPlayer()
+		var string sMapType="multiplayer";
+		if(m_pxSinglePlayerButton^.GetSelected())then
+			sMapType="singleplayer";
+			m_pxGTDeathmatch^.SetDisabled(true);
+			m_pxGTDomination^.SetDisabled(true);
+			m_pxGTDefender^.SetDisabled(true);
+			m_pxDefenderTimer^.SetDisabled(true);
+			m_pxGTLastManStanding^.SetDisabled(true);
+		else
+			m_pxGTDeathmatch^.SetDisabled(false);
+			m_pxGTDomination^.SetDisabled(false);
+			m_pxGTDefender^.SetDisabled(false);
+			m_pxDefenderTimer^.SetDisabled(!m_pxGTDefender^.GetCheckMark());
+			m_pxGTLastManStanding^.SetDisabled(false);
+		endif;
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		pxBaseNode^.SetValue("MapType",sMapType);	
+		//m_pxAIOptBox^.SetDisabled(sMapType=="singleplayer");
+		return true;
+	endproc;
+	
+	proc bool OnChangeTutorial()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		pxBaseNode^.SetValue("Tutorial",m_pxTutorialLevelCheckBox^.GetChecked());
+		return true;
+	endproc;
+	
+	proc bool OnChangeBlackStart()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);		
+		pxBaseNode^.SetValue("BlackStart",m_pxBlackStartCheckBox^.GetChecked());
+		return true;
+	endproc;	
+	
+	proc bool OnChangeAIOptions()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxAIOptionsNode=^((pxLevelInfo^.GetGenericData())["AIOptions"]);
+		pxAIOptionsNode^.SetValue("walls",m_pxAIOptWalls^.GetChecked());
+		pxAIOptionsNode^.SetValue("markplace_outpost",m_pxAIOptMarktPlaceOutPost^.GetChecked());
+		pxAIOptionsNode^.SetValue("harbour",m_pxAIOptHarbour^.GetChecked());
+		pxAIOptionsNode^.SetValue("warpgate",m_pxAIOptWarpgate^.GetChecked());
+		pxAIOptionsNode^.SetValue("hunt_animals",m_pxAIOptHuntAnimals^.GetChecked());
+		pxAIOptionsNode^.SetValue("watermap",m_pxAIOptWaterMap^.GetChecked());
+		return true;
+	endproc;
+
+	proc bool OnChangeGameType()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		var string sGameType;
+		if(m_pxGTDeathmatch^.GetCheckMark())then
+			sGameType+="Deathmatch|";
+		endif;
+		if(m_pxGTDomination^.GetCheckMark())then
+			sGameType+="Domination|";
+		endif;
+		if(m_pxGTDefender^.GetCheckMark())then
+			sGameType+="Defender|";
+		endif;
+		pxBaseNode^.SetValue("GameType",sGameType);
+		m_pxDefenderTimer^.SetDisabled(!m_pxGTDefender^.GetCheckMark());
+		return true;
+	endproc;
+	
+	proc bool OnChangeLastManStanding()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		var int iValue=0;
+		if(m_pxGTLastManStanding^.GetCheckMark())then
+			iValue=1;
+		endif;
+		pxBaseNode^.SetValue("LastManStanding",iValue);
+		return true;
+	endproc;	
+	
+	proc bool OnChangeDefenderTimer()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		pxBaseNode^.SetValue("DefenderTimer",m_pxDefenderTimer^.GetValueInt());
+		return true;
+	endproc;
+
+	proc bool OnChangeTime()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		pxBaseNode^.SetValue("StartTime",m_pxSTHour^.GetValueInt().ToString()+":"+m_pxSTMinutes^.GetValueInt().ToString());
+		Evt_TimeOfDaySetting();
+		return true;
+	endproc;
+	
+	proc void Evt_TimeOfDaySetting()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		var string sStartTime = pxBaseNode^.GetValueS("StartTime","12:0");
+		var array string asTime;
+		sStartTime.Split(asTime,":",false);
+		if(asTime.NumEntries()==2)then
+			CEvt_GenericEvent.Send("timeofday&"+asTime[0]+"&"+asTime[1]);
+		endif;
+	endproc;
+	
+	export proc bool LoadLevelInfo()
+		m_pxMaxPlayersValue^.m_xOnChange.Clear();
+		var ^CLevelInfoClient pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+
+		var ^CPropDB.CNode pxBaseNode=^((pxGenericDB^)["Base"]);
+		var int iMaxPlayers;
+		if(pxBaseNode^.GetValueI("Version")>=1)then
+			iMaxPlayers=pxBaseNode^.GetValueI("MaxPlayers");
+		else//old version
+			iMaxPlayers=pxLevelInfo^.GetAttribs().GetValueInt("StartLocations");
+		endif;
+
+		m_pxMaxPlayersValue^.SetValue(iMaxPlayers);
+		m_pxMaxPlayersValue^.m_xOnChange=OnChangeMaxPlayers;
+
+		var real fCamPos=pxBaseNode^.GetValueR("DefaultCamera",0.785f);
+		var real fPI2F=			6.28318530718f;
+		var real fPIF=			3.14159265359f;
+		var real fPIHALFF=		1.5707963268f;
+		var real fPI15F=		4.712388980385f;
+		
+		while(fCamPos<0.0f) do fCamPos+=fPI2F; endwhile;
+		while(fCamPos>fPI2F) do fCamPos-=fPI2F; endwhile;
+		
+		if(fCamPos>=0.0f && fCamPos<=fPIHALFF)then
+			m_apxDefCamPosButtons[0]^.OnClick();
+		elseif(fCamPos>fPIHALFF && fCamPos<=fPIF)then
+			m_apxDefCamPosButtons[1]^.OnClick();
+		elseif(fCamPos>fPIF && fCamPos<=fPI15F)then
+			m_apxDefCamPosButtons[2]^.OnClick();
+		else//fCamPos>fPI15F && fCamPos<=fPI2F
+			m_apxDefCamPosButtons[3]^.OnClick();
+		endif;			
+		
+		var string sMapType=pxBaseNode^.GetValueS("MapType","singleplayer");
+		if(sMapType=="singleplayer")then
+			m_pxSinglePlayerButton^.SetSelected(true);
+			m_pxGTDeathmatch^.SetDisabled(true);
+			m_pxGTDomination^.SetDisabled(true);
+			m_pxGTDefender^.SetDisabled(true);
+			m_pxGTLastManStanding^.SetDisabled(true);
+		else
+			m_pxMultiPlayerButton^.SetSelected(true);
+			m_pxGTDeathmatch^.SetDisabled(false);
+			m_pxGTDomination^.SetDisabled(false);
+			m_pxGTDefender^.SetDisabled(false);
+			m_pxGTLastManStanding^.SetDisabled(false);
+		endif;
+		
+		m_pxDefenderTimer^.SetValue(pxBaseNode^.GetValueI("DefenderTimer",10));
+		
+		if(pxBaseNode^.GetValueI("Tutorial",0)!=0)then
+			m_pxTutorialLevelCheckBox^.SetChecked(1);
+		else
+			m_pxTutorialLevelCheckBox^.SetChecked(0);
+		endif;
+
+		begin GameType;
+			m_pxGTDeathmatch^.m_xOnStateChange.Clear();
+			m_pxGTDomination^.m_xOnStateChange.Clear();
+			m_pxGTDefender^.m_xOnStateChange.Clear();
+			m_pxGTLastManStanding^.m_xOnStateChange.Clear();
+			m_pxGTDeathmatch^.SetChecked(0);
+			m_pxGTDomination^.SetChecked(0);
+			m_pxGTDefender^.SetChecked(0);
+			m_pxGTLastManStanding^.SetChecked(0);
+
+			var string sGameType=pxBaseNode^.GetValueS("GameType","");
+			var array string asGameTypes;
+			sGameType.Split(asGameTypes,"|",false);
+			if(asGameTypes.FindEntry("Deathmatch")!=-1)then
+				m_pxGTDeathmatch^.SetChecked(1);
+			endif;
+			if(asGameTypes.FindEntry("Domination")!=-1)then
+				m_pxGTDomination^.SetChecked(1);
+			endif;
+			if(asGameTypes.FindEntry("Defender")!=-1)then
+				m_pxGTDefender^.SetChecked(1);
+			endif;
+			if(pxBaseNode^.GetValueI("LastManStanding",0)!=0)then
+				m_pxGTLastManStanding^.SetChecked(1);
+			else
+				m_pxGTLastManStanding^.SetChecked(0);
+			endif;
+			m_pxGTDeathmatch^.m_xOnStateChange=OnChangeGameType;
+			m_pxGTDomination^.m_xOnStateChange=OnChangeGameType;
+			m_pxGTDefender^.m_xOnStateChange=OnChangeGameType;
+			m_pxDefenderTimer^.SetDisabled(!m_pxGTDefender^.GetCheckMark());
+			m_pxGTLastManStanding^.m_xOnStateChange=OnChangeLastManStanding;
+		end GameType;
+
+		begin StartTime;
+			m_pxSTHour^.m_xOnChange.Clear();
+			m_pxSTMinutes^.m_xOnChange.Clear();
+
+			var string sStartTime=pxBaseNode^.GetValueS("StartTime","12:0");
+			var array string asTime;
+			sStartTime.Split(asTime,":",false);
+			if(asTime.NumEntries()==2)then
+				m_pxSTHour^.SetValue(asTime[0].ToInt());
+				m_pxSTMinutes^.SetValue(asTime[1].ToInt());
+			endif;
+			m_pxSTHour^.m_xOnChange=OnChangeTime;
+			m_pxSTMinutes^.m_xOnChange=OnChangeTime;
+		end StartTime;
+		
+		begin BlackScreen;
+			m_pxBlackStartCheckBox^.m_xOnStateChange.Clear();
+			m_pxBlackStartCheckBox^.SetChecked(pxBaseNode^.GetValueI("BlackStart",0));
+			m_pxBlackStartCheckBox^.m_xOnStateChange=OnChangeBlackStart;
+		end BlackScreen;
+		
+		begin AIOptions;
+			//m_pxAIOptBox^.SetDisabled(sMapType=="singleplayer");
+			m_pxAIOptWalls^.m_xOnStateChange.Clear();
+			m_pxAIOptMarktPlaceOutPost^.m_xOnStateChange.Clear();
+			m_pxAIOptHarbour^.m_xOnStateChange.Clear();
+			m_pxAIOptWarpgate^.m_xOnStateChange.Clear();
+			m_pxAIOptHuntAnimals^.m_xOnStateChange.Clear();
+			m_pxAIOptWaterMap^.m_xOnStateChange.Clear();
+			
+			var ^CPropDB.CNode pxAIOptionsNode=^((pxGenericDB^)["AIOptions"]);
+			m_pxAIOptWalls^.SetChecked(pxAIOptionsNode^.GetValueI("walls",1));
+			m_pxAIOptMarktPlaceOutPost^.SetChecked(pxAIOptionsNode^.GetValueI("markplace_outpost",1));
+			m_pxAIOptHarbour^.SetChecked(pxAIOptionsNode^.GetValueI("harbour",1));
+			m_pxAIOptWarpgate^.SetChecked(pxAIOptionsNode^.GetValueI("warpgate",1));
+			m_pxAIOptHuntAnimals^.SetChecked(pxAIOptionsNode^.GetValueI("hunt_animals",1));
+			m_pxAIOptWaterMap^.SetChecked(pxAIOptionsNode^.GetValueI("watermap",1));
+			
+			m_pxAIOptWalls^.m_xOnStateChange=OnChangeAIOptions;
+			m_pxAIOptMarktPlaceOutPost^.m_xOnStateChange=OnChangeAIOptions;
+			m_pxAIOptHarbour^.m_xOnStateChange=OnChangeAIOptions;
+			m_pxAIOptWarpgate^.m_xOnStateChange=OnChangeAIOptions;
+			m_pxAIOptHuntAnimals^.m_xOnStateChange=OnChangeAIOptions;
+			m_pxAIOptWaterMap^.m_xOnStateChange=OnChangeAIOptions;
+		end AIOptions;
+		return(true);
+	endproc;
+
+endclass;
+
+class CDefCamPosButton inherit CToggleButton
+
+	var ^CLevelInfoOptions2 m_pxOwner;
+	var int m_iID;
+	
+	export proc void Init(^CLevelInfoOptions2 p_pxOwner,int p_iID)
+		m_pxOwner=p_pxOwner;
+		m_iID=p_iID;
+		SetToggleButtonState(false);
+	endproc;
+	
+	export proc bool OnClick()
+		var int i,iC=m_pxOwner^.m_apxDefCamPosButtons.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_pxOwner^.m_apxDefCamPosButtons[i]^.SetToggleButtonState(false);
+		endfor;
+		SetToggleButtonState(true);
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		var real fValue=5.495f;
+		if(m_iID==0)then
+			fValue=0.785f;
+//			SetText("N");
+//			m_pxOwner^.m_apxDefCamPosButtons[1]^.SetText("O");
+//			m_pxOwner^.m_apxDefCamPosButtons[2]^.SetText("S");
+//			m_pxOwner^.m_apxDefCamPosButtons[3]^.SetText("W");
+		elseif(m_iID==1)then
+			fValue=2.355f;
+//			m_pxOwner^.m_apxDefCamPosButtons[0]^.SetText("W");
+//			SetText("N");
+//			m_pxOwner^.m_apxDefCamPosButtons[2]^.SetText("O");
+//			m_pxOwner^.m_apxDefCamPosButtons[3]^.SetText("S");
+		elseif(m_iID==2)then
+			fValue=3.925f;
+//			m_pxOwner^.m_apxDefCamPosButtons[0]^.SetText("S");
+//			m_pxOwner^.m_apxDefCamPosButtons[1]^.SetText("W");
+//			SetText("N");
+//			m_pxOwner^.m_apxDefCamPosButtons[3]^.SetText("O");
+		else//m_iID==4 fValue=5.495f;
+//			m_pxOwner^.m_apxDefCamPosButtons[0]^.SetText("O");
+//			m_pxOwner^.m_apxDefCamPosButtons[1]^.SetText("S");
+//			m_pxOwner^.m_apxDefCamPosButtons[2]^.SetText("W");
+//			SetText("N");
+		endif;
+		pxBaseNode^.SetValue("DefaultCamera",fValue);
+		return true;
+	endproc;
+	
+endclass;
+
+class CLevelInfoWeather inherit CFrameWindow;
+
+	var ^CViewLevelInfo					m_pxLevelInfo;
+
+	var ^CGroupBox						m_pxTrackEditorGroupBox;
+	var ^CGroupBox						m_pxMainGroupBox;
+	var ^CCheckBox						m_pxPredefinedWeather;
+	var ^CCheckBox						m_pxCustomWeather;
+	export var ^CDropList				m_pxPredefinedDropList;
+	export var ^CDropList				m_pxCustomDropList;
+	var ^CButton						m_pxNewTrack;
+	var ^CButton						m_pxEditTrack;
+	var ^CButton						m_pxDeleteTrack;
+
+	export var ^CList					m_pxTrackList;
+	var ^CButton						m_pxNewList;
+	var ^CButton						m_pxSaveList;
+	var ^CButton						m_pxDeleteList;
+	var ^CEdit							m_pxListName;
+
+	var ^CButton						m_pxMoveToTop;
+	var ^CButton						m_pxMoveUp;
+	var ^CButton						m_pxMoveDown;
+	var ^CButton						m_pxMoveToBottom;
+	var ^CCheckBox						m_pxLoop;
+
+	var ^CViewAddWeatherList			m_pxAddList;
+	var ^CViewDelWeatherList			m_pxDelList;
+	var ^CLevelInfoWeatherTrackEditor	m_pxTrackEditor;
+
+	export constructor(^CViewLevelInfo p_pxLevelInfo)
+		if(!InitFromResource("options/ViewLevelInfo","LevelInfoWeather")) then
+			CLevelEditorWrap.LogError("UI.ViewLevelInfo","InitFromResource failed");
+			return;
+		endif;
+
+		m_pxLevelInfo=p_pxLevelInfo;
+
+		m_pxTrackEditorGroupBox=cast<CGroupBox>(GetControl("TrackEditorGroupBox"));
+		m_pxMainGroupBox=cast<CGroupBox>(GetControl("GroupBoxMain"));
+
+		m_pxPredefinedWeather=cast<CCheckBox>(GetControl("GroupBoxMain/PredefinedCheckBox"));
+		m_pxPredefinedWeather^.m_xOnClick = OnPredefinedWeather;
+
+		m_pxCustomWeather=cast<CCheckBox>(GetControl("GroupBoxMain/CustomCheckBox"));
+		m_pxCustomWeather^.m_xOnClick = OnCustomWeather;
+
+		m_pxNewTrack=cast<CButton>(GetControl("TrackEditorGroupBox/NewTrack"));
+		m_pxNewTrack^.m_xOnClick = OnNewTrack;
+
+		m_pxEditTrack=cast<CButton>(GetControl("TrackEditorGroupBox/EditTrack"));
+		m_pxEditTrack^.m_xOnClick = OnEditTrack;
+
+		m_pxDeleteTrack=cast<CButton>(GetControl("TrackEditorGroupBox/DeleteTrack"));
+		m_pxDeleteTrack^.m_xOnClick = OnDeleteTrack;
+
+		m_pxNewList=cast<CButton>(GetControl("TrackEditorGroupBox/NewTrackList"));
+		m_pxNewList^.m_xOnClick = OnNewList;
+
+		m_pxDeleteList=cast<CButton>(GetControl("TrackEditorGroupBox/DeleteTrackList"));
+		m_pxDeleteList^.m_xOnClick = OnDeleteList;
+
+		m_pxPredefinedDropList=cast<CDropList>(GetControl("GroupBoxMain/PredefinedDropList"));
+		m_pxPredefinedDropList^.m_xOnChange = OnChangePredefinedDropList;
+
+		m_pxCustomDropList=cast<CDropList>(GetControl("GroupBoxMain/CustomDropList"));
+		m_pxCustomDropList^.m_xOnChange = OnChangeCustomDropList;
+
+		m_pxTrackList=cast<CList>(GetControl("TrackEditorGroupBox/TrackList"));
+
+		m_pxListName=cast<CEdit>(GetControl("TrackEditorGroupBox/TrackListName"));
+		m_pxListName^.m_xOnChange = OnChangeListName;
+
+		m_pxMoveUp=cast<CButton>(GetControl("TrackEditorGroupBox/UpButton"));
+		m_pxMoveUp^.m_xOnClick = OnMoveUp;
+
+		m_pxMoveDown=cast<CButton>(GetControl("TrackEditorGroupBox/DownButton"));
+		m_pxMoveDown^.m_xOnClick = OnMoveDown;
+
+		m_pxLoop=cast<CCheckBox>(GetControl("TrackEditorGroupBox/LoopCheckBox"));
+		m_pxLoop^.m_xOnClick = OnLoop;
+
+		//Init
+		m_pxTrackEditorGroupBox^.SetDisabled(true);
+		m_pxPredefinedWeather^.SetChecked(1);
+		m_pxCustomDropList^.SetDisabled(true);
+
+		InitWeather("Predefined");
+		InitWeather("Custom");
+		if(!CLevelEditorWrap.GetScapeMgr().HasMap())then
+			m_pxMainGroupBox^.SetDisabled(true);
+		endif;
+	endconstructor;
+	
+	export destructor()
+		var int i,iC=m_pxCustomDropList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CWeatherListData pxData=cast<CWeatherListData>(m_pxCustomDropList^.GetItemData(i));
+			delete pxData;
+		endfor;
+		m_pxCustomDropList^.Clear();
+		iC=m_pxPredefinedDropList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CWeatherListData pxData=cast<CWeatherListData>(m_pxPredefinedDropList^.GetItemData(i));
+			delete pxData;
+		endfor;
+		m_pxPredefinedDropList^.Clear();
+	enddestructor;
+
+	//Called after level is loaded
+	export proc bool ActivateControls()
+		m_pxMainGroupBox^.SetDisabled(false);
+		return(true);
+	endproc;
+	//Moves the selected track entry up by one in tracklist.
+	proc bool OnMoveUp()
+		if(m_pxTrackList^.GetSelectedItem()!=(-1))then
+			var int iIndex=m_pxCustomDropList^.GetSelectedItem();
+			var ^CWeatherListData pxItem=cast<CWeatherListData>(m_pxCustomDropList^.GetItemData(iIndex));
+			var ^CPropDB		pxDB;
+			pxDB=pxItem^.GetPropDB();
+			var ^CPropDB.CNode pxNode=^(pxDB^.GetRoot().Get("Tracks"));
+
+			if(m_pxTrackList^.GetSelectedItem()-1<0)then return(false);endif;
+			var ^CPropDB.CNode pxUpperNode=^(pxNode^.Get(m_pxTrackList^.GetSelectedItem()-1));
+			var ^CPropDB.CNode pxLowerNode=^(pxNode^.Get(m_pxTrackList^.GetSelectedItem()));
+
+			var string sNameTmp=pxLowerNode^.GetValueS("Name");
+			var real fDurationTmp=pxLowerNode^.GetValueR("Duration");
+			var int iWindDirTmp=pxLowerNode^.GetValueI("WindDir");
+			var int iWindStrengthTmp=pxLowerNode^.GetValueI("WindStrength");
+			var int iTypeTmp=pxLowerNode^.GetValueI("Type");
+			var int iIntensityTmp=pxLowerNode^.GetValueI("Intensity");
+
+			pxLowerNode^.SetValue("Name",pxUpperNode^.GetValueS("Name"));
+			pxLowerNode^.SetValue("Duration",pxUpperNode^.GetValueR("Duration"));
+			pxLowerNode^.SetValue("WindDir",pxUpperNode^.GetValueI("WindDir"));
+			pxLowerNode^.SetValue("WindStrength",pxUpperNode^.GetValueI("WindStrength"));
+			pxLowerNode^.SetValue("Type",pxUpperNode^.GetValueI("Type"));
+			pxLowerNode^.SetValue("Intensity",pxUpperNode^.GetValueI("Intensity"));
+
+			pxUpperNode^.SetValue("Name",sNameTmp);
+			pxUpperNode^.SetValue("Duration",fDurationTmp);
+			pxUpperNode^.SetValue("WindDir",iWindDirTmp);
+			pxUpperNode^.SetValue("WindStrength",iWindStrengthTmp);
+			pxUpperNode^.SetValue("Type",iTypeTmp);
+			pxUpperNode^.SetValue("Intensity",iIntensityTmp);
+
+			m_pxTrackList^.Select(m_pxTrackList^.GetSelectedItem()-1);
+			UpdateTrackList();
+		endif;
+		return(true);
+	endproc;
+
+	//Moves the selected track entry down by one in tracklist.
+	proc bool OnMoveDown()
+		if(m_pxTrackList^.GetSelectedItem()!=(-1))then
+			var int iIndex=m_pxCustomDropList^.GetSelectedItem();
+			var ^CWeatherListData pxItem=cast<CWeatherListData>(m_pxCustomDropList^.GetItemData(iIndex));
+			var ^CPropDB pxDB;
+			pxDB=pxItem^.GetPropDB();
+			var ^CPropDB.CNode pxNode=^(pxDB^.GetRoot().Get("Tracks"));
+
+			if(m_pxTrackList^.GetSelectedItem()+1>=m_pxTrackList^.NumItems())then return(false);endif;
+			var ^CPropDB.CNode pxUpperNode=^(pxNode^.Get(m_pxTrackList^.GetSelectedItem()));
+			var ^CPropDB.CNode pxLowerNode=^(pxNode^.Get(m_pxTrackList^.GetSelectedItem()+1));
+
+			var string sNameTmp=pxUpperNode^.GetValueS("Name");
+			var real fDurationTmp=pxUpperNode^.GetValueR("Duration");
+			var int iWindDirTmp=pxUpperNode^.GetValueI("WindDir");
+			var int iWindStrengthTmp=pxUpperNode^.GetValueI("WindStrength");
+			var int iTypeTmp=pxUpperNode^.GetValueI("Type");
+			var int iIntensityTmp=pxUpperNode^.GetValueI("Intensity");
+
+			pxUpperNode^.SetValue("Name",pxLowerNode^.GetValueS("Name"));
+			pxUpperNode^.SetValue("Duration",pxLowerNode^.GetValueR("Duration"));
+			pxUpperNode^.SetValue("WindDir",pxLowerNode^.GetValueI("WindDir"));
+			pxUpperNode^.SetValue("WindStrength",pxLowerNode^.GetValueI("WindStrength"));
+			pxUpperNode^.SetValue("Type",pxLowerNode^.GetValueI("Type"));
+			pxUpperNode^.SetValue("Intensity",pxLowerNode^.GetValueI("Intensity"));
+
+			pxLowerNode^.SetValue("Name",sNameTmp);
+			pxLowerNode^.SetValue("Duration",fDurationTmp);
+			pxLowerNode^.SetValue("WindDir",iWindDirTmp);
+			pxLowerNode^.SetValue("WindStrength",iWindStrengthTmp);
+			pxLowerNode^.SetValue("Type",iTypeTmp);
+			pxLowerNode^.SetValue("Intensity",iIntensityTmp);
+
+			m_pxTrackList^.Select(m_pxTrackList^.GetSelectedItem()+1);
+			UpdateTrackList();
+		endif;
+		return(true);
+	endproc;
+
+	//Program will loop if checked.
+	proc bool OnLoop()
+		var int iIndex=m_pxCustomDropList^.GetSelectedItem();
+		var ^CWeatherListData pxItem=cast<CWeatherListData>(m_pxCustomDropList^.GetItemData(iIndex));
+		var ^CPropDB.CNode pxNode=^(pxItem^.GetPropDB()^.GetRoot());
+		if(m_pxLoop^.GetCheckMark())then
+			m_pxLoop^.SetChecked(0);
+			pxNode^.SetValue("Loop",0);
+		else
+			m_pxLoop^.SetChecked(1);
+			pxNode^.SetValue("Loop",1);
+		endif;
+		return(true);
+	endproc;
+
+	//Read weather files and initializes weather editor
+	proc bool InitWeather(string p_sType)
+		//Custom Weather
+		var Filesystem.CFileList xFileList;
+		var string sPath=CClientWrap.GetUrsRelPath()+"/Data/LevelEd/Scripts/options/Weather/"+p_sType+"Weather";
+		var int i,j;
+		var array string asLists;
+		var int iNumFiles=xFileList.ReadListEx(sPath,"*.swl",true,true);
+		for(i=0)cond(i<iNumFiles)iter(i++)do
+			if(i>xFileList.NumEntries()-1)then break;endif;
+			if(xFileList[i].m_sName.Right(4)!=".swl")then
+				xFileList.DeleteEntry(i);
+				i--;
+			else
+				var string sTemp=xFileList[i].m_sName;
+				var int iPos = sTemp.FindRev('/');
+				if(iPos!=-1)then
+					sTemp = sTemp.Mid(iPos+1);
+				endif;
+//				sTemp.Replace(CClientWrap.GetUrsRelPath()+"/Data/LevelEd/Scripts/options/Weather/"+p_sType+"Weather/","");
+				sTemp.Replace(".swl","");
+				asLists.AddEntry(sTemp);
+			endif;
+		endfor;
+		iNumFiles=asLists.NumEntries();
+		for(i=0)cond(i<iNumFiles)iter(i++)do
+			var string sTmpFileName=xFileList[i].m_sName;
+			var ^CWeatherListData pxTmp=new CWeatherListData(asLists[i]);
+			pxTmp^.LoadPropDB(sTmpFileName);
+			if(p_sType=="Custom")then
+				m_pxCustomDropList^.AddItem(asLists[i],pxTmp);
+			else
+				m_pxPredefinedDropList^.AddItem(asLists[i],pxTmp);
+			endif;
+			m_pxListName^.SetText(asLists[i]);
+		endfor;
+		if(p_sType=="Predefined")then
+			var int iIndex=m_pxPredefinedDropList^.FindItem("None");
+//			var int iIndex=asLists.FindEntry("None");
+			if(iIndex!=(-1))then
+				m_pxPredefinedDropList^.Select(iIndex);
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool OnChangeListName()
+		//ToDo
+		return(true);
+	endproc;
+
+	//Checkbox for predefined weather
+	proc bool OnPredefinedWeather()
+		m_pxPredefinedWeather^.SetChecked(1);
+		m_pxCustomWeather^.SetChecked(0);
+		m_pxTrackEditorGroupBox^.SetDisabled(true);
+		m_pxPredefinedDropList^.SetDisabled(false);
+		m_pxCustomDropList^.SetDisabled(true);
+		UpdateTrackList();
+		return(true);
+	endproc;
+
+	//Checkbox for custom weather
+	proc bool OnCustomWeather()
+		m_pxPredefinedWeather^.SetChecked(0);
+		m_pxCustomWeather^.SetChecked(1);
+		m_pxTrackEditorGroupBox^.SetDisabled(false);
+		m_pxPredefinedDropList^.SetDisabled(true);
+		m_pxCustomDropList^.SetDisabled(false);
+		UpdateTrackList();
+		return(true);
+	endproc;
+
+	//New track is beeing added to PropDB in itemdata class.
+	proc bool OnNewTrack()
+		if(m_pxCustomDropList^.GetSelectedItem()!=(-1))then
+			var int iIndex=m_pxCustomDropList^.GetSelectedItem();
+			var ^CWeatherListData pxItem=cast<CWeatherListData>(m_pxCustomDropList^.GetItemData(iIndex));
+			var ^CPropDB pxDB;
+			pxDB=pxItem^.GetPropDB();
+			var ^CPropDB.CNode pxNode=^(pxDB^.GetRoot().Get("Tracks"));
+			var int i;
+			pxNode^.AddValue("Entry","");
+			var ^CPropDB.CNode pxSubNode=^(pxNode^.Get(pxNode^.NumSubs()-1));
+			pxSubNode^.SetValue("Name","New Track");
+			pxSubNode^.SetValue("Duration",10.0f);
+			pxSubNode^.SetValue("WindDir",0);
+			pxSubNode^.SetValue("WindStrength",0);
+			pxSubNode^.SetValue("Type",0);
+			pxSubNode^.SetValue("Intensity",25);
+			UpdateTrackList();
+		endif;
+		return(true);
+	endproc;
+
+	//Deletes selected track and.
+	proc bool OnDeleteTrack()
+		if(m_pxTrackList^.GetSelectedItem()!=(-1))then
+			var int iIndex=m_pxCustomDropList^.GetSelectedItem();
+			var ^CWeatherListData pxItem=cast<CWeatherListData>(m_pxCustomDropList^.GetItemData(iIndex));
+			var ^CPropDB 	pxDB;
+			pxDB=pxItem^.GetPropDB();
+			var ^CPropDB.CNode pxRoot=^(pxDB^.GetRoot());
+			if(pxRoot==null)then return(false);endif;
+			var ^CPropDB.CNode pxTracks=pxRoot^.Get("Tracks");
+			pxTracks^.Remove(m_pxTrackList^.GetSelectedItem());
+			m_pxTrackList^.DeleteItem(m_pxTrackList^.GetSelectedItem());
+			UpdateTrackList();
+		endif;
+		return(true);
+	endproc;
+
+	//Updates tracklist with information from selected weather program.
+	proc bool UpdateTrackList()
+		KLog.LogSpam("CWeatherMgr","UpdateTrackList()");
+		var int iSelectedItem=m_pxTrackList^.GetSelectedItem();
+		m_pxTrackList^.Clear();
+		if(m_pxPredefinedWeather^.GetCheckMark())then
+			var int iIndex=m_pxPredefinedDropList^.GetSelectedItem();
+			if(iIndex==(-1))then return(false);endif;
+			var ^CWeatherListData pxItem=cast<CWeatherListData>(m_pxPredefinedDropList^.GetItemData(iIndex));
+			var ^CPropDB		pxDB;			
+			pxDB=pxItem^.GetPropDB();
+			var ^CPropDB.CNode pxRoot=^(pxDB^.GetRoot());
+			if(pxRoot==null)then
+				KLog.LogWarn("ViewLevelInfo","DB not found in item data!");
+				return(false);
+			endif;
+			if(pxRoot^.GetValueI("Loop")==1)then
+				m_pxLoop^.SetChecked(1);
+			else
+				m_pxLoop^.SetChecked(0);
+			endif;
+			var ^CPropDB.CNode pxNode=^(pxRoot^.Get(pxRoot^.Find("Tracks")));
+			var int i;
+			for(i=0)cond(i<pxNode^.NumSubs())iter(i++)do
+				var ^CPropDB.CNode pxSubNode=^(pxNode^.Get(i));
+				if(pxSubNode^.Name().Left(5)=="Entry")then
+					var string sTmp;
+					var string sName=pxSubNode^.GetValueS("Name");
+					var real fDuration=pxSubNode^.GetValueR("Duration");
+					var int iWindDir=pxSubNode^.GetValueI("WindDir");
+					var int iWindStrength=pxSubNode^.GetValueI("WindStrength");
+					var int iType=pxSubNode^.GetValueI("Type");
+					var int iIntensity=pxSubNode^.GetValueI("Intensity");
+
+					var string sWindDir;
+					switch(iWindDir)
+						case(0)do sWindDir="North";endcase;
+						case(1)do sWindDir="North-East";endcase;
+						case(2)do sWindDir="East";endcase;
+						case(3)do sWindDir="South-East";endcase;
+						case(4)do sWindDir="South";endcase;
+						case(5)do sWindDir="South-West";endcase;
+						case(6)do sWindDir="West";endcase;
+						case(7)do sWindDir="North-West";endcase;
+						case default do	endcase;
+					endswitch;
+					var string sType;
+					switch(iType)
+						case(0)do sType="None";endcase;
+						case(1)do sType="Snow";endcase;
+						case(2)do sType="Rain";endcase;
+						case default do	endcase;
+					endswitch;
+					sTmp=sName+" "+(fDuration.ToString().Left(4))+"min - "+sWindDir+" wind - "+sType+" - "+iIntensity.ToString()+"%";
+					m_pxTrackList^.AddItem(sTmp);
+				endif;
+			endfor;
+			if((iSelectedItem!=(-1))&&(iSelectedItem<(m_pxTrackList^.NumItems())))then
+				m_pxTrackList^.Select(iSelectedItem);
+			endif;
+			m_pxListName^.SetText(m_pxPredefinedDropList^.GetSelectedItemAsString());
+		else
+			var int iIndex=m_pxCustomDropList^.GetSelectedItem();
+			if(iIndex==(-1))then return(false);endif;
+			var ^CWeatherListData pxItem=cast<CWeatherListData>(m_pxCustomDropList^.GetItemData(iIndex));
+			var ^CPropDB	pxDB;			
+			pxDB=pxItem^.GetPropDB();
+			var ^CPropDB.CNode pxRoot=^(pxDB^.GetRoot());
+			if(pxRoot==null)then
+				KLog.LogWarn("ViewLevelInfo","DB not found in item data!");
+				return(false);
+			endif;
+			if(pxRoot^.GetValueI("Loop")==1)then
+				m_pxLoop^.SetChecked(1);
+			else
+				m_pxLoop^.SetChecked(0);
+			endif;
+			var int i=pxRoot^.Find("Tracks");
+			if(i==(-1))then return(false);endif;
+			var ^CPropDB.CNode pxNode=^(pxRoot^.Get(i));
+			for(i=0)cond(i<pxNode^.NumSubs())iter(i++)do
+				var ^CPropDB.CNode pxSubNode=^(pxNode^.Get(i));
+				if(pxSubNode^.Name().Left(5)=="Entry")then
+					var string sTmp;
+					var string sName=pxSubNode^.GetValueS("Name");
+					var real fDuration=pxSubNode^.GetValueR("Duration");
+					var int iWindDir=pxSubNode^.GetValueI("WindDir");
+					var int iWindStrength=pxSubNode^.GetValueI("WindStrength");
+					var int iType=pxSubNode^.GetValueI("Type");
+					var int iIntensity=pxSubNode^.GetValueI("Intensity");
+
+					var string sWindDir;
+					switch(iWindDir)
+						case(0)do sWindDir="North";endcase;
+						case(1)do sWindDir="North-East";endcase;
+						case(2)do sWindDir="East";endcase;
+						case(3)do sWindDir="South-East";endcase;
+						case(4)do sWindDir="South";endcase;
+						case(5)do sWindDir="South-West";endcase;
+						case(6)do sWindDir="West";endcase;
+						case(7)do sWindDir="North-West";endcase;
+						case default do	endcase;
+					endswitch;
+					var string sType;
+					switch(iType)
+						case(0)do sType="None";endcase;
+						case(1)do sType="Snow";endcase;
+						case(2)do sType="Rain";endcase;
+						case default do	endcase;
+					endswitch;
+					sTmp=sName+" "+(fDuration.ToString().Left(4))+"min - "+sWindDir+" wind - "+sType+" - "+iIntensity.ToString()+"%";
+					m_pxTrackList^.AddItem(sTmp);
+				endif;
+			endfor;
+			if((iSelectedItem!=(-1))&&(iSelectedItem<(m_pxTrackList^.NumItems())))then
+				m_pxTrackList^.Select(iSelectedItem);
+			endif;
+			m_pxListName^.SetText(m_pxCustomDropList^.GetSelectedItemAsString());
+			SaveCustomWeather();
+		endif;
+		return(true);
+	endproc;
+
+	//Opens modal window to enter listname.
+	proc bool OnNewList()
+		m_pxAddList=new CViewAddWeatherList(this);
+		CClientWrap.GetDesktop()^.AddChild(m_pxAddList);
+		CWindowMgr.Get().BringWindowToTop(m_pxAddList,true);
+		CWindowMgr.Get().SetModal(m_pxAddList);
+		return(true);
+	endproc;
+
+	//Opens modal window to confirm deletion.
+	proc bool OnDeleteList()
+		m_pxDelList=new CViewDelWeatherList(this);
+		CClientWrap.GetDesktop()^.AddChild(m_pxDelList);
+		CWindowMgr.Get().BringWindowToTop(m_pxDelList,true);
+		CWindowMgr.Get().SetModal(m_pxDelList);
+		return(true);
+	endproc;
+
+	//Adds new empty custom weather list.
+	export proc bool AddList(string p_sListName)
+		var ^CWeatherListData	pxTmp=new CWeatherListData(p_sListName);
+		var ^CPropDB.CNode pxNode=^(pxTmp^.GetPropDB()^.GetRoot());
+		pxNode^.SetValue("Name",p_sListName);
+		pxNode^.SetValue("Loop",0);
+		pxNode^.SetValue("Tracks","");
+		var int i=m_pxCustomDropList^.AddItem(p_sListName,pxTmp);
+		m_pxCustomDropList^.Select(i);
+		m_pxListName^.SetText(p_sListName);
+		SaveCustomWeather();
+		return(true);
+	endproc;
+
+	//Deletes selected list.
+	export proc bool DelList()
+		var int i=m_pxCustomDropList^.GetSelectedItem();
+		var ^CWeatherListData pxItem=cast<CWeatherListData>(m_pxCustomDropList^.GetItemData(i));
+		var string sFilename=m_pxCustomDropList^.GetItem(i)+".swl";
+		Filesystem.Delete(CLevelEditorWrap.GetUrsRelPath()+"/Data/LevelEd/Scripts/options/Weather/CustomWeather/"+sFilename);
+		m_pxCustomDropList^.DeleteItem(i);
+		if(m_pxCustomDropList^.NumItems()!=0)then
+			m_pxCustomDropList^.Select(0);
+		endif;
+		m_pxTrackList^.Clear();
+		m_pxListName^.SetText("");
+		UpdateTrackList();
+		return(true);
+	endproc;
+
+	//Updates tracklist if program is changed.
+	proc bool OnChangeCustomDropList()
+		m_pxListName^.SetText(m_pxCustomDropList^.GetSelectedItemAsString());
+		UpdateTrackList();
+		return(true);
+	endproc;
+
+	//Updates tracklist if program is changed.
+	proc bool OnChangePredefinedDropList()
+		m_pxListName^.SetText(m_pxPredefinedDropList^.GetSelectedItemAsString());
+		UpdateTrackList();
+		return(true);
+	endproc;
+
+	//Updates PropDB in itemdata after changes.
+	export proc bool SaveCustomWeather()
+		var int iLists=m_pxCustomDropList^.NumItems();
+		var int i;
+		for(i=0)cond(i<iLists)iter(i++)do
+			var ^CWeatherListData pxItem=cast<CWeatherListData>(m_pxCustomDropList^.GetItemData(i));
+			var string sFilename=m_pxCustomDropList^.GetItem(i)+".swl";
+			pxItem^.GetPropDB()^.Save(CLevelEditorWrap.GetUrsRelPath()+"/Data/LevelEd/Scripts/options/Weather/CustomWeather/"+sFilename);
+		endfor;
+		return(true);
+	endproc;
+
+	export proc bool UpdateTrackSettings(string p_sName, real p_fDuration, int p_iWindDir, int p_iWindStrength, int p_iType, int p_iIntensity)
+		var int iIndex=m_pxCustomDropList^.GetSelectedItem();
+		var ^CWeatherListData pxItem=cast<CWeatherListData>(m_pxCustomDropList^.GetItemData(iIndex));
+		var ^CPropDB.CNode pxNode=^(pxItem^.GetPropDB()^.GetRoot().Get("Tracks"));
+		var int i=m_pxTrackList^.GetSelectedItem();
+		var ^CPropDB.CNode pxEntry=^(pxNode^.Get(i));
+
+		if(pxEntry^.Name().Left(5)=="Entry")then
+			pxEntry^.SetValue("Name",p_sName);
+			pxEntry^.SetValue("Duration",p_fDuration);
+			pxEntry^.SetValue("WindDir",p_iWindDir);
+			pxEntry^.SetValue("WindStrength",p_iWindStrength);
+			pxEntry^.SetValue("Type",p_iType);
+			pxEntry^.SetValue("Intensity",p_iIntensity);
+		endif;
+		//Test
+		//pxItem^.GetPropDB()^.Save(CLevelEditorWrap.GetUrsRelPath()+"/Data/LevelEd/Scripts/options/Weather/testdb.tst");
+		UpdateTrackList();
+		return(true);
+	endproc;
+
+	//Opens track edit window
+	proc bool OnEditTrack()
+		if(m_pxTrackList^.GetSelectedItem()!=(-1))then
+			m_pxTrackEditor=new CLevelInfoWeatherTrackEditor(this);
+			CClientWrap.GetDesktop()^.AddChild(m_pxTrackEditor);
+			CWindowMgr.Get().BringWindowToTop(m_pxTrackEditor,true);
+			CWindowMgr.Get().SetModal(m_pxTrackEditor);
+		endif;
+		return(true);
+	endproc;
+
+	//Proc is to be called after opening an new level.
+	export proc bool LoadLevelInfo()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB;
+		pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		if(pxGenericDB!=null)then
+			var ^CPropDB.CNode pxRoot=^(pxGenericDB^.GetRoot());
+			var ^CPropDB.CNode pxWeatherData;
+			if(pxRoot^.Get("WeatherData")!=null)then
+				pxWeatherData=pxRoot^.Get("WeatherData");
+				begin clear_predefined_list;
+					var int i,iC=m_pxPredefinedDropList^.NumItems();
+					for(i=0)cond(i<iC)iter(i++)do
+						var ^CWeatherListData pxData=cast<CWeatherListData>(m_pxPredefinedDropList^.GetItemData(i));
+						delete pxData;
+					endfor;
+					m_pxPredefinedDropList^.Clear();				
+				end clear_predefined_list;
+				InitWeather("Predefined");
+				var string sTmp=pxWeatherData^.GetValueS("Name",sTmp);
+				var ^CWeatherListData	pxTmp=new CWeatherListData(sTmp);
+				var ^CPropDB.CNode pxItemDB=^(pxTmp^.GetPropDB()^.GetRoot());
+				pxItemDB^.SetValue("Name",pxWeatherData^.GetValueS("Name"));
+				pxItemDB^.SetValue("Loop",pxWeatherData^.GetValueI("Loop"));
+				var ^CPropDB.CNode pxDTracks=^(pxItemDB^.AddValue("Tracks",""));
+				if(pxWeatherData^.Get("Tracks")==null)then return(false);endif;
+				var int i,iC=pxWeatherData^.Get("Tracks")^.NumSubs();
+				var ^CPropDB.CNode pxSTracks=pxWeatherData^.Get("Tracks");
+				for(i=0)cond(i<iC)iter(i++)do
+					pxDTracks^.AddValue(pxSTracks^.Get(i).Name(),"");
+				endfor;
+				iC=pxDTracks^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CPropDB.CNode pxDEntry=^(pxDTracks^.Get(i));
+					var ^CPropDB.CNode pxSEntry=^(pxSTracks^.Get(i));
+					pxDEntry^.AddValue("Name",pxSEntry^.GetValueS("Name"));
+					pxDEntry^.AddValue("Duration",pxSEntry^.GetValueR("Duration"));
+					pxDEntry^.AddValue("WindDir",pxSEntry^.GetValueI("WindDir"));
+					pxDEntry^.AddValue("WindStrength",pxSEntry^.GetValueI("WindStrength"));
+					pxDEntry^.AddValue("Type",pxSEntry^.GetValueI("Type"));
+					pxDEntry^.AddValue("Intensity",pxSEntry^.GetValueI("Intensity"));
+				endfor;
+				var int iAddedItem=m_pxPredefinedDropList^.AddItem(sTmp+" (from File)",pxTmp);
+				m_pxPredefinedDropList^.Select(iAddedItem);
+				m_pxListName^.SetText(sTmp);
+				UpdateTrackList();
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+	//Updates weather DB in CLevelInfo. Usually called before saving a level.
+	export proc bool SaveLevelInfo()
+		if(CMirageSDKMgr.ms_iDTU==1)then
+			return true;
+		endif;
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB;
+		pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		if(pxGenericDB!=null)then
+			var ^CPropDB.CNode pxRoot=^(pxGenericDB^.GetRoot());
+			var ^CPropDB.CNode pxWeatherData;
+			if(pxRoot^.Get("WeatherData")!=null)then
+				pxWeatherData=pxRoot^.Get("WeatherData");
+			else
+				pxWeatherData=^(pxRoot^.AddValue("WeatherData",""));
+			endif;
+			pxWeatherData^.Clear();
+			if(m_pxPredefinedWeather^.GetCheckMark())then
+				if(m_pxTrackList^.GetSelectedItem()!=(-1))then
+					if(m_pxPredefinedDropList^.NumItems()!=0)then
+						var int iIndex=m_pxPredefinedDropList^.GetSelectedItem();
+						var ^CWeatherListData pxItem=cast<CWeatherListData>(m_pxPredefinedDropList^.GetItemData(iIndex));
+						var ^CPropDB.CNode pxTmp;
+						pxTmp=^(pxItem^.GetPropDB()^.GetRoot());
+						pxWeatherData^.SetValue("Name",pxTmp^.GetValueS("Name"));
+						pxWeatherData^.SetValue("Loop",pxTmp^.GetValueI("Loop"));
+						var ^CPropDB.CNode pxDTracks=^(pxWeatherData^.AddValue("Tracks",""));
+						var int i,iC=pxTmp^.Get("Tracks")^.NumSubs();
+						var ^CPropDB.CNode pxSTracks=pxTmp^.Get("Tracks");
+						for(i=0)cond(i<iC)iter(i++)do
+							pxDTracks^.AddValue(pxSTracks^.Get(i).Name(),"");
+						endfor;
+						iC=pxDTracks^.NumSubs();
+						for(i=0)cond(i<iC)iter(i++)do
+							var ^CPropDB.CNode pxDEntry=^(pxDTracks^.Get(i));
+							var ^CPropDB.CNode pxSEntry=^(pxSTracks^.Get(i));
+							pxDEntry^.AddValue("Name",pxSEntry^.GetValueS("Name"));
+							pxDEntry^.AddValue("Duration",pxSEntry^.GetValueR("Duration"));
+							pxDEntry^.AddValue("WindDir",pxSEntry^.GetValueI("WindDir"));
+							pxDEntry^.AddValue("WindStrength",pxSEntry^.GetValueI("WindStrength"));
+							pxDEntry^.AddValue("Type",pxSEntry^.GetValueI("Type"));
+							pxDEntry^.AddValue("Intensity",pxSEntry^.GetValueI("Intensity"));
+						endfor;
+					endif;
+				endif;
+				var string sTmp;
+				CLevelInfo.ConvertPropDBToString(pxGenericDB,sTmp);
+				CLevelEditorWrap.LogSpam("LevelInfo",sTmp);
+				CEvt_GenericLongStringEvent.Send("SaveLevelInfoWeather\t"+sTmp);
+			elseif(m_pxCustomWeather^.GetCheckMark())then
+				if(m_pxTrackList^.GetSelectedItem()!=(-1))then
+					if(m_pxCustomDropList^.NumItems()!=0)then
+						var int iIndex=m_pxCustomDropList^.GetSelectedItem();
+						var ^CWeatherListData pxItem=cast<CWeatherListData>(m_pxCustomDropList^.GetItemData(iIndex));
+						var ^CPropDB.CNode pxTmp;
+						pxTmp=^(pxItem^.GetPropDB()^.GetRoot());
+
+						pxWeatherData^.SetValue("Name",pxTmp^.GetValueS("Name"));
+						pxWeatherData^.SetValue("Loop",pxTmp^.GetValueI("Loop"));
+						var ^CPropDB.CNode pxDTracks=^(pxWeatherData^.AddValue("Tracks",""));
+						var int i,iC=pxTmp^.Get("Tracks")^.NumSubs();
+						var ^CPropDB.CNode pxSTracks=pxTmp^.Get("Tracks");
+						for(i=0)cond(i<iC)iter(i++)do
+							pxDTracks^.AddValue(pxSTracks^.Get(i).Name(),"");
+						endfor;
+						iC=pxDTracks^.NumSubs();
+						for(i=0)cond(i<iC)iter(i++)do
+							var ^CPropDB.CNode pxDEntry=^(pxDTracks^.Get(i));
+							var ^CPropDB.CNode pxSEntry=^(pxSTracks^.Get(i));
+							pxDEntry^.AddValue("Name",pxSEntry^.GetValueS("Name"));
+							pxDEntry^.AddValue("Duration",pxSEntry^.GetValueR("Duration"));
+							pxDEntry^.AddValue("WindDir",pxSEntry^.GetValueI("WindDir"));
+							pxDEntry^.AddValue("WindStrength",pxSEntry^.GetValueI("WindStrength"));
+							pxDEntry^.AddValue("Type",pxSEntry^.GetValueI("Type"));
+							pxDEntry^.AddValue("Intensity",pxSEntry^.GetValueI("Intensity"));
+						endfor;
+					endif;
+				endif;
+				var string sTmp;
+				CLevelInfo.ConvertPropDBToString(pxGenericDB,sTmp);
+				CLevelEditorWrap.LogSpam("LevelInfo",sTmp);
+				CEvt_GenericLongStringEvent.Send("SaveLevelInfoWeather\t"+sTmp);
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+endclass;
+
+//Itemdata, contains only PropDB for weather data
+class CWeatherListData inherit CItemData
+
+	var CPropDB		m_xDB;
+	var string		m_sName;
+
+	export constructor(string p_sName)
+		m_sName=p_sName;		
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc ^CPropDB GetPropDB()
+		return(^m_xDB);
+	endproc;
+
+	export proc bool LoadPropDB(string p_sTmpFileName);
+		m_xDB.Load(p_sTmpFileName);
+		return(true);
+	endproc;
+
+endclass;
+
+//Editor window for weather tracks
+class CLevelInfoWeatherTrackEditor inherit CFrameWindow
+
+	var ^CLevelInfoWeather		m_pxLevelInfoWeather;
+	var ^CEdit					m_pxName;
+	var ^CSpinCtrlNumber		m_pxDuration;
+	var ^CSpinCtrlNumber		m_pxWindStrength;
+	var ^CDropList				m_pxWindDirection;
+	var ^CDropList				m_pxType;
+	var ^CSpinCtrlNumber		m_pxIntensity;
+
+	var ^CButton				m_pxOkButton;
+	var ^CButton				m_pxCancelButton;
+
+	export constructor(^CLevelInfoWeather p_pxLevelInfoWeather)
+		if(!InitFromResource("options/ViewLevelInfo","LevelInfoWeatherTrackEditor")) then
+			CLevelEditorWrap.LogError("UI.ViewLevelInfo","InitFromResource failed");
+			return;
+		endif;
+		m_pxLevelInfoWeather=p_pxLevelInfoWeather;
+
+		var int iIndex=m_pxLevelInfoWeather^.m_pxCustomDropList^.GetSelectedItem();
+		var ^CWeatherListData pxItem=cast<CWeatherListData>(m_pxLevelInfoWeather^.m_pxCustomDropList^.GetItemData(iIndex));
+		var ^CPropDB		pxDB;
+		pxDB=pxItem^.GetPropDB();
+
+		var ^CPropDB.CNode pxNode=^(pxItem^.GetPropDB()^.GetRoot().Get("Tracks"));
+		var int i=m_pxLevelInfoWeather^.m_pxTrackList^.GetSelectedItem();
+		var ^CPropDB.CNode pxEntry=^(pxNode^.Get(i));
+
+		m_pxName=cast<CEdit>(GetControl("GroupBoxMain/NameEdit"));
+		m_pxName^.SetText(pxEntry^.GetValueS("Name"));
+
+		m_pxDuration=cast<CSpinCtrlNumber>(GetControl("GroupBoxMain/DurationSpinCtrl"));
+		m_pxDuration^.SetLimits(0.5f,60.0f,0.5f);
+		m_pxDuration^.SetDecimals(1);
+		m_pxDuration^.SetValue(pxEntry^.GetValueR("Duration"));
+
+		m_pxWindStrength=cast<CSpinCtrlNumber>(GetControl("GroupBoxMain/WindStrengthSpinCtrl"));
+		m_pxWindStrength^.SetLimits(0,120,1);
+		m_pxWindStrength^.SetValue(pxEntry^.GetValueR("WindStrength"));
+
+		m_pxWindDirection=cast<CDropList>(GetControl("GroupBoxMain/WindDirectionDropList"));
+		m_pxWindDirection^.AddItem("North");
+		m_pxWindDirection^.AddItem("North-East");
+		m_pxWindDirection^.AddItem("East");
+		m_pxWindDirection^.AddItem("South-East");
+		m_pxWindDirection^.AddItem("South");
+		m_pxWindDirection^.AddItem("South-West");
+		m_pxWindDirection^.AddItem("West");
+		m_pxWindDirection^.AddItem("North-West");
+		m_pxWindDirection^.Select(pxEntry^.GetValueI("WindDir"));
+
+		m_pxType=cast<CDropList>(GetControl("GroupBoxMain/WeatherTypeDropList"));
+		m_pxType^.AddItem("Nothing");
+		m_pxType^.AddItem("Snow");
+		m_pxType^.AddItem("Rain");
+		m_pxType^.Select(pxEntry^.GetValueI("Type"));
+
+		m_pxIntensity=cast<CSpinCtrlNumber>(GetControl("GroupBoxMain/IntensitySpinCtrl"));
+		m_pxIntensity^.SetLimits(1,100,1);
+		m_pxIntensity^.SetValue(pxEntry^.GetValueI("Intensity"));
+
+		m_pxOkButton=cast<CButton>(GetControl("OkButton"));
+		m_pxOkButton^.m_xOnClick = OnOk;
+
+		m_pxCancelButton=cast<CButton>(GetControl("CancelButton"));
+		m_pxCancelButton^.m_xOnClick = OnCancel;
+
+	endconstructor;
+
+	proc bool OnOk()
+		m_pxLevelInfoWeather^.UpdateTrackSettings(m_pxName^.GetText(),m_pxDuration^.GetValueFloat(),m_pxWindDirection^.GetSelectedItem(),m_pxWindStrength^.GetValueInt(),m_pxType^.GetSelectedItem(),m_pxIntensity^.GetValueInt());
+		m_pxLevelInfoWeather^.SaveCustomWeather();
+		Destroy();
+		return(true);
+	endproc;
+
+	proc bool OnCancel()
+		Destroy();
+		return(true);
+	endproc;
+
+endclass;
+
+
+//Window for entering the name of a new list.
+class CViewAddWeatherList inherit CEnhancedFrameWindow;
+
+	var string				m_sListName;
+	var ^CLevelInfoWeather	m_pxLevelInfoWeather;
+
+	export constructor(^CLevelInfoWeather p_pxLevelInfoWeather)
+		if(!InitFromResource("options/ViewLevelInfo","AddWeatherList")) then
+			CLevelEditorWrap.LogError("UI.ViewLevelInfo","InitFromResource failed");
+			return;
+		endif;
+
+		m_pxLevelInfoWeather=p_pxLevelInfoWeather;
+
+		var ^CButton pxOkButton = cast<CButton>(GetControl("OkButton"));
+		pxOkButton^.m_xOnClick=OnOk;
+
+		var ^CButton pxCancelButton = cast<CButton>(GetControl("CancelButton"));
+		pxCancelButton^.m_xOnClick=OnCancel;
+
+		var ^CEdit pxNameEdit = cast<CEdit>(GetControl("NameEdit"));
+		pxNameEdit^.m_xOnChange=OnEditName;
+
+		SetPos((CClientWrap.GetDesktop()^.GetSize().GetX()/2)-GetSize().GetX()/2,(CClientWrap.GetDesktop()^.GetSize().GetY()/2)-GetSize().GetY()/2);
+
+		SetCmd("OnOk", OnOk );
+		pxNameEdit^.AddAccelerator("RETURN,NONE,OnOk");
+	endconstructor;
+
+	proc bool OnEditName()
+		return(true);
+	endproc;
+
+	proc bool OnOk()
+		var ^CEdit pxNameEdit = cast<CEdit>(GetControl("NameEdit"));
+		m_sListName=pxNameEdit^.GetText();
+		if(m_sListName!="")then
+			m_pxLevelInfoWeather^.AddList(m_sListName);
+			Destroy();
+		endif;
+		return(true);
+	endproc;
+
+	proc bool OnCancel()
+		Destroy();
+		return(true);
+	endproc;
+
+endclass;
+
+//Confirmation window for file deletion.
+class CViewDelWeatherList inherit CEnhancedFrameWindow;
+
+	var ^CLevelInfoWeather	m_pxLevelInfoWeather;
+
+	export constructor(^CLevelInfoWeather p_pxLevelInfoWeather)
+		if(!InitFromResource("options/ViewLevelInfo","DelWeatherList")) then
+			CLevelEditorWrap.LogError("UI.ViewLevelInfo","InitFromResource failed");
+			return;
+		endif;
+
+		m_pxLevelInfoWeather=p_pxLevelInfoWeather;
+
+		var ^CButton pxOkButton = cast<CButton>(GetControl("OkButton"));
+		pxOkButton^.m_xOnClick=OnOk;
+
+		var ^CButton pxCancelButton = cast<CButton>(GetControl("CancelButton"));
+		pxCancelButton^.m_xOnClick=OnCancel;
+
+		SetPos((CClientWrap.GetDesktop()^.GetSize().GetX()/2)-GetSize().GetX()/2,(CClientWrap.GetDesktop()^.GetSize().GetY()/2)-GetSize().GetY()/2);
+
+	endconstructor;
+
+	proc bool OnOk()
+		m_pxLevelInfoWeather^.DelList();
+		Destroy();
+		return(true);
+	endproc;
+
+	proc bool OnCancel()
+		Destroy();
+		return(true);
+	endproc;
+
+endclass;
+
+class CLevelInfoItems inherit CWindow
+
+	var ^CPropDB.CNode		m_pxItemsNode;
+	var ^CPropDB.CNode		m_pxItemsPool;
+
+	var ^CList 				m_pxItemsAll;
+	var ^CList 				m_pxItemsUsed;
+	var ^CButton 			m_pxBtnAddItem;
+	var ^CButton 			m_pxBtnDelItem;
+	var ^CWindow 			m_pxDataBox;
+	var ^CSpinCtrlNumber	m_pxMaxItems;
+
+	export constructor()
+		if(!InitFromResource("options/ViewLevelInfo","LevelInfoItems")) then
+			CLevelEditorWrap.LogError("UI.LevelInfoItems","InitFromResource failed");
+			return;
+		endif;
+
+		m_pxItemsAll=cast<CList>(GetControl("AllItems"));
+		m_pxItemsUsed=cast<CList>(GetControl("UsedItems"));
+
+		m_pxDataBox=GetControl("Data");
+		m_pxMaxItems=cast<CSpinCtrlNumber>(m_pxDataBox^.GetControl("MaxItems"));
+		m_pxBtnAddItem=cast<CButton>(GetControl("BtnAdd"));
+		m_pxBtnDelItem=cast<CButton>(GetControl("BtnDel"));
+		m_pxBtnAddItem^.m_xOnClick=OnAddItem;
+		m_pxBtnDelItem^.m_xOnClick=OnDelItem;
+	endconstructor;
+
+	export proc void Init(^CPropDB.CNode p_pxItemsNode)
+		m_pxItemsNode=p_pxItemsNode;
+		m_pxItemsPool=m_pxItemsNode^.Get("Pool");
+		if(m_pxItemsPool==null)then
+			m_pxItemsPool=^(m_pxItemsNode^.AddValue("Pool",""));
+		endif;
+		m_pxItemsAll^.Clear();
+		m_pxItemsUsed^.Clear();
+
+		var array string asAllItems;
+		var CTechTreeDef xTTDef;
+		var CTechTree xTT=CTechTreeMgr.Get().GetTechTree(xTTDef);
+		var ^CTechTree.CNode pxItemsRoot=xTT.FindNode("Items/Objects");
+		if(pxItemsRoot!=null)then
+			var int i,iC=pxItemsRoot^.NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CTechTree.CNode pxWalk=pxItemsRoot^.GetSub(i);
+				var string sName=pxWalk^.GetName();
+				asAllItems.AddEntry(sName);
+			endfor;
+		endif;
+
+		var int i,iC=m_pxItemsPool^.NumSubs();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPropDB.CNode pxWalk=^(m_pxItemsPool^.Get(i));
+			var string sName=pxWalk^.Name();
+			if(sName.IsEmpty()) then continue; endif;
+			var int iItemIdx=-1;
+			var int k,ikC=asAllItems.NumEntries();
+			for(k=0)cond(k<ikC)iter(k++)do
+				if(asAllItems[k]==sName)then
+					iItemIdx=k;
+					break;
+				endif;
+			endfor;
+			if(iItemIdx!=-1)then
+				asAllItems.DeleteEntry(iItemIdx);
+				m_pxItemsUsed^.AddItem(sName);
+			endif;
+		endfor;
+
+		iC=asAllItems.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_pxItemsAll^.AddItem(asAllItems[i]);
+		endfor;
+		m_pxItemsAll^.QSort();
+		m_pxItemsUsed^.QSort();
+
+		m_pxMaxItems^.m_xOnChange.Clear();
+		m_pxMaxItems^.SetValue(m_pxItemsNode^.GetValueI("MaxItems",0));
+		m_pxMaxItems^.m_xOnChange=OnChangeMaxItems;
+	endproc;
+
+	proc bool OnAddItem()
+		var int i,iC=m_pxItemsAll^.NumItems();
+		for(i=0)cond(i<iC)iter(++i)do
+			if(!m_pxItemsAll^.IsItemSelected(i))then continue; endif;
+			var string sItem=m_pxItemsAll^.GetItem(i);
+			m_pxItemsUsed^.AddItem(sItem);
+			m_pxItemsAll^.DeleteItem(i);i--;iC--;
+			m_pxItemsPool^.AddValue(sItem,"");
+		endfor;
+		m_pxItemsUsed^.QSort();
+		return true;
+	endproc;
+
+	proc bool OnDelItem()
+		var int i,iC=m_pxItemsUsed^.NumItems();
+		for(i=0)cond(i<iC)iter(++i)do
+			if(!m_pxItemsUsed^.IsItemSelected(i))then continue; endif;
+			var string sItem=m_pxItemsUsed^.GetItem(i);
+			m_pxItemsAll^.AddItem(sItem);
+			m_pxItemsUsed^.DeleteItem(i);i--;iC--;
+			m_pxItemsPool^.Remove(sItem);
+		endfor;
+		m_pxItemsAll^.QSort();
+		return true;
+	endproc;
+
+	proc bool OnChangeMaxItems()
+		var int iMaxItems=m_pxMaxItems^.GetValueInt();
+		m_pxItemsNode^.SetValue("MaxItems",iMaxItems);
+		return true;
+	endproc;
+
+endclass;
+
+class CLevelInfoMirage inherit CFrameWindow;
+	
+	var ^CPropDB.CNode	m_pxSourceNode;
+	var ^CEdit					m_pxNodeName;
+	var ^CEdit					m_pxNodeValue;
+	var ^CButton				m_pxCreateNode;
+	var ^CButton				m_pxRemoveNode;
+	var string					m_sNodeName;
+	var string					m_sNodeValue;
+	
+	export constructor()
+		if(!InitFromResource("options/ViewLevelInfo","MirageSettings"))then
+			CLevelEditorWrap.LogError("UI.ViewLevelInfo","InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxNodeName=cast<CEdit>(GetControl("GroupBoxMain/NameEdit"));
+		m_pxNodeName^.SetTabStop(true);
+		
+		m_pxNodeValue=cast<CEdit>(GetControl("GroupBoxMain/ValueEdit"));
+		m_pxNodeValue^.SetTabStop(true);
+		
+	endconstructor;
+
+	export proc void Init(^CPropDB.CNode p_pxSourceNode)
+		m_pxSourceNode=p_pxSourceNode;
+		if(m_pxSourceNode==null)then return; endif;
+		
+		m_pxNodeName^.m_xOnChange.Clear();
+		m_pxNodeName^.SetText("");
+		m_pxNodeName^.m_xOnChange=OnChangeNodeName;
+		
+		m_pxNodeValue^.m_xOnChange.Clear();
+		m_pxNodeValue^.SetText("");
+		m_pxNodeValue^.m_xOnChange=OnChangeNodeValue;
+		
+		m_pxCreateNode=cast<CButton>(GetControl("GroupBoxMain/CreateNode"));
+		m_pxCreateNode^.m_xOnClick = OnCreateNode;
+		
+		m_pxRemoveNode=cast<CButton>(GetControl("GroupBoxMain/RemoveNode"));
+		m_pxRemoveNode^.m_xOnClick = OnRemoveNode;
+	endproc;
+	
+	proc bool OnChangeNodeName()
+		var string sPrev=m_sNodeName;
+		m_sNodeName=m_pxNodeName^.GetText();
+		if(sPrev==m_sNodeName)then return true; endif;
+		var ^CPropDB.CNode pxNode=^(m_pxSourceNode^.Get(m_sNodeName));
+		if(pxNode!=null)then
+			m_sNodeValue = pxNode^.Value();
+			m_pxNodeValue^.SetText(m_sNodeValue);
+		else
+			m_sNodeValue="";
+			m_pxNodeValue^.SetText("");
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnChangeNodeValue()
+		var string sPrev=m_sNodeValue;
+		m_sNodeValue=m_pxNodeValue^.GetText();
+		if(sPrev==m_sNodeValue)then return true; endif;
+		var ^CPropDB.CNode pxNode=^(m_pxSourceNode^.Get(m_sNodeName));
+		if(pxNode!=null)then
+			m_pxSourceNode^.SetValue(m_sNodeName,m_sNodeValue);
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnCreateNode()
+		if(m_sNodeName=="")then return true; endif;
+		if(m_pxSourceNode^.Get(m_sNodeName)!=null)then return true; endif;
+		if(m_sNodeValue=="")then m_sNodeValue="0"; m_pxNodeValue^.SetText(m_sNodeValue); endif;
+		m_pxSourceNode^.AddValue(m_sNodeName,m_sNodeValue);
+		return true;
+	endproc;
+	
+	proc bool OnRemoveNode()
+		if(m_sNodeName=="")then return true; endif;
+		if(m_pxSourceNode^.Get(m_sNodeName)==null)then return true; endif;
+		m_pxSourceNode^.Remove(m_sNodeName);
+		m_sNodeName="";
+		m_sNodeValue="";
+		m_pxNodeName^.SetText("");
+		m_pxNodeValue^.SetText("");
+		return true;
+	endproc;
+	
+endclass;

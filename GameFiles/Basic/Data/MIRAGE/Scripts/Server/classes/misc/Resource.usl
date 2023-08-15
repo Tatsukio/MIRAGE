@@ -1,0 +1,1108 @@
+
+class CResource inherit CGameObj
+	
+	export static var bool ms_bCORPSEDMG;
+	
+	export const int VIS_FLAG_RSRC_STATE1		=5;
+	export const int VIS_FLAG_RSRC_STATE2		=6;
+	export const int VIS_FLAG_RSRC_STATE3		=7;
+	export const int VIS_FLAG_RSRC_STATE4		=8;
+	export const int VIS_FLAG_RSRC_STATE5		=9;
+	export const int VIS_FLAG_RSRC_STATE6		=10;
+	
+	export var real			m_fValue;
+	var array real			m_afState;
+	var real						m_fState1, m_fState2, m_fState3, m_fState4, m_fState5;
+	export var bool			m_bPBlocker;
+	
+	export constructor()
+		m_afState=6;
+		m_afState[0]=0.0f;
+		m_afState[1]=100.0f;
+		m_afState[2]=250.0f;
+		m_afState[3]=500.0f;
+		m_afState[4]=750.0f;
+		m_afState[5]=1000.0f;
+		m_bPBlocker=true;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="must";
+		var int iVersion=1;
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,iVersion);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		if(iVersion>=1)then
+			(pxArc^) << m_bPBlocker;
+		endif;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="must")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			if(p_pxReaderNode^.GetVersion()==1)then
+				(pxArc^) << m_bPBlocker;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc void OnInit(bool p_bLoad)
+		var int i;
+		if(!p_bLoad)then
+			//SetType("RSRC");
+			SetHitable(true);
+			SetSelectable(true);
+			UpdateValues();
+		else
+			var ^CAttribs pxAttribs=CheckAttribs();
+			m_fValue = pxAttribs^.GetValueInt("value").ToReal();
+			RepairValues(); //WT#951
+		endif;
+		SetPlaceBlocker(m_bPBlocker);
+		var bool bShowResourcesInFOW = CMirageSrvMgr.Get().ShowResourcesInFOW()&&GetOwner()==-1;
+		SetVisInFOW(bShowResourcesInFOW);
+	endproc;
+	
+	export proc bool Inactive()
+		return false;
+	endproc;
+	
+	export proc void UpdateValues()
+		var ^CAttribs pxAttribs=InitAttribs();
+		var ^CPropDB pxTable = CServerApp.GetPropDB_Resources();
+		if(pxTable!=null)then
+			var ^CPropDB.CNode pxRoot = ^(pxTable^.GetRoot());
+			if(pxRoot!=null)then
+				var ^CPropDB.CNode pxType = pxRoot^.Get(GetType().AsString());
+				if(pxType!=null)then
+					var ^CPropDB.CNode pxResource = pxType^.Get(GetClassName());
+					var ^CPropDB.CNode pxValue = null;
+					if(pxResource!=null)then
+						pxValue = pxResource^.Get("value");
+					endif;
+					if(pxValue!=null)then
+						m_fValue = pxResource^.GetValueI("value").ToReal();
+						if(CMirageSrvMgr.Get().SpeedUp())then
+//							m_fValue+=300.0f;
+						endif;
+						pxAttribs^.SetValue("value",m_fValue.ToInt());
+						pxAttribs^.SetValue("hitpoints",m_fValue.ToInt());
+						pxAttribs^.SetValue("maxhitpoints",m_fValue.ToInt());
+						//L CSrvWrap.LogSpam("Resource",GetName()+": set to "+m_fValue.ToString());
+					else
+						KLog.LogError("CResource","Missing Entry in Resources.txt: "+GetClassName());
+						//fallback
+						pxAttribs^.SetValue("value",100);
+						pxAttribs^.SetValue("hitpoints",100);
+						pxAttribs^.SetValue("maxhitpoints",100);
+					endif;
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	//WT#951 update resources with invalid hitpoint values
+	export proc void RepairValues()
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs!=null && pxAttribs^.GetValueInt("value")>0 && (pxAttribs^.GetValueInt("hitpoints")<=0||pxAttribs^.GetValueInt("maxhitpoints")<=0) )then
+			pxAttribs^.SetValue("value",m_fValue.ToInt());
+			pxAttribs^.SetValue("hitpoints",pxAttribs^.GetValueInt("value"));
+			pxAttribs^.SetValue("maxhitpoints",pxAttribs^.GetValueInt("value"));
+		endif;
+	endproc;
+	
+	proc ^CAttribs CheckAttribs()
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs==null)then
+			pxAttribs=InitAttribs();
+		endif;
+		return pxAttribs;
+	endproc;
+	
+	export proc bool SetValue(real p_fValue)
+		if(m_fValue==p_fValue)then return false;endif;
+		m_fValue=Math.Max(p_fValue,0.0f);
+		GetAttribs()^.SetValue("value",(m_fValue+0.5).ToInt());
+		GetAttribs()^.SetValue("hitpoints",(m_fValue+0.5).ToInt());
+		if(m_fValue<=0.5f)then
+			RemoveFG();
+		endif;
+		return true;
+	endproc;
+	
+	export proc void RemoveFG()
+		Delete();
+		return;
+	endproc;
+	
+	export proc real GetValue()
+		return m_fValue;
+	endproc;
+	
+	// PROC MINE ==================================
+	export proc real Mine(real p_fValue)
+		var real fOldVal=m_fValue;
+		SetValue(m_fValue-p_fValue);
+		var real fNewVal=m_fValue;
+		OnMine();
+		return (fOldVal-fNewVal);
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()=="Mine")then
+			Mine(p_rxEvtPtr.GetFloat(0));
+		endif;
+	endproc;
+	
+	export proc void OnUpdateFlags()
+		var real fV = GetValue();
+		var int i = m_afState.NumEntries()-1;
+		for(i=i) cond(i>=0) iter(--i)do
+			if(fV >= m_afState[i]) then break; endif;
+		endfor;
+		var int iS = i;
+		var int iC=m_afState.NumEntries();
+		for(i=0) cond(i<iC) iter(++i)do
+			SetRndInvMaskSingleFlagInv(5+i, i==iS);
+		endfor;
+	endproc;
+	
+	proc void OnMine()
+	endproc;
+	
+	export proc real FoodFactor()
+		return 1.0f;
+	endproc;
+	
+	export proc bool SkipThis()
+		return false;
+	endproc;
+	
+	proc void SetSkipThis()
+		var ^CAttribs pxAttr = GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("skip_this", 1);
+		endif;
+	endproc;
+	
+	export proc void HandleEditorCommand(string p_sCommand,^CGameObj p_pxObject,vec3 p_vPos,string p_sMiscParams)
+		if(p_sCommand=="SetPFBBlocking")then
+			var bool bBlock=p_sMiscParams=="true";
+			m_bPBlocker=bBlock;
+			var ^CAttribs pxA=GetAttribs();
+			if(pxA==null)then pxA=InitAttribs(); endif;
+			if(pxA!=null)then
+				pxA^.SetValue("blocker",bBlock);
+			endif;
+			if(bBlock)then
+				CSrvWrap.GetPathfinder().AddPFBlocker(this);
+			else
+				CSrvWrap.GetPathfinder().RemPFBlocker(this);
+			endif;
+			SetPlaceBlocker(bBlock);
+		else
+			super.HandleEditorCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams);
+		endif;
+	endproc;
+	
+endclass;
+	
+// CLASS CSTONE ==================================
+class CStone inherit CResource
+	
+	export proc void OnInit(bool p_bLoad)
+		if(!p_bLoad)then
+			SetType("STON");
+		endif;
+		super.OnInit(p_bLoad);
+		if(m_bPBlocker)then
+			SetFreeBorderBlocker(true);
+			CSrvWrap.GetPathfinder().AddPFBlocker(this);
+		endif;
+		OnUpdateFlags();
+	endproc;
+	
+	export proc void OnMine()
+		OnUpdateFlags();
+	endproc;
+	
+endclass;
+
+// CLASS CFOOD ===================================
+class CFood inherit CResource
+	
+	export proc void OnInit(bool p_bLoad)
+		if(!p_bLoad)then
+		endif;
+		super.OnInit(p_bLoad);
+	endproc;
+	
+	export proc void OnMine()
+	endproc;
+	
+endclass;
+	
+class CFoodFood inherit CFood
+	
+	export var bool			m_bFromSaveGame;
+	var CObjHndl				m_xSpirit;
+	
+	export proc void OnInit(bool p_bLoad)
+		if(!p_bLoad)then
+			m_bFromSaveGame=false;
+			SetType("FOOD");
+		else
+			m_bFromSaveGame=true;
+		endif;
+		super.OnInit(p_bLoad);
+	endproc;
+	
+	export proc void SetSprt(CObjHndl p_xSpirit)
+		m_xSpirit=p_xSpirit;
+	endproc;
+	
+	export proc CObjHndl GetSpirit()
+		return m_xSpirit;
+	endproc;
+	
+	export proc void SpiritCorpseTimer(bool p_bOn, real p_fDuration)
+	endproc;
+	
+endclass;
+	
+class CFruitFood inherit CFood
+	
+	export proc void OnInit(bool p_bLoad)
+		if(!p_bLoad)then
+		endif;
+		SetType("FRUI");
+		super.OnInit(p_bLoad);
+		var ^CAttribs pxAttribs=CheckAttribs();
+		if(pxAttribs!=null && pxAttribs^.GetValueInt("value")==0)then
+			UpdateValues();
+		endif;
+	endproc;
+	
+	export proc real FoodFactor()
+		return 3.0f;
+	endproc;
+	
+endclass;
+	
+// CLASS CWOOD ==================================
+class CWood inherit CResource
+	
+	var CObjList m_xWorkers;
+	var int m_iMaxWorkers;
+	
+	export proc void OnInit(bool p_bLoad)
+		if(!p_bLoad)then
+			SetDynamicBBox(true);
+			SetType("WOOD");
+			m_bPBlocker=false;
+		endif;
+		super.OnInit(p_bLoad);
+//		SetPlaceBlocker(false); //RT#17429
+		SetPlaceBlocker(m_bPBlocker); //RT#17429
+		var bool bNormal = (cast<CWood_Corpse>(this)==null);
+		m_iMaxWorkers = 5;
+		if(bNormal)then
+			SetAnim("chop_down_0"+(Random.GetInt()%3 + 1 ).ToString(),1);
+			if(!p_bLoad)then
+				CAiInterface.TreeRemoved( GetPos() );
+			endif;
+			var ^CAttribs pxAttr = GetAttribs();
+			if(pxAttr!=null)then
+				pxAttr^.SetValue("Plant", true);
+			endif;
+		endif;
+	endproc;
+	
+	export proc void OnMine()
+		OnUpdateFlags();
+	endproc;
+	
+	export proc bool AddWorker(CObjHndl p_xHndl)
+		m_xWorkers.Validate();
+		if (p_xHndl.IsValid() && m_xWorkers.NumEntries() < m_iMaxWorkers) then
+			m_xWorkers.Include(p_xHndl);
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	export proc bool Remove(CObjHndl p_xHndl)
+		return m_xWorkers.RemEntry(p_xHndl);
+	endproc;
+	
+	export proc bool IsInList(CObjHndl p_xHndl)
+		return m_xWorkers.FindEntry(p_xHndl) >= 0;
+	endproc;
+	
+	export proc real GetValueLeft()
+		return m_fValue;
+	endproc;
+	
+	export proc real FoodFactor()
+		return 2.0f;
+	endproc;
+	
+endclass;
+	
+// CLASS CDINO_FOOD =================================
+class CDino_Food inherit CFoodFood
+	
+	var int			m_iAnimalNumber;
+	var int			m_iState;
+	var int			m_iSizeClass;
+	var real		m_fDamage;
+	var int			m_iAggressive;
+	var bool		m_bFeignDeath;
+	var bool		m_bResurrecting;
+	var bool		m_bDelImminent;
+	var vec3		m_vHeight;
+	var int			m_iLastFrame;
+	var real		m_fHeightFix;
+	var real		m_fSpeed;
+	var array CUniversalLinkObj m_axLinkedObjs;
+	
+	export const int VIS_FLAG_ANML_PARTYCOL		=5;
+	export const int VIS_FLAG_ANML_SADDLE		=6;
+	export const int VIS_FLAG_ANML_HELMET		=7;
+	export const int VIS_FLAG_ANML_ARMOR		=8;
+	export const int VIS_FLAG_ANML_STANDARTE	=9;
+	export const int VIS_FLAG_ANML_ARMORSADDLE	=10;
+	export const int VIS_FLAG_ANML_MISC			=11;
+	
+	const int		ROTTENTIMER=229;
+	const int		COVERTIMER1=1923;
+	const int		COVERTIMER2=1924;
+	const int		AREADAMAGETIMER=1905;
+	const int		TIMER_SPIRIT_CORPSE=40162;
+	const int		TIMER_FALLING=40168;
+	const int		TIMER_EMERGING=40183;
+	
+	var CObjHndl	m_xCorpseObj;
+	
+	//Buildup stuff
+	var int							m_iBuildUpType;			///! Type of BuildUp, see BuildUp.usl for details
+	var ^CBuildUpBase		m_pxBuildUp;			///! pointer to a BuildUp
+	
+	constructor()
+		m_iState = -1;
+		m_iAggressive=0;
+		m_bFeignDeath=false;
+		m_iSizeClass = 0;
+		m_fDamage = 0.0;
+		m_bResurrecting=false;
+		m_bDelImminent=false;
+		m_pxBuildUp=null;
+	endconstructor;
+	
+	export proc void OnInit(bool p_bLoad)
+		if(!p_bLoad)then
+			SetDynamicBBox(true);
+			m_bPBlocker=false;
+		endif;
+		InitEvents();
+		super.OnInit(p_bLoad);
+//		SetPlaceBlocker(false);
+		SetPlaceBlocker(m_bPBlocker);
+		var real fAnimLength;
+		if((GetClassName().Find("baryonyx")!=-1||GetClassName().Find("Miyagi_s0")!=-1) && IsInWater())then
+			SetAnim("drown",1,0,fAnimLength);
+		else
+			SetAnim("dying",1,0,fAnimLength);
+		endif;
+		InvokeGenericSCEvent(40,4.0);
+		var bool bUnitRes = CMirageSrvMgr.Get().UnitResources();
+		if(!p_bLoad)then
+			var ^CAttribs pxAttr=GetAttribs();
+			if(pxAttr!=null)then
+				var string sClassName=GetClassName();
+				sClassName.Replace("_food","");
+				pxAttr^.SetValue("class",sClassName);
+				pxAttr^.SetValue("Meat", true);
+				pxAttr^.SetValue("food_guid", GetGuid().ToString());
+				if(IsInWater())then
+					pxAttr^.SetValue("fish", 1);
+				endif;
+			endif;
+			var real fRottenDur=120.0f;
+			if((GetOwner()!=-1&&!bUnitRes))then
+				fRottenDur=12.0f;
+				SetHitable(false);
+				SetSelectable(false);
+			endif;
+			m_fDamage = ImpactDmg();
+			CreateTimer(ROTTENTIMER, CGameTimeSpan.OneSecond()*fRottenDur, false);
+		endif;
+		// endless timer !
+		if(fAnimLength < 1.0f)then
+			fAnimLength = 1.0f;
+		endif;
+		if(GetOwner()!=-1) then
+			m_fHeightFix=fAnimLength;
+			//CreateTimer(COVERTIMER1, CGameTimeSpan.OneSecond()*(fAnimLength-1.0f), false);
+			//CreateTimer(COVERTIMER2, CGameTimeSpan.OneSecond()*(fAnimLength-0.6f), false);
+		endif;
+		UpdateLinkedObjs();
+	endproc;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xBase="DiFo"; //Dino Food
+		var int iVersion = 14;
+		if(CMirageSrvMgr.SDK())then
+			iVersion=9;
+		endif;
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,iVersion);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		(pxArc^) << m_iBuildUpType;
+		if(HasBuildUp())then
+			GetBuildUp()^.DoKArc(pxArc^, iVersion);
+		endif;
+		(pxArc^) << m_iAggressive;
+		if(iVersion>=10)then
+			(pxArc^) << m_bFeignDeath;
+			(pxArc^) << m_iSizeClass;
+			(pxArc^) << m_fDamage;
+		endif;
+		if(iVersion>=11)then
+			(pxArc^) << m_bResurrecting;
+			(pxArc^) << m_bDelImminent;
+		endif;
+		if(iVersion>=12)then
+			(pxArc^) << m_vHeight;
+			(pxArc^) << m_iLastFrame;
+			(pxArc^) << m_fHeightFix;
+		endif;
+		if(iVersion>=13)then
+			var int i, iC = m_axLinkedObjs.NumEntries();
+			(pxArc^) << iC;
+			for(i=0)cond(i<iC)iter(i++)do
+				m_axLinkedObjs[i].DoKArcResource(pxArc^, iVersion);
+			endfor;
+		endif;
+		if(iVersion>=14)then
+			(pxArc^) << m_fSpeed;
+		endif;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="DiFo")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVer=p_pxReaderNode^.GetVersion();
+			if(iVer>=7)then
+				(pxArc^) << m_iBuildUpType;
+				if(HasBuildUp())then
+					m_pxBuildUp = CBuildUpFactory.Get().CreateBuildUp(m_iBuildUpType);
+					GetBuildUp()^.DoKArc(pxArc^, iVer);
+				endif;
+			endif;
+			if(iVer>=9)then
+				(pxArc^) << m_iAggressive;
+			endif;
+			if(iVer>=10)then
+				(pxArc^) << m_bFeignDeath;
+				(pxArc^) << m_iSizeClass;
+				(pxArc^) << m_fDamage;
+			endif;
+			if(iVer>=11)then
+				(pxArc^) << m_bResurrecting;
+				(pxArc^) << m_bDelImminent;
+			endif;
+			if(iVer>=12)then
+				(pxArc^) << m_vHeight;
+				(pxArc^) << m_iLastFrame;
+				(pxArc^) << m_fHeightFix;
+			endif;
+			if(iVer>=13)then
+				var int i, iC;
+				(pxArc^) << iC;
+				m_axLinkedObjs = iC;
+				for(i=0)cond(i<iC)iter(i++)do
+					m_axLinkedObjs[i].DoKArcResource(pxArc^, iVer);
+				endfor;
+			endif;
+			if(iVer>=14)then
+				(pxArc^) << m_fSpeed;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc void OnPostLoad()
+		super.OnPostLoad();
+		UpdateLinkedObjs();
+	endproc;
+	
+	export proc void Delete()
+		var int i, iC = m_axLinkedObjs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxObj = m_axLinkedObjs[i].GetHandle().GetObj();
+			if(pxObj==null)then continue; endif;
+			RemGroupedChildren(pxObj^.GetGuid());
+			pxObj^.Delete();
+		endfor;
+		super.Delete();
+	endproc;
+	
+	export proc bool HasBuildUp()
+		return m_iBuildUpType!=CBuildUpBase.TYPE_NONE;
+	endproc;
+	
+	export proc ^CBuildUpBase GetBuildUp()
+		return m_pxBuildUp;
+	endproc;
+	
+	export proc int GetAggressive()
+		return m_iAggressive;
+	endproc;
+	
+	export proc void SetAggressive(int p_iValue)
+		m_iAggressive=p_iValue;
+	endproc;
+	
+	export proc void SetBuildUp(int p_iType)
+		m_iBuildUpType = p_iType;
+		m_pxBuildUp = CBuildUpFactory.Get().CreateBuildUp(p_iType);
+		if(m_pxBuildUp!=null)then
+			m_pxBuildUp^.SetParent(GetHandle());
+		endif;
+	endproc;
+	
+	export proc void Initialize(^CGameObj p_pxObj, int p_iSizeClass, bool p_bFeignD)
+		Initialize(p_pxObj,p_iSizeClass,p_bFeignD,0.0f,0,0.0f);
+	endproc;
+	
+	export proc void Initialize(^CGameObj p_pxObj, int p_iSizeClass, bool p_bFeignD, real p_fAnim, int p_iLastFrame, real p_fHeightFix)
+		if(p_pxObj==null) then return; endif;
+		SetNoParticles(p_pxObj^.GetNoParticles());
+		var ^CAttribs pxAttribs=GetAttribs();
+		if(pxAttribs!=null)then
+			pxAttribs^.SetValue("Meat", !p_bFeignD);
+			m_bFeignDeath = p_bFeignD;
+		endif;
+		var ^CTransportObj pxTO = cast<CTransportObj>(p_pxObj);
+		if(pxTO!=null)then
+			pxTO^.m_xCorpse = GetHandle();
+		endif;
+		var ^CAnimal pxAnimal = cast<CAnimal>(p_pxObj);
+		if(pxAnimal!=null)then
+			if(m_fDamage>0.0 && pxAnimal^.GetGrowUpValue() >= 0.7)then
+				m_fDamage *= pxAnimal^.GetGrowUpValue();
+				CreateTimer(AREADAMAGETIMER,CGameTimeSpan.OneSecond()*2.0,false);
+			endif;
+		endif;
+		var ^CUniversalCorpse pxGameObj = cast<CUniversalCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("Corpse",p_pxObj^.GetOwner(),p_pxObj^.GetPos(),p_pxObj^.GetRotation()));
+		if(pxGameObj!=null)then
+			pxGameObj^.SetSource(p_pxObj);
+			pxGameObj^.SetVisible(false);
+			pxGameObj^.SetFoodObj(GetHandle());
+			m_xCorpseObj = pxGameObj^.GetHandle();
+		endif;
+		if(p_iLastFrame==-88)then
+			CreateTimer(TIMER_EMERGING, CGameTimeSpan.OneSecond()*m_fHeightFix,false);
+//			m_iLastFrame=p_iLastFrame;
+			m_fHeightFix=p_fHeightFix;
+			m_vHeight=GetPos();
+			m_fSpeed=p_fAnim;
+		elseif(p_fAnim>0.0)then
+//			m_iState=2;
+			m_iLastFrame=p_iLastFrame;
+			m_fHeightFix=p_fHeightFix;
+			m_vHeight=GetPos();
+			CreateTimer(TIMER_FALLING, CGameTimeSpan.OneSecond()*p_fAnim,false);
+		endif;
+		m_iSizeClass = p_iSizeClass;
+	endproc;
+	
+	export proc real ImpactDmg()
+		if(!CResource.ms_bCORPSEDMG)then return 0.0; endif;
+		var ^CPropDB pxTable = CServerApp.GetPropDB_Resources();
+		if(pxTable==null)then return 0.0; endif;
+		var ^CPropDB.CNode pxRoot = ^(pxTable^.GetRoot());
+		if(pxRoot==null)then return 0.0; endif;
+		var ^CPropDB.CNode pxType = pxRoot^.Get(GetType().AsString());
+		if(pxType==null)then return 0.0; endif;
+		var ^CPropDB.CNode pxResource = pxType^.Get(GetClassName());
+		if(pxResource==null)then return 0.0; endif;
+		var ^CPropDB.CNode pxDamage = pxResource^.Get("damage");
+		if(pxDamage==null)then return 0.0; endif;
+		return pxDamage^.ValueR();
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			var int iTimerID=p_rxEvtPtr.GetInt(0);
+			if(iTimerID==TIMER_FALLING)then
+				m_iState=2;
+				var real fHeight=CSrvWrap.GetScapeMgr().GetHeight(m_vHeight.GetX(),m_vHeight.GetY());
+				var vec3 vP=GetPos();
+//				vP.SetZ(fHeight);
+				vP.SetZ(fHeight+m_fHeightFix);
+				MoveAction(vP, 15.5f);
+			elseif(iTimerID==TIMER_EMERGING)then
+				m_vHeight.SetZ(m_vHeight.GetZ()+m_fHeightFix);
+				MoveAction(m_vHeight, m_fSpeed);
+			elseif(p_rxEvtPtr.GetInt(0)==ROTTENTIMER)then
+				m_bDelImminent=true;
+				SetSkipThis();
+				if(!m_bResurrecting&&!HasTimer(TIMER_SPIRIT_CORPSE))then
+					Rot();
+				endif;
+			elseif(p_rxEvtPtr.GetInt(0)==TIMER_SPIRIT_CORPSE)then
+				Rot();
+			elseif(p_rxEvtPtr.GetInt(0)==AREADAMAGETIMER)then
+				if(!m_bFeignDeath)then
+					var ^CAreaDamage pxDmg = new CAreaDamage(GetCollisionRadius()+2.5f,m_fDamage,m_fDamage*0.5,GetOwner(),GetPos(),m_iSizeClass,true,true);
+				endif;
+/*
+			elseif(p_rxEvtPtr.GetInt(0)==COVERTIMER1)then
+				var real fRadius = GetRadius();
+				if(fRadius<=3.5)then
+					InvokeGenericSCEvent(20,4.0f);
+				elseif(fRadius<=5.0)then
+					InvokeGenericSCEvent(21,4.0f);
+				else
+					InvokeGenericSCEvent(22,4.0f);
+				endif;
+			elseif(p_rxEvtPtr.GetInt(0)==COVERTIMER2)then
+				Cover();
+*/
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		else
+			super.HandleEvent(p_rxEvtPtr);
+		endif;
+	endproc;
+	
+	proc void OnActionEnd(bool p_bBroken)
+		if(m_iState==2)then
+			SetAnim("dying",0,m_iLastFrame);
+			m_iState=1;
+		elseif(m_iState==1)then
+			if(m_xCorpseObj.IsValid()) then
+				m_xCorpseObj.GetObj()^.Delete();
+			endif;
+			if(HasBuildUp())then
+				var ^CBuildUpBase pxBuildUp=GetBuildUp();
+				if(pxBuildUp!=null)then
+					pxBuildUp^.Kill();
+				endif;
+			endif;
+			Delete();
+		endif;
+	endproc;
+	
+	export proc void FeignDelete()
+		SetSelectable(false);
+		SetHitable(false);
+		if(m_xCorpseObj.IsValid()&&m_xCorpseObj.GetObj()!=null)then
+			m_xCorpseObj.GetObj()^.Delete();
+		endif;
+//		if(HasBuildUp())then
+//		if(HasBuildUp()&&m_pxBuildUp!=null)then
+//			m_pxBuildUp^.Kill();
+////			GetBuildUp()^.Kill();
+//		endif;
+		Delete();
+	endproc;
+	
+	proc void Cover()
+/*		SetRndInvMaskSingleFlagInv(VIS_FLAG_ANML_PARTYCOL,false);
+		SetRndInvMaskSingleFlagInv(VIS_FLAG_ANML_SADDLE,false);
+		SetRndInvMaskSingleFlagInv(VIS_FLAG_ANML_HELMET,false);
+		SetRndInvMaskSingleFlagInv(VIS_FLAG_ANML_ARMOR,false);
+		SetRndInvMaskSingleFlagInv(VIS_FLAG_ANML_STANDARTE,false);
+		SetRndInvMaskSingleFlagInv(VIS_FLAG_ANML_ARMORSADDLE,false);
+		if(GetClassName().Find("Brachiosaurus")!=-1)then
+			SetRndInvMaskSingleFlagInv(VIS_FLAG_ANML_MISC,false);
+		else
+			SetRndInvMaskSingleFlagInv(VIS_FLAG_ANML_MISC,true);
+		endif;
+*/	endproc;
+	
+	proc void Rot()
+		var vec3 vSize = GetSize();
+		vSize.SetX(0.0);
+		vSize.SetY(0.0);
+		vSize*=1.3;
+		SetSelectable(false);
+		SetHitable(false);
+		var real fRadius = GetRadius();
+		if(fRadius<=3.5)then
+			InvokeGenericSCEvent(18,4.0f);
+		elseif(fRadius<=5.0)then
+			InvokeGenericSCEvent(6,4.0f);
+		else
+			InvokeGenericSCEvent(19,4.0f);
+		endif;
+		//InvokeGenericSCEvent(6,4.0f);
+		MoveAction(GetPos()-vSize, (vSize.Abs()/5.0));
+		m_iState = 1;
+	endproc;
+	
+	export proc real Mine(real p_fValue)
+		if(!HasTimer(ROTTENTIMER))then
+			return 0.0;
+		else
+			DeleteTimer(ROTTENTIMER);
+			CreateTimer(ROTTENTIMER, CGameTimeSpan.OneSecond() * 120.0, false);
+			var real fRet = super.Mine(p_fValue);
+			if(m_xCorpseObj.IsValid()) then
+				var ^CUniversalCorpse pxCorpse = cast<CUniversalCorpse>(m_xCorpseObj.GetObj());
+				if(pxCorpse!=null) then
+					var ^CAttribs pxA = GetAttribs();
+					if(pxA!=null) then
+						var real fHP = pxA^.GetValueInt("hitpoints").ToReal();
+						var real fMaxHP = pxA^.GetValueInt("maxhitpoints").ToReal();
+						if(fMaxHP==0.0f) then
+							pxCorpse^.SetHPPercent(0);
+						else
+							pxCorpse^.SetHPPercent((fHP/(fMaxHP*0.01f)).ToInt());
+						endif;
+					endif;
+				endif;
+			endif;
+			return fRet;
+		endif;
+	endproc;
+	
+	export proc bool IsFeignDeathProduct()
+		return m_bFeignDeath;
+	endproc;
+	
+	export proc CObjHndl GetCorpseHandle()
+		return m_xCorpseObj;
+	endproc;
+	
+	export proc void RemoveFG()
+		m_bDelImminent=true;
+		SetSkipThis();
+		if(!m_bResurrecting&&!HasTimer(TIMER_SPIRIT_CORPSE))then
+			Rot();
+//			Delete();
+		endif;
+		return;
+	endproc;
+	
+	export proc bool SkipThis()
+		return m_bDelImminent;
+	endproc;
+	
+	export proc void SpiritCorpseTimer(bool p_bOn, real p_fDuration)
+		var bool bPrev=m_bResurrecting;
+		m_bResurrecting=p_bOn;
+		if(p_fDuration>0.0f)then
+			if(CMirageSrvMgr.Get().UnitResources())then
+				if(HasTimer(TIMER_SPIRIT_CORPSE))then
+					DeleteTimer(TIMER_SPIRIT_CORPSE);
+				endif;
+				CreateTimer(TIMER_SPIRIT_CORPSE,CGameTimeSpan.OneSecond()*(p_fDuration+2.0f),false);
+			else
+				if(!p_bOn&&m_bDelImminent)then
+					Rot();
+				endif;
+			endif;
+		else
+			if(HasTimer(TIMER_SPIRIT_CORPSE))then
+				DeleteTimer(TIMER_SPIRIT_CORPSE);
+			endif;
+			if(!p_bOn&&m_bDelImminent)then
+				Rot();
+			endif;
+		endif;
+	endproc;
+	
+	export proc void AddObjWithOffset(CObjHndl p_xHndl, string p_sLink, real p_fDelay, CObjHndl p_xParent, vec3 p_vOffset)
+		var ^CUniversalLinkObj pxObj = ^(m_axLinkedObjs.NewEntryRef());
+		if(pxObj==null)then return; endif;
+		pxObj^.SetHandle(p_xHndl);
+		pxObj^.SetLink(p_sLink);
+		pxObj^.SetDelay(p_fDelay);
+		pxObj^.SetParentObj(p_xParent);
+		pxObj^.SetLinkOffset(p_vOffset);
+		pxObj^.SetCustom(true);
+//		UpdateLinkedObjs();
+	endproc;
+	
+	export proc void AddObjFlex(CObjHndl p_xHndl, string p_sLink, real p_fDelay, CObjHndl p_xParent)
+		var ^CUniversalLinkObj pxObj = ^(m_axLinkedObjs.NewEntryRef());
+		if(pxObj==null)then return; endif;
+		pxObj^.SetHandle(p_xHndl);
+		pxObj^.SetLink(p_sLink);
+		pxObj^.SetDelay(p_fDelay);
+		pxObj^.SetParentObj(p_xParent);
+		pxObj^.SetLinkOffset({0.0,0.0,0.0});
+		pxObj^.SetCustom(false);
+//		UpdateLinkedObjs();
+	endproc;
+	
+	export proc void UpdateLinkedObjs()
+		var ^CGameObj pxParent = this;
+		var int i, iC = m_axLinkedObjs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxObj = m_axLinkedObjs[i].GetHandle().GetObj();
+			if(pxObj==null)then
+				m_axLinkedObjs.DeleteEntry(i);
+				i--; iC--;
+				continue;
+			endif;
+			var real fDelay = m_axLinkedObjs[i].GetDelay();
+			var CFourCC xLink = m_axLinkedObjs[i].GetLink();
+			var CObjHndl xParent = m_axLinkedObjs[i].GetParentObj();
+			var bool bCustom = m_axLinkedObjs[i].GetCustom();
+			var vec3 vOffset = m_axLinkedObjs[i].GetLinkOffset();
+			if(!xParent.IsValid())then
+				xParent = GetHandle();
+			endif;
+			if(bCustom)then
+				if(fDelay>=0.0)then
+					pxObj^.FlexLinkAction(xParent,xLink,fDelay,vOffset,"walk_1");
+				else
+					pxObj^.LinkAction(xParent,xLink,vOffset);
+				endif;
+			else
+				if(fDelay>=0.0)then
+					pxObj^.FlexLinkAction(xParent,xLink,fDelay,{0.0,0.0,0.0},"walk_1");
+				else
+					pxObj^.LinkAction(xParent, xLink);
+				endif;
+			endif;
+			pxParent^.AddGroupedChildren(pxObj^.GetGuid());
+			pxObj^.SetVisible(xLink!="NONE");
+			pxObj^.SetSelectable(xLink!="NONE");
+		endfor;
+	endproc;
+	
+endclass;
+	
+class CBrachio_Food inherit CDino_Food
+/*
+	const int		AREADAMAGETIMER=1905;
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		if(!p_bLoad)then
+			CreateTimer(AREADAMAGETIMER,CGameTimeSpan.OneSecond()*2.0,false);
+		endif;
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			if(p_rxEvtPtr.GetInt(0)==AREADAMAGETIMER)then
+				CFightingObj.InvokeAreaThrow(GetPos(),50.0f,GetOwner(),2);
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		else
+			super.HandleEvent(p_rxEvtPtr);
+		endif;
+	endproc;
+*/
+endclass;
+	
+//CLASS CFRUIT_FOOD ================================
+class CFruit_Food inherit CFruitFood
+	
+	constructor()
+		m_fState1 = 10.0;
+		m_fState2 = 30.0;
+		m_fState3 = 70.0;
+		m_fState4 = 100.0;
+		m_fState5 = 150.0;
+	endconstructor;
+	
+	proc void OnInit(bool p_bLoad)
+		if(!p_bLoad)then
+		endif;
+		super.OnInit(p_bLoad);
+		//Henry: to allow build on top of fruit brushes
+		if(CMirageSrvMgr.Get().FruitsRemovement())then
+			SetPlaceBlocker(false);
+		endif;
+		if(HasAnim("anim")) then
+			SetAnim("anim", 3);
+		endif;
+		OnUpdateFlags();
+		var ^CAttribs pxAttr = GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("Plant", true);
+		endif;
+	endproc;
+	
+	export proc void OnMine()
+		OnUpdateFlags();
+	endproc;
+	
+endclass;
+	
+class CFishShoal inherit CFruitFood
+	
+	export var bool			m_bInactiveATM;
+	export var bool			m_bRespawn;
+	const int						RESOURCE_RESPAWN = 40074;
+	const real					RESPAWN_DURATION = 1000.0f;
+	
+	export constructor()
+		m_bInactiveATM = false;
+		m_bRespawn = !CMirageSrvMgr.SDK();
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		if(!CMirageSrvMgr.SDK())then
+			var CFourCC xType="FISH";
+			var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+			var ^CArc pxArc=^(pxWalk^.GetArc());
+			(pxArc^) << m_bInactiveATM;
+			(pxArc^) << m_bRespawn;
+			pxWalk^.Close();
+		endif;
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="FISH")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			if(p_pxReaderNode^.GetVersion()>=1)then
+				(pxArc^) << m_bInactiveATM;
+				(pxArc^) << m_bRespawn;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		InitEvents();
+		var vec3 vPos=GetPos();
+		vPos.SetZ(CSrvWrap.GetScapeMgr().GetSeaLevel());
+		SetPos(vPos);
+		if(!p_bLoad)then
+			//SetDynamicBBox(true);
+			InitAttribs();
+		endif;
+		SetDynamicBBox(false);
+		var ^CAttribs pxAttr = GetAttribs();
+		if(pxAttr!=null) then
+			pxAttr^.SetValue("fish", 1);
+			pxAttr^.SetValue("Meat", true);
+			pxAttr^.SetValue("value", m_fValue);
+		endif;
+		SetAnim("shoal", 3);
+		OnUpdateFlags();
+	endproc;
+	
+	export proc void OnMine()
+		//L CSrvWrap.LogSpam("FishShoal", "Enter OnMine()");
+		OnUpdateFlags();
+	endproc;
+	
+	export proc bool Inactive()
+		return m_bInactiveATM;
+	endproc;
+	
+	export proc bool SetValue(real p_fValue)
+		if(m_fValue==p_fValue)then return false;endif;
+		m_fValue=Math.Max(p_fValue,0.0f);
+		var ^CAttribs pxAttr = GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("value",(m_fValue+0.5).ToInt());
+			pxAttr^.SetValue("hitpoints",(m_fValue+0.5).ToInt());
+		endif;
+		if(m_fValue<=0.5f)then
+			Delete();
+		endif;
+		return true;
+	endproc;
+	
+	export proc void Delete()
+		if(m_bRespawn)then
+			var ^CAttribs pxAttribs=GetAttribs();
+			var real fMax = 2500.0f;
+			if(pxAttribs!=null)then
+				fMax = pxAttribs^.GetValueInt("maxhitpoints").ToReal();
+			endif;
+			var ^CFishShoal pxNewShoal;
+			var int i,iRounds=1,iRandom=(Random.GetInt()%100)+1;
+			if(iRandom>85)then
+				iRounds=3;
+			elseif(iRandom>50)then
+				iRounds=2;
+			endif;
+			iRounds=3;
+			for(i=0)cond(i<iRounds)iter(i++)do
+				pxNewShoal = cast<CFishShoal>(CSrvWrap.GetObjMgr()^.CreateObj(GetClassName(),GetOwner(),GetPos(),GetRotation()));
+				if(pxNewShoal!=null)then
+					pxNewShoal^.SetInactive(i==0,fMax);
+					var int iCounter = 0, iMax = 50;
+					var real fRadius=(4*(i+1)).ToReal();
+					var vec3 vOldPos=GetPos(),vNewPos=vOldPos;
+					while(iCounter<iMax)do
+						iCounter++;
+						var bool bOkay = pxNewShoal^.GetFreePos(vNewPos,fRadius);
+						bOkay=bOkay&&pxNewShoal^.IsInWater();
+						if(bOkay)then
+//							vNewPos.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vNewPos.GetX(),vNewPos.GetY()),CSrvWrap.GetScapeMgr().GetSeaLevel()));
+							vNewPos.SetZ(CSrvWrap.GetScapeMgr().GetSeaLevel());
+							pxNewShoal^.SetPos(vNewPos);
+							iCounter=iMax;
+						elseif(iCounter>=iMax)then
+							if(i==0)then
+								pxNewShoal^.SetPos(vOldPos);
+							else
+								pxNewShoal^.Delete();
+							endif;
+						endif;
+					endwhile;
+				endif;
+			endfor;
+		endif;
+		super.Delete();
+	endproc;
+	
+	export proc void SetInactive(bool p_bRespawn,real p_fMax)
+		m_bInactiveATM = true;
+		m_bRespawn = p_bRespawn;
+		SetSelectable(false);
+		SetHitable(false);
+		SetVisible(false);
+		Random.Seed();
+		CreateTimer(RESOURCE_RESPAWN, CGameTimeSpan.OneSecond() * (Random.MTRandF(RESPAWN_DURATION*0.75, RESPAWN_DURATION*1.5f)), false);
+		var ^CAttribs pxAttr = GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("inactive", 1);
+			pxAttr^.SetValue("maxhitpoints",p_fMax.ToInt());
+			pxAttr^.SetValue("value",p_fMax.ToInt());
+			pxAttr^.SetValue("hitpoints",p_fMax.ToInt());
+		endif;
+		m_fValue=p_fMax;
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			if(p_rxEvtPtr.GetInt(0)==RESOURCE_RESPAWN)then
+				m_bInactiveATM = false;
+				SetVisible(true);
+				SetSelectable(true);
+				SetHitable(true);
+				if(HasTimer(RESOURCE_RESPAWN))then DeleteTimer(RESOURCE_RESPAWN); endif;
+				var ^CAttribs pxAttr = GetAttribs();
+				if(pxAttr!=null) then
+					pxAttr^.SetValue("inactive", 0);
+				endif;
+			endif;
+		endif;
+		super.HandleEvent(p_rxEvtPtr);
+	endproc;
+	
+endclass;

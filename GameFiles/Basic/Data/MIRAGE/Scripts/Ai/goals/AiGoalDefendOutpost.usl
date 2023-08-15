@@ -1,0 +1,241 @@
+///class CAiGoalDefendOutpost
+class CAiGoalDefendOutpost inherit CAiGoal
+
+	var real				m_fRiskModifier;
+	var CAiMap				m_xCurrentRequested;
+	var ^CAiModuleDefenseDefault.CAiDefensePool m_pxDefPool;
+	var bool				m_bOnce;
+	var ^CAiBrain 			m_pxBrain;
+	var ^CAiSensor			m_pxSensor;
+	var string				m_sPlayerID;
+	var int					m_iPlayerID;
+	
+	
+	///constructor
+	export constructor()
+		m_fRiskModifier=1.0f;
+	endconstructor;
+	
+	
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain, ^CAiModuleDefenseDefault.CAiDefensePool p_pxDefPool)
+		super.Init(p_pxBrain);
+		
+		m_pxBrain=p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType=1+Random.GetInt()%iNumPlayers;
+		var int iType=1;
+		
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(pxCM^.GetDifficultyInt()+iType);
+		
+		m_pxDefPool=p_pxDefPool;
+		var ^CAiMaps pxMaps= ^(m_pxSensor^.GetAiMaps());
+		m_xCurrentRequested.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID);
+
+		m_bOnce=false;
+		return true;
+	endproc;
+	
+	
+	///SetRiskModifier
+	export proc void SetRiskModifier(real p_fValue)
+		m_fRiskModifier=p_fValue;
+		if(m_fRiskModifier<=0.0f)then
+			Deactivate();
+		else
+			Activate();
+		endif;
+	endproc;
+	
+	
+	///GetRiskModifier
+	export proc real GetRiskModifier()
+		return m_fRiskModifier;
+	endproc;
+	
+
+	///SearchForEnemy
+	proc void SearchForEnemy()
+		if(m_pxDefPool==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		if(m_pxBrain==null)then return; endif;
+		
+		var ^CAiMaps pxMaps=^(m_pxSensor^.GetAiMaps());
+		var ^CAiMap pxInflMap;
+		var ^CAiMap pxEnemyMap=^(pxMaps^.GetAiMap("Enemy",m_iPlayerID));
+		var CAiMap xRangeMap;
+		var bool bShip=false;
+		var CAiObjWrapList xShipList;
+
+		if(m_pxDefPool^.m_sId=="MainPool")then
+			pxInflMap = ^(pxMaps^.GetAiMap("InflBuild",m_iPlayerID));
+		else
+			xRangeMap.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID);
+			xRangeMap.ClearToFast(0.0);
+			
+			var int iX, iY;
+			var real fAreaRadius = CAiArea.FloatToAreaFloat(m_pxDefPool^.m_fRadius);
+			
+			CAiArea.Vec3ToArea(m_pxDefPool^.m_vPos, iX, iY);
+			xRangeMap.AddInfluenceFast(iX, iY, fAreaRadius + 1.0, 0.0, 1.0);
+			pxInflMap = ^xRangeMap;
+		endif;
+
+		var CAiMap xDangerMap;
+		xDangerMap.CopyFromFast(pxInflMap^);
+		xDangerMap.ThresholdFast(0.1f,0.0f,1.0f,1.0f);
+		xDangerMap.Blur2Fast(1.0f);
+		xDangerMap.MultiplyFast(xDangerMap);
+		xDangerMap.MultiplyFast(pxEnemyMap^);
+		xDangerMap.MultiplyFast(-1.0f*m_fRiskModifier);
+		xDangerMap.MultMosaicFast(m_pxDefPool^.m_vPos);
+		
+		var CAiArea xMostDangerArea=xDangerMap.FindMaxArea();
+		var real fMostDangerValue=xDangerMap.GetValue(xMostDangerArea);
+		var ^CAiModuleDefenseDefault pxDM=cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		if(pxDM==null)then return; endif;
+		
+		if((xMostDangerArea.GetX()==-1)||(fMostDangerValue<=0.0f))then
+		else
+			if(fMostDangerValue>=1.0)then
+				var CAiObjWrapList xEnemyUnits;
+				
+				var int i,iC=8;
+				for(i=0)cond(i<iC)iter(i++)do
+					// not an enemy
+					if(m_pxSensor^.GetDiplomacyMyOpinion(i)!=0)then continue; endif;
+					var bool bFound=m_pxSensor^.GetObjectGroupInArea(i,xMostDangerArea,true,true,false,false,xEnemyUnits);
+				endfor;				
+				
+				bShip=GetEnemyShipTargets(xMostDangerArea, xShipList);				
+				if((xEnemyUnits.NumEntries()>0)&&bShip)then 
+					return; 
+				endif;
+				
+				var bool bAnimals = false;
+				if(xEnemyUnits.NumEntries()<=0)then
+					var CAiObjQuery xQ;
+					xQ.SetType("ANML");
+					xQ.SetOwner(-1);
+					xQ.RegionArea(xMostDangerArea);
+					xQ.Execute(xEnemyUnits);
+					bAnimals = true;
+				endif;
+								
+				if(xEnemyUnits.NumEntries()>0)then
+					var ^CAiAttackInfo pxAttackInfo = new CAiAttackInfo();
+					pxAttackInfo^.GetTargets().CopyFrom(xEnemyUnits);
+					pxAttackInfo^.SetPriority(GetPriority()+fMostDangerValue);
+					pxAttackInfo^.SetIslandID(m_pxSensor^.ComputeIslandId(m_pxDefPool^.m_vPos));
+					pxAttackInfo^.SetStrategy("GuardVillage");
+					SetRequesterFor(pxAttackInfo);
+					
+					var bool bUnhandled=true;
+					if(m_pxDefPool^.m_xGoalGuardVillage.IsActive())then
+						if(m_pxDefPool^.m_xGoalGuardVillage.Start(pxAttackInfo))then
+							bUnhandled=false;
+						endif;
+					endif;
+
+					if(!bAnimals)then
+						var CAiObjQuery xQuery;
+						xQuery.RegionCircle(m_pxSensor^.GetStartLocation(), 45.0);
+						var CAiObjWrapList xEnemiesNear;
+						xQuery.Execute(xEnemyUnits, xEnemiesNear);
+						if(xEnemiesNear.NumEntries()>0)then
+							pxDM^.ActivateDefendMode();
+						endif;
+					endif;
+					
+					if(bUnhandled)then
+						m_pxBrain^.GetFightModule()^.RequestAttack(pxAttackInfo);
+						bUnhandled=false;
+					endif;
+					
+					if(!bUnhandled)then
+						m_xCurrentRequested.AddInfluenceFast(xMostDangerArea.GetX(),xMostDangerArea.GetY(),3.0f,0.0f,50.0f);
+					endif;
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	
+	///GetEnemyShipTargets
+	proc bool GetEnemyShipTargets(CAiArea p_xMostDangerArea, ref CAiObjWrapList po_rxShipList)
+		var vec3 vShipPos = {0.0,0.0,0.0};
+		var CAiObjWrapList xEnemyList;
+		var CAiObjQuery xQ;
+		xQ.SetType("SHIP");
+		xQ.AddMyEnemiesToSearch(m_iPlayerID, true);
+		xQ.RegionArea(p_xMostDangerArea);
+		xQ.Execute(xEnemyList);
+		var int i, iC=xEnemyList.NumEntries();
+		if(iC>0)then
+			for(i=0)cond(i<iC)iter(i++)do
+				if(xEnemyList[i].IsValid())then
+					po_rxShipList.AddEntry(xEnemyList[i]);
+					vShipPos=xEnemyList[i].GetPos();
+				endif;
+			endfor;	
+			if(!m_bOnce)then
+				var ^CAiAttackInfo	pxAttackInfo=new CAiAttackInfo;
+				pxAttackInfo^.SetStrategy("ship");
+				pxAttackInfo^.SetPos(vShipPos);
+				pxAttackInfo^.GetTargets().CopyFrom(po_rxShipList);
+				pxAttackInfo^.SetIslandID(m_pxSensor^.ComputeIslandId(vShipPos));
+				SetRequesterFor(pxAttackInfo);
+				m_bOnce=true;
+			endif;
+			return true;
+		endif;	
+		return false;
+	endproc;
+	
+	
+	///think
+	export proc void Think()
+		m_xCurrentRequested.SubtractFast(10.0f);
+		m_xCurrentRequested.FilterFast(0.0f,1000000.0f,0.0f,0.0f);
+		SearchForEnemy();
+	endproc;
+
+
+	///EvtRequestAccepted
+	export proc void EvtRequestAccepted(^CAiRequestInfo p_pxRequest)
+		m_bOnce=false;
+	endproc;
+
+
+	///EvtRequestRejected
+	export proc void EvtRequestRejected(^CAiRequestInfo p_pxRequest)
+		m_bOnce=false;
+	endproc;
+
+
+	///EvtRequestSucceeded
+	export proc void EvtRequestSucceeded(^CAiRequestInfo p_pxRequest)
+		m_bOnce=false;
+	endproc;
+	
+	
+	///EvtRequestFailed
+	export proc void EvtRequestFailed(^CAiRequestInfo p_pxRequest)
+		m_bOnce=false;
+	endproc;
+
+endclass;

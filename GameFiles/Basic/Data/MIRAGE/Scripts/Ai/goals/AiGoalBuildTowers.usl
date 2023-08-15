@@ -1,0 +1,277 @@
+///class CAiGoalBuildTowers
+class CAiGoalBuildTowers inherit CAiGoal
+	
+	var array ^CAiTaskBuildTowers	m_apxTowerTasks;	
+	var array string 				m_asTowerClasses;
+	var int 						m_iBestTowerIdx;
+	export var bool 				m_bCanUpgradeTowers;
+	var bool 						m_bIsUpgradingTowers;
+	var bool 						m_bIsPreparing;
+	var bool 						m_bHasBuiltAnything;
+	var ^CAiModuleDefenseDefault	m_pxDM;
+	var ^CAiBrain 					m_pxBrain;
+	var ^CAiSensor					m_pxSensor;
+	var string						m_sPlayerID;
+	var int							m_iPlayerID;
+	var string						m_sTribe;
+	var ^CAiModuleControlDefault	m_pxCM;
+
+	///constructor
+	export constructor()
+		m_apxTowerTasks=0;
+	endconstructor;
+	
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		super.Init(p_pxBrain);
+		
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		
+		m_pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(m_pxCM^.GetDifficultyInt()+iType);
+
+		m_pxDM=cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		
+		begin FillTowerClassList;
+			m_sTribe=p_pxBrain^.GetSensor().GetTechTree().GetTribe();
+			if(m_sTribe=="Hu")then
+				m_asTowerClasses=2;
+				m_asTowerClasses[0]="hu_small_tower";
+				m_asTowerClasses[1]="hu_large_tower";
+			elseif(m_sTribe=="Aje")then
+				m_asTowerClasses=2;
+				m_asTowerClasses[0]="aje_small_tower";
+				m_asTowerClasses[1]="aje_medium_tower";
+			elseif(m_sTribe=="Ninigi")then
+				m_asTowerClasses=2;
+				m_asTowerClasses[0]="ninigi_small_tower";
+				m_asTowerClasses[1]="ninigi_smoke_tower";
+			elseif(m_sTribe=="SEAS")then
+				m_asTowerClasses=3;
+				m_asTowerClasses[0]="seas_mg_nest";
+				m_asTowerClasses[1]="seas_turret_tower";
+				m_asTowerClasses[2]="seas_small_cannon";
+			endif;
+			UpdateBestTowerClass();
+		end FillTowerClassList;
+		
+		m_bIsUpgradingTowers=false;		
+		m_bHasBuiltAnything=false;
+		m_bCanUpgradeTowers=false;
+		return true;
+	endproc;
+	
+	
+	///shut	
+	export proc void Shut()
+		var int i,iC=m_apxTowerTasks.NumEntries();
+		if(iC>0)then
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CAiTaskBuildTowers pxTowerTask=m_apxTowerTasks[i];
+				pxTowerTask^.Shut();
+				RemoveTask(pxTowerTask);
+				delete pxTowerTask;
+			endfor;
+		endif;
+		m_apxTowerTasks=0;
+	endproc;
+	
+	
+	///BuildTowerNearObj
+	export proc bool BuildTowerNearObj(CAiObjWrap p_xTarget)
+		var vec3 vPos;
+		if(p_xTarget.IsValid()==true)then
+			var CFourCC xType;
+			xType=p_xTarget.GetType();
+			if(xType=="BLDG")then
+				vPos=p_xTarget.GetPos();
+				return BuildTower(vPos);
+			else
+				return false;
+			endif;
+		else
+			return false;
+		endif;
+	endproc;
+	
+	
+	///build a tower near a given position
+	export proc bool BuildTower(vec3 p_vTarget)
+		var string sTowerClassName=GetBestTowerClass();
+		if(sTowerClassName=="")then return false; endif;	
+		if(m_apxTowerTasks.NumEntries()>1)then return false; endif;
+
+		if(GetAiTechTree()^.GetNodeInstanceFromPartialName("BLDG/"+sTowerClassName)==null)then return false; endif;
+
+		var int i,iC=m_apxTowerTasks.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiTaskBuildTowers pxTowerTask=m_apxTowerTasks[i];
+			if((pxTowerTask!=null)&&(pxTowerTask^.GetTarget()==p_vTarget))then
+				return true;
+			endif;
+		endfor;
+		
+		var ^CAiTaskBuildTowers pxTowerTask=new CAiTaskBuildTowers(p_vTarget,sTowerClassName);
+		pxTowerTask^.SetMaxDist(48.0f);
+		pxTowerTask^.Init(this);
+		pxTowerTask^.CalculateStartCost();
+		
+		if(pxTowerTask^.Start()==false)then
+			pxTowerTask^.Shut();
+			delete pxTowerTask;
+			return false;
+		endif;
+		
+		m_apxTowerTasks.AddEntry(pxTowerTask);
+		AddTask(pxTowerTask);
+		return true;
+	endproc;
+	
+	
+	///GetBestTowerClass
+	export proc string GetBestTowerClass()
+		if((m_iBestTowerIdx<0)||(m_iBestTowerIdx>=m_asTowerClasses.NumEntries()))then return ""; endif;
+		
+		var string sTowerClassName=m_asTowerClasses[m_iBestTowerIdx];		
+		if(GetAiTechTree()^.GetNodeInstanceFromPartialName("BLDG/"+sTowerClassName)==null)then return ""; endif;
+		
+		return sTowerClassName;
+	endproc;
+	
+	
+	///UpdateBestTowerClass
+	proc void UpdateBestTowerClass()
+		m_iBestTowerIdx=-1;
+		var int iCls,iCCls=m_asTowerClasses.NumEntries();
+		
+		for(iCls=0)cond(iCls<iCCls)iter(iCls++)do
+			var string sTowerClassName=m_asTowerClasses[iCls];
+			var ^CAiNodeInstance pxTowerInst=GetAiTechTree()^.GetNodeInstanceFromPartialName("BLDG/"+sTowerClassName);
+			
+			if(pxTowerInst==null)then
+				KLog.LogWarn("AiGoalBuildTowers","Tower class '"+sTowerClassName+"' doesn't exist! PlayerID: "+m_sPlayerID);
+				continue;
+			endif;
+			
+			var int iSol,iCSol=pxTowerInst^.NumSolutions();	
+			var bool bIsPossible=false;
+			
+			for(iSol=0)cond(iSol<iCSol)iter(iSol++)do
+				var ^CAiSolution pxSol=pxTowerInst^.GetSolution(iSol);
+				if((pxSol!=null)&&(pxSol^.IsPossible()==true)&&pxSol^.IsVisible())then
+					bIsPossible=true;
+					break;
+				endif;
+			endfor;
+						
+			if(bIsPossible==true)then m_iBestTowerIdx=iCls; endif;
+		endfor;
+	endproc;
+	
+	///UpgradeTowers
+	export proc void UpgradeTowers()
+		if(m_pxBrain==null)then return; endif;
+		var int iNextTowerIdx=m_iBestTowerIdx+1;
+		if(m_asTowerClasses.NumEntries()>iNextTowerIdx)then
+			var string sNextTowerClass=m_asTowerClasses[iNextTowerIdx];
+			var bool bBuildHeroTower=false;
+			if(!CMirageAIMgr.Get().FreeSpecials())then
+				if(m_sTribe=="Aje"&&IsNPCReqOk("tesla_s0"))then
+					bBuildHeroTower=true;
+				endif;
+//				if(m_sTribe=="SEAS"&&IsNPCReqOk("babbage_s0"))then
+//					bBuildHeroTower=true;
+//				endif;
+			elseif(CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)>=5)then
+				bBuildHeroTower=true;
+			endif;
+			if(bBuildHeroTower)then
+				if(m_sTribe=="Aje")then
+					sNextTowerClass="aje_tesla_tower";
+//				elseif(m_sTribe=="SEAS")then
+//					sNextTowerClass="seas_small_cannon";
+				endif;
+			endif;
+			var CAiConstructionInfoPtr pxCInfo=CAiConstructionInfo.Create();
+			var ^CAiNodeInstance pxNI=GetAiTechTree()^.GetNodeInstanceFromPartialName("BLDG/"+sNextTowerClass);
+			if(pxNI==null)then return; endif;
+			var CAiNeedPtr pxNd=CAiNeed.Create(true,1);
+			pxNd.GetNeed()^.AddEntry(pxNI);
+			pxCInfo.GetConstructionInfo()^.SetNeed(pxNd);
+			pxCInfo.GetConstructionInfo()^.SetPrepare(true);
+			SetRequesterFor(pxCInfo.GetConstructionInfo());
+			if(m_pxBrain==null)then return; endif;
+			var ^IAiModuleEconomy pxEMod=m_pxBrain^.GetEconomyModule();
+			if(pxEMod==null)then return; endif;
+			pxEMod^.ExternalRequestConstruction(pxCInfo);
+			m_bIsUpgradingTowers=true;
+		endif;
+	endproc;
+	
+	///EvtRequestSucceeded
+	export proc void EvtRequestSucceeded(^CAiRequestInfo p_pxRequest)
+		var ^CAiConstructionInfo pxCInf=cast<CAiConstructionInfo>(p_pxRequest);
+		if(pxCInf!=null)then
+			m_bIsUpgradingTowers=false;
+			UpdateBestTowerClass();
+		endif;
+	endproc;
+	
+	///EvtRequestFailed
+	export proc void EvtRequestFailed(^CAiRequestInfo p_pxRequest)
+		var ^CAiConstructionInfo pxCInf=cast<CAiConstructionInfo>(p_pxRequest);
+		if(pxCInf!=null)then
+			m_bIsUpgradingTowers=false;
+			UpdateBestTowerClass();
+		endif;
+	endproc;
+	
+	///think
+	export proc void Think()
+		if(m_pxBrain==null)then return; endif;
+		if(CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)<2)then return; endif;
+		if(m_iBestTowerIdx<0)then
+			if(m_bIsUpgradingTowers==false)then UpgradeTowers(); endif;
+			return;
+		endif;
+		var int i,iC=m_apxTowerTasks.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiTaskBuildTowers pxTowerTask=m_apxTowerTasks[i];
+			if((pxTowerTask^.IsAborted())||(pxTowerTask^.IsCompleted()))then
+				m_bHasBuiltAnything=true;
+				pxTowerTask^.Shut();
+				RemoveTask(pxTowerTask);
+				delete pxTowerTask;
+				m_apxTowerTasks.DeleteEntryUS(i);
+				i--;
+				iC--;
+			endif;
+		endfor;
+		if((m_bHasBuiltAnything==true)&&(m_bCanUpgradeTowers==true)&&(m_bIsUpgradingTowers==false))then
+			UpgradeTowers();
+		endif;
+	endproc;
+	
+	export proc bool IsNPCReqOk(string p_sNPC)
+		if(m_pxCM==null)then return false; endif;
+		var ^CAiNPCMgr pxNPCMgr = ^(m_pxCM^.GetNPCMgr());
+		if(pxNPCMgr==null)then return false; endif;
+		return pxNPCMgr^.NPCRequirementFulfilled(p_sNPC);
+	endproc;
+	
+endclass;

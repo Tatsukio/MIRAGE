@@ -1,0 +1,417 @@
+///class CAiGoalGenralScouting
+class CAiGoalGenralScouting inherit CAiGoal
+	
+	var bool						m_bScouting;
+	var CAiTaskBuildSquad			m_xAllocator;
+	var CAiTaskTimer				m_xTerminationTimer;
+
+	var ^CAiExplorationInfo			m_pxExplorationInfo;
+	var ^CAiSolution				m_pxSolution;
+	var array ^CAiTask				m_apxScoutingTasks;
+	var bool						m_bOracleAvailable;
+	var CAiObjWrap					m_xDruid;
+	var CAiObjWrapList				m_xEssentialUnitsFromMOD;
+	var string						m_sLevelName;
+	var string						m_sDifficulty;
+	var bool						m_bMultimap;
+	var ^CAiBrain 					m_pxBrain;
+	var ^CAiSensor					m_pxSensor;
+	var string						m_sPlayerID;
+	var int							m_iPlayerID;
+	
+	
+	///constructor
+	export constructor()
+	endconstructor;
+	
+	
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		super.Init(p_pxBrain);
+		if(p_pxBrain==null)then return false; endif;
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		m_bMultimap=m_pxSensor^.GetMultimap();
+		
+//		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		if(pxCM^.GetDifficulty()=="Easy")then
+			m_sDifficulty="Easy";
+			SetThinkWait(69+iType);
+		elseif(pxCM^.GetDifficulty()=="Medium")then
+			m_sDifficulty="Medium";
+			SetThinkWait(59+iType);
+		else
+			m_sDifficulty="Hard";
+			SetThinkWait(49+iType);
+		endif;
+		
+		m_bScouting = false;
+		m_bOracleAvailable = false;
+		m_xAllocator.Init(this, true, false);
+		AddTask(^m_xAllocator);
+
+		m_xTerminationTimer.Init(this);
+		RemoveTask(^m_xTerminationTimer);
+		AddTask(^m_xTerminationTimer);
+		m_xTerminationTimer.m_xOnTimeAlert = OnTimeOut;
+	
+		CheckAvailabilityOracle();
+		CreateSolution();
+		MakeSolution(false);
+		m_apxScoutingTasks = 0;
+		return true;
+	endproc;
+	
+	
+	///shut
+	export proc void Shut()
+		if(m_pxBrain==null)then return; endif;
+		
+		var ^CAiModuleDefenseDefault	pxDM;
+		pxDM = cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		
+		if(pxDM == null)then return; endif;
+		pxDM^.GetMOD().AddUnitsToPool(m_xAllocator.GetUnits());
+		
+		m_xAllocator.Shut();
+		RemoveTask(^m_xAllocator);
+		m_xTerminationTimer.Shut();
+		RemoveTask(^m_xTerminationTimer);
+		ShutAllTasks();
+		m_apxScoutingTasks = 0;
+		m_bScouting = false;
+		MakeSolution(true);	
+	endproc;
+	
+	
+	///makes or clears the solution as the solution forthe allocator task
+	proc void MakeSolution(bool p_bClear)
+		if(p_bClear == true)then
+			var ^CAiTechTree pxT = GetAiTechTree();
+			m_xAllocator.SetSolution(null);
+			pxT^.DeleteSolution(m_pxSolution);
+		else
+			m_xAllocator.SetSolution(m_pxSolution);
+		endif;
+	endproc;
+
+
+	///create solution: Creates the scout-squad solution from the current value table
+	proc void CreateSolution()
+		var ^CAiTechTree pxT=GetAiTechTree();
+		if(pxT!=null)then
+			var string sSolution = "Scouting";
+			if(m_bOracleAvailable)then
+				sSolution = "Scouting_Oracle";
+			endif;
+			m_pxSolution = pxT^.MakeDefinedSolution(sSolution, 1.0, 1.0);
+			if(m_pxSolution==null)then
+			else
+				m_pxSolution^.DebugDump();
+			endif;
+		endif;
+	endproc;
+	
+	
+	///MakeOracleSolution
+	proc void MakeOracleSolution()
+		m_bOracleAvailable = true;
+		MakeSolution(true);
+		CreateSolution();
+		MakeSolution(false);
+	endproc;
+	
+	
+	///CheckAvailabilityOracle
+	proc bool CheckAvailabilityOracle()
+		var ^CAiTechTree pxT = GetAiTechTree();
+		if(pxT!=null)then
+			var ^CAiNodeInstance pxNI = pxT^.GetNodeInstanceFromPartialName("InventObjects/oracle");
+			if(pxNI!=null && pxNI^.GetInstanceCount()>0)then
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+
+	///OnTimeOut
+	export proc void OnTimeOut(int p_iTimerId)
+		if(p_iTimerId != 0)then
+			return;
+		endif;
+		Deactivate();
+		if(m_pxExplorationInfo == null)then
+			return;
+		endif;
+		m_pxExplorationInfo^.GetResult()="Timeout reached!";
+				
+		if(m_sLevelName!="Single 08")then
+			m_pxExplorationInfo^.NotifyOnFailed();
+		else
+			m_pxExplorationInfo^.NotifyOnSucceeded();
+		endif;	
+	endproc;
+		
+
+	///StartNewExplo: starts a new exploration
+	export proc void StartNewExplo(^CAiExplorationInfo p_pxExplorationInfo)		
+		m_pxExplorationInfo = p_pxExplorationInfo; 
+		if(p_pxExplorationInfo == null)then
+			return;
+		endif;
+		if(m_bOracleAvailable)then
+			m_xDruid = GetNextDruid();
+		endif;
+		if(m_xDruid.IsValid())then
+			return;
+		endif;
+		
+		if(m_sLevelName=="Single 13")then 
+			p_pxExplorationInfo^.GetResult() = "squad dead";
+			p_pxExplorationInfo^.NotifyOnFailed();
+			m_bScouting = false;
+			Deactivate();
+			return; 
+		endif;
+		
+		m_xTerminationTimer.Set(0, 300, false);
+		m_xTerminationTimer.Start();
+		if(m_xAllocator.IsRunning() == false)then
+			if(!m_bOracleAvailable && CheckAvailabilityOracle())then
+				MakeOracleSolution();
+			endif;
+
+			if(m_pxSolution == null)then
+				p_pxExplorationInfo^.GetResult() = "no solution";
+				p_pxExplorationInfo^.NotifyOnFailed();
+				m_bScouting = false;
+				Deactivate();
+				return;
+			endif;
+			
+			if(m_xAllocator.Start() == false)then
+				p_pxExplorationInfo^.GetResult() = "squad dead";
+				p_pxExplorationInfo^.NotifyOnFailed();
+				m_bScouting = false;
+				Deactivate();
+				return;
+			endif;
+		endif;
+	endproc;
+	
+	
+	///GetNextDruid
+	proc CAiObjWrap GetNextDruid()		
+		var CAiObjQuery	xQuery;
+		var CAiObjWrap	xInvalid;
+		
+		xQuery.SetOwner(m_iPlayerID);
+		xQuery.SetClass("hu_druid");
+		var CAiObjWrapList xList;
+		
+		if(xQuery.Execute(xList))then
+			var ^CAiAllocationMgr pxAllocMgr = GetAiAllocationMgr();	
+			if(pxAllocMgr == null)then return xInvalid; endif;
+			
+			var int i, iC = xList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!xList[i].IsValid())then
+					xList.RemEntry(xList[i]);
+					i--;
+					iC--;
+					continue;
+				endif;
+				if(pxAllocMgr^.IsUnitLocked(xList[i], false, false, true) == true)then
+					xList.RemEntry(xList[i]);
+					i--;
+					iC--;
+					continue;
+				endif;
+				var string sActions = xList[i].GetAttribValue("SpecialActionNames");
+				var array string asToken;
+				sActions.Split(asToken,"\n",true);
+				if(asToken.FindEntry("oracle")==-1)then
+					return xList[i];
+				endif;
+			endfor;
+			if(xList.NumEntries()>0)then
+				var int iRandom = Random.GetInt()%xList.NumEntries();
+				return xList[iRandom];
+			endif;
+		endif;
+		return xInvalid;
+	endproc;
+
+
+	///ShutAllTasks
+	export proc void ShutAllTasks()
+		while(GetNumTasks()>0)do
+			var ^CAiTask pxTask=GetTask(0);
+			pxTask^.Shut();
+			RemoveTaskUS(0);
+			delete pxTask;
+		endwhile;
+	endproc;
+
+
+	/// Deletes and shuts aborted/completed/impossible tasks
+	proc void DeleteAbortedTasks()
+		var int i;
+		var int iC = GetNumTasks();
+
+		for(i = 0)cond(i < iC)iter(i++)do
+			var ^CAiTask pxTask = GetTask(i);
+			if(pxTask == null)then
+				RemoveTaskUS(i);
+				continue;
+			endif;
+			
+			if(pxTask^.IsCompleted() || pxTask^.IsAborted() || pxTask^.IsNotPossible())then
+				var ^CAiSolution pxSolution=pxTask^.GetSolution();
+				pxTask^.Shut();
+				RemoveTaskUS(i);
+				delete pxTask;
+				i--;
+				iC--;
+			endif;
+		endfor;
+	endproc;
+
+
+	///execute general scouting task
+	proc void ExecuteScouting(CAiObjWrap p_xActor)
+		if(m_bOracleAvailable)then
+			var ^CAiTaskOracleScouting pxTask = new CAiTaskOracleScouting();
+			pxTask^.Init(this, p_xActor, m_pxExplorationInfo);
+			AddTask(pxTask);
+			m_apxScoutingTasks.AddEntry(pxTask); 
+			pxTask^.Start();
+		else
+			var ^CAiTaskGeneralScouting pxTask = new CAiTaskGeneralScouting();	
+			pxTask^.Init(this, p_xActor, m_pxExplorationInfo);
+			AddTask(pxTask);
+			m_apxScoutingTasks.AddEntry(pxTask);
+			pxTask^.Start();
+		endif;
+	endproc;
+
+
+	///Deactivate
+	export proc bool Deactivate()
+		var bool	bRet = super.Deactivate();
+		var int		i;
+		var int		iC = m_apxScoutingTasks.NumEntries();	
+		m_bScouting = false;	
+		for(i = 0)cond(i < iC)iter(i++)do
+			var ^CAiTask pxTask = m_apxScoutingTasks[i];		
+			if(pxTask != null)then
+				pxTask^.Shut();
+			endif;
+			RemoveTask(pxTask);
+			delete pxTask;
+		endfor;
+		m_apxScoutingTasks = 0;
+		return bRet;
+	endproc;
+	
+	
+	///Think
+	export proc void Think()
+		if(m_pxExplorationInfo == null)then
+			return;
+		endif;
+		begin CheckAllocator; 
+			if(!m_xDruid.IsValid())then
+				if((!m_bMultimap)||(m_bMultimap&&m_sDifficulty=="Easy")||(m_sLevelName=="Single 01"||
+				m_sLevelName=="Single 02"||m_sLevelName=="Single 03"||m_sLevelName=="Single 04"||
+				m_sLevelName=="Single 05"||m_sLevelName=="Single 06"||m_sLevelName=="Single 07"||
+				m_sLevelName=="Single 08"||m_sLevelName=="Single 09"||m_sLevelName=="Single 10"||
+				m_sLevelName=="Single 11"||m_sLevelName=="Single 12"||m_sLevelName=="Single 13"||
+				m_sLevelName=="Single 14"||m_sLevelName=="Single 15"||m_sLevelName=="Single 16"||
+				m_sLevelName=="Single B41"||m_sLevelName=="Single B42"||m_sLevelName=="Single B43"))then			
+					if(m_xAllocator.IsNotPossible())then
+						m_pxExplorationInfo^.GetResult()="squad allocation failed";
+						m_pxExplorationInfo^.NotifyOnFailed();
+						Deactivate();
+						return;
+					endif;
+					
+					if(m_xAllocator.IsAborted())then
+						m_pxExplorationInfo^.GetResult()="squad dead";
+						m_pxExplorationInfo^.NotifyOnFailed();
+						Deactivate();
+						return;
+					endif;
+					
+					if(!m_bScouting && m_xAllocator.IsRunning())then
+						m_bScouting = true;						
+						var int i;
+						var int iC = m_xAllocator.GetUnits().NumEntries();						
+						for(i = 0)cond(i < iC)iter(i++)do
+							ExecuteScouting(m_xAllocator.GetUnits()[i]);
+						endfor;
+					endif;
+				else
+					m_pxExplorationInfo^.NotifyOnSucceeded();
+					Deactivate();
+				endif;
+			elseif(!m_bScouting)then
+				m_bScouting = true;
+				ExecuteScouting(m_xDruid);
+			endif;
+		end CheckAllocator;
+
+		if(m_bScouting)then
+			begin CheckCompletion;			
+				var bool	bSucceded = true;
+				var int		i;
+				
+				for(i = 0)cond(i < m_apxScoutingTasks.NumEntries())iter(i++)do
+					var ^CAiTask pxTask = m_apxScoutingTasks[i];
+					
+					if(pxTask^.IsAborted())then
+						RemoveTask(pxTask);
+						delete pxTask;
+						m_apxScoutingTasks.DeleteEntry(i);
+						i--;
+						continue;
+					endif;
+					if(pxTask^.IsCompleted() == false)then
+						bSucceded = false;
+					endif;
+				endfor;
+				
+				if(m_apxScoutingTasks.NumEntries() == 0)then
+					m_pxExplorationInfo^.GetResult() = "squad dead (2)";
+					m_pxExplorationInfo^.NotifyOnFailed();
+					Deactivate();
+					return;
+				endif;
+				
+				if(bSucceded)then
+					m_pxExplorationInfo^.NotifyOnSucceeded();
+					Deactivate();
+					return;
+				endif;
+			end CheckCompletion;
+		endif;
+	endproc;
+
+endclass;

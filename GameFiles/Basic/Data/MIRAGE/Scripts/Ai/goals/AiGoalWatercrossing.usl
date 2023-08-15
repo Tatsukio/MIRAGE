@@ -1,0 +1,1041 @@
+//CAiGoalWatercrossing
+class CAiGoalWatercrossing inherit CAiGoal
+	
+	var ^CAiBrain									m_pxBrain;
+	var ^CAiSensor								m_pxSensor;
+	var ^CAiTechTree							m_pxTT;
+	var ^CAiTransferInfo					m_pxTransferInfo;
+	var ^CAiSolution							m_pxSolution;
+	var CAiNeedPtr								m_pxNeed;
+	var CAiNeedPtr								m_pxProtectorNeed;
+	var CAiTaskBuildSquad					m_xAllocator;
+	var CAiTaskUnitSupervisor			m_xPassengerSupervisor;
+	var CAiTaskUnitSupervisor			m_xShipSupervisor;
+	var CAiTaskUnitSupervisor			m_xIndependentUnits;
+	var ^CAiModuleFightDefault		m_pxFM;
+	var CAiTaskUnitSupervisor			m_xShipProtectorSupervisor;
+	var CAiObjWrapList						m_xExistingShips;
+	
+	var bool						m_bSingleplayer;
+	var bool						m_bEmergencyUnboard;
+	var bool						m_bUnboard;
+	var bool						m_bBuildProtectors;
+	
+	var int							m_iType;
+	var int							m_iNumShips;
+	var int							m_iAttacks;
+	var int							m_iMaxShips;
+	var int							m_iCount;
+	var int							m_iCount2;
+	var int							m_iPlayerID;
+	var int							m_iAllocatorCounter;
+	var int							m_iShipsIdleCounter;
+	var int							m_iRetryCounter;
+	
+	var vec3						m_vUnboardPos;
+	var vec3						m_vBoardPos;
+	var vec3						m_vLandPos;
+	
+	var string					m_sLevelName;
+	var string					m_sPlayerID;
+	var string					m_sTribe;
+	var string					m_sGameType;
+	var string					m_sState;
+	
+	var bool						m_bZeppelin;
+//	var int							m_iSlots;
+	
+	///constructor
+	export constructor()
+		m_bZeppelin=false;
+//		m_iSlots=10;
+	endconstructor;
+	
+	///destructor
+	export destructor()
+		delete m_pxSolution;
+		IAiModuleArea.DeleteTransferInfo(m_pxTransferInfo);
+	enddestructor;
+	
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		super.Init(p_pxBrain);
+		if(p_pxBrain==null)then return false; endif;
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		m_sTribe=m_pxSensor^.GetTechTree().GetTribe();
+		m_sGameType=CAiUtilityMgr.Get()^.GetGameType(m_pxBrain);
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		m_pxFM=cast<CAiModuleFightDefault>(m_pxBrain^.GetFightModule());
+		SetThinkWait(10+iType);
+		m_xAllocator.Init(this,false);
+		m_xAllocator.SetPriority(100.0f);
+		RemoveTask(^m_xAllocator);
+		AddTask(^m_xAllocator);
+		m_xPassengerSupervisor.Init(this);
+		RemoveTask(^m_xPassengerSupervisor);
+		AddTask(^m_xPassengerSupervisor);
+		m_xShipSupervisor.Init(this);
+		RemoveTask(^m_xShipSupervisor);
+		AddTask(^m_xShipSupervisor);
+		m_xShipProtectorSupervisor.Init(this);
+		RemoveTask(^m_xShipProtectorSupervisor);
+		AddTask(^m_xShipProtectorSupervisor);
+		m_xIndependentUnits.Init(this);
+		RemoveTask(^m_xIndependentUnits);
+		AddTask(^m_xIndependentUnits);
+		m_sState="";
+		m_bEmergencyUnboard = false;
+		m_iNumShips = 0;
+		m_pxSolution = null;
+		m_iAttacks = 0;
+		m_iType=1;
+		m_iMaxShips=2;
+		m_iCount=0;
+		m_iCount2=0;
+		m_iAllocatorCounter=0;
+		m_pxTT = ^(m_pxSensor^.GetTechTree());
+		m_xShipSupervisor.m_xOnUnitAttacked = OnShipAttacked;
+		var ^CAiModuleAreaDefault pxAM=cast<CAiModuleAreaDefault>(m_pxBrain^.GetAreaModule());
+		if(pxAM!=null)then
+			m_bBuildProtectors=pxAM^.IsProtectedTransport();
+		else
+			m_bBuildProtectors=false;
+		endif;
+		if(m_sLevelName=="_MN_MP_4_FALLEN"||m_sLevelName=="_MN_MP_6_GREAT")then
+			m_bBuildProtectors=true;
+		endif;
+		return true;
+	endproc;
+	
+	///shut
+	export proc void Shut()
+		m_xAllocator.Shut();
+		RemoveTask(^m_xAllocator);
+		RemoveTask(^m_xPassengerSupervisor);
+		RemoveTask(^m_xShipSupervisor);
+		RemoveTask(^m_xShipProtectorSupervisor);
+		RemoveTask(^m_xIndependentUnits);
+		m_sState="";
+	endproc;
+	
+	///OnShipAttack
+	proc void OnShipAttacked(ref CAiObjWrap p_rxObj)
+		if(m_sState=="boarding")then EmergencyUnboard(); endif;
+	endproc;
+	
+	///SetSingleplayerShip
+	export proc void SetSingleplayerShip(CAiObjWrap p_xShip, CAiObjWrap p_xProtectorShip)
+		m_bSingleplayer = true;
+		m_xAllocator.Shut();
+		m_xAllocator.Init(this, false);
+		m_xAllocator.AddUnit(p_xShip);
+		if(p_xProtectorShip.IsValid()&&(m_bBuildProtectors))then m_xAllocator.AddUnit(p_xProtectorShip); endif;
+		SeparateShips();
+		m_xAllocator.SetRallyPos(CAiUtilityMgr.Get()^.FindHarbourPos(m_pxBrain));
+		m_iNumShips = 1;
+		m_sState="boarding";
+	endproc;
+	
+	///Deactivate
+	export proc bool Deactivate()
+		var bool bRet=super.Deactivate();
+		m_xAllocator.Shut();
+		m_xAllocator.Init(this,false);
+		m_xAllocator.SetPriority(100.0f);
+		m_xPassengerSupervisor.Init(this);
+		m_xShipSupervisor.Init(this);
+		m_xShipProtectorSupervisor.Init(this);
+		m_xIndependentUnits.Init(this);
+		return bRet;
+	endproc;
+	
+	///Board
+	proc void Board()
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		var ^CAiObjWrapList pxTargets= ^(m_xPassengerSupervisor.GetUnits());
+		var CAiObjWrapList xPassengers;
+		var ^CAiObjWrapList pxOWL= ^(m_xShipSupervisor.GetUnits());
+		var int i, iC= pxTargets^.NumEntries();
+		var int iUnitPerShip=0;
+		var int iShip=0;
+		var int iSlots=0;
+		if((pxOWL^.NumEntries()>0))then
+			iSlots=pxOWL^[0].GetAttribValueInt("max_passengers")-pxOWL^[0].GetAttribValueInt("passengers_onboard");
+		endif;
+		var ^CAiModuleDefenseDefault pxDM=cast<CAiModuleDefenseDefault>(m_pxBrain^.GetDefenseModule());
+		if(pxDM==null)then return; endif;
+		var ^CAiGoalMinistryOfDefense pxMOD = ^(pxDM^.GetMOD());
+		if(pxMOD==null)then return; endif;
+		if(iC>0)then
+			for(i=0)cond(i<iC)iter(++i)do
+				xPassengers.AddEntry(pxTargets^[i]);
+				iUnitPerShip++;
+				if(iUnitPerShip<iSlots&&!(i==(iC-1)))then
+					continue;
+				endif;
+				if((iShip<pxOWL^.NumEntries())&&(iShip>=0))then
+					var int j, jC = xPassengers.NumEntries();
+					pxMOD^.RemoveUnitsFromPool(xPassengers);
+					var string sPassengers;
+					for(j=0)cond(j<jC)iter(++j)do
+						if(!xPassengers[j].IsValid())then
+							continue;
+						endif;
+						sPassengers += xPassengers[j].GetName() + ";";
+					endfor;
+					m_vBoardPos=pxOWL^[iShip].GetPos();
+					m_pxSensor^.ExecuteGamePlayCommand(xPassengers, "Action", pxOWL^[iShip].GetHandle(), m_vBoardPos, "/BoardTransporter");
+				endif;
+				iShip++;
+				if((iShip<pxOWL^.NumEntries())&&(iShip>=0))then
+					iSlots=pxOWL^[iShip].GetAttribValueInt("max_passengers")-pxOWL^[iShip].GetAttribValueInt("passengers_onboard");
+				endif;
+				xPassengers.Clear();
+				iUnitPerShip = 0;
+			endfor;
+			if((xPassengers.NumEntries()>0)&&(iShip<pxOWL^.NumEntries())&&(iShip>=0))then
+				var int j, jC = xPassengers.NumEntries();
+				pxMOD^.RemoveUnitsFromPool(xPassengers);
+				var string sPassengers;
+				for(j=0)cond(j<jC)iter(++j)do
+					if(!xPassengers[j].IsValid())then
+						continue;
+					endif;
+					sPassengers += xPassengers[j].GetName() + ";";
+				endfor;
+				m_vBoardPos=pxOWL^[iShip].GetPos();
+				m_pxSensor^.ExecuteGamePlayCommand(xPassengers, "Action", pxOWL^[iShip].GetHandle(), m_vBoardPos, "/BoardTransporter");
+			endif;
+		endif;
+	endproc;
+	
+	///Unboard
+	proc void Unboard()
+		if(m_pxTransferInfo==null)then return; endif;
+		if((m_sLevelName=="Single 09")&&(m_iPlayerID==2)&&(m_pxTransferInfo^.GetPos().GetZ()==0.00))then
+			m_pxTransferInfo^.SetPos({482.0,819.0,16.0});
+			Unboard({482.0,819.0,16.0});
+		else
+//			CMirageAIMgr.Debug("trying to unboard: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+//			CMirageAIMgr.Debug("m_pxTransferInfo^.GetPos(): '"+(m_pxTransferInfo^.GetPos()).ToString()+"'");
+			Unboard(m_pxTransferInfo^.GetPos());
+		endif;
+	endproc;
+	
+	///GetShipLandingPos
+	proc bool GetShipLandingPos(int p_iOwner,ref vec3 po_rvLandingos,ref int po_riIslandID)
+		var array vec3 avSinglePlayerLandingPos;
+		KLog.LogSpam("CyGi","GetShipLandingPos");
+		if(m_sLevelName=="Single 06")then
+			if(m_iPlayerID==4)then
+				avSinglePlayerLandingPos.AddEntry({1207.0,563.0,16.0});
+				avSinglePlayerLandingPos.AddEntry({1255.0,338.0,16.0});
+				avSinglePlayerLandingPos.AddEntry({1245.0,466.0,16.0});
+			elseif(m_iPlayerID==3)then
+				avSinglePlayerLandingPos.AddEntry({1112.0,582.0,16.0});
+			endif;
+		elseif((m_sLevelName=="Single 08"))then
+			if(m_iPlayerID==1)then
+				avSinglePlayerLandingPos.AddEntry({530.0,1122.0,16.0});
+			endif;
+		elseif(m_sLevelName=="Single 09")then
+			if(m_iPlayerID==1)then
+				avSinglePlayerLandingPos.AddEntry({472.0,1042.0,16.0});
+				avSinglePlayerLandingPos.AddEntry({482.0,819.0,16.0});
+			endif;
+		elseif((m_sLevelName=="Single 14"))then
+			if(m_iPlayerID==2)then
+				avSinglePlayerLandingPos.AddEntry({546.21,843.18,18.95});
+				avSinglePlayerLandingPos.AddEntry({555.55,788.49,16.72});
+			endif;
+		elseif((m_sLevelName=="Single 15")&& !m_pxSensor^.GetMultimap())then
+			if(m_iPlayerID==3)then
+				avSinglePlayerLandingPos.AddEntry({328.67,953.32,16.93});
+			elseif(m_iPlayerID==4)then
+				avSinglePlayerLandingPos.AddEntry({774.92,1005.74,19.86});
+			endif;
+		elseif((m_sLevelName=="Single 15")&& m_pxSensor^.GetMultimap())then 
+			if(m_iPlayerID==5)then
+				avSinglePlayerLandingPos.AddEntry({328.67,953.32,16.93});
+			elseif(m_iPlayerID==6)then
+				avSinglePlayerLandingPos.AddEntry({774.92,1005.74,19.86});
+			endif;
+		elseif((m_sLevelName=="Single B43"))then
+			if(m_iPlayerID==3)then
+				avSinglePlayerLandingPos.AddEntry({230.0,360.0,16.0});
+				avSinglePlayerLandingPos.AddEntry({380.0,625.0,16.0});
+			elseif(!m_pxSensor^.GetMultimap()&&(m_iPlayerID==6))then
+				avSinglePlayerLandingPos.AddEntry({415.0,605,16.0});
+			elseif(m_iPlayerID==4)then
+				avSinglePlayerLandingPos.AddEntry({446.0,865.0,16.0});
+			endif;
+		elseif((m_sLevelName=="Single B43")&& m_pxSensor^.GetMultimap())then
+			if(m_iPlayerID==2)then
+				avSinglePlayerLandingPos.AddEntry({415.0,605,16.0});
+			endif;
+		endif;
+		iterloop(avSinglePlayerLandingPos,i)do
+			var int iIslandId=m_pxSensor^.ComputeIslandId(avSinglePlayerLandingPos[i]);
+			if(iIslandId<0) then
+				KLog.LogWarn("AiGoalWaterCrossing","Invalid singleplayer AI landing pos:"+avSinglePlayerLandingPos[i].ToString());
+				avSinglePlayerLandingPos.DeleteEntryUS(i);
+			endif;
+		enditerloop;
+		if(avSinglePlayerLandingPos.NumEntries()>0)then
+			po_rvLandingos=avSinglePlayerLandingPos[Random.MTRandI()%avSinglePlayerLandingPos.NumEntries()];
+			po_riIslandID=m_pxSensor^.ComputeIslandId(po_rvLandingos);
+			return true;
+		endif;
+		return m_pxSensor^.GetShipLandingPos(p_iOwner,po_rvLandingos,po_riIslandID);
+	endproc;
+	
+	///Unboard
+	proc void Unboard(vec3 p_vPos)
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		var ^CAiObjWrapList pxOWL= ^(m_xAllocator.GetUnits());
+		var CAiObjWrapList xShips = m_xShipSupervisor.GetUnits();
+		xShips.Include(m_xShipProtectorSupervisor.GetUnits());
+		xShips.Include(m_xIndependentUnits.GetUnits());
+		if(xShips.NumEntries()<0)then
+			xShips=m_xAllocator.GetUnits();
+		endif;
+		var int iAge= CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain);
+		m_iType= 1+Random.GetInt()%3;
+		m_vUnboardPos=p_vPos;
+//		if(xShips.NumEntries()>0)then
+		if(xShips.NumEntries()>0&&!m_bZeppelin)then
+			var vec3 vPosShip=xShips[0].GetPos();
+			var vec3 vPosLand;
+			if(m_pxTransferInfo!=null)then
+				var int iEnemyOwner=m_pxTransferInfo^.GetEnemyOwner();
+				var bool bLanding=false;
+				if(iEnemyOwner==-1)then
+					bLanding=m_pxSensor^.GetShipBoardingPos(m_vUnboardPos,vPosShip,vPosLand);
+				else
+					var int iIslandID;
+					bLanding=GetShipLandingPos(iEnemyOwner,vPosLand,iIslandID);
+					if(bLanding && m_pxTransferInfo^.GetIslandID()==iIslandID)then
+						m_vUnboardPos=vPosLand;
+					else
+						bLanding=m_pxSensor^.GetShipBoardingPos(m_vUnboardPos,vPosShip,vPosLand);
+					endif;
+				endif;
+				if(bLanding) then
+					m_vLandPos=vPosLand;
+					m_pxSensor^.ExecuteGamePlayCommand(xShips, "Action", -1, m_vLandPos, "/AggressiveTarget");
+					m_sState="landing";
+					return;
+				endif;
+			endif;
+		endif;
+		m_pxSensor^.ExecuteGamePlayCommand(xShips, "Action", -1, m_vUnboardPos, "/PrepareUnboard");
+		m_bUnboard=true;
+	endproc;
+	
+	///GetCurPassengerCount
+	proc int GetCurPassengerCount()
+		var ^CAiObjWrapList pxOWL;
+		if(m_bZeppelin)then
+			pxOWL= ^(m_xShipSupervisor.GetUnits());
+		else
+			pxOWL= ^(m_xAllocator.GetUnits());
+		endif;
+		var int iCount=0;
+		var int i,iC=pxOWL^.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			
+			var int iPassengers;
+			var string sPassengers=pxOWL^[i].GetAttribValue("passenger_guids");
+			var array string asTok;
+			sPassengers.Split(asTok,"\n",true);
+			iPassengers=asTok.NumEntries();
+			
+//			CMirageAIMgr.Debug("name: '"+(pxOWL^[i].GetName())+"'");
+//			CMirageAIMgr.Debug(i.ToString()+". passenger_guids: '"+(iPassengers).ToString()+"'");
+//			CMirageAIMgr.Debug(i.ToString()+". passengers_onboard: '"+(pxOWL^[i].GetAttribValueInt("passengers_onboard")).ToString()+"'");
+			iCount+=pxOWL^[i].GetAttribValueInt("passengers_onboard");
+		endfor;
+		return iCount;
+	endproc;
+	
+	///EmergencyUnboard
+	proc void EmergencyUnboard()
+		if(m_pxSensor==null)then return; endif;
+		var ^CAiMaps pxMaps = ^(m_pxSensor^.GetAiMaps());
+		var ^CAiMaps pxGlobalMaps = ^(m_pxSensor^.GetGlobalAiMaps());
+		var CAiMap xTmpCostMap;
+		var CAiArea xMaxArea;
+		var int iX, iY;
+		var vec3 vSL = m_pxSensor^.GetStartLocation();
+		var int iIslandId = m_pxSensor^.ComputeIslandId(vSL);
+		var vec3 vPos;
+		CAiArea.Vec3ToArea(vSL, iX, iY);
+		xTmpCostMap.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID, false);
+		xTmpCostMap.AddInfluence(iX, iY, 100.0, 0.0, 10.0);
+		xTmpCostMap.OpAdd(0.1);
+		xTmpCostMap.MultiplyFast(pxGlobalMaps^.GetAiMap("Coast", m_iPlayerID));
+		xTmpCostMap.MultMosaicFast(iIslandId);
+		xMaxArea = xTmpCostMap.FindMaxArea();
+		if(xTmpCostMap.GetValue(xMaxArea)==0.0)then
+			vPos = vSL;
+		else
+			vPos = CAiUtilityMgr.Get()^.GetNearestPassablePointInArea(xMaxArea, m_pxSensor);
+		endif;
+		m_bEmergencyUnboard = true;
+		CAiUtilityMgr.Get()^.StopUnits(m_xPassengerSupervisor.GetUnits(), m_pxSensor);
+		Unboard(vPos);
+		m_sState="unboarding";
+	endproc;
+	
+	///SeperateShips
+	proc void SeparateShips()
+		var CAiObjWrapList xAllShips = m_xAllocator.GetUnits();
+		var int i, iC = xAllShips.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			if(!xAllShips[i].IsValid())then continue; endif;
+			if(xAllShips[i].GetAttribValueInt("max_passengers")==0)then
+				m_xShipProtectorSupervisor.AddUnit(xAllShips[i]);
+			else
+				m_xShipSupervisor.AddUnit(xAllShips[i]);
+			endif;
+		endfor;
+	endproc;
+	
+	///UpdateProtectorPos
+	proc void UpdateProtectorPos()
+		var vec3 vTransPos = m_xShipSupervisor.ComputeMeanUnitPosition();
+		var vec3 vProtPos = m_xShipProtectorSupervisor.ComputeMeanUnitPosition();
+		if(m_pxSensor==null)then return; endif;
+	endproc;
+	
+	///think
+	export proc void Think()
+//		CMirageAIMgr.Debug("think start");
+//		CMirageAIMgr.Debug("m_sState: '"+m_sState+"'");
+		if(m_pxSensor==null)then return; endif;
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxTransferInfo==null)then return; endif;
+//		CMirageAIMgr.Debug("think part 1 done");
+		var CAiObjWrapList xShips = m_xShipSupervisor.GetUnits();
+		var CAiObjWrapList xPassengers = m_xPassengerSupervisor.GetUnits();
+		if(xPassengers.NumEntries() <= 0)then
+//			CMirageAIMgr.Debug("bug -1: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+			m_pxTransferInfo^.GetResult() = "All Passengers are dead or have vanished";
+			m_pxTransferInfo^.NotifyOnFailed();
+			Deactivate();
+			return;
+		endif;
+		if(m_bBuildProtectors)then UpdateProtectorPos(); endif;
+		if(m_sState=="waiting_zeppelin")then
+			if(xShips.NumEntries()<=0)then
+//				CMirageAIMgr.Debug("bug 0: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+				m_pxTransferInfo^.GetResult()="squad allocation failed!";
+				m_pxTransferInfo^.NotifyOnFailed();
+				Deactivate();
+				return;
+			else
+//				CMirageAIMgr.Debug("ok 0: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+				Board();
+				m_sState="boarding";
+				return;
+			endif;
+		elseif(m_sState=="waiting")then
+			if(m_xAllocator.IsRunning())then
+				SeparateShips();
+				Board();
+				m_sState="boarding";
+			elseif(m_xAllocator.IsNotPossible())then
+				m_pxTransferInfo^.GetResult()="squad allocation failed!";
+				m_pxTransferInfo^.NotifyOnFailed();
+				Deactivate();
+				return;
+			elseif(m_xAllocator.IsAborted())then
+				m_pxTransferInfo^.GetResult()="squad dead";
+				m_pxTransferInfo^.NotifyOnFailed();
+				Deactivate();
+				return;
+			endif;
+		elseif(m_sState=="boarding")then
+			if(xShips.NumEntries()<=0)then
+				m_pxTransferInfo^.GetResult() = "All ships are gone!";
+				m_pxTransferInfo^.NotifyOnFailed();
+				Deactivate();
+//				CMirageAIMgr.Debug("bug 1: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+				return;
+			endif;
+			if(xShips.NumEntries()<m_iNumShips)then
+//				CMirageAIMgr.Debug("bug 2: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+				EmergencyUnboard();
+				return;
+			endif;
+			var int iCurPassengerCount=GetCurPassengerCount();
+			if(iCurPassengerCount>=xPassengers.NumEntries())then
+//				CMirageAIMgr.Debug("ok 1: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+				m_sState="unboarding";
+				Unboard();
+				return;
+			else
+//				CMirageAIMgr.Debug("issue 0: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+//				CMirageAIMgr.Debug("iCurPassengerCount: '"+(iCurPassengerCount).ToString()+"'");
+//				CMirageAIMgr.Debug("xPassengers.NumEntries(): '"+(xPassengers.NumEntries()).ToString()+"'");
+				
+				if((xPassengers.NumEntries()-iCurPassengerCount)>0)then
+					m_iCount++;
+					if(m_iCount==7)then
+						Board();
+						m_iCount=0;
+						m_iCount2++;
+					endif;
+				endif;
+				if(m_iCount2>=7)then
+					m_pxTransferInfo^.GetResult() = "All Passengers are dead or have vanished";
+					m_pxTransferInfo^.NotifyOnFailed();
+					m_iCount2=0;
+					Deactivate();
+//					CMirageAIMgr.Debug("bug 3: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+					return;
+				endif;
+			endif;
+		elseif(m_sState=="landing")then
+			if(xShips.NumEntries()<=0)then
+				m_pxTransferInfo^.GetResult() = "All Ships are dead or have vanished";
+				m_pxTransferInfo^.NotifyOnFailed();
+				Deactivate();
+//				CMirageAIMgr.Debug("bug 4: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+				return;
+			endif;
+			var vec3 vPosShip=xShips[0].GetPos();
+			var real fLandDist=(m_vLandPos-vPosShip).Abs2S();
+			//unload
+			if(fLandDist<=1024.0f) then
+				m_pxSensor^.ExecuteGamePlayCommand(m_xAllocator.GetUnits(), "Action", -1, m_vUnboardPos, "/PrepareUnboard");
+				m_bUnboard=true;
+				m_sState="unboarding";
+				return;
+			endif;
+		elseif(m_sState=="waypoint")then
+			m_pxSensor^.ExecuteGamePlayCommand(xShips, "Action", -1, {513.28, 714.74, 16.00}, "/Walk");
+			if(xShips.NumEntries()<=0)then
+				m_pxTransferInfo^.GetResult()="All ships were destroyed";
+				m_pxTransferInfo^.NotifyOnFailed();
+				var CAiObjWrapList xOL;
+				var CAiObjQuery xOQ;
+				xOQ.AddMyEnemiesToSearch(m_iPlayerID, true);
+				xOQ.Execute(xOL);
+				var ^CAiAttackInfo pxAttackInfo=new CAiAttackInfo;
+				pxAttackInfo^.SetStrategy("ship");
+				pxAttackInfo^.SetPos(m_vUnboardPos);
+				pxAttackInfo^.GetTargets() = xOL;
+				pxAttackInfo^.SetIslandID(m_pxSensor^.ComputeIslandId(m_vUnboardPos));
+				SetRequesterFor(pxAttackInfo);
+				var ^CAiModuleFightDefault pxFM=cast<CAiModuleFightDefault>(m_pxBrain^.GetFightModule());
+				pxFM^.RequestAttack(pxAttackInfo);
+				Deactivate();
+				return;
+			endif;
+			if((xShips[0].GetPos()-{524.50, 692.89, 16.00}).Abs2S()>750.00)then
+				m_sState="waypoint";
+			else
+				m_pxSensor^.ExecuteGamePlayCommand(xShips, "Action", -1, {541.82, 748.35, 16.94}, "/PrepareUnboard");
+				m_bUnboard=true;
+				m_sState="unboarding";
+			endif;
+		elseif(m_sState=="unboarding")then
+			LockExternal(xShips);
+			LockExternal(m_xShipProtectorSupervisor.GetUnits());
+			LockExternal(m_xIndependentUnits.GetUnits());
+			if(CheckForMines())then
+//				CMirageAIMgr.Debug("bug 5: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+				var bool bExecute=m_pxSensor^.ExecuteGamePlayCommand(xShips, "Action", -1, FindBeachSpot(), "/PrepareUnboard");
+				m_pxTransferInfo^.GetResult()="Area to dangerous";
+				m_pxTransferInfo^.NotifyOnFailed();
+				UnlockExternal(xShips);
+				UnlockExternal(m_xShipProtectorSupervisor.GetUnits());
+				UnlockExternal(m_xIndependentUnits.GetUnits());
+				Deactivate();
+				return;
+			endif;
+			if(xShips.NumEntries()<=0)then
+//				CMirageAIMgr.Debug("bug 6: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+				m_pxTransferInfo^.GetResult()="All ships were destroyed";
+				m_pxTransferInfo^.NotifyOnFailed();
+				var CAiObjWrapList xOL;
+				var CAiObjQuery xOQ;
+				xOQ.AddMyEnemiesToSearch(m_iPlayerID, true);
+				xOQ.Execute(xOL);
+				var ^CAiAttackInfo pxAttackInfo=new CAiAttackInfo;
+				pxAttackInfo^.SetStrategy("ship");
+				pxAttackInfo^.SetPos(m_vUnboardPos);
+				pxAttackInfo^.GetTargets() = xOL;
+				pxAttackInfo^.SetIslandID(m_pxSensor^.ComputeIslandId(m_vUnboardPos));
+				SetRequesterFor(pxAttackInfo);
+				var ^CAiModuleFightDefault pxFM=cast<CAiModuleFightDefault>(m_pxBrain^.GetFightModule());
+				pxFM^.RequestAttack(pxAttackInfo);
+				Deactivate();
+				return;
+			endif;
+			var int iCurPassengerCount = GetCurPassengerCount();
+			if(iCurPassengerCount<=0)then
+				if(m_bEmergencyUnboard==true)then
+					m_pxTransferInfo^.GetResult()="Ships were destroyed";
+					m_pxTransferInfo^.NotifyOnFailed();
+//					CMirageAIMgr.Debug("bug 7: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+					Deactivate();
+					return;
+				else
+					m_pxTransferInfo^.NotifyOnSucceeded();
+					if(xShips.NumEntries()>0)then
+						var vec3 vPos=CAiUtilityMgr.Get()^.FindHarbourPos(m_pxBrain);
+						if(m_bZeppelin)then
+							vPos=m_pxSensor^.GetStartLocation();
+						endif;
+						var int i, iC=xShips.NumEntries();
+						if(vPos!={0.0,0.0,0.0})then
+							if(!m_bZeppelin)then
+								var real fX=vPos.GetX();
+								var real fY=vPos.GetY();
+								vPos.SetX(fX-1.5);
+								vPos.SetY(fY-1.5);
+							endif;
+							m_pxSensor^.ExecuteGamePlayCommand(xShips, "Action", -1, vPos, "/Walk");
+							m_pxSensor^.ExecuteGamePlayCommand(m_xShipProtectorSupervisor.GetUnits(), "Action", -1, vPos, "/AggressiveTarget");
+							m_pxSensor^.ExecuteGamePlayCommand(m_xIndependentUnits.GetUnits(), "Action", -1, vPos, "/AggressiveTarget");
+							for(i=0)cond(i<iC)iter(i++)do
+								xShips[i].SetAttribValue("CurTask", "");
+							endfor;
+							UnlockExternal(xShips);
+							UnlockExternal(m_xShipProtectorSupervisor.GetUnits());
+							UnlockExternal(m_xIndependentUnits.GetUnits());
+							Deactivate();
+						else
+							var vec3 vSLPos=FindBeachSpot();
+							m_pxSensor^.ExecuteGamePlayCommand(xShips, "Action", -1, vSLPos, "/Walk");
+							m_pxSensor^.ExecuteGamePlayCommand(m_xShipProtectorSupervisor.GetUnits(), "Action", -1, vSLPos, "/AggressiveTarget");
+							m_pxSensor^.ExecuteGamePlayCommand(m_xIndependentUnits.GetUnits(), "Action", -1, vSLPos, "/AggressiveTarget");
+							for(i=0)cond(i<iC)iter(i++)do
+								xShips[i].SetAttribValue("CurTask", "");
+							endfor;
+							UnlockExternal(xShips);
+							UnlockExternal(m_xShipProtectorSupervisor.GetUnits());
+							UnlockExternal(m_xIndependentUnits.GetUnits());
+							Deactivate();
+						endif;
+					endif;
+					return;
+				endif;
+			endif;
+			var int iNumIdleShips;
+			var int i, iC=xShips.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(xShips[i].GetCurrentTask()=="Idle")then iNumIdleShips++; endif;
+			endfor;
+			if(iNumIdleShips>=1)then
+				m_iShipsIdleCounter++;
+				if(m_iRetryCounter>=2)then
+					//failed!
+					UnlockExternal(xShips);
+					UnlockExternal(m_xShipProtectorSupervisor.GetUnits());
+					UnlockExternal(m_xIndependentUnits.GetUnits());
+					Deactivate();
+//					CMirageAIMgr.Debug("bug 8: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+					return;
+				endif;
+				if(m_iShipsIdleCounter>3)then
+//					CMirageAIMgr.Debug("idle ship found: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+					m_sState="boarding";
+					m_iShipsIdleCounter=0;
+					m_iRetryCounter++;
+					return;
+				endif;
+			else
+				m_iShipsIdleCounter=0;
+			endif;
+		endif;
+	endproc;
+	
+	///MakeSolution
+	proc void MakeSolution()
+		if(m_pxTT==null)then return; endif;
+		if(m_pxSolution!=null)then return; endif;
+		m_pxSolution=new CAiSolution();
+		m_pxNeed=CAiNeed.Create(true, 1);
+		var ^CAiNodeInstance pxNI;
+		if((m_pxSolution==null)||(m_pxNeed==null))then return; endif;
+		var string sTribe = m_pxTT^.GetTribe();
+		var string sNIName;
+		var real fNum=10.0;
+		if(sTribe=="Hu")then
+			sNIName="SHIP/hu_transport_ship";
+		elseif(sTribe=="Aje")then
+			sNIName="SHIP/aje_transport_turtle";
+		elseif(sTribe=="Ninigi")then
+			sNIName="SHIP/ninigi_transport_boat";
+		elseif(sTribe=="SEAS")then
+			sNIName="VHCL/seas_hovercraft";
+		endif;
+		pxNI=m_pxTT^.GetNodeInstanceFromPartialName(sNIName);
+		if(pxNI==null)then return; endif;
+		var int iNumTargets=m_xPassengerSupervisor.GetUnits().NumEntries();
+		var int iNumRequiredShips=Math.Ceil(iNumTargets.ToReal() / fNum).ToInt();
+		m_iNumShips=iNumRequiredShips;
+		m_pxNeed.GetNeed()^.SetNeededInstanceCount(iNumRequiredShips);
+		m_pxNeed.GetNeed()^.AddEntry(pxNI);
+		m_pxNeed.GetNeed()^.SetGlobal(false);
+		m_pxSolution^.AddRequired(m_pxNeed);
+		m_pxProtectorNeed = CAiNeed.Create(true, 1);
+		if((m_pxSolution==null)||(m_pxProtectorNeed==null))then return; endif;
+		if(sTribe=="Hu")then
+			sNIName = "SHIP/hu_dragon_boat";
+		elseif(sTribe=="Aje")then
+			sNIName = "SHIP/aje_cronosaurus";
+		elseif(sTribe=="Ninigi")then
+			sNIName = "SHIP/ninigi_fire_boat";
+		elseif(sTribe=="SEAS")then
+			sNIName="SHIP/seas_submarine";
+		endif;
+		pxNI = m_pxTT^.GetNodeInstanceFromPartialName(sNIName);
+		if(pxNI==null)then return; endif;
+		m_pxProtectorNeed.GetNeed()^.SetNeededInstanceCount(m_iNumShips);
+		m_pxProtectorNeed.GetNeed()^.AddEntry(pxNI);
+		m_pxProtectorNeed.GetNeed()^.SetGlobal(false);
+		m_pxSolution^.AddOptional(m_pxProtectorNeed);
+		m_pxSolution^.SetSubject(0);
+	endproc;
+	
+	///StartNewTransfer
+	export proc void StartNewTransfer(^CAiTransferInfo p_pxTransferInfo, bool p_bSinglePlayer)
+//		CMirageAIMgr.Debug("");
+//		CMirageAIMgr.Debug("starting new transfer");
+		if(m_pxBrain==null)then return; endif;
+		IAiModuleArea.DeleteTransferInfo(m_pxTransferInfo);
+		m_pxTransferInfo=p_pxTransferInfo;
+		if(m_pxTransferInfo==null)then
+			Deactivate();
+			return;
+		endif;
+//		if(m_bZeppelin||HasZeppelin())then
+//		if(HasZeppelin())then
+//			m_bZeppelin=true;
+//		else
+//			m_bZeppelin=false;
+//		endif;
+		m_bZeppelin=false;
+		if(!m_bZeppelin)then
+			var CAiObjWrapList xUnits;
+			xUnits.CopyFrom(m_pxTransferInfo^.GetTargets());
+			iterloop(xUnits,i)do
+				if(xUnits[i].GetAttribValueBool("flying_unit")==true||xUnits[i].CanSwim())then
+					m_xIndependentUnits.AddUnit(xUnits[i]);
+				else
+//					CMirageAIMgr.Debug("n xUnits["+i.ToString()+"]: '"+xUnits[i].GetName()+"'");
+					m_xPassengerSupervisor.AddUnit(xUnits[i]);
+				endif;
+			enditerloop;
+		endif;
+//		m_xPassengerSupervisor.AddUnits(m_pxTransferInfo^.GetTargets());
+		if(m_xPassengerSupervisor.GetUnits().NumEntries() <= 0)then
+			m_pxTransferInfo^.NotifyOnSucceeded();
+			if(m_xIndependentUnits.GetUnits().NumEntries()<=0)then
+				m_pxSensor^.ExecuteGamePlayCommand(m_xIndependentUnits.GetUnits(), "Action", -1, m_pxTransferInfo^.GetPos(), "/AggressiveTarget");
+				UnlockExternal(m_xIndependentUnits.GetUnits());
+			endif;
+			Deactivate();
+			return;
+		endif;
+		if(m_bZeppelin)then
+//			CMirageAIMgr.Debug("state ok: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
+			m_sState="waiting_zeppelin";
+			m_bBuildProtectors=false;
+			return;
+		endif;
+		MakeSolution();
+		m_xAllocator.SetSolution(m_pxSolution);
+		m_xAllocator.SetRallyPos(CAiUtilityMgr.Get()^.FindHarbourPos(m_pxBrain));
+		if(p_bSinglePlayer)then
+			return;
+		endif;
+		if(m_xAllocator.Start(false))then
+			m_sState="waiting";
+			return;
+		endif;
+		if(m_xAllocator.Start(true))then
+			m_sState="waiting";
+			return;
+		endif;
+		if(m_sTribe=="SEAS")then BuildCheapShips(); endif;
+		p_pxTransferInfo^.GetResult()="squad allocation failed (impossible)";
+		p_pxTransferInfo^.NotifyOnFailed();
+		Deactivate();
+	endproc;
+
+	///BuildCheapShips
+	proc void BuildCheapShips()
+		var CAiObjWrapList xHarbourList;
+		var CAiObjQuery xHarbourQuery;
+		xHarbourList.Clear();
+		xHarbourQuery.SetOwner(m_iPlayerID);
+		xHarbourQuery.SetClass("seas_carrier");
+		xHarbourQuery.Execute(xHarbourList);
+		if(xHarbourList.NumEntries()>0)then
+			if(xHarbourList[0].IsValid())then
+				m_pxSensor^.ExecuteGamePlayCommand(xHarbourList[0].GetHandle(), "Action", -1, {0.0,0.0,0.0},"/Actions/SEAS/Build/VHCL/seas_hovercraft"+" /AI_Help");
+			endif;
+		endif;
+	endproc;
+
+	///FindBeachSpot
+	proc vec3 FindBeachSpot()
+		if(m_pxSensor==null)then return {0.0,0.0,0.0}; endif;
+		if(m_pxBrain==null)then return {0.0,0.0,0.0}; endif;
+		if(m_bZeppelin)then return m_pxSensor^.GetStartLocation(); endif;
+		var ^CAiMaps pxMaps = ^(m_pxSensor^.GetAiMaps());
+		var ^CAiMaps pxGlobalMaps = ^(m_pxSensor^.GetGlobalAiMaps());
+		var CAiMap xTmpCostMap;
+		var CAiArea xMaxArea;
+		var int iX, iY;
+		var vec3 vSL = m_pxSensor^.GetStartLocation();
+		var int iIslandId = m_pxSensor^.ComputeIslandId(vSL);
+		var vec3 vPos;
+		CAiArea.Vec3ToArea(vSL, iX, iY);
+		xTmpCostMap.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID, false);
+		xTmpCostMap.AddInfluence(iX, iY, 100.0, 0.0, 10.0);
+		xTmpCostMap.OpAdd(0.1);
+		xTmpCostMap.MultiplyFast(pxGlobalMaps^.GetAiMap("Coast", m_iPlayerID));
+		xTmpCostMap.MultMosaicFast(iIslandId);
+		xMaxArea=xTmpCostMap.FindMaxArea();
+		if(xTmpCostMap.GetValue(xMaxArea)==0.0)then
+			vPos=vSL;
+		else
+			vPos=CAiUtilityMgr.Get()^.GetNearestPassablePointInArea(xMaxArea, m_pxSensor);
+		endif;
+		return vPos;
+	endproc;
+	
+	///CheckForMines
+	proc bool CheckForMines()
+		if(m_bZeppelin)then return false; endif;
+		var CAiObjWrapList xShips=m_xShipSupervisor.GetUnits();
+		if(xShips.NumEntries()<=0)then return false; endif;
+		if(!xShips[0].IsValid())then return false; endif;
+		var CAiObjWrapList xMines, xTurrets;
+		var CAiObjQuery xQM, xQT;
+		xQM.AddMyEnemiesToSearch(m_iPlayerID);
+		xQT.AddMyEnemiesToSearch(m_iPlayerID);
+		xQM.SetClass("ninigi_mineship_mine");
+		xQT.SetClass("ninigi_water_turret");
+		xQM.RegionCircle(xShips[0].GetPos(), 30.0);
+		xQT.RegionCircle(xShips[0].GetPos(), 40.0);
+		xQM.SetSorting(xShips[0].GetPos(), 1);
+		xQT.SetSorting(xShips[0].GetPos(), 1);
+		xQM.Execute(xMines);
+		xQT.Execute(xTurrets);
+		if(xMines.NumEntries()<=0&&xTurrets.NumEntries()<=3)then return false; endif;
+		xMines.Include(xTurrets);
+		var ^CAiAttackInfo pxAttackInfo=new CAiAttackInfo;
+		pxAttackInfo^.SetStrategy("ship");
+		pxAttackInfo^.GetTargets().CopyFrom(xMines);
+		SetRequesterFor(pxAttackInfo);
+		return true;
+	endproc;
+	
+	///UnlockExternal
+	proc void UnlockExternal(ref CAiObjWrapList p_rxObjs)
+		var ^CAiAllocationMgr pxAllocMgr = GetAiAllocationMgr();
+		if(pxAllocMgr == null)then return; endif;
+		var int i, iC=p_rxObjs.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			if(p_rxObjs[i].IsValid())then
+				pxAllocMgr^.ExternalUnlock(p_rxObjs[i]);
+			else
+				p_rxObjs.RemEntry(p_rxObjs[i]);
+				i--; iC--;
+			endif;
+		endfor;
+	endproc;
+	
+	///LockExternal
+	proc void LockExternal(ref CAiObjWrapList p_rxObjs)
+		var ^CAiAllocationMgr pxAllocMgr =GetAiAllocationMgr();
+		if(pxAllocMgr==null)then return; endif;
+		var int i, iC = p_rxObjs.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			pxAllocMgr^.ExternalLock(p_rxObjs[i]);
+		endfor;
+	endproc;
+	
+	///GetSaveName
+	export proc string GetSaveName()
+		return "AiGoalWatercrossing";
+	endproc;
+	
+	///Save
+	export proc void Save(^CUOFWriterNode p_pxNode)
+		super.Save(p_pxNode);
+		var CFourCC xType="GoWC";
+		var ^CUOFWriterNode pxWalk=p_pxNode^.AddSubChunk(xType,6);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xExistingShips.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_iNumShips;
+		(pxArc^) << m_bEmergencyUnboard;
+		(pxArc^) << m_bUnboard;
+		(pxArc^) << m_iType;
+		(pxArc^) << m_vUnboardPos;
+		(pxArc^) << m_vBoardPos;
+		(pxArc^) << m_bBuildProtectors;
+		(pxArc^) << m_iMaxShips;
+		(pxArc^) << m_iCount;
+		(pxArc^) << m_iCount2;
+		(pxArc^) << m_iAllocatorCounter;
+		(pxArc^) << m_vLandPos;
+		(pxArc^) << m_iShipsIdleCounter;
+		(pxArc^) << m_iRetryCounter;
+		var bool bHasTransferInfo=m_pxTransferInfo!=null;
+		(pxArc^) << bHasTransferInfo;
+		if(bHasTransferInfo) then
+			m_pxTransferInfo^.DoKArc(pxArc^);
+		endif;
+		(pxArc^) << m_bZeppelin;
+//		(pxArc^) << m_iSlots;
+		pxWalk^.Close();
+		var CFourCC xTypeBldSqd="TaBs";
+		var ^CUOFWriterNode pxNodeTaskBldSqd=pxWalk^.AddSubChunk(xTypeBldSqd,1);
+		m_xAllocator.Save(pxNodeTaskBldSqd);
+		var CFourCC xTypeUSP1="TaU1";
+		var ^CUOFWriterNode pxNodeTaskUS1=pxWalk^.AddSubChunk(xTypeUSP1,1);
+		m_xPassengerSupervisor.Save(pxNodeTaskUS1);
+		var CFourCC xTypeUSP2="TaU2";
+		var ^CUOFWriterNode pxNodeTaskUS2=pxWalk^.AddSubChunk(xTypeUSP2,1);
+		m_xShipSupervisor.Save(pxNodeTaskUS2);
+		var CFourCC xTypeUSP3="TaU3";
+		var ^CUOFWriterNode pxNodeTaskUS3=pxWalk^.AddSubChunk(xTypeUSP3,1);
+		m_xShipProtectorSupervisor.Save(pxNodeTaskUS3);
+		var CFourCC xTypeUSP4="TaU4";
+		var ^CUOFWriterNode pxNodeTaskUS4=pxWalk^.AddSubChunk(xTypeUSP4,1);
+		m_xIndependentUnits.Save(pxNodeTaskUS4);
+	endproc;
+
+	///Load
+	export proc void Load(^CUOFReaderNode p_pxNode)
+		if(p_pxNode^.GetType()=="GoWC") then
+			var ^CArc pxArc=^(p_pxNode^.GetArc());
+			m_xExistingShips.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_iNumShips;
+			(pxArc^) << m_bEmergencyUnboard;
+			(pxArc^) << m_bUnboard;
+			(pxArc^) << m_iType;
+			(pxArc^) << m_vUnboardPos;
+			(pxArc^) << m_vBoardPos;
+			(pxArc^) << m_bBuildProtectors;
+			(pxArc^) << m_iMaxShips;
+			(pxArc^) << m_iCount;
+			(pxArc^) << m_iCount2;
+			(pxArc^) << m_iAllocatorCounter;
+			if(pxArc^.GetVersion()>=3)then
+				(pxArc^) << m_vLandPos;
+			endif;
+			if(pxArc^.GetVersion()>=5)then
+				(pxArc^) << m_iShipsIdleCounter;
+				(pxArc^) << m_iRetryCounter;
+			endif;
+			if(pxArc^.GetVersion()>=2)then
+				var bool bHasTransferInfo;
+				(pxArc^) << bHasTransferInfo;
+				if(bHasTransferInfo) then
+					m_pxTransferInfo=IAiModuleArea.CreateTransferInfo();
+					m_pxTransferInfo^.DoKArc(pxArc^);
+				endif;
+			endif;
+			if(pxArc^.GetVersion()>=6)then
+				(pxArc^) << m_bZeppelin;
+//				(pxArc^) << m_iSlots;
+			endif;
+			var int i,iC=p_pxNode^.GetCntSubChunks();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CUOFReaderNode pxWalkChunk=p_pxNode^.GetSubChunk(i);
+				if(pxWalkChunk^.GetType()=="TaU1") then
+					m_xPassengerSupervisor.LoadData(pxWalkChunk);
+				elseif(pxWalkChunk^.GetType()=="TaU2") then
+					m_xShipSupervisor.LoadData(pxWalkChunk);
+				elseif(pxWalkChunk^.GetType()=="TaU3") then
+					m_xShipProtectorSupervisor.LoadData(pxWalkChunk);
+				elseif(pxWalkChunk^.GetType()=="TaU4") then
+					m_xIndependentUnits.LoadData(pxWalkChunk);
+				elseif(pxWalkChunk^.GetType()=="TaBs") then
+					m_xAllocator.LoadData(pxWalkChunk);
+				else
+					KLog.LogError("CAiGoalWatercrossing","Load(): Invalid SubNode Type:"+pxWalkChunk^.GetType().ToString());
+				endif;
+			endfor;
+		else
+			super.Load(p_pxNode);
+		endif;
+	endproc;
+	
+	proc bool HasZeppelin()
+//		var string sClass=m_sTribe+"_zeppelin";
+//		sClass.MakeLower();
+		var CAiObjWrapList xZeppelinList;
+		var CAiObjQuery xZeppelinQuery;
+		xZeppelinList.Clear();
+		xZeppelinQuery.SetOwner(m_iPlayerID);
+//		xZeppelinQuery.SetClass(sClass);
+		xZeppelinQuery.SetClass("aje_zeppelin");
+		xZeppelinQuery.SetClass("hu_zeppelin",true);
+		xZeppelinQuery.SetClass("ninigi_zeppelin",true);
+		xZeppelinQuery.SetClass("seas_zeppelin",true);
+		xZeppelinQuery.Execute(xZeppelinList);
+		var int i, iC=xZeppelinList.NumEntries();
+		if(iC>0)then
+			var CAiObjWrapList xTmp, xTmp2;
+			xTmp.CopyFrom(m_pxTransferInfo^.GetTargets());
+			iterloop(xTmp,i)do
+				if(xTmp[i].GetAttribValueBool("flying_unit")==false)then
+					xTmp2.Include(xTmp[i]);
+				endif;
+			enditerloop;
+			var int iNumTargets=xTmp2.Validate();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(iNumTargets<=0)then
+					break;
+				endif;
+				if(!xZeppelinList[i].IsValid())then continue; endif;
+				if(GetAiAllocationMgr()^.IsUnitLocked(xZeppelinList[i], false, false, true))then continue; endif;
+				var int iFreeSlots=xZeppelinList[i].GetAttribValueInt("max_passengers")-xZeppelinList[i].GetAttribValueInt("passengers_onboard");
+//				m_iSlots=iFreeSlots;
+//				m_iSlots=xZeppelinList[i].GetAttribValueInt("max_passengers");
+//				CMirageAIMgr.Debug("iFreeSlots: '"+(iFreeSlots).ToString()+"'");
+				m_xShipSupervisor.AddUnit(xZeppelinList[i]);
+				iNumTargets-=iFreeSlots;
+			endfor;
+			m_iNumShips=m_xShipSupervisor.UnitsNumber();
+			if(m_iNumShips>0)then
+				var CAiObjWrapList xUnits;
+				xUnits.CopyFrom(m_pxTransferInfo^.GetTargets());
+				iterloop(xUnits,i)do
+					if(xUnits[i].GetAttribValueBool("flying_unit")==false)then
+	//					CMirageAIMgr.Debug("z xUnits["+i.ToString()+"]: '"+xUnits[i].GetName()+"'");
+						m_xPassengerSupervisor.AddUnit(xUnits[i]);
+					else
+						m_xIndependentUnits.AddUnit(xUnits[i]);
+					endif;
+				enditerloop;
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+endclass;

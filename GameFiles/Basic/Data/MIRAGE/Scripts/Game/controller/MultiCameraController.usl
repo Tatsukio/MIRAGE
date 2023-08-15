@@ -1,0 +1,195 @@
+class CMultiCameraController inherit CCameraControllerBase
+	var bool m_bFollowGround; // true if the camera is to follow ground changes
+	
+	class CCamStack
+		
+		class CEntry
+			export var vec3 	m_vEye;
+			export var vec3 	m_vLookat;
+			export var vec3 	m_vUp;
+			
+			export proc void FromCamera(^CCameraControllerModule p_pxCam)
+				if (p_pxCam!=null) then
+					m_vEye  	= p_pxCam^.Eye();
+					m_vLookat	= p_pxCam^.LookAt();
+					m_vUp		= p_pxCam^.Up();
+				endif;
+			endproc;
+		
+			export proc void ToCamera(^CCameraControllerModule p_pxCam)
+				if (p_pxCam!=null) then
+					p_pxCam^.Eye() 		= m_vEye;
+					p_pxCam^.LookAt()	= m_vLookat;
+					p_pxCam^.Up() 		= m_vUp;
+				endif;
+			endproc;
+		endclass;
+		
+		var array CEntry	m_axStack;
+		
+		export proc int Push(ref CMultiCameraController.CCamStack.CEntry p_rxEntry)
+			m_axStack.AddEntry(p_rxEntry);
+			return m_axStack.NumEntries();
+		endproc;
+	
+		export proc CMultiCameraController.CCamStack.CEntry Pop();
+			var CMultiCameraController.CCamStack.CEntry xEntry;
+			if (m_axStack.NumEntries() == 0 )then
+				return xEntry;
+			endif;
+			
+			xEntry = m_axStack[m_axStack.NumEntries()-1];
+			m_axStack--;
+			return xEntry;
+		endproc;
+		
+		export proc int NumEntries()
+			return m_axStack.NumEntries();
+		endproc;
+	endclass;
+	
+	var CCamStack	m_xCamStack;
+	
+	export proc bool PushCamera()
+		var CMultiCameraController.CCamStack.CEntry xEntry;
+		xEntry.FromCamera(GetGameCameraModule());
+		
+		var int iOldSize = m_xCamStack.NumEntries();
+		m_xCamStack.Push(xEntry);
+		return iOldSize+1 == m_xCamStack.NumEntries();
+	endproc;
+
+	export proc bool PopCamera(bool p_bSmooth)
+		var CMultiCameraController.CCamStack.CEntry xEntry;
+		xEntry = m_xCamStack.Pop();
+		
+		if (!p_bSmooth) then
+			xEntry.ToCamera(GetGameCameraModule());
+		else
+			CMultiCameraController.Get().SetCameraTarget(xEntry.m_vEye);
+		endif;
+		return true;
+	endproc;
+	
+	// -- construction / destruction
+	export constructor()
+		// singleton initialization
+		if(ms_pxInst==null)then
+			ms_pxInst=this;
+		else
+			KLog.LogError("PaHa","Second instance of CMultiCameraController created! This is trouble!!!");
+		endif;
+
+		m_bFollowGround=false;
+	endconstructor;
+	
+	// -- singleton	
+	static var ^CMultiCameraController ms_pxInst;
+	static var int ms_iInstances;
+
+	export static proc ref CMultiCameraController Get()
+		if(ms_pxInst==null)then
+			ms_pxInst=^(CMainController.Get().GetMultiCameraCtrl());
+		endif;
+		return ms_pxInst^;
+	endproc;
+	
+	// module helpers
+	export proc ^CFreeCameraModule GetFreeCameraModule()
+		var ^CCameraControllerModule pxMod=GetControllerModule("FreeCamera");
+		return cast<CFreeCameraModule>(pxMod);
+	endproc;
+	
+	export proc ^CGameCameraModule GetGameCameraModule()
+		var ^CCameraControllerModule pxMod=GetControllerModule("GameCamera");
+		return cast<CGameCameraModule>(pxMod);
+	endproc;
+	
+	export proc ^CFollowGameCameraModule GetFollowGameCameraModule()
+		var ^CCameraControllerModule pxMod=GetControllerModule("FollowGameCamera");
+		return cast<CFollowGameCameraModule>(pxMod);
+	endproc;
+	
+	export proc ^CSequenceCameraModule GetSequenceCameraModule()
+		var ^CCameraControllerModule pxMod=GetControllerModule("SequenceCamera");
+		return cast<CSequenceCameraModule>(pxMod);
+	endproc;
+	/*TODO:
+	export proc ^CSpecialCameraModule GetSpecialCameraModule()
+		var ^CCameraControllerModule pxMod=GetControllerModule("SpecialCamera");
+		return cast<CSpecialCameraModule>(pxMod);
+	endproc;*/
+	/*TODO:
+	export proc ^CActionViewModule GetActionViewModule()
+		var ^CCameraControllerModule pxMod=GetControllerModule("ActionView");
+		return cast<CActionViewModule>(pxMod);
+	endproc;*/
+
+	// -- initialization / deinitialization
+	export proc bool Init()
+		// base class initialization (initializes all added modules)
+		if(super.Init()==false)then
+			return false;
+		endif;
+		return true;
+	endproc;
+	
+	export proc void SetFollowGround(bool p_bFollow)
+		m_bFollowGround=p_bFollow;
+	endproc;
+	
+	export proc bool GetFollowGround()
+		return m_bFollowGround;
+	endproc;
+	
+	export proc bool HandleCatchedMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+		return false;
+	endproc;
+
+	export proc bool HandleMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+		// we don't do a lot as long as we're in a sequence
+		if(m_bInSequence==true)then
+			if(p_dwType==088d)then
+				return super.HandleMsg(p_dwType,p_dwFlags,p_iKey,p_iX,p_iY);
+			endif;
+			return false;
+		endif;
+		
+		// update camera on tick if neccessary
+		if(p_dwType==CInputController.MT_Tick)then
+			if(m_bFollowGround==true)then
+				UpdateCamera();
+			endif;
+		endif;
+		
+		// delegate message decoding and handling to base class		
+		return super.HandleMsg(p_dwType,p_dwFlags,p_iKey,p_iX,p_iY);
+	endproc;
+	
+	// -- sequence helpers
+	var bool m_bInSequence;
+	var bool m_bPreSeqFollowGround;
+	var bool m_bPreSeqSnapGround;
+	var string m_sPreSeqModuleName;
+	
+	export proc void EnterSequence()
+		m_bPreSeqFollowGround=m_bFollowGround;
+		m_bFollowGround=false;
+		m_bPreSeqSnapGround=GetGroundSnapping();
+		SetGroundSnapping(false);
+		m_sPreSeqModuleName=GetCurrentModule()^.GetModuleName();
+		m_bInSequence=true;
+	endproc;
+	
+	export proc void LeaveSequence()
+		m_bFollowGround=m_bPreSeqFollowGround;
+		SetGroundSnapping(m_bPreSeqSnapGround);
+		SwitchToModule(m_sPreSeqModuleName);
+		UpdateCameraFromDevice();
+		GetCamera()^.Up()={0.0,0.0,1.0};
+		//FromCameraToModule(GetCamera(),m_sPreSeqModuleName);
+		AllModulesUpdateFromCamera();
+		m_bInSequence=false;
+	endproc;
+	
+endclass;

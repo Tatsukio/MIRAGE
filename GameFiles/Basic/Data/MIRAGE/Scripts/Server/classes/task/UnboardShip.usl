@@ -1,0 +1,247 @@
+// First the ship receives an CPrepareUnboard-Task and sails to the choosen
+// Unboard-Position. Then, when it's arrived, the CUnboardShip-Task is invoked for every Passenger
+
+class CPrepareUnboard inherit CTask
+
+	const int		REQUEST_PATH = 0;
+	const int		WAITING_FOR_PATH = 1;
+	const int		ON_THE_WAY = 2;
+	
+	var CObjHndl	m_xTransport;
+	var vec3			m_vUnboardPos;
+	var vec3			m_vDest;
+	var vec3			m_vFinalDestination;
+	var int				m_iState;
+	var int				m_iRetryCounter;
+	
+	export constructor()
+		SetName("PreUnbr");
+		SetCivil(false);
+		m_vFinalDestination={0.0,0.0,0.0};
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="PrUB";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,3);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xTransport.DoKArc(pxArc^);
+		(pxArc^) << m_vUnboardPos;
+		(pxArc^) << m_vDest;
+		(pxArc^) << m_iState;
+		(pxArc^) << m_vFinalDestination;
+		(pxArc^) << m_iRetryCounter;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="PrUB")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			m_xTransport.DoKArc(pxArc^);
+			(pxArc^) << m_vUnboardPos;
+			(pxArc^) << m_vDest;
+			(pxArc^) << m_iState;
+			if(iVersion>=2)then
+				(pxArc^) << m_vFinalDestination;
+			endif;
+			if(iVersion>=3)then
+				(pxArc^) << m_iRetryCounter;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;	
+
+	export proc bool Init(CObjHndl p_xTransport, vec3 p_vPos)
+		if(!p_xTransport.IsValid())then return false; endif;
+		m_xTransport = p_xTransport;
+		m_vUnboardPos = p_vPos;
+		m_vFinalDestination = p_vPos;
+		m_iState = REQUEST_PATH;
+		var ^CGameObj pxO = m_xTransport.GetObj();
+		if(pxO!=null)then
+			if(pxO^.GetType() != "SHIP" || pxO^.IsAmphibian() /*pxO^.GetClassName() == "aje_transport_turtle"*/)then
+				m_iState = ON_THE_WAY;
+				m_vDest = m_vUnboardPos;
+			endif;
+		else
+			return false;
+		endif;
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CTransportObj pxTO = cast<CTransportObj>(m_xTransport.GetObj());
+		if(pxTO!=null)then
+			if(m_iState == REQUEST_PATH)then
+				var vec3 vP = m_vUnboardPos;
+				var ^CPathfinder pxPF = ^(CSrvWrap.GetPathfinder());
+				if(pxPF^.GetShipBoardingPos(pxTO^.GetOwner(),vP, pxTO^.GetPos(), m_vUnboardPos))then
+					m_vUnboardPos=pxTO^.GetDismountLocation(m_vUnboardPos);
+					//KLog.LogSpam("Unboard", "*******************");
+					//KLog.LogSpam("Unboard", " ShipPos  = "+pxTO^.GetPos().ToString());
+					//KLog.LogSpam("Unboard", " ClickPos = "+vP.ToString());
+					//KLog.LogSpam("Unboard", " FinalDes = "+m_vFinalDestination.ToString());
+					//KLog.LogSpam("Unboard", " Unboard  = "+m_vUnboardPos.ToString());
+					//KLog.LogSpam("Unboard", "*******************");
+					m_iState = ON_THE_WAY;
+					return;
+				endif;
+				EndTask();
+			elseif(m_iState == ON_THE_WAY)then
+				if(!pxTO^.HasAction())then
+					var real fDist = (m_vUnboardPos - pxTO^.GetPos()).Abs2();
+					if(fDist > pxTO^.m_fMaxPassengerDropRadius)then
+						if(m_iRetryCounter>5)then EndTask(); return; endif;
+						pxTO^.WalkAction(m_vUnboardPos, pxTO^.GetMaxSpeed());
+						m_iRetryCounter++;
+					else
+						if(pxTO^.DismountAll(m_vFinalDestination))then
+							pxTO^.UpdateAggressionPos(pxTO^.GetPos());
+							EndTask();
+						else
+							if(m_iRetryCounter>5)then EndTask(); return; endif;
+							pxTO^.WalkAction(m_vUnboardPos, pxTO^.GetMaxSpeed());
+							m_iRetryCounter++;
+						endif;
+					endif;
+				endif;
+			endif;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		//KLog.LogSpam("Unboard","CPrepareUnboard::USLOnLeave");
+	endproc;
+
+	export proc bool Break()
+		//KLog.LogSpam("Unboard","CPrepareUnboard::Break");
+		if(m_xTransport.IsValid())then
+			m_xTransport.GetObj()^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+
+	export proc void Skip()
+		//KLog.LogSpam("Unboard","CPrepareUnboard::Skip");
+	endproc;
+	
+	export proc void EndTask()
+		UpdateAggressionPos(m_xTransport);
+		super.EndTask();
+	endproc;
+	
+endclass;
+
+class CUnboardShip inherit CTask
+
+	var CObjHndl m_xShip;
+	var CObjHndl m_xCharacter;
+	var vec3 m_vDest;
+	var string m_sState;
+	var vec3 m_vLandPosition;
+
+	export constructor()
+		//KLog.LogSpam("Unboard","CUnboardShip::constructor");
+		SetName("Unboard");
+		SetCivil(false);
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		//KLog.LogSpam("Unboard","CUnboardShip::Save");
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="UBSh";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xShip.DoKArc(pxArc^);
+		m_xCharacter.DoKArc(pxArc^);
+		(pxArc^) << m_vDest;
+		(pxArc^) << m_sState;
+		(pxArc^) << m_vLandPosition;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		//KLog.LogSpam("Unboard","CUnboardShip::Load");
+		if(p_pxReaderNode^.GetType()=="UBSh")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xShip.DoKArc(pxArc^);
+			m_xCharacter.DoKArc(pxArc^);
+			(pxArc^) << m_vDest;
+			(pxArc^) << m_sState;
+			(pxArc^) << m_vLandPosition;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;	
+
+	export proc bool Init(CObjHndl p_xCharacter,CObjHndl p_xShip)
+		//KLog.LogSpam("Unboard","CUnboardShip::Init");
+		m_xShip  = p_xShip;
+		m_xCharacter = p_xCharacter;
+		if(!m_xShip.IsValid() || !m_xCharacter.IsValid())then EndTask();return false; endif;
+		m_vLandPosition={0.0f,0.0f,0.0f};
+		m_sState="check";
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		//KLog.LogSpam("Unboard","CUnboardShip::USLOnEnter");
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		//KLog.LogSpam("Unboard","CUnboardShip::USLOnTick");
+		var ^CShip pxShip = null;
+		var ^CFightingObj pxChar = null;
+		if(!m_xShip.IsValid() || !m_xCharacter.IsValid())then EndTask(); return; endif;
+		if(m_xShip.GetObj()^.GetType()=="SHIP")then
+			pxShip = cast<CShip>(m_xShip.GetObj());
+		endif;
+		//if(m_xCharacter.GetObj()^.GetType()=="CHTR")then
+			pxChar    = cast<CFightingObj>(m_xCharacter.GetObj());
+		//endif;
+		if((pxShip==null)||(pxChar==null))then
+			EndTask();
+			return;
+		endif;
+		if(m_sState=="check")then
+			m_sState = "Leave_at_Land";
+			return;
+		elseif(m_sState=="Leave_at_Land")then
+			pxShip^.OnDismount(m_xCharacter);
+			EndTask();
+			return;
+		elseif(m_sState=="end")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		//KLog.LogSpam("Unboard","CUnboardShip::USLOnLeave");
+	endproc;
+
+	export proc bool Break()
+		//KLog.LogSpam("Unboard","CUnboardShip::Break");
+		//KLog.LogSpam("Unboard", "UnBoardShip: enter break()");
+		if(m_xShip.IsValid())then
+			m_xCharacter.GetObj()^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+
+	export proc void Skip()
+		//KLog.LogSpam("Unboard","CUnboardShip::Skip");
+	endproc;
+	
+	export proc void EndTask()
+		UpdateAggressionPos(m_xShip);
+		super.EndTask();
+	endproc;
+endclass;

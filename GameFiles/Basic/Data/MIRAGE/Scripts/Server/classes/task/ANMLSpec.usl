@@ -1,0 +1,1153 @@
+class CShakeOff inherit CActionTask
+
+	var CObjHndl		m_xHandle;
+	var string			m_sState;
+	var real				m_fTimeIntervall;
+	var real				m_fTimeOffSet;
+	var real				m_fAnimLength;
+	var string			m_sAnim;
+	
+	var real				m_fDamage;
+	var real				m_fEndDamage;
+	var real				m_fRange;
+	var bool				m_bCustom;
+	var bool				m_bSkipVis;
+
+	export constructor()
+		SetName("ShakeOff");
+		m_fDamage=0.0;
+		m_fEndDamage=0.0;
+		m_fRange=0.0;
+		m_bCustom=false;
+		m_bSkipVis=false;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="ShOf";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,5);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xHandle.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_fTimeIntervall;
+		(pxArc^) << m_fTimeOffSet;
+		(pxArc^) << m_sAnim;
+		(pxArc^) << m_fAnimLength;
+		(pxArc^) << m_fDamage;
+		(pxArc^) << m_fEndDamage;
+		(pxArc^) << m_fRange;
+		(pxArc^) << m_bCustom;
+		(pxArc^) << m_bSkipVis;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="ShOf")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xHandle.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			if(p_pxReaderNode^.GetVersion()>=2)then
+				(pxArc^) << m_fTimeIntervall;
+				(pxArc^) << m_fTimeOffSet;
+				(pxArc^) << m_sAnim;
+				(pxArc^) << m_fAnimLength;
+			endif;
+			if(p_pxReaderNode^.GetVersion()>=3)then
+				(pxArc^) << m_fDamage;
+				(pxArc^) << m_fEndDamage;
+				(pxArc^) << m_fRange;
+			endif;
+			if(p_pxReaderNode^.GetVersion()>=4)then
+				(pxArc^) << m_bCustom;
+			endif;
+			if(p_pxReaderNode^.GetVersion()>=5)then
+				(pxArc^) << m_bSkipVis;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xHandle, string p_sAnim, real p_fTimeIntervall, real p_fTimeOffSet, string p_sPath, bool p_bSkipVis)
+		m_sState="start_anim";
+		if(!p_xHandle.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xHandle=p_xHandle;
+		m_fTimeIntervall=p_fTimeIntervall;
+		m_fTimeOffSet=p_fTimeOffSet;
+		m_sAnim=p_sAnim;
+		m_bSkipVis=p_bSkipVis;
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(m_xHandle, p_sPath, true);
+		return true;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xHandle, string p_sAnim, real p_fTimeIntervall, real p_fTimeOffSet, real p_fDamage, real p_fEndDamage, real p_fRange, string p_sPath, bool p_bSkipVis)
+		m_sState="start_anim";
+		if(!p_xHandle.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xHandle=p_xHandle;
+		m_fTimeIntervall=p_fTimeIntervall;
+		m_fTimeOffSet=p_fTimeOffSet;
+		m_sAnim=p_sAnim;
+		m_fDamage=p_fDamage;
+		m_fEndDamage=p_fEndDamage;
+		m_fRange=p_fRange;
+		m_bCustom=true;
+		m_bSkipVis=p_bSkipVis;
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(m_xHandle, p_sPath, true);
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+	endproc;
+
+	export proc bool OnActionEnd(bool p_bBroken)
+		return false;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CAnimal pxHandle = cast<CAnimal>(m_xHandle.GetObj());
+		if(pxHandle==null)then EndTask(); return; endif;
+		var real fRange = pxHandle^.GetCollisionRadius()+5.0; // must NOT be 0.0;
+		if(m_fRange!=0.0)then
+			fRange = pxHandle^.GetCollisionRadius()+m_fRange;
+		endif;
+		var real fDmg = pxHandle^.GetDmg();
+		var real fEndDmg = fDmg;
+		if(m_sState == "start_anim")then
+			if(!StartSpecialActionTimer(pxHandle, m_bSkipVis))then
+				m_sState=="EndTask";
+				EndTask();
+				return;
+			endif;
+			pxHandle^.MemorizeCurrentFightState(CObjHndl.Invalid(),false,false);
+			//calc
+			pxHandle^.SetAnim(m_sAnim,1);
+			if(pxHandle^.GetClassName()=="ninigi_seismosaurus")then
+				var CObjHndl xHndl=pxHandle^.AddFX("fx_ninigi_seismo_barrage", 2.8);
+				if(xHndl.IsValid())then
+					xHndl.GetObj()^.SetAnim("anim",1);
+					m_fAnimLength=xHndl.GetObj()^.GetCurrentAnimLength();
+				else
+					m_fAnimLength=pxHandle^.GetCurrentAnimLength();
+				endif;
+			elseif(pxHandle^.GetClassName()=="seas_rex")then
+				var vec3 vPos=pxHandle^.GetPos();
+				var real fH=vPos.GetZ()-2.5f;
+				vPos.SetZ(fH);
+				var CObjHndl xHndl=pxHandle^.AddFX("fx_ninigi_seismo_barrage", 2.0);
+				if(xHndl.IsValid())then
+					xHndl.GetObj()^.SetPos(vPos);
+					xHndl.GetObj()^.SetAnim("anim",1,33);
+					m_fAnimLength=xHndl.GetObj()^.GetCurrentAnimLength();
+				else
+					m_fAnimLength=pxHandle^.GetCurrentAnimLength();
+				endif;
+			else
+				m_fAnimLength=pxHandle^.GetCurrentAnimLength();
+			endif;
+			pxHandle^.WaitAction(m_fTimeOffSet);
+			m_sState = "wait_for_anim_end";
+		elseif(m_sState == "wait_for_anim_end")then
+			var int iOwner = pxHandle^.GetOwner();
+			if(iOwner>=0)then
+				var bool bSEASTitan = pxHandle^.GetClassName()=="seas_rex";
+				var bool bNMTitan = pxHandle^.GetClassName()=="hu_triceratops"||pxHandle^.GetClassName()=="hu_ballista_titan";
+				var CObjList xList;
+				var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
+				if(pxEnemies==null) then return; endif;
+				pxEnemies^.CopySorted(xList, pxHandle^.GetPos(), fRange);
+				var int i, iC = xList.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CFightingObj pxFight = cast<CFightingObj>(xList[i].GetObj());
+					if(pxFight!=null && !pxFight^.GetTransportObj().IsValid())then
+//					if(pxFight!=null)then
+						var ^CCharacter pxChar = cast<CCharacter>(pxFight);
+						if(pxChar!=null)then
+//						if(pxChar!=null && !pxChar^.GetTransportObj().IsValid())then
+							var real fDiffTime=(((Random.GetInt()%100).ToReal())/100.0f) * m_fTimeIntervall;
+							var real fDiffDistance=(Random.GetInt()%70).ToReal()/10.0;
+							var vec3 vDir = (pxChar^.GetPos() - pxHandle^.GetPos());
+							vDir.Normalize();
+							vDir.SetZ(vDir.GetZ()+0.5);
+							vDir.Normalize();
+							pxChar^.SetHitReactionTimer(m_fTimeOffSet+fDiffTime,vDir*(3.0f+fDiffDistance));
+						endif;
+						//Henry: HACK
+						if(bSEASTitan)then
+							pxFight^.SetMarkedForDeath(true,15.0f);
+						elseif(bNMTitan)then
+							pxFight^.SetBrokenLegs(true,15.0f);
+							pxFight^.SetSundered(true,8.0f);
+						endif;
+					endif;
+				endfor;
+				//Henry: HACK
+				if(pxHandle^.GetClassName()=="aje_atroxosaurus")then
+					CFightingObj.ShakeZone(pxHandle^.GetPos(),xList);
+				endif;
+			endif;
+			m_sState = "do_damage";
+		elseif(m_sState == "do_damage")then
+			if(m_bCustom)then
+				fDmg += m_fDamage;
+				fEndDmg += m_fEndDamage;
+			endif;
+			var ^CAreaDamage pxDmg = new CAreaDamage(fRange, fDmg, fEndDmg, pxHandle^.GetOwner(), pxHandle^.GetPos(), 10, pxHandle);
+			if(m_fAnimLength>m_fTimeOffSet)then
+				pxHandle^.WaitAction(m_fAnimLength-m_fTimeOffSet);
+			endif;
+			m_sState = "finished";
+		elseif(m_sState == "finished")then
+			//Henry: HACK
+			if(pxHandle^.GetClassName()=="aje_atroxosaurus")then
+				var ^CAjeTrex pxRex=cast<CAjeTrex>(pxHandle);
+				if(pxRex!=null)then
+//					pxRex^.MonarchBlades();
+//					pxRex^.TitanDefense(25.0);
+				endif;
+			endif;
+			if(pxHandle^.GetClassName()=="ninigi_seismosaurus")then
+				pxHandle^.SetSpeedRun(true,15.0f,CSeismosaurus.SPEED_RUN_PATH);
+			endif;
+//			if(pxHandle^.GetClassName()=="seas_rex")then
+//				var vec3 vPos=pxHandle^.GetPos();
+//				var real fH=vPos.GetZ()-2.5f;
+//				vPos.SetZ(fH);
+//				var CObjHndl xHndl=pxHandle^.AddFX("fx_ninigi_seismo_barrage", 2.0);
+//				if(xHndl.IsValid())then
+//					xHndl.GetObj()^.SetPos(vPos);
+//					xHndl.GetObj()^.SetAnim("anim",1,33);
+//				endif;
+//			endif;
+			m_sState="EndTask";
+			if(pxHandle^.GetReturnEnemy().IsValid())then
+				pxHandle^.ReturnToFight();
+			endif;
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc void EndTask()
+		SetPrepareActionPath(m_xHandle, GetSpecialActionPath(), false);
+		super.EndTask();
+	endproc;
+	
+	export proc bool Break()
+		return false;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+endclass;
+
+class CStunningRoar inherit CActionTask
+
+	var CObjHndl		m_xHandle;
+	var string			m_sState;
+	var real				m_fTime;
+	var real				m_fTimeOffSet;
+	var real				m_fAnimLength;
+	var real				m_fRadius;
+	var string			m_sAnim;
+
+	export constructor()
+		SetName("StunRoar");
+		m_fRadius = 10.0f;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="StRo";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xHandle.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_fTime;
+		(pxArc^) << m_fTimeOffSet;
+		(pxArc^) << m_sAnim;
+		(pxArc^) << m_fAnimLength;
+		(pxArc^) << m_fRadius;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="StRo")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xHandle.DoKArc(pxArc^);
+			if(p_pxReaderNode^.GetVersion()>=1)then
+				(pxArc^) << m_sState;
+				(pxArc^) << m_fTime;
+				(pxArc^) << m_fTimeOffSet;
+				(pxArc^) << m_sAnim;
+				(pxArc^) << m_fAnimLength;
+			endif;
+			if(p_pxReaderNode^.GetVersion()>=2)then
+				(pxArc^) << m_fRadius;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xHandle, string p_sAnim, real p_fTime, real p_fTimeOffSet, real p_fRadius, string p_sPath)
+		m_sState="start_anim";
+		if(!p_xHandle.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xHandle=p_xHandle;
+		m_fTime=p_fTime;
+		m_fTimeOffSet=p_fTimeOffSet;
+		m_sAnim=p_sAnim;
+		m_fRadius=p_fRadius;
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(m_xHandle, p_sPath, true);
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+	endproc;
+
+	export proc bool OnActionEnd(bool p_bBroken)
+		return false;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CAnimal pxHandle = cast<CAnimal>(m_xHandle.GetObj());
+		if(pxHandle==null)then EndTask(); return; endif;
+		var real fRange = pxHandle^.GetCollisionRadius()+m_fRadius; // must NOT be 0.0;
+		if(m_sState == "start_anim")then
+			if(!StartSpecialActionTimer(pxHandle))then
+				m_sState=="EndTask";
+				EndTask();
+				return;
+			endif;
+			pxHandle^.MemorizeCurrentFightState(CObjHndl.Invalid(),false,false);
+			//calc
+			pxHandle^.SetAnim(m_sAnim,1);
+			m_fAnimLength=pxHandle^.GetCurrentAnimLength();
+			pxHandle^.WaitAction(m_fTimeOffSet);
+			m_sState = "do_stun";
+		elseif(m_sState == "do_stun")then
+			var int iOwner = pxHandle^.GetOwner();
+			if(iOwner>=0)then
+				var CObjList xList;
+				var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
+				if(pxEnemies==null) then EndTask(); return; endif;
+				pxEnemies^.CopySorted(xList, pxHandle^.GetPos(), fRange);
+				var int i, iC = xList.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CFightingObj pxFight = cast<CFightingObj>(xList[i].GetObj());
+					if(pxFight!=null && !pxFight^.GetTransportObj().IsValid())then
+						var bool bTrappedAlready=pxFight^.IsTrapped();
+						pxFight^.SetTrappedTime(m_fTime);
+						if(!bTrappedAlready)then
+							pxFight^.SetAnim("standanim",3);
+						endif;
+//						pxFight^.SetAnim("standanim",3);
+					endif;
+				endfor;
+			endif;
+			if(m_fAnimLength>m_fTimeOffSet)then
+				pxHandle^.WaitAction(m_fAnimLength-m_fTimeOffSet);
+			endif;
+			m_sState = "finished";
+		elseif(m_sState == "finished")then
+			m_sState="EndTask";
+			if(pxHandle^.GetReturnEnemy().IsValid())then
+				pxHandle^.ReturnToFight();
+			endif;
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc void EndTask()
+		SetPrepareActionPath(m_xHandle, GetSpecialActionPath(), false);
+		super.EndTask();
+	endproc;
+	
+	export proc bool Break()
+		return false;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+endclass;
+
+class CBrachioHarvest inherit CSpecialActionTask
+
+	var CObjHndl 				m_xWorker;
+	var CObjHndl				m_xObjTree;
+	var CForestSrvMgr.CTree		m_xForestTree;
+	var vec3					m_vCurTarget;
+	var vec3					m_vTreePos;
+	var string					m_sState;
+	var int						m_iSkip;
+	var real					m_fAnimL;
+	var CGameTime				m_xAnimStart;
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="BrHa";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xWorker.DoKArc(pxArc^);
+		m_xObjTree.DoKArc(pxArc^);
+		m_xForestTree.DoKArc(pxArc^);
+		(pxArc^) << m_vCurTarget;
+		(pxArc^) << m_vTreePos;
+		(pxArc^) << m_sState;
+		(pxArc^) << m_iSkip;
+		(pxArc^) << m_fAnimL;
+		m_xAnimStart.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="BrHa")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xWorker.DoKArc(pxArc^);
+			m_xObjTree.DoKArc(pxArc^);
+			m_xForestTree.DoKArc(pxArc^);
+			(pxArc^) << m_vCurTarget;
+			(pxArc^) << m_vTreePos;
+			(pxArc^) << m_sState;
+			(pxArc^) << m_iSkip;
+			if(p_pxReaderNode^.GetVersion()>=2)then
+				(pxArc^) << m_fAnimL;
+				m_xAnimStart.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool OnActionEnd(bool p_bBroken)
+		if(p_bBroken)then
+			ResetCounter();
+		endif;
+		return m_sState!="bash";
+	endproc;
+
+	export proc bool Init(CObjHndl p_xWorker,vec3 p_vPos, string p_sPath)
+		if(!p_xWorker.IsValid())then
+			return false;
+		endif;
+		SetName("BrachioHarvest");
+		m_sState = "EndTask";
+		var ^CBrachiosaurus pxWorker = cast<CBrachiosaurus>(p_xWorker.GetObj());
+		if(pxWorker==null || p_vPos=={0.0,0.0,0.0})then return false; endif;
+		m_xWorker=p_xWorker;
+		m_vCurTarget = p_vPos;
+		var bool bNewTree = false;
+		var CForestSrvMgr.CTree xForTree;
+		m_sState = "do_anim";
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(m_xWorker, p_sPath, true);
+		return true;
+	endproc;
+
+	// Proc USLOnEnter ======================================================
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if (pxWorker==null) then
+			EndTask();
+			return;
+		endif;
+		if (m_sState=="EndTask") then
+			EndTask();
+			return;
+		endif;
+		m_iSkip = 0;
+		SetMaxCounter(1);
+	endproc;
+
+	// Proc USLOnTick =======================================================
+	proc void USLOnTick(int p_iTime)
+		var ^CBrachiosaurus pxBrachio;
+		begin CheckWorker;
+			var ^CGameObj pxTmp=m_xWorker.GetObj();
+			if (pxTmp==null) then
+				EndTask();
+				return;
+			endif;
+			pxBrachio=cast<CBrachiosaurus>(pxTmp);
+			if(pxBrachio==null)then
+				EndTask();
+				return;
+			endif;
+		end CheckWorker;
+		var vec3 vPosWorker=pxBrachio^.GetPos();
+		if(m_sState=="do_anim")then
+			if(!StartSpecialActionTimer(pxBrachio))then
+				m_sState=="EndTask";
+				EndTask();
+				return;
+			endif;
+			m_vTreePos = m_vCurTarget;
+			SetUnStoppable(true);
+			pxBrachio^.SetAnim("stomp_harvest",1,0,m_fAnimL);
+			m_xAnimStart=CTimeMgr.Get().GetTime();
+			pxBrachio^.WaitAction(1.8f);
+			m_sState = "bash";
+
+		elseif(m_sState=="bash")then
+			var CObjQuery xTreeSearch;
+			xTreeSearch.SetType("TREE");
+			xTreeSearch.RegionCircle(m_vCurTarget, 15.0);
+			var CObjList xList, xBashList;
+			if(xTreeSearch.Execute(xList))then
+				var int i, iC = xList.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CGameObj pxGameObj = xList[i].GetObj();
+					if(pxGameObj!=null)then
+						var ^CTree pxTree = cast<CTree>(pxGameObj);
+						if(pxTree != null)then
+							var CGameEvtPtr xEvt=CGameEvtPtr.CreateEvent("Bash");
+							xEvt.SetBool(0,true);
+							pxTree^.HandleEvent(xEvt);
+						endif;
+					endif;
+				endfor;
+//			if(xTreeSearch.Execute(xBashList))then
+			endif;
+			//var vec3 vDirection = m_vTreePos - m_vCurTarget;
+			var Quat qDirection;
+			var vec3 vDirection = {1.0,0.0,0.0};
+			//var Quat qDir;
+			qDirection.FromDir(vDirection);
+			//qDirection = qDir / qDirection;
+			var string sSetting=CSrvWrap.GetCurLevel()^.GetLevelInfo().GetAttribs().GetValue("Setting");
+			if(sSetting=="Cave1")then
+				sSetting="Savanna";
+			elseif(sSetting=="Cave2")then
+				sSetting="Ashvalley";
+			elseif(sSetting=="Cave3")then
+				sSetting="Oasis";
+			endif;
+			repeat
+				CSrvWrap.GetForestMgr().FindNextTreeShortDelivery(m_xForestTree, m_vTreePos, m_vTreePos, 15.0, m_iSkip);
+				if(!m_xForestTree.IsValid())then break; endif;
+				var CObjHndl xTree, xInvalid;
+				CSrvWrap.GetForestMgr().Refresh(m_xForestTree);
+				var vec3 vPos;
+				if(!CSrvWrap.GetForestMgr().GetTreePos(m_xForestTree, vPos))then
+					//CSrvWrap.GetForestMgr().ConvertTree(m_xForestTree,xInvalid);
+					CSrvWrap.GetForestMgr().ChopTree(m_xForestTree);
+					CSrvWrap.GetForestMgr().Refresh(m_xForestTree);
+					continue;
+				endif;
+				var int iTreeType = CSrvWrap.GetForestMgr().GetTreeType(m_xForestTree);
+				var string sTreeName;
+				if (iTreeType!=-1)then
+					sTreeName = sSetting+"_Tree_0"+(iTreeType+1).ToString()+"_Timber";
+				else
+					var ^CGameObj pxObj = m_xForestTree.GetObjHandle().GetObj();
+					if(pxObj!=null)then
+						sTreeName = pxObj^.GetClassName()+"_Timber";
+					endif;
+					if(sTreeName.IsEmpty())then
+						sTreeName = sSetting+"_Tree_01_Timber";
+					endif;
+				endif;
+				var ^CGameObj pxGameObj = CSrvWrap.GetObjMgr()^.CreateObj(sTreeName,(-1),vPos,{0.0,0.0,0.0});
+				if(pxGameObj!=null)then
+					//CSrvWrap.GetForestMgr().ConvertTree(m_xForestTree,pxGameObj^.GetHandle());
+					xBashList.Include(pxGameObj^.GetHandle());
+					if(m_xForestTree.IsFakeTree())then
+						CSrvWrap.GetForestMgr().ChopTree(m_xForestTree);
+					else
+						m_xForestTree.GetObjHandle().GetObj()^.Delete();
+						m_iSkip ++;
+					endif;
+					//CSrvWrap.GetForestMgr().Refresh(m_xForestTree);
+				endif;
+			until(2==3)endrepeat;
+//			xBashList.Include(xList);
+			var int i, iC = xBashList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CGameObj pxGameObj = xBashList[i].GetObj();
+				if(pxGameObj!=null)then
+					var vec3 vRot = pxBrachio^.GetPos() - pxGameObj^.GetPos();
+					var Quat qRot;
+					qRot.FromDir(vRot);
+					var Quat qRotDiff = qRot / qDirection;
+					qRotDiff.ToVec3(vRot);
+					var real fAngle = Math.Abs(vRot.GetZ() - Math.Pi());
+					var int iAnim = Math.Round(((fAngle / (Math.Pi() * 2.0)) * 7.999)+0.5).ToInt() - 1;
+					if(iAnim>=0 && iAnim<8)then
+						pxGameObj^.SetAnim("chop_down_0"+iAnim.ToString(),1);
+					endif;
+				endif;
+			endfor;
+			var int iOwner = pxBrachio^.GetOwner();
+			if(iOwner>=0)then
+				var real fRange = 20.0; // must NOT be 0.0; 
+				var real fDmg = 100.0;
+				var real fEndDmg = 10.0;
+				var CObjList xList;
+				var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
+				if(pxEnemies==null) then return; endif;
+				//Hack for testing BrachioStomp with own units
+				/*
+				var CObjQuery xQ;
+				xQ.SetType("CHTR");
+				xQ.SetRegion(CSrvWrap.GetRegionMgr().GetWorldRgnHndl());
+				xQ.Execute(pxEnemies^);
+				/**/
+				pxEnemies^.CopySorted(xList, pxBrachio^.GetPos(), fRange);
+				var int i, iC = xList.NumEntries();
+				for(i=iC-1)cond(i>=0)iter(i--)do
+					var ^CFightingObj pxFight = cast<CFightingObj>(xList[i].GetObj());
+					if(pxFight==null)then continue; endif;
+					var real fDistance = (pxFight^.GetPos()-pxBrachio^.GetPos()).Abs2();
+					var real fActualDmg = ((fDmg-fEndDmg)*(fDistance/fRange)) + fEndDmg;
+					pxFight^.TakeDirectMeleeDmg(fActualDmg,m_xWorker);
+					if(pxFight^.GetTransportObj().IsValid())then continue; endif;
+					if(pxFight^.m_iSizeClass>0&&pxFight^.m_iSizeClass <= 7)then
+						var vec3 vDirection = pxFight^.GetPos() - pxBrachio^.GetPos();
+						vDirection.Normalize();
+						vDirection.SetZ(0.5);
+						pxFight^.SetHitReactionTimer(0.0,vDirection*10.0);
+					endif;
+				endfor;
+			endif;
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			var real fRemAnimTime=m_fAnimL-(xNow-m_xAnimStart).GetSecondsF();
+			pxBrachio^.WaitAction(fRemAnimTime);
+			m_sState = "finished";
+		elseif(m_sState == "finished")then
+			SetUnStoppable(false);
+			m_sState="EndTask";
+			if(pxBrachio^.GetReturnEnemy().IsValid())then
+				pxBrachio^.ReturnToFight();
+			endif;
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	// Proc USLOnLeave ======================================================
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		return super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	// Proc Break ===========================================================
+	export proc bool Break()
+		return true;
+	endproc;
+
+	export proc void EndTask()
+		UpdateAggressionPos(m_xWorker);
+		super.EndTask();
+	endproc;
+
+endclass;
+
+class CAlloScrunch inherit CSpecialActionTask
+
+	var CObjHndl 		m_xActor;
+	var CObjHndl		m_xTarget;
+	var string 			m_sState;
+	
+	export constructor()
+		SetName("AlloScr");
+		SetCivil(false);
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="AlCr";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xActor.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="AlCr")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xActor.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xActor, CObjHndl p_xTarget, string p_sPath)
+		m_sState="start_anim";
+		if(!p_xActor.IsValid() || !p_xTarget.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xActor = p_xActor;
+		m_xTarget = p_xTarget;
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(m_xActor, p_sPath, true);
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+		var ^CFightingObj pxFighter=cast<CFightingObj>(m_xActor.GetObj());
+		if(pxFighter==null || !pxFighter^.CheckSpecialActionTimer(GetSpecialActionPath()))then
+			EndTask();
+			return;
+		endif;
+		var ^CFightingObj pxTarget=cast<CFightingObj>(m_xTarget.GetObj());
+		if(pxTarget==null)then
+			EndTask();
+			return;
+		endif;
+		var bool bInvalid;
+		var CObjHndl xInvalid;
+		if(!pxFighter^.IsInCombatRange(pxTarget,false))then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CAllosaurus pxActor = cast<CAllosaurus>(m_xActor.GetObj());
+		if(pxActor==null)then EndTask(); return; endif;
+		if(m_sState == "start_anim")then
+			if(!StartSpecialActionTimer(pxActor))then EndTask();return;endif;
+			SetUnStoppable(true);
+			pxActor^.MemorizeCurrentFightState(pxActor^.GetCurEnemy(),false,false);
+			pxActor^.AnimAction("sm_scrunch");
+			var int iOwner = pxActor^.GetOwner();
+			if(iOwner>=0)then
+				var ^CFightingObj pxFight = cast<CFightingObj>(m_xTarget.GetObj());
+				if(pxFight==null)then EndTask(); return; endif;
+				if(pxFight^.GetOnWall())then EndTask(); return; endif;
+				pxFight^.TakeDmg(pxActor, false, 3.0, pxActor^.GetHitDelay(), 100.0);
+				pxFight^.ClearDamageCache();
+				var ^CCharacter pxChar = cast<CCharacter>(pxFight);
+				if(pxChar!=null && !pxChar^.GetTransportObj().IsValid())then
+					var vec3 vDir = (pxChar^.GetPos() - pxActor^.GetPos());
+					vDir.Normalize();
+					vDir.SetZ(vDir.GetZ()+0.5);
+					vDir.Normalize();
+					pxChar^.SetHitReactionTimer(0.7,vDir*(10.0f));
+				endif;
+			endif;
+			m_sState = "finished";
+		elseif(m_sState == "finished")then
+			m_sState="EndTask";
+			SetUnStoppable(false);
+			pxActor^.ReturnToFight();
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc bool Break()
+		return false;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+endclass;
+
+class CMammothTrumpet inherit CActionTask
+
+	var CObjHndl		m_xMammoth;
+	var string			m_sState;
+
+	export constructor()
+		SetName("MTrumpet");
+	endconstructor;
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="MaTr";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xMammoth.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="MaTr")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xMammoth.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xMammoth, string p_sPath)
+		m_sState="start_anim";
+		if(!p_xMammoth.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xMammoth = p_xMammoth;
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(m_xMammoth, p_sPath, true);
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CAnimal pxMammoth = cast<CAnimal>(m_xMammoth.GetObj());
+		if(pxMammoth==null)then EndTask(); return; endif;
+		if(m_sState == "start_anim")then
+			if(!StartSpecialActionTimer(pxMammoth))then
+				m_sState=="EndTask";
+				EndTask();
+				return;
+			endif;
+			pxMammoth^.MemorizeCurrentFightState(CObjHndl.Invalid(),false,false);
+			pxMammoth^.AnimAction("trumpet");
+			m_sState = "calc_dmg";
+		elseif(m_sState == "calc_dmg")then
+			//calc
+			var int iOwner = pxMammoth^.GetOwner();
+			if(iOwner>=0)then
+				var real fRange = 30.0; // must NOT be 0.0; 
+//				var CObjList xList;
+//				var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
+//				if(pxEnemies==null) then return; endif;
+//				pxEnemies^.CopySorted(xList, pxMammoth^.GetPos(), fRange);
+				var CObjQuery xQuery;
+				xQuery.SetType("ANML", false);
+				xQuery.SetType("CHTR", true);
+				xQuery.SetType("VHCL", true);
+				xQuery.SetOwner(iOwner);
+				CSrvWrap.GetDiplomacyMgr().AddMyFriendsToSearch(iOwner, xQuery);
+				xQuery.RegionCircle(pxMammoth^.GetPos(), fRange);
+				var CObjList xList;
+				xQuery.Execute(xList);
+				var int i, iC = xList.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CFightingObj pxFight = cast<CFightingObj>(xList[i].GetObj());
+					if(pxFight!=null)then
+//						pxFight^.SetTrumpetEffect();
+						pxFight^.SetRallyEffect(10.0f);
+					endif;
+				endfor;
+			endif;
+			m_sState = "finished";
+		elseif(m_sState == "finished")then
+			m_sState="EndTask";
+			if(pxMammoth^.GetReturnEnemy().IsValid())then
+				pxMammoth^.ReturnToFight();
+			endif;
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+	
+	export proc void EndTask()
+		SetPrepareActionPath(m_xMammoth, GetSpecialActionPath(), false);
+		super.EndTask();
+	endproc;
+	
+	export proc bool Break()
+		return false;
+	endproc;
+	
+	export proc void Skip()
+	endproc;
+
+endclass;
+
+class CPaw inherit CActionTask
+
+	var CObjHndl		m_xHandle;
+	var string			m_sState;
+
+	export constructor()
+		SetName("Paw");
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Paw!";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xHandle.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Paw!")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xHandle.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xHandle, string p_sPath)
+		m_sState="start_anim";
+		if(!p_xHandle.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(p_xHandle, p_sPath, true);
+		m_xHandle = p_xHandle;
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CAnimal pxHandle = cast<CAnimal>(m_xHandle.GetObj());
+		if(pxHandle==null)then EndTask(); return; endif;
+		if(m_sState == "start_anim")then
+			if(!StartSpecialActionTimer(pxHandle))then
+				m_sState=="EndTask";
+				EndTask();
+				return;
+			endif;
+			pxHandle^.AnimAction("pawing");
+			m_sState = "calc_dmg";
+		elseif(m_sState == "calc_dmg")then
+			//calc
+			var int iOwner = pxHandle^.GetOwner();
+			if(iOwner>=0)then
+				var real fRange = 30.0; // must NOT be 0.0; 
+				var CObjList xList;
+				var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
+				if(pxEnemies==null) then return; endif;
+				pxEnemies^.CopySorted(xList, pxHandle^.GetPos(), fRange);
+				var int i, iC = xList.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CFightingObj pxFight = cast<CFightingObj>(xList[i].GetObj());
+					if(pxFight!=null)then
+						pxFight^.SetPawEffect();
+					endif;
+				endfor;
+				if(pxHandle^.GetClassName()=="hu_triceratops"||pxHandle^.GetClassName()=="hu_ballista_titan")then
+					CFightingObj.ShakeZone(pxHandle^.GetPos(),xList);
+				endif;
+			endif;
+			m_sState = "EndTask";
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc void EndTask()
+		SetPrepareActionPath(m_xHandle, GetSpecialActionPath(), false);
+		super.EndTask();
+	endproc;
+	
+	export proc bool Break()
+		if(m_xHandle.IsValid())then
+			SetPrepareActionPath(m_xHandle, GetSpecialActionPath(), false);
+			m_xHandle.GetObj()^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+endclass;
+
+
+class CEnchain inherit CSpecialActionTask
+
+	////////////////For Tuning///////////////////////////
+	const real	m_fDuration=9.0f;
+	////////////////////////////////////////////////////
+
+	var CObjHndl	m_xActor;
+	var CObjHndl	m_xTarget;
+	var string		m_sState;
+
+	export constructor()
+		SetName("MickDundeeMove");
+		SetCivil(false);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="MDMo";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xActor.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="MDMo")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xActor.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xActor,CObjHndl p_xTarget, string p_sPath)
+		if(!p_xActor.IsValid()||(!p_xTarget.IsValid()))then return(false);endif;
+		SetName("Enchain");
+		m_xActor=p_xActor;
+		m_xTarget=p_xTarget;
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(p_xActor, p_sPath, true);
+		m_sState="start";
+		return(true);
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xActor.GetObj());
+		if(pxFightingObj==null || !pxFightingObj^.CheckSpecialActionTimer(GetSpecialActionPath()))then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		if(!m_xActor.IsValid())then EndTask();return;endif;
+		if(!m_xTarget.IsValid())then EndTask();return;endif;
+		if(m_xActor==m_xTarget)then EndTask();return;endif;
+		var ^CFightingObj pxTarget=cast<CFightingObj>(m_xTarget.GetObj());
+		var ^CTransportObj pxActor=cast<CTransportObj>(m_xActor.GetObj());
+		if(pxTarget==null)then EndTask();return;endif;
+		if(pxActor==null)then EndTask();return;endif;
+		if(m_sState=="start")then
+			var CObjHndl xInvalid; var bool bMinAttackRange;
+			var bool bInCombatRange=pxActor^.IsInCombatRange(pxTarget, bMinAttackRange, xInvalid);
+			if(bInCombatRange || bMinAttackRange)then
+//			if(bInCombatRange)then
+				if(pxActor^.HasBuildUp())then
+					var ^CBuildUpWeapon pxBuildUp = cast<CBuildUpWeapon>(pxActor^.GetBuildUp());
+					if(pxBuildUp!=null)then
+//						if(pxBuildUp^.SwitchToAttackMode())then
+//							return;
+//						endif;
+						if(pxBuildUp^.RotateToEnemyRightNow(pxTarget, pxTarget^.GetPos()))then
+							return;
+						endif;
+//						if(pxBuildUp^.IsBusy())then
+//							return;
+//						endif;
+					endif;
+				endif;
+				m_sState="prepare";
+			elseif(!pxActor^.FollowEnemy(pxTarget,false))then
+				EndTask();
+				return;
+			endif;
+		endif;
+		if(m_sState=="prepare")then
+			if(!StartSpecialActionTimer(pxActor))then EndTask();return;endif;
+			if(!pxTarget^.GetTransportObj().IsValid())then
+				pxActor^.MemorizeCurrentFightState(m_xTarget,true,false);
+				var bool bTrappedAlready=pxTarget^.IsTrapped();
+				pxTarget^.SetTrappedTime(m_fDuration);
+				pxTarget^.SetTrappedGfx("ninigi_seismo_trap",m_fDuration);
+				if(!bTrappedAlready)then
+					pxTarget^.TerminateAction();
+				endif;
+			endif;
+			m_sState="EndTask";
+			pxActor^.ReturnToFight();
+			return;
+		elseif(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CTransportObj pxActor=cast<CTransportObj>(m_xActor.GetObj());
+		if(m_sState=="start" && pxActor!=null && pxActor^.HasBuildUp())then
+			var ^CBuildUpWeapon pxBuildUp = cast<CBuildUpWeapon>(pxActor^.GetBuildUp());
+			if(pxBuildUp!=null)then
+				pxBuildUp^.ResetRotation();
+			endif;
+		endif;
+	endproc;
+
+	export proc bool Break()
+		SetPrepareActionPath(m_xActor, GetSpecialActionPath(), false);
+		if(m_xActor.IsValid())then
+			m_xActor.GetObj()^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+
+	export proc void EndTask()
+		SetPrepareActionPath(m_xActor, GetSpecialActionPath(), false);
+		UpdateAggressionPos(m_xActor);
+		super.EndTask();
+	endproc;
+
+endclass;

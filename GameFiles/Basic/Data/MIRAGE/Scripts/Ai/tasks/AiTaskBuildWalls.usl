@@ -1,0 +1,455 @@
+///CAiTaskBuildWalls
+class CAiTaskBuildWalls inherit CAiTask
+
+	var ^CAiBrain				m_pxBrain;
+	var ^CAiSensor				m_pxSensor;
+	var int						m_iWallType;
+	var string					m_sRegionName;
+	var vec3					m_vStart;
+	var vec3					m_vEnd;
+	var ^CAiWallDef 			m_pxWD;
+	var string					m_sClassName;
+	var int						m_iEstimatedTileCount;
+	var bool					m_bIsWorking;
+	var int						m_iFailures;
+	var int						m_iMaxFailures;
+	var int						m_iMaxTiles;
+	var int						m_iNumPlaced;
+	var int						m_iLastAllocationCnt;
+	var array CAiNeedPtr		m_apxResourceNeeds;
+	var array ^CAiNodeInstance	m_apxResources;
+	var int						m_iNumWorkers;
+	var int						m_iIdleWorkers;
+	var bool					m_bVillageWall;
+	export var bool 			m_bHasBuiltAnything;
+	var CAiObjWrapList 			m_xWorkers;
+	const int 					m_kiMaxTilesToBuild=10;
+	var bool					m_bSpawned;
+	var CAiObjWrap				m_xObj;
+	var int						m_iCountWalls;
+	var string					m_sPlayerID;
+	var int						m_iPlayerID;
+	var int						m_iDifficulty;
+	var string					m_sDifficulty;
+
+
+	proc void DumpAll( )
+	endproc;
+
+	///constructor (region type)
+	export constructor(string p_sRegionName,string p_sClassName,int p_iEstNumTiles)
+		m_iWallType				= 1;
+		m_sRegionName			= p_sRegionName;
+		m_sClassName			= p_sClassName;
+		m_iEstimatedTileCount	= p_iEstNumTiles;
+		m_bIsWorking			= false;
+		m_bHasBuiltAnything		= false;
+		m_bSpawned				= false;
+		m_iCountWalls			= 0;
+		DumpAll( );
+	endconstructor;
+
+
+	///constructor (line type)
+	export constructor(vec3 p_vStart,vec3 p_vEnd,string p_sClassName,^CAiWallDef p_pxWD,int p_iEstNumTiles)
+		m_iWallType				= 2;
+		m_vStart				= p_vStart;
+		m_vEnd					= p_vEnd;
+		m_pxWD					= p_pxWD;
+		m_sClassName			= p_sClassName;
+		m_iEstimatedTileCount	= p_iEstNumTiles;
+		m_bIsWorking			= false;
+		m_bHasBuiltAnything		= false;
+		m_iCountWalls			= 0;
+
+		m_pxWD^.Dump();
+		DumpAll( );
+	endconstructor;
+
+	export proc ^CAiWallDef	GetWallDef( )
+		return( m_pxWD );
+	endproc;
+
+
+	///destructor
+	export destructor()
+	enddestructor;
+
+
+	///Init
+	export proc void Init(^CAiGoal p_pxGoal, CAiObjWrap p_xWorker)
+		super.Init(p_pxGoal);
+		if( p_pxGoal == null ) then
+			return;
+		endif;
+
+		m_pxBrain = GetGoal()^.GetAiBrain();
+		if( m_pxBrain == null ) then
+			return;
+		endif;
+
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if( m_pxSensor == null ) then
+			return;
+		endif;
+
+		m_sPlayerID = ( m_iPlayerID = m_pxBrain^.GetPlayerId() ).ToString();
+
+//		var int iNumPlayers	= 1 + m_pxSensor^.GetNumPlayers();
+//		var int iType		= 1 + Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		if(pxCM^.GetDifficulty()=="Easy")then
+			m_iDifficulty=25;
+		elseif(pxCM^.GetDifficulty()=="Medium")then
+			m_iDifficulty=15;
+		else
+			m_iDifficulty=5;
+		endif;
+
+		SetThinkWait(m_iDifficulty+iType);
+		m_sDifficulty=m_iDifficulty.ToString();
+
+		m_xObj=p_xWorker;
+		if(m_xObj.IsValid())then
+			m_xWorkers.AddEntry(m_xObj);
+		endif;
+
+		m_iCountWalls++;
+		m_iMaxTiles			= 0;
+		m_apxResourceNeeds	= 0;
+
+		var ^CAiTechTree		pxTT		= GetAiTechTree();
+		var ^CAiNodeInstance	pxWallNI	= pxTT^.GetNodeInstanceFromPartialName("BLDG/"+m_sClassName);
+		if ( pxWallNI == null ) then
+			return;
+		endif;
+
+		var ^CAiSolution		pxWallSol	= pxWallNI^.GetSolution(0);
+		if( pxWallSol == null ) then
+			return;
+		endif;
+
+		// create solution and fill it
+		var ^CAiSolution pxSol=new CAiSolution();
+		var int i,iC=pxWallSol^.NumResults();
+
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiNodeInstance pxNI=pxWallSol^.GetResult(i);
+			if(pxNI!=null)then
+				pxSol^.AddResult(pxNI);
+			endif;
+		endfor;
+
+		pxSol^.SetSubject(pxWallSol^.GetSubject());
+		pxSol^.SetObject(pxWallSol^.GetObject());
+		pxSol^.SetGPCmd(pxWallSol^.GetGPCmd());
+		pxSol^.SetAdditionalAttribs(pxWallSol^.GetAdditionalAttribs());
+
+		var CAiNeedPtr pxNd;
+		iC=pxWallSol^.NumRequired();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CAiNeedPtr pxWallNd=pxWallSol^.GetRequired(i);
+			if((pxWallNd!=null)&&(pxWallNd.GetNeed()^.NumEntries()>0))then
+				var ^CAiNodeInstance pxNI=pxWallNd.GetNeed()^.GetAt(0);
+				if(pxNI!=null)then
+					if(pxNI^.IsResource()==true)then
+						// copy resource need multiplied by estimated number of wall tiles
+						pxNd=CAiNeed.Create(pxWallNd.GetNeed()^.IsLockable(),pxWallNd.GetNeed()^.GetNeededInstanceCount()*5); // TODO: un-hardcode this some day
+						m_iLastAllocationCnt = 5;
+						m_apxResourceNeeds.AddEntry(pxNd);
+						m_apxResources.AddEntry(pxNI);
+						pxNd.GetNeed()^.SetGlobal(pxWallNd.GetNeed()^.IsGlobal());
+						pxNd.GetNeed()^.AddEntry(pxNI);
+						pxSol^.AddRequired(pxNd);
+					else
+						// copy non-resource need unmodified
+						pxNd=CAiNeed.Create(pxWallNd.GetNeed()^.IsLockable(),pxWallNd.GetNeed()^.GetNeededInstanceCount());
+						var int iNd,iNdC=pxWallNd.GetNeed()^.NumEntries();
+						for(iNd=0)cond(iNd<iNdC)iter(iNd++)do
+							pxNd.GetNeed()^.AddEntry(pxWallNd.GetNeed()^.GetAt(iNd));
+						endfor;
+						pxNd.GetNeed()^.SetGlobal(pxWallNd.GetNeed()^.IsGlobal());
+						pxSol^.AddRequired(pxNd);
+					endif;
+				endif;
+			endif;
+		endfor;
+
+		// copy optional needs (does it have to be more exact?)
+		iC=pxWallSol^.NumOptional();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CAiNeedPtr pxWallNd=pxWallSol^.GetOptional(i);
+			if((pxWallNd!=null)&&(pxWallNd.GetNeed()^.NumEntries()>0))then
+				var ^CAiNodeInstance pxNI=pxWallNd.GetNeed()^.GetAt(0);
+				if(pxNI!=null)then
+					pxNd=CAiNeed.Create(pxWallNd.GetNeed()^.IsLockable(),pxWallNd.GetNeed()^.GetNeededInstanceCount());
+					pxNd.GetNeed()^.AddEntry(pxNI);
+					pxNd.GetNeed()^.SetGlobal(pxWallNd.GetNeed()^.IsGlobal());
+					pxSol^.AddOptional(pxNd);
+				endif;
+			endif;
+		endfor;
+
+		// now make this our solution
+		pxSol^.DebugDump();
+		SetSolution(pxSol);
+	endproc;
+
+
+	///IsWorking
+	export proc bool IsWorking()
+		return m_bIsWorking;
+	endproc;
+
+
+	///GetRegionName
+	export proc string GetRegionName()
+		return m_sRegionName;
+	endproc;
+
+
+	///GetStartVec
+	export proc vec3 GetStartVec()
+		return m_vStart;
+	endproc;
+
+
+	///GetEndVec
+	export proc vec3 GetEndVec()
+		return m_vEnd;
+	endproc;
+
+
+	///GetClassName
+	export proc string GetClassName()
+		return m_sClassName;
+	endproc;
+
+
+	///GetWallType
+	export proc int GetWallType()
+		return m_iWallType;
+	endproc;
+
+
+	///SetVillageWall
+	export proc void SetVillageWall(bool p_bVillageWall)
+		m_bVillageWall=p_bVillageWall;
+	endproc;
+
+
+	///GetVillageWall
+	export proc bool GetVillageWall()
+		return m_bVillageWall;
+	endproc;
+
+
+	///Shut
+	export proc void Shut()
+		m_iCountWalls=0;
+		m_bIsWorking = false;
+	endproc;
+
+
+	///CalculateStartCost
+	export proc real CalculateStartCost()
+		var real fCostPerWallTile = 1.0;
+		var real fCost = m_iEstimatedTileCount.ToReal() * fCostPerWallTile;
+		return fCost;
+	endproc;
+
+
+	///UpdateTileToBuildCount
+	proc void UpdateTileToBuildCount()
+		var int iCurrentCount = 100000;
+		var int i,iC=m_apxResourceNeeds.NumEntries();
+
+		for(i=0)cond(i<iC)iter(i++)do
+			var CAiNeedPtr pxNd=m_apxResourceNeeds[i];
+			var int iResPerPart=pxNd.GetNeed()^.GetNeededInstanceCount()/m_iLastAllocationCnt;
+			var int iToBuild=m_apxResources[i]^.GetUnlockedCount()/iResPerPart;//GetInstanceCount()/iResPerPart;
+			if(iCurrentCount>iToBuild)then
+				iCurrentCount=iToBuild;
+			endif;
+		endfor;
+
+		if(iCurrentCount<1)then
+			iCurrentCount = 3;
+		endif;
+
+		if(iCurrentCount>m_kiMaxTilesToBuild)then
+			iCurrentCount = m_kiMaxTilesToBuild;
+		endif;
+
+		m_iMaxTiles=iCurrentCount;
+
+		for(i=0)cond(i<iC)iter(i++)do
+			var CAiNeedPtr pxNd=m_apxResourceNeeds[i];
+			var int iResPerPart=pxNd.GetNeed()^.GetNeededInstanceCount()/m_iLastAllocationCnt;
+			pxNd.GetNeed()^.SetNeededInstanceCount(iResPerPart*m_iMaxTiles);
+		endfor;
+
+		m_iLastAllocationCnt=m_iMaxTiles;
+	endproc;
+
+
+	///UnlockResourcesFor
+	proc void UnlockResourcesFor(int p_iNumTiles)
+		var int i,iC=m_apxResourceNeeds.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+
+			var CAiNeedPtr pxNd=m_apxResourceNeeds[i];
+			var int iResPerPart=pxNd.GetNeed()^.GetNeededInstanceCount()/m_iLastAllocationCnt;
+			var int iUnitsToUnlock=iResPerPart*p_iNumTiles;
+			var ^CAiNodeInstance pxResInst=pxNd.GetNeed()^.GetAt(0);
+
+			if(pxResInst==null)then continue; endif;
+
+			pxResInst^.ChangeLockCount(-iUnitsToUnlock);
+		endfor;
+	endproc;
+
+
+	///Start
+	export proc bool Start()
+		if ( GetSolution() == null ) then
+			return false;
+		endif;
+
+		UpdateTileToBuildCount();
+		SetStarted();
+
+		m_bIsWorking = true;
+		var bool bSuccess = TryAllocate( GetSolution(), 0, 10, true );
+
+		if( bSuccess == false ) then
+			GetSolution()^.DebugDump();
+			Abort();
+			return false;
+		endif;
+
+		if(!CAiUtilityMgr.Get()^.CheckForEnemy(m_pxBrain,GetStartVec()))then
+			Abort();
+			return false;
+		endif;
+
+		return true;
+	endproc;
+
+	///Abort
+	export proc bool Abort( )
+		m_bIsWorking = false;
+		return( super.Abort() );
+	endproc;
+
+
+	///EvtAllocationComplete
+	export proc void EvtAllocationComplete(^CAiAllocation p_pxAllocation)
+		m_xWorkers 	= p_pxAllocation^.GetAllObjs();
+
+		var	int i,
+				iC	= m_xWorkers.NumEntries();
+
+		for(i=0) cond(i<iC) iter(i++)do
+			if(iC<=0)then return; endif;
+			if(!m_xWorkers[i].IsValid())then
+				m_xWorkers.RemEntry(m_xWorkers[i]);
+				i--;
+				iC--;
+			endif;
+		endfor;
+
+		if(m_xWorkers.NumEntries()<=0)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		if(m_pxBrain==null)then return; endif;
+
+		if(m_iWallType==1)then
+			m_iNumPlaced = m_pxSensor^.BuildWallAroundRegion(m_sRegionName,m_sClassName,m_xWorkers,m_iMaxTiles);
+		elseif(m_iWallType==2)then
+			m_iNumPlaced = m_pxSensor^.BuildWallOnLine( m_pxWD, m_sClassName, m_xWorkers, m_iMaxTiles);
+		endif;
+
+		if ( m_iNumPlaced == -1 ) then
+			SetCompleted();
+			m_pxSensor^.GetWallPlacer().OnWallCompleted( m_pxWD^.GetGUID() );
+			UnlockResourcesFor(m_iMaxTiles);
+			m_bIsWorking = false;
+		elseif(m_iNumPlaced == 0)then
+			var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+			if(m_sDifficulty=="Medium")then
+				pxCM^.GetCheatMgr().SpawnResources("wood", 100);
+				pxCM^.GetCheatMgr().SpawnResources("stone", 100);
+			elseif(m_sDifficulty=="Hard")then
+				pxCM^.GetCheatMgr().SpawnResources("wood", 200);
+				pxCM^.GetCheatMgr().SpawnResources("stone", 200);
+			endif;
+
+			Abort();
+			Start();
+			m_bIsWorking = false;
+			return;
+		endif;
+
+		if(m_iNumPlaced>0)then m_bHasBuiltAnything=true; endif;
+
+		m_iNumWorkers=m_xWorkers.NumEntries();
+		var int j;
+		for(j=0)cond(j<m_iNumWorkers)iter(j++)do
+			m_pxSensor^.AddCheckpoint(this,i,"atto:"+m_xWorkers[j].GetHandle().ToString()+",CurTask,==,BuildUp",60.0);
+		endfor;
+
+		m_iIdleWorkers=0;
+	endproc;
+
+
+	///EvtAllocationFailed
+	export proc void EvtAllocationFailed(^CAiAllocation p_pxAllocation)
+		Abort();
+		Start();
+	endproc;
+
+
+	///EvtAllocationDestroyed
+	export proc void EvtAllocationDestroyed(^CAiAllocation p_pxAllocation,int p_iUnitHandle)
+		Abort();
+		Start();
+	endproc;
+
+
+	///EvtAllocationReached
+	export proc void EvtCheckpointReached(int p_iCheckpointId, int p_iObjHandle)
+		if(m_pxSensor==null)then return; endif;
+
+		if(p_iCheckpointId<(m_iNumWorkers))then
+			m_pxSensor^.AddCheckpoint(this,p_iCheckpointId+m_iNumWorkers,"atto:"+m_xWorkers[p_iCheckpointId].GetHandle().ToString()+",CurTask,==,Idle",0.0);
+
+		elseif(p_iCheckpointId<(2*m_iNumWorkers))then
+			m_iIdleWorkers++;
+
+			if(m_iIdleWorkers>=m_iNumWorkers)then
+				SetCompleted();
+				UnlockResourcesFor(m_iMaxTiles-m_iNumPlaced);
+				Start();
+			endif;
+		endif;
+		m_pxSensor^.RemoveCheckpoint(this,p_iCheckpointId);
+	endproc;
+
+
+	///EvtAllocationTimeout
+	export proc void EvtCheckpointTimeout(int p_iCheckpointId)
+		if(m_pxSensor==null)then return; endif;
+
+		if(p_iCheckpointId<(2*m_iNumWorkers))then
+			SetCompleted();
+			UnlockResourcesFor(m_iMaxTiles-m_iNumPlaced);
+			Start();
+		endif;
+
+		m_pxSensor^.RemoveCheckpoint(this,p_iCheckpointId);
+	endproc;
+
+
+endclass;

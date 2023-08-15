@@ -1,0 +1,600 @@
+
+class CObjectLineMgr inherit CWindow
+	
+	static var ^CObjectLineMgr	ms_pxInst;
+	var ^CObjMgr								m_pxObjMgr;
+	var array ^CLineObj					m_apxLines;
+	var ^CObjSelection					m_pxSelection;
+	var CObjList								m_xLastSelection;
+	var ^CLevelInfoClient				m_pxLevelInfo;
+	var bool										m_bShowRally;
+	var bool										m_bShowExit;
+	
+	export static proc ref CObjectLineMgr Get()
+		if(ms_pxInst==null)then
+			ms_pxInst=new CObjectLineMgr;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+	
+	export constructor()
+		m_pxObjMgr = ^(CClientWrap.GetObjMgr());
+		m_pxSelection = ^(CClientWrap.GetSelection());
+		m_pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+		var CConfig xConf;
+		m_bShowRally = xConf.GetSetB("Client/GameplayOptions/ShowRallyLines",true);
+		m_bShowExit = xConf.GetSetB("Client/GameplayOptions/ShowExitLines",true);
+	endconstructor;
+	
+	export proc void ToggleRallyLines()
+		m_bShowRally = !m_bShowRally;
+		var CConfig xConf;
+		xConf.SetB("Client/GameplayOptions/ShowRallyLines",m_bShowRally);
+		UpdateAllLineObjects();
+	endproc;
+	
+	export proc void ToggleExitLines()
+		m_bShowExit = !m_bShowExit;
+		var CConfig xConf;
+		xConf.SetB("Client/GameplayOptions/ShowExitLines",m_bShowExit);
+		UpdateAllLineObjects();
+	endproc;
+	
+	proc void UpdateAllLineObjects()
+		var int i, iC = m_apxLines.NumEntries();
+		for(i=(iC-1))cond(i>=0)iter(i--)do
+			m_apxLines[i]^.UpdateLines(m_bShowRally,m_bShowExit);
+		endfor;
+	endproc;
+	
+	export proc void KillLineObj(^CObjectLineMgr.CLineObj p_pxLine)
+		var int iIndex = m_apxLines.FindEntry(p_pxLine);
+		if(iIndex!=-1)then
+			m_apxLines[iIndex]^.Destroy();
+			m_apxLines.DeleteEntryUS(iIndex);
+		endif;
+	endproc;
+	
+	export proc void KillLineObjByIndex(int p_iIdx)
+		if(p_iIdx!=-1)then
+			m_apxLines[p_iIdx]^.Destroy();
+			m_apxLines.DeleteEntryUS(p_iIdx);
+		endif;
+	endproc;
+	
+	export proc int FindLineObj(CClntHndl p_xHndl)
+		var int i, iC = m_apxLines.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_apxLines[i]^.m_xHndl==p_xHndl)then
+				return i;
+			endif;
+		endfor;
+		return -1;
+	endproc;
+	
+	proc void Clear()
+		var int i, iC = m_apxLines.NumEntries();
+		for(i=(iC-1))cond(i>=0)iter(i--)do
+			m_apxLines[i]^.Destroy();
+		endfor;
+		m_apxLines = 0;
+	endproc;
+	
+	export static proc void Kill()
+		if(ms_pxInst != null)then
+			ms_pxInst^.Clear();
+			ms_pxInst^.Destroy();
+			ms_pxInst = null;
+		endif;
+	endproc;
+	
+	export proc bool ClearAll()
+		Clear();
+//		var int i, iC = m_pxSelection^.NumEntries();
+//		for(i=0)cond(i<iC)iter(i++)do
+//			m_pxObjMgr^.DeleteObjLineConnectionsForObj(m_pxSelection^[i].GetObj());
+//		endfor;
+		m_xLastSelection.Clear();
+		return true;
+	endproc;
+	
+	export proc bool ObjectLineUpdate()
+		var int iPlayer = CGameWrap.GetClient().GetPlayer().GetID();
+		var int i, iC = m_pxSelection^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_xLastSelection.FindEntry(m_pxSelection^[i])==-1)then
+				ActivateObjectLine(m_pxSelection^[i],iPlayer);
+			else
+				m_xLastSelection.RemEntry(m_pxSelection^[i]);
+			endif;
+		endfor;
+		iC = m_xLastSelection.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			KillLineObjByIndex(FindLineObj(m_xLastSelection[i]));
+//			m_pxObjMgr^.DeleteObjLineConnectionsForObj(m_xLastSelection[i].GetObj());
+		endfor;
+		iC = m_pxSelection^.NumEntries();
+		m_xLastSelection.Clear();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_xLastSelection.Include(m_pxSelection^[i]);
+		endfor;
+		return(true);
+	endproc;
+	
+	export proc void ActivateObjectLine(CClntHndl p_xHndl, int p_iPlayer)
+		if(p_xHndl.IsValid())then
+			var color xColor={{0,0,0,255}};
+			if(p_iPlayer>=0 && p_iPlayer<=7)then
+				xColor=m_pxLevelInfo^.GetPlayerColor(p_iPlayer);
+			endif;
+			m_apxLines.AddEntry(new CObjectLineMgr.CLineObj(p_xHndl,p_iPlayer,xColor,m_bShowRally,m_bShowExit));
+		endif;
+	endproc;
+	
+	class CLineObj inherit CWindow
+		
+		export var CClntHndl							m_xHndl;
+		export var CClntHndl							m_xTargetR;
+		export var CClntHndl							m_xTargetE;
+		export var int										m_iPID;
+//		var int														m_iCurRally;
+		var real													m_fMax;
+		var ^CObjMgr											m_pxObjMgr;
+		var ^CObjMgr.CObjLineConnection		m_pxObjLineRallyH;
+		var ^CObjMgr.CObjLineConnection		m_pxObjLineRallyD;
+		var ^CObjMgr.CObjLineConnection		m_pxObjLineExitH;
+		var ^CObjMgr.CObjLineConnection		m_pxObjLineExitD;
+		var color													m_xColor;
+		var color													m_xInvert;
+		var bool													m_bShowRally;
+		var bool													m_bShowExit;
+		var bool													m_bTargetR;
+		var bool													m_bTargetE;
+		
+		export constructor(CClntHndl p_xHndl, int p_iPID, color p_xColor, bool p_bRally, bool p_bExit)
+			SetSize(0,0);
+			SetPos({0,0});
+//			m_iCurRally=-1;
+			m_fMax=30.0f;
+			m_xHndl = p_xHndl;
+			m_iPID = p_iPID;
+			var int iFactor=50;
+//			m_xColor = p_xColor;
+//			m_xColor.SetRed(Math.Max(m_xColor.GetRed()-iFactor,0));
+//			m_xColor.SetGreen(Math.Max(m_xColor.GetGreen()-iFactor,0));
+//			m_xColor.SetBlue(Math.Max(m_xColor.GetBlue()-iFactor,0));
+//			var color xWhite={{255,255,255,255}};
+//			m_xInvert=xWhite-p_xColor;
+//			m_xInvert.SetRed(Math.Max(m_xInvert.GetRed()-iFactor,0));
+//			m_xInvert.SetGreen(Math.Max(m_xInvert.GetGreen()-iFactor,0));
+//			m_xInvert.SetBlue(Math.Max(m_xInvert.GetBlue()-iFactor,0));
+			m_xColor={{225,0,0,0}};
+			m_xInvert={{72,0,225,0}};
+			m_bShowRally=p_bRally;
+			m_bShowExit=p_bExit;
+			m_bTargetR=false;
+			m_bTargetE=false;
+			m_pxObjMgr = ^(CClientWrap.GetObjMgr());
+			var ^CObj pxObj = m_xHndl.GetObj();
+			if(pxObj!=null)then
+				CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this, m_xHndl, CSubscriptionMgr.CT_ObjAttribs, "Line");
+				CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this, CSubscriptionMgr.CT_LostPlayerUnit, "");
+			endif;
+			SetObjectLine();
+		endconstructor;
+		
+		export destructor()
+			if(m_pxObjLineRallyH!=null)then
+				m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineRallyH);
+				m_pxObjLineRallyH=null;
+			endif;
+			if(m_pxObjLineRallyD!=null)then
+				m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineRallyD);
+				m_pxObjLineRallyD=null;
+			endif;
+			if(m_pxObjLineExitH!=null)then
+				m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineExitH);
+				m_pxObjLineExitH=null;
+			endif;
+			if(m_pxObjLineExitD!=null)then
+				m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineExitD);
+				m_pxObjLineExitD=null;
+			endif;
+//			var ^CObj pxObj = m_xHndl.GetObj();
+//			if(pxObj != null)then
+//				m_pxObjMgr^.DeleteObjLineConnectionsForObj(pxObj);
+//			endif;
+			CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this, m_xHndl, CSubscriptionMgr.CT_ObjAttribs, "Line");
+			CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this, CSubscriptionMgr.CT_LostPlayerUnit, "");
+			CObjectLineMgr.Get().KillLineObj(this);
+		enddestructor;
+		
+		proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+			if(p_rxEvt.GetClass()==CSubscriptionMgr.GetEvtClass_ObjChange())then
+				var CClntHndl xObjHandle;
+				var bitset dwTypes, dwAttribGroups;
+				if(CSubscriptionMgr.EvtGetData_ObjChange(p_rxEvt,xObjHandle,dwTypes,dwAttribGroups))then
+					if(xObjHandle == m_xHndl)then
+						if((dwTypes & CSubscriptionMgr.CT_LostPlayerUnit)!=0d)then
+							Destroy();
+						elseif((dwTypes & CSubscriptionMgr.CT_ObjAttribs)!=0d)then
+							UpdateLines(m_bShowRally,m_bShowExit);
+						endif;
+					elseif((m_bTargetR && xObjHandle == m_xTargetR)||(m_bTargetE && xObjHandle == m_xTargetE))then
+						if((dwTypes & CSubscriptionMgr.CT_LostPlayerUnit)!=0d)then
+							UpdateLines(m_bShowRally,m_bShowExit);
+						endif;
+					endif;
+				endif;
+			endif;
+			return true;
+		endproc;
+		
+		export proc void UpdateLines(bool p_bRally, bool p_bExit)
+			m_bShowRally=p_bRally;
+			m_bShowExit=p_bExit;
+//			if(!m_bShowRally&&m_pxObjLineRallyH!=null)then
+			if(m_pxObjLineRallyH!=null)then
+				m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineRallyH);
+				m_pxObjLineRallyH=null;
+			endif;
+//			if(!m_bShowRally&&m_pxObjLineRallyD!=null)then
+			if(m_pxObjLineRallyD!=null)then
+				m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineRallyD);
+				m_pxObjLineRallyD=null;
+			endif;
+//			if(!m_bShowExit&&m_pxObjLineExitH!=null)then
+			if(m_pxObjLineExitH!=null)then
+				m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineExitH);
+				m_pxObjLineExitH=null;
+			endif;
+//			if(!m_bShowExit&&m_pxObjLineExitD!=null)then
+			if(m_pxObjLineExitD!=null)then
+				m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineExitD);
+				m_pxObjLineExitD=null;
+			endif;
+			m_bTargetR=false;
+			m_xTargetR.Invalidate();
+			m_bTargetE=false;
+			m_xTargetE.Invalidate();
+			SetObjectLine();
+		endproc;
+		
+		export proc void SetObjectLine()
+			var ^CObj pxObj = m_xHndl.GetObj();
+			if(pxObj==null || (pxObj^.GetType()!="CHTR" && pxObj^.GetType()!="ANML" && pxObj^.GetType()!="VHCL" && pxObj^.GetType()!="SHIP" && pxObj^.GetType()!="BLDG"))then return; endif;
+			var ^CAttribs pxAttr = pxObj^.GetAttribs();
+			if(pxAttr==null)then return; endif;
+//			var real fHOwner=pxObj^.GetCollisionRadiusInner();
+//			var real fHOwner=pxObj^.GetRadius();
+			var real fHOwner=Math.Clamp(pxObj^.GetSize().GetZ(),pxObj^.GetCollisionRadius(),m_fMax);
+			begin Rally;
+				if(m_bShowRally)then
+					if(pxAttr^.GetValueInt("IsRallySite")==1)then
+						var int iRally = pxAttr^.GetValueInt("CurRally");
+						var string sPos = pxAttr^.GetValue("RallyPoint");
+						var vec3 vPos;
+						vPos.FromString(sPos);
+						var ^CObj pxRally;
+						if(iRally!=-1)then
+//							if(m_iCurRally!=iRally)then
+//								m_iCurRally=iRally;
+//								if(m_pxObjLineRallyD!=null)then
+//									m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineRallyD);
+//									m_pxObjLineRallyD=null;
+//								endif;
+//								if(m_pxObjLineRallyH!=null)then
+//									m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineRallyH);
+//									m_pxObjLineRallyH=null;
+//								endif;
+//							endif;
+							pxRally = CGameWrap.GetObjMgr().GetMirrorObjFromSrvHandle(iRally);
+						endif;
+						if(pxRally!=null)then
+							if(m_pxObjLineRallyD==null)then
+								m_pxObjLineRallyD = m_pxObjMgr^.CreateObjLineConnection();
+							endif;
+							if(m_pxObjLineRallyD!=null)then
+								m_bTargetR=true;
+								m_xTargetR=pxRally^.GetHandle();
+								m_pxObjLineRallyD^.SetObject1(pxObj);
+								m_pxObjLineRallyD^.SetObject2(pxRally);
+								var vec3 vDest=pxRally^.GetPos();
+								m_pxObjLineRallyD^.m_vPos1.SetZ(m_pxObjLineRallyD^.m_vPos1.GetZ()+fHOwner);
+								m_pxObjLineRallyD^.m_xColor=m_xColor;
+							endif;
+							if(m_pxObjLineRallyH==null)then
+								m_pxObjLineRallyH = m_pxObjMgr^.CreateObjLineConnection();
+							endif;
+							if(m_pxObjLineRallyH!=null)then
+								m_pxObjLineRallyH^.SetObject1(pxObj);
+								m_pxObjLineRallyH^.SetObject2(pxObj);
+								m_pxObjLineRallyH^.m_vPos2.SetZ(m_pxObjLineRallyH^.m_vPos2.GetZ()+fHOwner);
+								m_pxObjLineRallyH^.m_xColor=m_xColor;
+							endif;
+						elseif(vPos!={0.0,0.0,0.0})then
+							m_bTargetR=false;
+							m_xTargetR.Invalidate();
+//							if(m_iCurRally!=-1)then
+//								m_iCurRally=-1;
+//								if(m_pxObjLineRallyD!=null)then
+//									m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineRallyD);
+//									m_pxObjLineRallyD=null;
+//								endif;
+//								if(m_pxObjLineRallyH!=null)then
+//									m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineRallyH);
+//									m_pxObjLineRallyH=null;
+//								endif;
+//							endif;
+							if(m_pxObjLineRallyD==null)then
+								m_pxObjLineRallyD = m_pxObjMgr^.CreateObjLineConnection();
+							endif;
+							if(m_pxObjLineRallyD!=null)then
+								m_pxObjLineRallyD^.SetObject1(pxObj);
+								m_pxObjLineRallyD^.m_vPos1.SetZ(m_pxObjLineRallyD^.m_vPos1.GetZ()+fHOwner);
+								vPos.SetZ(vPos.GetZ()+4.0f);
+								m_pxObjLineRallyD^.m_vPos2=vPos;
+								m_pxObjLineRallyD^.m_xColor=m_xColor;
+							endif;
+							if(m_pxObjLineRallyH==null)then
+								m_pxObjLineRallyH = m_pxObjMgr^.CreateObjLineConnection();
+							endif;
+							if(m_pxObjLineRallyH!=null)then
+								m_pxObjLineRallyH^.SetObject1(pxObj);
+								m_pxObjLineRallyH^.SetObject2(pxObj);
+								m_pxObjLineRallyH^.m_vPos2.SetZ(m_pxObjLineRallyH^.m_vPos2.GetZ()+fHOwner);
+								m_pxObjLineRallyH^.m_xColor=m_xColor;
+							endif;
+						else
+							m_bTargetR=false;
+							m_xTargetR.Invalidate();
+							if(m_pxObjLineRallyD!=null)then
+								m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineRallyD);
+								m_pxObjLineRallyD=null;
+							endif;
+							if(m_pxObjLineRallyH!=null)then
+								m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineRallyH);
+								m_pxObjLineRallyH=null;
+							endif;
+						endif;
+					endif;
+				endif;
+			end Rally;
+			
+			begin Exit;
+				if(m_bShowExit)then
+					var int iDest = pxAttr^.GetValueInt("CurDest");
+					if(iDest!=-1)then
+						var ^CObj pxDest = CGameWrap.GetObjMgr().GetMirrorObjFromSrvHandle(iDest);
+						if(pxDest!=null)then
+							if(m_pxObjLineExitD==null)then
+								m_pxObjLineExitD = m_pxObjMgr^.CreateObjLineConnection();
+							endif;
+							if(m_pxObjLineExitD!=null)then
+								m_bTargetE=true;
+								m_xTargetE=pxDest^.GetHandle();
+								m_pxObjLineExitD^.SetObject1(pxObj);
+								m_pxObjLineExitD^.SetObject2(pxDest);
+								var vec3 vDest=pxDest^.GetPos();
+//								var real fH2=pxDest^.GetCollisionRadiusInner();
+								m_pxObjLineExitD^.m_vPos1.SetZ(m_pxObjLineExitD^.m_vPos1.GetZ()+fHOwner);
+//								m_pxObjLineExitD^.m_vPos2.SetZ(m_pxObjLineExitD^.m_vPos2.GetZ()+fH2);
+								m_pxObjLineExitD^.m_xColor=m_xInvert;
+							endif;
+							
+							if(m_pxObjLineExitH==null)then
+								m_pxObjLineExitH = m_pxObjMgr^.CreateObjLineConnection();
+							endif;
+							if(m_pxObjLineExitH!=null)then
+								m_pxObjLineExitH^.SetObject1(pxObj);
+								m_pxObjLineExitH^.SetObject2(pxObj);
+								m_pxObjLineExitH^.m_vPos2.SetZ(m_pxObjLineExitH^.m_vPos2.GetZ()+fHOwner);
+								m_pxObjLineExitH^.m_xColor=m_xInvert;
+							endif;
+						else
+							m_bTargetE=false;
+							m_xTargetE.Invalidate();
+							if(m_pxObjLineExitD!=null)then
+								m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineExitD);
+								m_pxObjLineExitD=null;
+							endif;
+							if(m_pxObjLineExitH!=null)then
+								m_pxObjMgr^.DeleteObjLineConnection(m_pxObjLineExitH);
+								m_pxObjLineExitH=null;
+							endif;
+						endif;
+					endif;
+				endif;
+			end Exit;
+		endproc;
+		
+	endclass;
+	
+endclass;
+
+/*
+class CObjectLineMgr inherit CWindow
+	
+	static var ^CObjectLineMgr	ms_pxInst;
+	var ^CObjMgr								m_pxObjMgr;
+	var ^CObjSelection					m_pxSelection;
+	var CObjList								m_xLastSelection;
+	var bool										m_bShowRally;
+	var bool										m_bShowExit;
+	
+	export constructor()
+		m_pxObjMgr = ^(CClientWrap.GetObjMgr());
+		m_pxSelection = ^(CClientWrap.GetSelection());
+		var CConfig xConf;
+		m_bShowRally = xConf.GetSetB("Client/GameplayOptions/ShowRallyLines",true);
+		m_bShowExit = xConf.GetSetB("Client/GameplayOptions/ShowExitLines",true);
+		CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this, CSubscriptionMgr.CT_ObjAttribs, "Line");
+	endconstructor;
+	
+	export destructor()
+		CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this, CSubscriptionMgr.CT_ObjAttribs, "Line");
+	enddestructor;
+	
+	export static proc ref CObjectLineMgr Get()
+		if(ms_pxInst==null)then
+			ms_pxInst=new CObjectLineMgr;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+	
+	export static proc void Kill()
+		if(ms_pxInst != null)then
+			ms_pxInst^.ClearAll();
+			ms_pxInst^.Destroy();
+			ms_pxInst = null;
+		endif;
+	endproc;
+	
+	export proc void ToggleRallyLines()
+		m_bShowRally = !m_bShowRally;
+		var CConfig xConf;
+		xConf.SetB("Client/GameplayOptions/ShowRallyLines",m_bShowRally);
+	endproc;
+	
+	export proc void ToggleExitLines()
+		m_bShowExit = !m_bShowExit;
+		var CConfig xConf;
+		xConf.SetB("Client/GameplayOptions/ShowExitLines",m_bShowExit);
+	endproc;
+	
+	export proc bool ClearAll()
+		var int i, iC = m_pxSelection^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_pxObjMgr^.DeleteObjLineConnectionsForObj(m_pxSelection^[i].GetObj());
+		endfor;
+		m_xLastSelection.Clear();
+		return true;
+	endproc;
+	
+	proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+		if(p_rxEvt.GetClass()==CSubscriptionMgr.GetEvtClass_ObjChange())then
+			var CClntHndl xObjHandle;
+			var bitset dwTypes, dwAttribGroups;
+			if(CSubscriptionMgr.EvtGetData_ObjChange(p_rxEvt,xObjHandle,dwTypes,dwAttribGroups))then
+				if((dwTypes & CSubscriptionMgr.CT_ObjAttribs) != 0d)then
+					var int iIdx=m_xLastSelection.FindEntry(xObjHandle);
+					if(iIdx!=-1 && xObjHandle.IsValid())then
+						m_pxObjMgr^.DeleteObjLineConnectionsForObj(xObjHandle.GetObj());
+						ActivateObjectLine(xObjHandle);
+					endif;
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool ObjectLineUpdate()
+		var int i, iC = m_pxSelection^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_xLastSelection.FindEntry(m_pxSelection^[i])==-1)then
+				ActivateObjectLine(m_pxSelection^[i]);
+			else
+				m_xLastSelection.RemEntry(m_pxSelection^[i]);
+			endif;
+		endfor;
+		iC = m_xLastSelection.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_pxObjMgr^.DeleteObjLineConnectionsForObj(m_xLastSelection[i].GetObj());
+		endfor;
+		iC = m_pxSelection^.NumEntries();
+		m_xLastSelection.Clear();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_xLastSelection.Include(m_pxSelection^[i]);
+		endfor;
+		return(true);
+	endproc;
+	
+	export proc void ActivateObjectLine(CClntHndl p_xHndl)
+		var ^CObj pxObj = p_xHndl.GetObj();
+		if(pxObj==null || (pxObj^.GetType()!="CHTR" && pxObj^.GetType()!="ANML" && pxObj^.GetType()!="VHCL" && pxObj^.GetType()!="SHIP" && pxObj^.GetType()!="BLDG"))then return; endif;
+		var ^CAttribs pxAttr = pxObj^.GetAttribs();
+		if(pxAttr==null)then return; endif;
+		begin Rally;
+			if(m_bShowRally)then
+				if(pxAttr^.GetValueInt("IsRallySite")==1)then
+					var int iRally = pxAttr^.GetValueInt("CurRally");
+					var string sPos = pxAttr^.GetValue("RallyPoint");
+					var vec3 vPos;
+					vPos.FromString(sPos);
+					var ^CObj pxRally;
+					if(iRally!=-1)then
+						pxRally = CGameWrap.GetObjMgr().GetMirrorObjFromSrvHandle(iRally);
+					endif;
+					if(pxRally!=null)then
+						var ^CObjMgr.CObjLineConnection pxLine = m_pxObjMgr^.CreateObjLineConnection();
+						pxLine^.SetObject1(pxObj);
+						pxLine^.SetObject2(pxRally);
+						var vec3 vDest=pxRally^.GetPos();
+//						var real fH1=pxObj^.GetCollisionRadiusInner();
+//						var real fH1=pxObj^.GetRadius();
+						var real fH1=pxObj^.GetSize().GetZ();
+						pxLine^.m_vPos1.SetZ(pxLine^.m_vPos1.GetZ()+fH1);
+						pxLine^.m_xColor= {{255,0,0,0}};
+						var ^CObjMgr.CObjLineConnection pxLine2 = m_pxObjMgr^.CreateObjLineConnection();
+						pxLine2^.SetObject1(pxObj);
+						pxLine2^.SetObject2(pxObj);
+						pxLine2^.m_vPos2.SetZ(pxLine2^.m_vPos2.GetZ()+fH1);
+						pxLine2^.m_xColor= {{255,0,0,0}};
+					elseif(vPos!={0.0,0.0,0.0})then
+						var ^CObjMgr.CObjLineConnection pxLine = m_pxObjMgr^.CreateObjLineConnection();
+						pxLine^.SetObject1(pxObj);
+//						var real fH1=pxObj^.GetCollisionRadiusInner();
+//						var real fH1=pxObj^.GetRadius();
+						var real fH1=pxObj^.GetSize().GetZ();
+						pxLine^.m_vPos1.SetZ(pxLine^.m_vPos1.GetZ()+fH1);
+						vPos.SetZ(vPos.GetZ()+4.0f);
+						pxLine^.m_vPos2=vPos;
+						pxLine^.m_xColor= {{255,0,0,0}};
+						var ^CObjMgr.CObjLineConnection pxLine2 = m_pxObjMgr^.CreateObjLineConnection();
+						pxLine2^.SetObject1(pxObj);
+						pxLine2^.SetObject2(pxObj);
+						pxLine2^.m_vPos2.SetZ(pxLine2^.m_vPos2.GetZ()+fH1);
+						pxLine2^.m_xColor= {{255,0,0,0}};
+					endif;
+				endif;
+			endif;
+		end Rally;
+		
+		begin Exit;
+			if(m_bShowExit)then
+				var int iDest = pxAttr^.GetValueInt("CurDest");
+				if(iDest!=-1)then
+//					var ^CObjMgr.CInfoText pxText = m_pxObjMgr^.CreateInfoText();
+//					pxText^.SetColor({{255,0,0,255}});
+//					pxText^.SetText("TEST MESSAGE");
+//					var vec3 vTmp=pxObj^.GetPos();
+//					vTmp.SetZ(vTmp.GetZ()+10.0f);
+//					pxText^.SetPos(vTmp);
+					var ^CObj pxDest = CGameWrap.GetObjMgr().GetMirrorObjFromSrvHandle(iDest);
+					if(pxDest!=null)then
+						var ^CObjMgr.CObjLineConnection pxLine = m_pxObjMgr^.CreateObjLineConnection();
+						pxLine^.SetObject1(pxObj);
+						pxLine^.SetObject2(pxDest);
+						var vec3 vDest=pxDest^.GetPos();
+//						var real fH1=pxObj^.GetCollisionRadiusInner();
+//						var real fH1=pxObj^.GetRadius();
+						var real fH1=pxObj^.GetSize().GetZ();
+//						var real fH2=pxDest^.GetCollisionRadiusInner();
+						pxLine^.m_vPos1.SetZ(pxLine^.m_vPos1.GetZ()+fH1);
+//						pxLine^.m_vPos2.SetZ(pxLine^.m_vPos2.GetZ()+fH2);
+						pxLine^.m_xColor= {{72,0,255,0}};
+						
+						var ^CObjMgr.CObjLineConnection pxLine2 = m_pxObjMgr^.CreateObjLineConnection();
+						pxLine2^.SetObject1(pxObj);
+						pxLine2^.SetObject2(pxObj);
+						pxLine2^.m_vPos2.SetZ(pxLine2^.m_vPos2.GetZ()+fH1);
+						pxLine2^.m_xColor= {{72,0,255,0}};
+						
+					endif;
+				endif;
+			endif;
+		end Exit;
+	endproc;
+	
+endclass;
+*/

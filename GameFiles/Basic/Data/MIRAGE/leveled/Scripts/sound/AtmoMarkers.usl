@@ -1,0 +1,243 @@
+class CViewAtmoMarkers inherit CEnhancedFrameWindow
+
+	var ^CGroupBox 				m_pxPropsGroup;
+	var ^CAtmoProperties			m_pxAtmoProps;
+	var ^CAtmoMarkerTemplates 	m_pxTemplatesView;
+	var ^CDropList				m_pxTemplateType;
+	var int 						m_iTimerID;
+	var ^CCheckBox 				m_pxCheckDisplayVolumes;
+	var array CGuid				m_axCreatedObjs;
+
+	export constructor(^CAtmoMarkerTemplates p_pxTemplatesView)
+		if(!InitFromResource("sound/AtmoMarkers","AtmoMarkers")) then
+			CLevelEditorWrap.LogError("UI.ViewAtmoMarkers","InitFromResource failed");
+			return;
+		endif;
+
+		m_pxTemplatesView = p_pxTemplatesView;
+		m_pxTemplatesView^.m_xOnTemplatesChanged = OnTemplatesChanged;
+
+		m_pxPropsGroup = cast<CGroupBox>(GetControl("Props_Group"));
+		m_pxAtmoProps = cast<CAtmoProperties>(GetControl("Props_Group/PropertiesDlg"));
+		m_pxAtmoProps^.m_xOnChange = OnPropertiesChanged;
+		var ^CButton pxNewButton = cast<CButton>(GetControl("NewButton"));
+		pxNewButton^.m_xOnClick = OnNewMarkerClick;
+		m_pxCheckDisplayVolumes = cast<CCheckBox>(GetControl("DisplaySoundVolumes"));
+		m_pxCheckDisplayVolumes^.m_xOnStateChange = OnDisplayVolumes;
+		var ^CAtmoSoundMgr pxAtmoMgr = CLevelEditorWrap.GetAtmoSoundMgr();
+		if(pxAtmoMgr^.GetDisplayVolumes()) then
+			m_pxCheckDisplayVolumes^.SetChecked(1);
+		else
+			m_pxCheckDisplayVolumes^.SetChecked(0);
+		endif;
+
+		m_pxTemplateType = cast<CDropList>(GetControl("TemplateDropList"));
+		m_iTimerID = 0;
+
+		LoadPosition("AtmoMarkers");
+		OnTemplatesChanged();
+		OnSelectionChanged();
+		SetSizable(true);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+
+	/**
+		called when the template view changes
+	*/
+	export proc bool OnTemplatesChanged()
+		m_pxTemplateType^.Clear();
+		m_pxTemplateType^.AddItem(CLocalizer.Get().Translate("_AtmoMarkers_TP_Blank"));
+		var int i;
+		for (i=0) cond (i<m_pxTemplatesView^.m_axTemplates.NumEntries()) iter (++i) do
+			m_pxTemplateType^.AddItem(m_pxTemplatesView^.m_axTemplates[i].m_sName);
+		endfor;
+		return true;
+	endproc;
+
+
+	/*
+		called when selection was updated
+	*/
+	export proc bool OnSelectionChanged()
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		var int iMarkersFound = 0;
+		var int i,iC=pxSel^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CClntHndl xWalk=(pxSel^)[i];
+			var ^CObj pxObj=xWalk.GetObj();
+			if(pxObj!=null)then
+				if(pxObj^.GetType() == "ATMO") then
+					++iMarkersFound;
+					var ^CAttribs pxAttribs=pxObj^.GetAttribs();
+					if(pxAttribs!=null)then
+						m_pxAtmoProps^.SetWav1(pxAttribs^.GetValue("wav1"));
+						m_pxAtmoProps^.SetWav2(pxAttribs^.GetValue("wav2"));
+						m_pxAtmoProps^.SetWav3(pxAttribs^.GetValue("wav3"));
+						m_pxAtmoProps^.SetPlaylist(pxAttribs^.GetValue("playlist"));
+						m_pxAtmoProps^.SetPriority(pxAttribs^.GetValueFloat("priority"));
+						m_pxAtmoProps^.SetVolume(pxAttribs^.GetValueInt("volume"));
+						m_pxAtmoProps^.SetPitch(pxAttribs^.GetValueFloat("pitch"));
+						m_pxAtmoProps^.SetMinFadeDist(pxAttribs^.GetValueFloat("minfadedist"));
+						m_pxAtmoProps^.SetMaxFadeDist(pxAttribs^.GetValueFloat("maxfadedist"));
+						m_pxAtmoProps^.SetMaxHearingDist(pxAttribs^.GetValueFloat("maxhearingdist"));
+						m_pxAtmoProps^.SetConeInnerAngle(pxAttribs^.GetValueInt("innerconeangle"));
+						m_pxAtmoProps^.SetConeOuterAngle(pxAttribs^.GetValueInt("outerconeangle"));
+						m_pxAtmoProps^.SetConeOutsideVolume(pxAttribs^.GetValueInt("coneoutsidevolume"));
+						var bitset dwFlags = Math.IntToBitset(pxAttribs^.GetValueInt("flags"));
+						m_pxAtmoProps^.SetDirectional((dwFlags & 01b) != 0b);
+						m_pxAtmoProps^.SetDayEnable((dwFlags & 010b) != 0b);
+						m_pxAtmoProps^.SetNightEnable((dwFlags & 0100b) != 0b);
+					endif;
+				endif;
+			endif;
+		endfor;
+		m_pxAtmoProps^.SetDisabled(iMarkersFound <= 0);
+		return true;
+	endproc;
+
+	proc void SetAttribOnAllMarkers(string p_sAttribName, int p_iParamIdx, real p_fAttribValue, int p_iAttribValue, string p_sAttribValue)
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		var int i,iC=pxSel^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CClntHndl xWalk=(pxSel^)[i];
+			var ^CObj pxObj=xWalk.GetObj();
+			if(pxObj!=null)then
+				if(pxObj^.GetType() == "ATMO") then
+					var ^CAttribs pxAttribs=pxObj^.GetAttribs();
+					if(pxAttribs!=null)then
+						switch(p_iParamIdx)
+							case (1) do 	pxAttribs^.SetValue(p_sAttribName, p_fAttribValue);   endcase;
+							case (2) do 	pxAttribs^.SetValue(p_sAttribName, p_iAttribValue);   endcase;
+							case default do pxAttribs^.SetValue(p_sAttribName, p_sAttribValue);   endcase;
+						endswitch;
+						CEvt_UpdateAttribs.Send(pxObj^.GetGuid());
+					endif;
+				endif;
+			endif;
+		endfor;
+	endproc;
+
+	proc void SetAttribOnAllMarkers(string p_sAttribName, real p_fAttribValue)
+		SetAttribOnAllMarkers(p_sAttribName, 1, p_fAttribValue, 0, "");
+	endproc;
+
+	proc void SetAttribOnAllMarkers(string p_sAttribName, int p_iAttribValue)
+		SetAttribOnAllMarkers(p_sAttribName, 2, 0.0, p_iAttribValue, "");
+	endproc;
+
+
+	proc void SetAttribOnAllMarkers(string p_sAttribName, string p_sAttribValue)
+		SetAttribOnAllMarkers(p_sAttribName, 3, 0.0, 0, p_sAttribValue);
+	endproc;
+
+	proc bool OnPropertiesChanged()
+		SetAttribOnAllMarkers("priority", m_pxAtmoProps^.GetPriority());
+		SetAttribOnAllMarkers("volume", m_pxAtmoProps^.GetVolume());
+		SetAttribOnAllMarkers("pitch", m_pxAtmoProps^.GetPitch());
+		SetAttribOnAllMarkers("minfadedist", m_pxAtmoProps^.GetMinFadeDist());
+		SetAttribOnAllMarkers("maxfadedist", m_pxAtmoProps^.GetMaxFadeDist());
+		SetAttribOnAllMarkers("maxhearingdist", m_pxAtmoProps^.GetMaxHearingDist());
+		SetAttribOnAllMarkers("innerconeangle", m_pxAtmoProps^.GetConeInnerAngle());
+		SetAttribOnAllMarkers("outerconeangle", m_pxAtmoProps^.GetConeOuterAngle());
+		SetAttribOnAllMarkers("coneoutsidevolume", m_pxAtmoProps^.GetConeOutsideVolume());
+		SetAttribOnAllMarkers("wav1", m_pxAtmoProps^.GetWav1());
+		SetAttribOnAllMarkers("wav2", m_pxAtmoProps^.GetWav2());
+		SetAttribOnAllMarkers("wav3", m_pxAtmoProps^.GetWav3());
+		SetAttribOnAllMarkers("playlist", m_pxAtmoProps^.GetPlaylist());
+
+		var bitset dwFlags = 0b;
+		if(m_pxAtmoProps^.GetDirectional()) then
+			dwFlags |= 01b;
+		endif;
+		if(m_pxAtmoProps^.GetDayEnable()) then
+			dwFlags |= 010b;
+		endif;
+		if(m_pxAtmoProps^.GetNightEnable()) then
+			dwFlags |= 0100b;
+		endif;
+		SetAttribOnAllMarkers("flags", Math.BitsetToInt(dwFlags));
+		return true;
+	endproc;
+
+	proc bool OnNewMarkerClick()
+		CMainController.Get().GetObjCreator()^.CreateGhost("AtmoSoundObj");
+		CMainController.Get().GetObjCreator()^.m_xOnObjectCreated = OnObjCreated;
+		return true;
+	endproc;
+
+
+	proc bool OnDisplayVolumes()
+		var ^CAtmoSoundMgr pxAtmoMgr = CLevelEditorWrap.GetAtmoSoundMgr();
+		pxAtmoMgr^.SetDisplayVolumes(m_pxCheckDisplayVolumes^.GetCheckMark());
+		return true;
+	endproc;
+
+
+	/**
+		called when an object has been created by the ObjCreator
+		because the object is not yet valid after creation, we set a timer
+		and wait until it becomes valid
+	*/
+	proc bool OnObjCreated(CGuid p_xGuid)
+		CLevelEditorWrap.LogInfo("UI.ViewAtmoMarkers","obj created " + p_xGuid.ToString());
+		m_axCreatedObjs.AddEntry(p_xGuid);
+		if(m_iTimerID == 0) then
+			m_iTimerID=CWindowMgr.Get().SetTimer(this, 50, true);
+		endif;
+		return true;
+	endproc;
+
+
+	/**
+		timer function
+		checks if recently created objects have become valid
+		if so, set the parameters
+		when all objects are done, remove the timer
+	*/
+	proc bool OnTimer(int p_iID)
+		if(m_iTimerID==p_iID)then
+			var int i;
+			for(i=0)cond(i<m_axCreatedObjs.NumEntries())iter(++i)do
+				var ^CObj pxObj = CClientWrap.GetObjMgr().GetObj(m_axCreatedObjs[i]);
+				if(pxObj != null) then
+					var ^CAttribs pxAttribs=pxObj^.GetAttribs();
+					if(pxAttribs!=null)then
+
+						var int iTemplate = m_pxTemplateType^.GetSelectedItem() -1;
+						if(iTemplate >=0) then
+							pxAttribs^.SetValue("priority", m_pxTemplatesView^.m_axTemplates[iTemplate].m_fPriority);
+							pxAttribs^.SetValue("volume", m_pxTemplatesView^.m_axTemplates[iTemplate].m_iVolume);
+							pxAttribs^.SetValue("pitch", m_pxTemplatesView^.m_axTemplates[iTemplate].m_fPitch);
+							pxAttribs^.SetValue("minfadedist", m_pxTemplatesView^.m_axTemplates[iTemplate].m_fMinFadeDist);
+							pxAttribs^.SetValue("maxfadedist", m_pxTemplatesView^.m_axTemplates[iTemplate].m_fMaxFadeDist);
+							pxAttribs^.SetValue("maxhearingdist", m_pxTemplatesView^.m_axTemplates[iTemplate].m_fMaxHearingDist);
+							pxAttribs^.SetValue("innerconeangle", m_pxTemplatesView^.m_axTemplates[iTemplate].m_iConeInnerAngle);
+							pxAttribs^.SetValue("outerconeangle", m_pxTemplatesView^.m_axTemplates[iTemplate].m_iConeOuterAngle);
+							pxAttribs^.SetValue("coneoutsidevolume", m_pxTemplatesView^.m_axTemplates[iTemplate].m_iConeOutsideVolume);
+							pxAttribs^.SetValue("wav1", m_pxTemplatesView^.m_axTemplates[iTemplate].m_sWav1);
+							pxAttribs^.SetValue("wav2", m_pxTemplatesView^.m_axTemplates[iTemplate].m_sWav2);
+							pxAttribs^.SetValue("wav3", m_pxTemplatesView^.m_axTemplates[iTemplate].m_sWav3);
+							pxAttribs^.SetValue("playlist", m_pxTemplatesView^.m_axTemplates[iTemplate].m_sPlaylist);
+							pxAttribs^.SetValue("flags", Math.BitsetToInt(m_pxTemplatesView^.m_axTemplates[iTemplate].m_dwFlags));
+						endif;
+
+						CLevelEditorWrap.LogInfo("UI.ViewAtmoMarkers","object " + m_axCreatedObjs[i].ToString() + " done");
+						m_axCreatedObjs.DeleteEntryUS(i);
+						--i;
+					endif;
+				endif;
+			endfor;
+
+			if(m_axCreatedObjs.NumEntries() == 0) then
+				CWindowMgr.Get().UnsetTimer(m_iTimerID);
+				m_iTimerID=0;
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+endclass;
+

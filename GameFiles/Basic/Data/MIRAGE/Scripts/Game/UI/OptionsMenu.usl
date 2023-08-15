@@ -1,0 +1,4286 @@
+class COptionsMenu inherit CStateUIWnd
+	
+	export static var bool				ms_bAutoRestart;
+	var ^CDesktop									m_pxDesktop;
+	var ^CTabCtrl									m_pxTabCtrl;
+	var ^CGraphicOptions					m_pxGraphicOptionsPage;
+	var ^CAdvancedGraphicOptions	m_pxAdvancedGraphicOptionsPage;
+	var ^CSoundOptions						m_pxSoundOptionsPage;
+	var ^CGameplayOptions					m_pxPestConfigplayOptionsPage;
+	var ^CControlOptions					m_pxControlOptionsPage;
+	var ^CProfileOptions					m_pxProfileOptionsPage;
+	var ^CMirageClientO						m_pxMirageClientOPage;
+	var ^CMirageServerO						m_pxMirageServerOPage;
+	var string										m_sESReturnState;
+	var array string							m_asDictionary;
+	var ^CPestConfig							m_pxPestConfig;
+	
+	export static var array real	ms_afFPSValues;
+	export static var array int		ms_aiUIScaleFactorValues;
+	
+	export constructor()
+		m_sESReturnState="";
+		ms_afFPSValues=9;
+		ms_afFPSValues[0]=30.0;
+		ms_afFPSValues[1]=60.0;
+		ms_afFPSValues[2]=75.0;
+		ms_afFPSValues[3]=100.0;
+		ms_afFPSValues[4]=120.0;
+		ms_afFPSValues[5]=144.0;
+		ms_afFPSValues[6]=165.0;
+		ms_afFPSValues[7]=180.0;
+		ms_afFPSValues[8]=240.0;
+		
+		ms_aiUIScaleFactorValues=2;
+		ms_aiUIScaleFactorValues[0]=1;
+		ms_aiUIScaleFactorValues[1]=2;
+
+		if(!InitFromResource("UI/OptionsMenu","OptionsMenu"))then
+			return;
+		endif;
+		m_pxDesktop=CClientWrap.GetDesktop();
+		SetSize(750 * CGameInst.ms_iUIScaleFactor,440 * CGameInst.ms_iUIScaleFactor);
+		SetPos(30 * CGameInst.ms_iUIScaleFactor,30 * CGameInst.ms_iUIScaleFactor);
+		var ^CStaticCtrl pxVersion=cast<CStaticCtrl>(GetControl("Version"));
+		if(pxVersion!=null)then
+			pxVersion^.SetText(CVersionInfo.GetVersionInfoString()+"\n"+CVersionInfo.GetCompatibleVersionsString());
+		endif;
+		m_pxTabCtrl=cast<CTabCtrl>(GetControl("TabCtrl"));
+		m_pxGraphicOptionsPage=new CGraphicOptions();
+		m_pxGraphicOptionsPage^.InitControls();
+		m_pxTabCtrl^.AddTab(CLocalizer.Get().Translate("_UI_OptionsM_Button_Graphics"),m_pxGraphicOptionsPage,CLocalizer.Get().Translate("_UI_Tab_Graphics"));
+		
+		m_pxAdvancedGraphicOptionsPage=new CAdvancedGraphicOptions();
+		m_pxAdvancedGraphicOptionsPage^.InitControls();
+		m_pxTabCtrl^.AddTab(CLocalizer.Get().Translate("_UI_OptionsM_Button_Advanced"),m_pxAdvancedGraphicOptionsPage,CLocalizer.Get().Translate("_UI_Tab_Advanced"));
+		
+		m_pxSoundOptionsPage=new CSoundOptions();
+		m_pxTabCtrl^.AddTab(CLocalizer.Get().Translate("_UI_OptionsM_Button_Sound"),m_pxSoundOptionsPage,CLocalizer.Get().Translate("_UI_Tab_Sound"));
+		
+		m_pxPestConfigplayOptionsPage=new CGameplayOptions();
+		m_pxTabCtrl^.AddTab(CLocalizer.Get().Translate("_UI_OptionsM_Button_Gameplay"),m_pxPestConfigplayOptionsPage,CLocalizer.Get().Translate("_UI_Tab_Gameplay"));
+		
+		m_pxControlOptionsPage=new CControlOptions();
+		m_pxTabCtrl^.AddTab(CLocalizer.Get().Translate("_UI_OptionsM_Button_Controls"),m_pxControlOptionsPage,CLocalizer.Get().Translate("_UI_Tab_Controls"));
+		
+		m_pxProfileOptionsPage=new CProfileOptions();
+		m_pxTabCtrl^.AddTab(CLocalizer.Get().Translate("_UI_OptionsM_Button_Profiles"),m_pxProfileOptionsPage,CLocalizer.Get().Translate("_UI_Tab_Profiles"));
+		
+		m_pxMirageClientOPage=new CMirageClientO();
+		m_pxTabCtrl^.AddTab(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_Button_Client"),m_pxMirageClientOPage,CLocalizer.Get().Translate("_MIRAGE_UI_Tab_Client"));
+		
+		if(CUIStateMgr.Get().GetInGameScreen()==null)then
+			m_pxMirageServerOPage=new CMirageServerO();
+			m_pxTabCtrl^.AddTab(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_Button_Server"),m_pxMirageServerOPage,CLocalizer.Get().Translate("_MIRAGE_UI_Tab_Server"));
+		endif;
+		
+		m_pxTabCtrl^.m_xOnChangeTab=OnChangeTab;
+		
+		var ^CMenuButton pxBackButton=cast<CMenuButton>(GetControl("Back"));
+		pxBackButton^.m_xOnClick=OnBack;
+		SetCmd("Exit", OnBack );
+		AddAccelerator("ESCAPE,NONE,Exit");
+		SetWindowTitle(CLocalizer.Get().Translate("_UI_OptionsM_WindowTitle"));
+		m_pxTabCtrl^.SelectTab(0);
+		CGameWrap.Pause();
+	endconstructor;
+	
+	export destructor()
+		CGameWrap.Unpause();
+		if(COptionsMenu.ms_bAutoRestart)then
+			CGameWrap.Quit();
+		endif;
+	enddestructor;
+	
+	export proc bool Init(int p_iState)
+		if(p_iState==CUIStateMgr.STATE_MAINMENU)then
+			//
+		elseif(p_iState==CUIStateMgr.STATE_GAMEMENU||p_iState==CUIStateMgr.STATE_GAMEEND)then
+			SetPos(m_pxDesktop^.GetWidth()/2 - GetWidth()/2,m_pxDesktop^.GetHeight()/2 - GetHeight()/2);
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnChangeTab(int p_iTab)
+		if(p_iTab==0)then
+			m_pxGraphicOptionsPage^.InitControls();
+		endif;
+		if(p_iTab==1)then
+			m_pxAdvancedGraphicOptionsPage^.InitControls();
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnBack()
+		CUIStateMgr.Get().SetState(GetReturnState(),m_sESReturnState);
+		return true;
+	endproc;
+	
+	export proc ^CProfileOptions GetProfilesOptions()
+		return(m_pxProfileOptionsPage);
+	endproc;
+	
+	export proc void SetESReturnState(string p_sParam)
+		m_sESReturnState=p_sParam;
+	endproc;
+	
+endclass;
+	
+class CGraphicOptions inherit CWindow
+	
+	var ^CDropList	m_pxResolutionDropList;
+	var ^CDropList	m_pxGraphicCardDropList;
+	var ^CCheckBox	m_pxFullscreenCheckBox;
+	var ^CSlider	m_pxGammaSlider;
+	var ^CDropList	m_pxFrameRateDropList;
+	var ^CDropList	m_pxUIScaleFactorDropList;
+	var real 		m_fFrameRateInitial;
+	var int 		m_iUIScaleFactorInitial;
+	
+	export constructor()
+		if(!InitFromResource("UI/OptionsMenu","GraphicOptions"))then
+			return;
+		endif;
+		m_pxFullscreenCheckBox=cast<CCheckBox>(GetControl("FullscreenCheckBox"));
+		m_pxFullscreenCheckBox^.SetChecked(CClientWrap.IsFullScreen());
+		m_pxFullscreenCheckBox^.SetDisabled(!CClientWrap.CanDoWindowMode());
+		m_pxFullscreenCheckBox^.m_xOnStateChange=OnChangeFullScreen;
+				
+/*
+		//GeometryDetail
+		m_pxGeometryDetailDropList=cast<CDropList>(GetControl("GeometryDetailDropList"));
+		m_pxGeometryDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Low"));
+		m_pxGeometryDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Medium"));
+		m_pxGeometryDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_High"));
+				
+		//EffectDetail
+		m_pxEffectDetailDropList=cast<CDropList>(GetControl("EffectDetailDropList"));
+		m_pxEffectDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Low"));
+		m_pxEffectDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Medium"));
+		m_pxEffectDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_High"));
+		m_pxEffectDetailDropList^.m_xOnChange=OnChangeEffectDetail;
+*/
+		
+		//FrameRate
+		var ^CStaticCtrl pxFrameRateStatic=cast<CStaticCtrl>(GetControl("FrameRateStatic"));
+		m_pxFrameRateDropList=cast<CDropList>(GetControl("FrameRateDropList"));
+		var int iC=COptionsMenu.ms_afFPSValues.NumEntries();
+		var int i=0;
+		for()cond(i<iC)iter(i++)do
+			var string sExtra="";
+			if(COptionsMenu.ms_afFPSValues[i]==60.0)then
+				sExtra=" ("+CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_Best")+")";
+			endif;
+			m_pxFrameRateDropList^.AddItem(COptionsMenu.ms_afFPSValues[i].ToInt().ToString()+sExtra);
+		endfor;
+		
+		//UI scale factor
+		var ^CStaticCtrl pxUIScaleFactorStatic=cast<CStaticCtrl>(GetControl("UIScaleFactorStatic"));
+		m_pxUIScaleFactorDropList=cast<CDropList>(GetControl("UIScaleFactorDropList"));
+		var int jC=COptionsMenu.ms_aiUIScaleFactorValues.NumEntries();
+		var int j=0;
+		for()cond(j<jC)iter(j++)do
+			var string sExtra="";
+			if(COptionsMenu.ms_aiUIScaleFactorValues[j]==2)then
+				sExtra=" ("+CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_UIScaleFactor4k")+")";
+			endif;
+			m_pxUIScaleFactorDropList^.AddItem(COptionsMenu.ms_aiUIScaleFactorValues[j].ToString()+sExtra);
+		endfor;
+		
+		InitResolutionList();
+		InitFrameRate();
+		InitUIScaleFactor();
+		InitControls();
+//		m_pxGeometryDetailDropList^.SetDisabled(true);
+//		m_pxEffectDetailDropList^.SetDisabled(true);
+//		m_pxGraphicCardDropList^.SetDisabled(true);
+		m_pxResolutionDropList^.m_xOnChange=OnChangeResolution;
+		m_pxGraphicCardDropList^.m_xOnChange=OnChangeGraphicCard;
+		m_pxFrameRateDropList^.m_xOnChange=OnChangeFrameRate;
+		m_pxUIScaleFactorDropList^.m_xOnChange=OnChangeUIScaleFactor;
+
+//		var ^CMenuButton	pxTmp=cast<CMenuButton>(GetControl("ApplyButton"));
+//		pxTmp^.m_xOnClick=OnApply;
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+/*
+	proc bool OnApply()
+		CGameWrap.GetGfxMgr().ResetTextures();
+		return(true);
+	endproc;
+*/	
+	
+	proc bool OnChangeGraphicCard()
+		var int iIndex=m_pxGraphicCardDropList^.GetSelectedItem();
+		var CConfig xConf;
+		xConf.SetI("Pest/Rendering/AdapterIndex",iIndex);
+		var ^CGfxMgr pxGfxMgr=^(CGameWrap.GetGfxMgr());
+		if(pxGfxMgr^.GetCurrentAdapterIndex() != iIndex)then
+			CMessageBox.MsgBox_OK(CLocalizer.Get().Translate("_UI_Options_MsgBoxTitle_ChangeRequiresRestart"),CLocalizer.Get().Translate("_UI_Options_MsgBoxText_ChangeRequiresRestart"),CMessageBox.SMB_ICONEXCLAMATION,OnConfirmChangeOnRestartMsgBox_CallBack);
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnChangeResolution()
+		var int iWidth,iHeight;
+		var int iIndex=m_pxResolutionDropList^.GetSelectedItem();
+		var ^CGfxMgr pxGfxMgr=^(CGameWrap.GetGfxMgr());
+		pxGfxMgr^.GetGfxAdapterMode(0,iIndex,iWidth,iHeight);
+		var int iCurrentWidth,iCurrentHeight;
+		CClientWrap.GetResolution(iCurrentWidth,iCurrentHeight);
+		if(iCurrentWidth!=iWidth||iCurrentHeight!=iHeight)then
+			CMessageBox.MsgBox_OK(CLocalizer.Get().Translate("_UI_Options_MsgBoxTitle_ChangeRequiresRestart"),CLocalizer.Get().Translate("_UI_Options_MsgBoxText_ChangeRequiresRestart"),CMessageBox.SMB_ICONEXCLAMATION,OnConfirmChangeOnRestartMsgBox_CallBack);
+		endif;
+		CClientWrap.SetResolution(iWidth,iHeight);
+		return true;
+	endproc;
+	
+	proc void OnConfirmChangeOnRestartMsgBox_CallBack(int p_iResult)
+//		var bitset dwResult=Math.IntToBitset(p_iResult);
+//		if(dwResult==CMessageBox.SID_YES)then
+//			CGameWrap.Quit();
+//		endif;
+	endproc;
+	
+	proc void SetGammaControlVisible(bool p_bVisible)
+		m_pxGammaSlider^.SetVisible(p_bVisible);
+		var ^CStaticCtrl pxGammaStatic=cast<CStaticCtrl>(GetControl("GammaStatic2"));
+		pxGammaStatic^.SetVisible(p_bVisible);
+		pxGammaStatic=cast<CStaticCtrl>(GetControl("GammaStatic"));
+		pxGammaStatic^.SetVisible(p_bVisible);
+	endproc;
+	
+	proc bool OnChangeFullScreen()
+		CClientWrap.ToggleFullScreen();
+		var CConfig xConf;
+		xConf.SetI("ScreenMode/FullScreen",CClientWrap.IsFullScreen());		
+		if(CClientWrap.IsFullScreen()==0)then
+			SetGammaControlVisible(false);
+		else
+			SetGammaControlVisible(true);
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnChangeGeometryDetail()
+		//L KLog.LogWarn("Manni","OnChangeGeometryDetail");
+		return(true);
+	endproc;
+
+	proc bool OnChangeEffectDetail()
+		//L KLog.LogWarn("Manni","OnChangeEffectDetail");
+		return(true);
+	endproc;
+	
+	proc bool OnChangeGammaSlider()
+		var ^CStaticCtrl pxGammaStatic=cast<CStaticCtrl>(GetControl("GammaStatic2"));
+		pxGammaStatic^.SetText((m_pxGammaSlider^.GetSliderPos().ToReal()/100.0).ToString().Left(3));
+		if(CClientWrap.IsFullScreen()==1)then
+			CClientWrap.SetFullScreenGamma((m_pxGammaSlider^.GetSliderPos().ToReal()/100.0));
+			CSettings.Set("Pest/Rendering/Gamma/FullScreen",(m_pxGammaSlider^.GetSliderPos().ToReal()/100.0).ToString());
+		endif;
+		return(true);
+	endproc;
+
+	proc bool OnChangeFrameRate()
+		var int iIndex=m_pxFrameRateDropList^.GetSelectedItem();
+		var real fFrameRate=COptionsMenu.ms_afFPSValues[iIndex];
+		var CConfig xConf;
+		xConf.SetF("Pest/Rendering/MaxFrameRate",fFrameRate);
+		var ^CGfxMgr pxGfxMgr=^(CGameWrap.GetGfxMgr());
+		if(m_fFrameRateInitial != fFrameRate)then
+			CMessageBox.MsgBox_OK(CLocalizer.Get().Translate("_UI_Options_MsgBoxTitle_ChangeRequiresRestart"),CLocalizer.Get().Translate("_UI_Options_MsgBoxText_ChangeRequiresRestart"),CMessageBox.SMB_ICONEXCLAMATION,OnConfirmChangeOnRestartMsgBox_CallBack);
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnChangeUIScaleFactor()
+		var int iIndex=m_pxUIScaleFactorDropList^.GetSelectedItem();
+		var int iUIScaleFactor=COptionsMenu.ms_aiUIScaleFactorValues[iIndex];
+		var CConfig xConf;
+		xConf.SetI("ScreenMode/UIScaleFactor",iUIScaleFactor);
+		var ^CGfxMgr pxGfxMgr=^(CGameWrap.GetGfxMgr());
+		if(m_iUIScaleFactorInitial != iUIScaleFactor)then
+			CMessageBox.MsgBox_OK(CLocalizer.Get().Translate("_UI_Options_MsgBoxTitle_ChangeRequiresRestart"),CLocalizer.Get().Translate("_UI_Options_MsgBoxText_ChangeRequiresRestart"),CMessageBox.SMB_ICONEXCLAMATION,OnConfirmChangeOnRestartMsgBox_CallBack);
+		endif;
+		return true;
+	endproc;
+
+	export proc bool InitControls()
+		//Gamma
+		var real fGamma;
+		if(!CSettings.Get("Pest/Rendering/Gamma/FullScreen",fGamma))then
+			fGamma=1.0f;
+			CSettings.Set("Pest/Rendering/Gamma/FullScreen",fGamma);
+		endif;
+		m_pxGammaSlider=cast<CSlider>(GetControl("GammaSlider"));
+		m_pxGammaSlider^.SetSliderRange(200);
+		m_pxGammaSlider^.SetSliderPos((fGamma*100.0).ToInt());
+		m_pxGammaSlider^.m_xOnChange=OnChangeGammaSlider;
+		if(CClientWrap.IsFullScreen()==0)then
+			SetGammaControlVisible(false);
+		else
+			SetGammaControlVisible(true);
+		endif;
+		var ^CStaticCtrl pxGammaStatic=cast<CStaticCtrl>(GetControl("GammaStatic2"));
+		pxGammaStatic^.SetText((m_pxGammaSlider^.GetSliderPos().ToReal()/100.0).ToString().Left(3));
+		CClientWrap.SetFullScreenGamma((m_pxGammaSlider^.GetSliderPos().ToReal()/100.0));
+		var int i=0;
+		var int iSelectedRes=0;
+		var int iWidth,iHeight;
+		var int iCurrentWidth,iCurrentHeight;
+		CClientWrap.GetResolution(iCurrentWidth,iCurrentHeight);
+		var ^CGfxMgr pxGfxMgr=^(CGameWrap.GetGfxMgr());
+		while(pxGfxMgr^.GetGfxAdapterMode(0,i,iWidth,iHeight))do
+			if(iCurrentWidth==iWidth && iCurrentHeight==iHeight)then
+				iSelectedRes=i;
+				break;
+			endif;
+			i++;
+		endwhile;
+		m_pxResolutionDropList^.Select(iSelectedRes);
+		var CConfig xConf;
+		var int iDeviceIndex=xConf.GetI("Pest/Rendering/AdapterIndex",0);
+		m_pxGraphicCardDropList^.Select(iDeviceIndex);
+		// disable slider if custom
+//		m_pxGfxLODSlider^.SetDisabled(CClientWrap.IsCustomGfxLOD());
+		return(true);
+	endproc;
+
+	proc bool InitResolutionList()
+		//Check for available resolutions
+		var ^CGfxMgr pxGfxMgr=^(CGameWrap.GetGfxMgr());
+		m_pxResolutionDropList=cast<CDropList>(GetControl("ResolutionDropList"));
+		m_pxGraphicCardDropList=cast<CDropList>(GetControl("GraphicCardDropList"));
+		var int i,iC=pxGfxMgr^.GetGfxAdapterCount();
+		var string sAdapterInfo;
+		var bool bPrimary=true; 
+		var int iWidth,iHeight;
+		while(pxGfxMgr^.GetGfxAdapterMode(0,i,iWidth,iHeight))do
+			m_pxResolutionDropList^.AddItem(iWidth.ToString()+"x"+iHeight.ToString());
+			i++;
+		endwhile;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!pxGfxMgr^.GetGfxAdapterInfo(i,bPrimary,sAdapterInfo))then
+				KLog.LogWarn("OptionsMenu","Adapter "+i.ToString()+" not found!");
+			endif;
+			m_pxGraphicCardDropList^.AddItem((i+1).ToString()+": "+sAdapterInfo);
+		endfor;
+		return(true);
+	endproc;
+	
+	proc void InitFrameRate()
+		if(!CSettings.Get("Pest/Rendering/MaxFrameRate",m_fFrameRateInitial))then
+			m_fFrameRateInitial=60.0;
+			CSettings.Set("Pest/Rendering/MaxFrameRate",m_fFrameRateInitial);
+		else
+		endif;
+		var int iSelected=0;
+		var int i2=0;
+		var int iC=COptionsMenu.ms_afFPSValues.NumEntries();
+		for()cond(i2<iC)iter(i2++) do
+			if(m_fFrameRateInitial > COptionsMenu.ms_afFPSValues[i2] && i2<iC-1)then
+				iSelected=i2+1;
+			endif;
+		endfor;
+		m_pxFrameRateDropList^.Select(iSelected);
+	endproc;
+	
+	proc void InitUIScaleFactor()
+		if(!CSettings.Get("ScreenMode/UIScaleFactor",m_iUIScaleFactorInitial))then
+			m_iUIScaleFactorInitial=1;
+			CSettings.Set("ScreenMode/UIScaleFactor",m_iUIScaleFactorInitial);
+		else
+		endif;
+		var int iSelected=0;
+		var int i2=0;
+		var int iC=COptionsMenu.ms_aiUIScaleFactorValues.NumEntries();
+		for()cond(i2<iC)iter(i2++) do
+			if(m_iUIScaleFactorInitial > COptionsMenu.ms_aiUIScaleFactorValues[i2] && i2<iC-1)then
+				iSelected=i2+1;
+			endif;
+		endfor;
+		m_pxUIScaleFactorDropList^.Select(iSelected);
+	endproc;
+	
+endclass;
+	
+class CAdvancedGraphicOptions inherit CWindow
+	
+	var ^CDropList	m_pxViewingDistanceDropList;
+	var ^CDropList	m_pxLODDetailDropList;
+	var ^CDropList	m_pxShadowsDropList;
+	var ^CDropList	m_pxShadowMapSizeDropList;
+	var ^CDropList	m_pxWeatherDropList;
+	var ^CDropList	m_pxGrassDetailDropList;
+	var ^CDropList	m_pxTextureDetailDropList;
+	var ^CDropList	m_pxParticleDetailDropList;
+	var ^CDropList	m_pxWaterDetailDropList;
+	var ^CDropList	m_pxCloudsDropList;
+	var ^CSlider	m_pxGfxLODSlider;
+	var ^CButton	 m_pxRestoreDefaultsButton;
+	var ^CStaticCtrl m_pxGfxLODStatic;
+	var ^CCheckBox m_pxACProgressCheckBox;
+	
+	export constructor()
+		if(!InitFromResource("UI/OptionsMenu","AdvancedGraphicOptions"))then
+			return;
+		endif;
+
+		//TextureDetail
+		m_pxTextureDetailDropList=cast<CDropList>(GetControl("TextureDetailDropList"));
+		m_pxTextureDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_VeryLow"));
+		m_pxTextureDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Low"));
+		m_pxTextureDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Medium"));
+		m_pxTextureDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_High"));
+		m_pxTextureDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_VeryHigh"));
+		m_pxTextureDetailDropList^.m_xOnChange=OnChangeTextureDetail;
+		
+		//ViewingDistance
+		m_pxViewingDistanceDropList=cast<CDropList>(GetControl("ViewingDistanceDropList"));
+		m_pxViewingDistanceDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Low"));
+		m_pxViewingDistanceDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Medium"));
+		m_pxViewingDistanceDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_High"));
+		m_pxViewingDistanceDropList^.m_xOnChange=OnChangeViewingDistance;
+		
+		//LODDetail
+		m_pxLODDetailDropList=cast<CDropList>(GetControl("LODDropList"));
+		m_pxLODDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_VeryLow"));
+		m_pxLODDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Low"));
+		m_pxLODDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Medium"));
+		m_pxLODDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_High"));
+		m_pxLODDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_VeryHigh"));
+		m_pxLODDetailDropList^.m_xOnChange=OnChangeLODDetail;
+		
+		//ShadowMapSize
+		var int iMaxShadowMapLOD=CClientWrap.GetGfxComponentLODLimit(4 /* gfxComp_ShadowMapSize=4 */);
+		m_pxShadowMapSizeDropList=cast<CDropList>(GetControl("ShadowMapSizeDropList"));
+		m_pxShadowMapSizeDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Low"));
+		if(iMaxShadowMapLOD>=1)then m_pxShadowMapSizeDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Medium")); endif;
+		if(iMaxShadowMapLOD>=2)then m_pxShadowMapSizeDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_High")); endif;
+		m_pxShadowMapSizeDropList^.m_xOnChange=OnChangeShadowMapSize;
+		
+		//Shadows
+		var int iMaxShadowLOD=CClientWrap.GetGfxComponentLODLimit(3 /* gfxComp_Shadow=3 */);
+		m_pxShadowsDropList=cast<CDropList>(GetControl("ShadowsDropList"));
+		m_pxShadowsDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Off"));
+		if(iMaxShadowLOD>=1)then m_pxShadowsDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_VeryLow")); endif;
+		if(iMaxShadowLOD>=2)then m_pxShadowsDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Low")); endif;
+		if(iMaxShadowLOD>=3)then m_pxShadowsDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Medium")); endif;
+		if(iMaxShadowLOD>=4)then m_pxShadowsDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_High")); endif;
+		if(iMaxShadowLOD>=5)then m_pxShadowsDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_VeryHigh")); endif;
+		m_pxShadowsDropList^.m_xOnChange=OnChangeShadows;
+		
+		//Weather
+		m_pxWeatherDropList=cast<CDropList>(GetControl("WeatherDropList"));
+		m_pxWeatherDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Off"));
+		m_pxWeatherDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_On"));
+		m_pxWeatherDropList^.m_xOnChange=OnChangeWeather;
+		
+		//GrassDetail
+		m_pxGrassDetailDropList=cast<CDropList>(GetControl("GrassDropList"));
+		m_pxGrassDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Off"));
+		m_pxGrassDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Low"));
+		m_pxGrassDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Medium"));
+		m_pxGrassDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_High"));
+		m_pxGrassDetailDropList^.m_xOnChange=OnChangeGrassDetail;
+		
+		//ParticleDetail
+		m_pxParticleDetailDropList=cast<CDropList>(GetControl("ParticleDropList"));
+		m_pxParticleDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Low"));
+		m_pxParticleDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Medium"));
+		m_pxParticleDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_High"));
+		m_pxParticleDetailDropList^.m_xOnChange=OnChangeParticleDetail;
+		
+		//WaterDetail
+		var int iMaxWaterLOD=CClientWrap.GetGfxComponentLODLimit(6 /* gfxComp_Water=6 */);
+		m_pxWaterDetailDropList=cast<CDropList>(GetControl("WaterDropList"));
+		m_pxWaterDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Low"));
+		if(iMaxWaterLOD>=1)then m_pxWaterDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Medium")); endif;
+		if(iMaxWaterLOD>=2)then m_pxWaterDetailDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_High")); endif;
+		m_pxWaterDetailDropList^.m_xOnChange=OnChangeWaterDetail;
+		
+		//Clouds
+		m_pxCloudsDropList=cast<CDropList>(GetControl("CloudsDropList"));
+		m_pxCloudsDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_Off"));
+		m_pxCloudsDropList^.AddItem(CLocalizer.Get().Translate("_UI_OptionsM_Option_On"));
+		m_pxCloudsDropList^.m_xOnChange=OnChangeClouds;
+
+		// ACProgress
+		m_pxACProgressCheckBox=cast<CCheckBox>(GetControl("ACProgressCheckBox"));
+		m_pxACProgressCheckBox^.m_xOnStateChange=OnChangeACProgress;
+		
+		//Restore Defaults Button
+		m_pxRestoreDefaultsButton=cast<CButton>(GetControl("RestoreDefaultLOD"));
+		m_pxRestoreDefaultsButton^.SetTextAlign(0);
+		m_pxRestoreDefaultsButton^.SetTextIndent(6);
+		m_pxRestoreDefaultsButton^.m_xOnClick=OnChangeRestoreDefaults;
+		m_pxGfxLODStatic=cast<CStaticCtrl>(GetControl("GfxLODStatic2"));
+		InitControls();
+	endconstructor;
+	
+	export destructor()
+	
+	enddestructor;
+
+	export proc void UpdateAdvancedControls()
+		//Geometry Detail
+		m_pxLODDetailDropList^.Select(CClientWrap.GetGfxComponentLOD(0 /* gfxComp_Geometry=0 */));
+		
+		//TextureDetail
+		m_pxTextureDetailDropList^.Select(CClientWrap.GetGfxComponentLOD(1 /* gfxComp_Texture=1 */));
+		
+		//Effect Detail
+		m_pxParticleDetailDropList^.Select(CClientWrap.GetGfxComponentLOD(2 /* gfxComp_Effect=2 */));
+
+		//Shadows
+		m_pxShadowsDropList^.Select(CClientWrap.GetGfxComponentLOD(3 /* gfxComp_Shadow=3 */));
+		
+		//ShadowMapSize
+		m_pxShadowMapSizeDropList^.Select(CClientWrap.GetGfxComponentLOD(4 /* gfxComp_ShadowMapSize=4 */));
+				
+		//Grass
+		m_pxGrassDetailDropList^.Select(CClientWrap.GetGfxComponentLOD(5 /* gfxComp_Grass=5 */));
+
+		//Water
+		m_pxWaterDetailDropList^.Select(CClientWrap.GetGfxComponentLOD(6 /* gfxComp_Water=6 */));
+		
+		//Weather
+		m_pxWeatherDropList^.Select(CClientWrap.GetGfxComponentLOD(7 /* gfxComp_Weather=7 */));
+
+		//Clouds
+		m_pxCloudsDropList^.Select(CClientWrap.GetGfxComponentLOD(8 /* gfxComp_Clouds=8 */));
+		
+		//Viewing Distance
+		m_pxViewingDistanceDropList^.Select(CClientWrap.GetGfxComponentLOD(9 /* gfxComp_ViewingDistance=9 */));
+		
+		//ACProgress
+		m_pxACProgressCheckBox^.SetChecked(CClientWrap.GetGfxComponentLOD(10 /* gfxComp_ArmyControllerProgressButtons=10 */));
+	endproc;	
+
+	export proc void UpdateGFXLodControl()
+		var int iGfxLod;
+		// determine current GFXLod ( or custom )
+		iGfxLod=CClientWrap.FindGfxLOD();
+		
+		if(iGfxLod==-1)then
+			iGfxLod=CClientWrap.GetGfxLOD();
+		endif;
+		
+		if(iGfxLod==-1)then
+			m_pxGfxLODStatic^.SetText(CLocalizer.Get().Translate("_UI_OptionsM_Option_CustomConfig"));
+		else
+			m_pxGfxLODStatic^.SetText((iGfxLod+1).ToString());
+		endif;
+		// Gfx LOD Slider 
+		m_pxGfxLODSlider=cast<CSlider>(GetControl("GfxLODSlider"));
+		m_pxGfxLODSlider^.SetSliderRange(CClientWrap.GetGfxLODCnt()-1);
+		m_pxGfxLODSlider^.SetSliderPos(iGfxLod);
+		m_pxGfxLODSlider^.m_xOnChange=OnChangeGfxLODSlider;
+	endproc;
+
+	export proc bool InitControls()
+		// Update GFXLod slider
+		UpdateGFXLodControl();
+		// Update Advanced GFX controls
+		UpdateAdvancedControls();
+		return true;
+	endproc;
+	
+	proc bool OnChangeRestoreDefaults()
+		CClientWrap.RestoreDefaultLOD();
+		InitControls();
+		return (true);
+	endproc;
+
+	proc bool OnChangeLODDetail()
+		CClientWrap.SetGfxComponentLOD(0 /*gfxComp_Geometry=0*/,m_pxLODDetailDropList^.GetSelectedItem());
+		CClientWrap.ApplyGfxComponentLOD();
+		UpdateGFXLodControl();
+		return(true);
+	endproc;
+	
+	proc bool OnChangeTextureDetail()
+		CClientWrap.SetGfxComponentLOD(1 /*gfxComp_Texture=1*/,m_pxTextureDetailDropList^.GetSelectedItem());
+		CClientWrap.ApplyGfxComponentLOD();
+		UpdateGFXLodControl();
+		return(true);
+	endproc;
+
+	proc bool OnChangeParticleDetail()
+		CClientWrap.SetGfxComponentLOD(2 /*gfxComp_Effect=2*/,m_pxParticleDetailDropList^.GetSelectedItem());
+		CClientWrap.ApplyGfxComponentLOD();
+		UpdateGFXLodControl();
+		return(true);
+	endproc;
+
+	proc bool OnChangeShadows()
+		CClientWrap.SetGfxComponentLOD(3 /*gfxComp_Shadow=3*/,m_pxShadowsDropList^.GetSelectedItem());
+		CClientWrap.ApplyGfxComponentLOD();
+		UpdateGFXLodControl();
+		return(true);
+	endproc;
+	
+	proc bool OnChangeShadowMapSize()
+		CClientWrap.SetGfxComponentLOD(4 /*gfxComp_ShadowMapSize=4*/,m_pxShadowMapSizeDropList^.GetSelectedItem());
+		CClientWrap.ApplyGfxComponentLOD();
+		UpdateGFXLodControl();
+		return true;
+	endproc;
+
+	proc bool OnChangeGrassDetail()
+		CClientWrap.SetGfxComponentLOD(5 /*gfxComp_Grass=5*/,m_pxGrassDetailDropList^.GetSelectedItem());
+		CClientWrap.ApplyGfxComponentLOD();
+		UpdateGFXLodControl();
+		return(true);
+	endproc;
+	
+	proc bool OnChangeWaterDetail()
+		CClientWrap.SetGfxComponentLOD(6 /*gfxComp_Water=6*/,m_pxWaterDetailDropList^.GetSelectedItem());
+		CClientWrap.ApplyGfxComponentLOD();
+		UpdateGFXLodControl();
+		return(true);
+	endproc;
+	
+	proc bool OnChangeWeather()
+		CClientWrap.SetGfxComponentLOD(7 /*gfxComp_Weather=7*/,m_pxWeatherDropList^.GetSelectedItem());
+		CClientWrap.ApplyGfxComponentLOD();
+		UpdateGFXLodControl();
+		return(true);
+	endproc;
+	
+	proc bool OnChangeACProgress()
+		CClientWrap.SetGfxComponentLOD(10 /*gfxComp_ArmyControllerProgressButtons=10*/,m_pxACProgressCheckBox^.GetChecked());
+		CClientWrap.ApplyGfxComponentLOD();
+		UpdateGFXLodControl();
+		var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+		if(pxIngameScreen!=null && pxIngameScreen^.GetPyramid()!=null)then
+			pxIngameScreen^.GetPyramid()^.RefreshAllCards(); // refresh all card in army controller
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnChangeClouds()
+		CClientWrap.SetGfxComponentLOD(8 /*gfxComp_Clouds=8*/,m_pxCloudsDropList^.GetSelectedItem());
+		CClientWrap.ApplyGfxComponentLOD();
+		UpdateGFXLodControl();
+		return(true);
+	endproc;
+
+	proc bool OnChangeViewingDistance()
+		CClientWrap.SetGfxComponentLOD(9 /*gfxComp_ViewingDistance=9*/,m_pxViewingDistanceDropList^.GetSelectedItem());
+		CClientWrap.ApplyGfxComponentLOD();
+		UpdateGFXLodControl();
+		return(true);
+	endproc;
+	
+	proc bool OnChangeGfxLODSlider()
+		var int iGfxLod=m_pxGfxLODSlider^.GetSliderPos();
+		CClientWrap.SetGfxLOD(iGfxLod);
+		CClientWrap.ApplyGfxComponentLOD();
+		m_pxGfxLODStatic^.SetText((iGfxLod+1).ToString());
+		UpdateAdvancedControls();
+		return true;
+	endproc;
+	
+endclass;
+
+class CSoundOptions inherit CWindow
+	
+	var ^CSlider			m_pxMasterVolume;
+	var ^CSlider			m_pxMusicVolume;
+	var ^CSlider			m_pxAmbientVolume;
+	var ^CSlider			m_pxUIVolume;
+	var ^CSlider			m_pxCutSceneVolume;
+	var ^CSlider			m_px3DSoundVolume;
+	
+	var ^CCheckBox			m_pxUseSpeechAck;
+
+	var ^CToggleButton		m_pxMuteButton;
+	var ^CButton			m_pxResetButton;
+	
+	var CSoundEventMgrClient.CSoundHandle m_hPlaying;
+	
+	export constructor()
+		if(!InitFromResource("UI/OptionsMenu","SoundOptions"))then
+			return;
+		endif;
+		var int iTmpVolume;
+		m_pxMasterVolume=cast<CSlider>(GetControl("MasterVolumeSlider"));
+		m_pxMasterVolume^.SetSliderRange(130);
+		CSettings.Get("Pest/Sound/Volume/Main",iTmpVolume);
+		m_pxMasterVolume^.SetSliderPos(iTmpVolume);
+		m_pxMasterVolume^.SetStyle(4);
+		m_pxMasterVolume^.m_xOnChange=OnChangeMasterVolume;
+		
+		m_pxMusicVolume=cast<CSlider>(GetControl("MusicVolumeSlider"));
+		m_pxMusicVolume^.SetSliderRange(100);
+		CSettings.Get("Pest/Sound/Volume/Music",iTmpVolume);
+		m_pxMusicVolume^.SetSliderPos(iTmpVolume);
+		m_pxMusicVolume^.SetStyle(4);
+		m_pxMusicVolume^.m_xOnChange=OnChangeMusicVolume;
+
+		m_pxAmbientVolume=cast<CSlider>(GetControl("AmbientVolumeSlider"));
+		m_pxAmbientVolume^.SetSliderRange(100);
+		CSettings.Get("Pest/Sound/Volume/Atmo",iTmpVolume);
+		m_pxAmbientVolume^.SetSliderPos(iTmpVolume);
+		m_pxAmbientVolume^.SetStyle(4);
+		m_pxAmbientVolume^.m_xOnChange=OnChangeAmbientVolume;
+
+		m_pxUIVolume=cast<CSlider>(GetControl("UIVolumeSlider"));
+		m_pxUIVolume^.SetSliderRange(100);
+		CSettings.Get("Pest/Sound/Volume/Global",iTmpVolume);
+		m_pxUIVolume^.SetSliderPos(iTmpVolume);
+		m_pxUIVolume^.SetStyle(4);
+		m_pxUIVolume^.m_xOnChange=OnChangeUIVolume;
+
+		m_pxCutSceneVolume=cast<CSlider>(GetControl("CutSceneVolumeSlider"));
+		m_pxCutSceneVolume^.SetSliderRange(100);
+		CSettings.Get("Pest/Sound/Volume/Cutscene",iTmpVolume);
+		m_pxCutSceneVolume^.SetSliderPos(iTmpVolume);
+		m_pxCutSceneVolume^.SetStyle(4);
+		m_pxCutSceneVolume^.m_xOnChange=OnChangeCutSceneVolume;
+		
+		m_px3DSoundVolume=cast<CSlider>(GetControl("3DSoundVolumeSlider"));
+		m_px3DSoundVolume^.SetSliderRange(100);
+		CSettings.Get("Pest/Sound/Volume/3DSound",iTmpVolume);
+		m_px3DSoundVolume^.SetSliderPos(iTmpVolume);
+		m_px3DSoundVolume^.SetStyle(4);
+		m_px3DSoundVolume^.m_xOnChange=OnChange3DSoundVolume;
+
+		var ^CCheckBox	pxTmp=cast<CCheckBox>(GetControl("UseEAXCheckBox"));
+		pxTmp^.SetDisabled(true);
+		pxTmp^.SetVisible(false);
+		
+		m_pxUseSpeechAck=cast<CCheckBox>(GetControl("UseSpeechAckCheckBox"));
+		CSettings.Get("Pest/Sound/Volume/Speech",iTmpVolume);
+		if(iTmpVolume!=0)then 
+			m_pxUseSpeechAck^.SetChecked(1);
+		else
+			m_pxUseSpeechAck^.SetChecked(0);
+		endif;
+		m_pxUseSpeechAck^.m_xOnStateChange=OnUseSpeechAckStateChange;
+		
+		//Buttons
+		m_pxMuteButton=cast<CToggleButton>(GetControl("MuteAllButton"));
+		m_pxMuteButton^.SetDisabled(true);
+		m_pxMuteButton^.m_xOnClick=OnMuteButton;
+		m_pxMuteButton^.SetVisible(false);
+		m_pxResetButton=cast<CButton>(GetControl("ResetButton"));
+		m_pxResetButton^.m_xOnClick=OnResetButton;
+		
+	endconstructor;
+	
+	export destructor()
+		var int iTmpVolume;
+		
+		iTmpVolume=m_pxMasterVolume^.GetSliderPos();
+		CSettings.Set("Pest/Sound/Volume/Main",iTmpVolume.ToString());
+		iTmpVolume=CSoundMgrCln.GetVolume(CSoundMgrCln.SOUND_VOLTRACK_MUSIC);
+		CSettings.Set("Pest/Sound/Volume/Music",iTmpVolume.ToString());
+		iTmpVolume=CSoundMgrCln.GetVolume(CSoundMgrCln.SOUND_VOLTRACK_ATMO);
+		CSettings.Set("Pest/Sound/Volume/Atmo",iTmpVolume.ToString());
+		iTmpVolume=CSoundMgrCln.GetVolume(CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+		CSettings.Set("Pest/Sound/Volume/Global",iTmpVolume.ToString());
+		iTmpVolume=CSoundMgrCln.GetVolume(CSoundMgrCln.SOUND_VOLTRACK_CUTSCENE);
+		CSettings.Set("Pest/Sound/Volume/Cutscene",iTmpVolume.ToString());
+	  	iTmpVolume=CSoundMgrCln.GetVolume(CSoundMgrCln.SOUND_VOLTRACK_3DSOUND);
+		CSettings.Set("Pest/Sound/Volume/3DSound",iTmpVolume.ToString());
+		iTmpVolume=CSoundMgrCln.GetVolume(CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+		CSettings.Set("Pest/Sound/Volume/Speech",iTmpVolume.ToString());
+	enddestructor;
+	
+	proc bool OnChangeMasterVolume()
+		CSoundMgrCln.SetMainVolume(m_pxMasterVolume^.GetSliderPos());
+		//PlayTestSound();
+		return(true);
+	endproc;
+	
+	proc bool OnChangeAmbientVolume()
+		CSoundMgrCln.SetVolume(CSoundMgrCln.SOUND_VOLTRACK_ATMO,m_pxAmbientVolume^.GetSliderPos());
+		PlayTestSound(CSoundMgrCln.SOUND_VOLTRACK_ATMO);
+		return(true);
+	endproc;
+	
+	proc bool OnChangeMusicVolume()
+		CSoundMgrCln.SetVolume(CSoundMgrCln.SOUND_VOLTRACK_MUSIC,m_pxMusicVolume^.GetSliderPos());
+		PlayTestSound(CSoundMgrCln.SOUND_VOLTRACK_MUSIC);
+		return(true);
+	endproc;
+	
+	proc bool OnChangeCutSceneVolume()
+		CSoundMgrCln.SetVolume(CSoundMgrCln.SOUND_VOLTRACK_CUTSCENE,m_pxCutSceneVolume^.GetSliderPos());
+		PlayTestSound(CSoundMgrCln.SOUND_VOLTRACK_CUTSCENE);
+		return(true);
+	endproc;
+	
+	proc bool OnChangeUIVolume()
+		CSoundMgrCln.SetVolume(CSoundMgrCln.SOUND_VOLTRACK_GLOBAL,m_pxUIVolume^.GetSliderPos());
+		//L KLog.LogWarn("Manni",CSoundMgrCln.GetVolume(CSoundMgrCln.SOUND_VOLTRACK_GLOBAL).ToString());
+		PlayTestSound(CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+		return(true);
+	endproc;
+	
+	proc bool OnChange3DSoundVolume()
+		CSoundMgrCln.SetVolume(CSoundMgrCln.SOUND_VOLTRACK_3DSOUND,m_px3DSoundVolume^.GetSliderPos());
+		PlayTestSound(CSoundMgrCln.SOUND_VOLTRACK_3DSOUND);
+		return(true);
+	endproc;
+	
+	proc bool OnUseSpeechAckStateChange()
+		if(m_pxUseSpeechAck^.GetChecked()!=0)then 
+			CSoundMgrCln.SetVolume(CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK,100);
+		else
+			CSoundMgrCln.SetVolume(CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK,0);
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnMuteButton()
+		return(true);
+	endproc;
+	
+	proc bool OnResetButton()
+		m_pxMasterVolume^.SetSliderPos(100);//Main
+		m_pxMusicVolume^.SetSliderPos(50);//Music
+		m_pxAmbientVolume^.SetSliderPos(86);//atmo
+		m_pxUIVolume^.SetSliderPos(86);//Global
+		m_pxCutSceneVolume^.SetSliderPos(86);//Cutscene
+		m_px3DSoundVolume^.SetSliderPos(100);//3DSound
+		
+		OnChangeMasterVolume();
+		OnChangeMusicVolume();
+		OnChangeAmbientVolume();
+		OnChangeUIVolume();
+		OnChangeCutSceneVolume();
+		OnChange3DSoundVolume();
+		
+		return(true);
+	endproc;
+	
+	proc bool PlayTestSound();
+		Random.Seed();
+		//var int iTmp=1+(Random.GetInt()%21);
+		var int iTmp=1;
+		CGameWrap.GetSoundEventMgrClient().StopSound(m_hPlaying);
+		m_hPlaying=CGameWrap.GetSoundEventMgrClient().PlayGlobalSound("Taunt_"+iTmp.ToString(),CSoundMgrCln.SOUND_VOLTRACK_GLOBAL,0);
+		return(true);
+	endproc;
+	
+	proc bool PlayTestSound(bitset p_dwVolumeTrack);
+		Random.Seed();
+		//var int iTmp=1+(Random.GetInt()%21);
+		var int iTmp=1;
+		CGameWrap.GetSoundEventMgrClient().StopSound(m_hPlaying);
+		m_hPlaying=CGameWrap.GetSoundEventMgrClient().PlayGlobalSound("Taunt_"+iTmp.ToString(),p_dwVolumeTrack,0);
+		return(true);
+	endproc;
+endclass;
+	
+class CControlOptions inherit CWindow
+	
+	export constructor()
+		if(!InitFromResource("UI/OptionsMenu","ControlOptions"))then
+			return;
+		endif;
+		
+		var ^CSlider pxTmpSlider=cast<CSlider>(GetControl("PanSpeedSlider"));
+		pxTmpSlider^.SetSliderRange(200);
+		var real fTmp=1.0f;
+		if(!CSettings.Get("Client/Mouse/PanSpeed",fTmp))then
+			CSettings.Set("Client/Mouse/PanSpeed",1.0f);
+			pxTmpSlider^.SetSliderPos((fTmp*100.0f).ToInt());
+		else
+			pxTmpSlider^.SetSliderPos(((fTmp-0.3)*100.0f).ToInt());
+		endif;
+		pxTmpSlider^.m_xOnChange=OnChangePanSpeed;
+
+		var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("AllowMouseSpeed"));
+		var int iTmp=0;
+		if(!CSettings.Get("Client/Mouse/AllowMouseSpeedOverride",iTmp))then
+			CSettings.Set("Client/Mouse/AllowMouseSpeedOverride",0);
+		endif;
+		pxTmp^.SetChecked(iTmp);
+		pxTmp^.m_xOnStateChange=OnChangeAllowMouseSpeed;
+
+		pxTmpSlider=cast<CSlider>(GetControl("MouseSpeedSlider"));
+		pxTmpSlider^.SetSliderRange(19);
+		iTmp=10;
+		if(!CSettings.Get("Client/Mouse/MouseSpeed",iTmp))then
+			CSettings.Set("Client/Mouse/MouseSpeed",10);
+		endif;
+		pxTmpSlider^.SetSliderPos(iTmp);
+		pxTmpSlider^.SetDisabled(pxTmp^.GetChecked()!=1);
+		pxTmpSlider^.m_xOnChange=OnChangeMouseSpeed;
+		
+		pxTmpSlider=cast<CSlider>(GetControl("ScrollSpeedSlider"));
+		pxTmpSlider^.SetSliderRange(800);
+		fTmp=4.0f;
+		if(!CSettings.Get("Client/ScrollSpeed",fTmp))then
+			CSettings.Set("Client/ScrollSpeed",fTmp);
+			pxTmpSlider^.SetSliderPos((fTmp*100.0f).ToInt());
+		else
+			pxTmpSlider^.SetSliderPos(((fTmp-0.5)*100.0f).ToInt());
+		endif;
+		var ^CGameCameraModule pxCameraModule=CMultiCameraController.Get().GetGameCameraModule();
+		if(pxCameraModule!=null)then
+			pxCameraModule^.SetKeySpeedScale(fTmp);
+		endif;
+//		var ^CFreeCameraModule pxFCM=CMultiCameraController.Get().GetFreeCameraModule();
+//		if(pxFCM!=null)then
+//			pxFCM^.SetKeySpeedScale(fTmp);
+//		endif;
+		pxTmpSlider^.m_xOnChange=OnChangeScrollSpeed;
+		
+		pxTmp=cast<CCheckBox>(GetControl("SnapBack"));
+		pxTmp^.m_xOnStateChange=OnChangeSnapBack;
+		if(CMultiCameraController.Get().GetGameCameraModule()^.IsSnapAllowed())then
+			pxTmp^.SetChecked(1);
+		endif;
+		
+		pxTmp=cast<CCheckBox>(GetControl("AllowSteplessZoom"));
+		pxTmp^.m_xOnStateChange=OnChangeAllowSteplessZoom;
+		if(CMultiCameraController.Get().GetGameCameraModule()^.IsZoomAllowed())then
+			pxTmp^.SetChecked(1);
+		endif;
+		
+		pxTmp=cast<CCheckBox>(GetControl("AllowCameraRotation"));
+		pxTmp^.m_xOnStateChange=OnChangeAllowCameraRotation;
+		if(CMultiCameraController.Get().GetGameCameraModule()^.IsTurnAllowed())then
+			pxTmp^.SetChecked(1);
+		endif;
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	proc bool OnChangePanSpeed()
+		var ^CSlider pxTmpSlider=cast<CSlider>(GetControl("PanSpeedSlider"));
+		CCameraControllerBase.SetMousePanSpeed((pxTmpSlider^.GetSliderPos().ToReal()/100.0f)+0.3);
+		//L KLog.LogWarn("Manni","SetPanSpeed to: "+CCameraControllerBase.GetMousePanSpeed().ToString());
+		CSettings.Set("Client/Mouse/PanSpeed",CCameraControllerBase.GetMousePanSpeed());
+		return(true);
+	endproc;
+	
+	proc bool OnChangeMouseSpeed()
+		var ^CSlider pxTmpSlider=cast<CSlider>(GetControl("MouseSpeedSlider"));
+		var int iPos=pxTmpSlider^.GetSliderPos()+1;
+		CSettings.Set("Client/Mouse/MouseSpeed",iPos);
+		var int iIngameSpeed=CGameWrap.GetIngameMouseSpeed();
+		var int iSystemSpeed=CGameWrap.GetSystemMouseSpeed();
+		CGameWrap.SetIngameMouseSpeed(iPos);
+		return(true);
+	endproc;
+	
+	proc bool OnChangeScrollSpeed()
+		var ^CSlider pxTmpSlider=cast<CSlider>(GetControl("ScrollSpeedSlider"));
+		var ^CGameCameraModule pxCameraModule=CMultiCameraController.Get().GetGameCameraModule();
+		if(pxCameraModule!=null)then
+			pxCameraModule^.SetKeySpeedScale((pxTmpSlider^.GetSliderPos().ToReal()/100.0f)+0.5);
+			CSettings.Set("Client/ScrollSpeed",pxCameraModule^.GetKeySpeedScale());
+		endif;
+//		var ^CFreeCameraModule pxFCM=CMultiCameraController.Get().GetFreeCameraModule();
+//		if(pxFCM!=null)then
+//			pxFCM^.SetKeySpeedScale((pxTmpSlider^.GetSliderPos().ToReal()/100.0f)+0.5);
+//		endif;
+		return true;
+	endproc;
+	
+	proc bool OnChangeAllowMouseSpeed()
+		var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("AllowMouseSpeed"));
+		var bool bChecked=pxTmp^.GetChecked()==1;
+		CSettings.Set("Client/Mouse/AllowMouseSpeedOverride",pxTmp^.GetChecked());
+		var ^CSlider pxTmpSlider=cast<CSlider>(GetControl("MouseSpeedSlider"));
+		pxTmpSlider^.SetDisabled(!bChecked);
+		if(bChecked)then
+			OnChangeMouseSpeed();
+		else
+			CGameWrap.SetIngameMouseSpeed(CGameWrap.GetSystemMouseSpeed());
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnChangeSnapBack()
+		var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("SnapBack"));
+		var bool bState=pxTmp^.GetCheckMark();
+		CMultiCameraController.Get().GetGameCameraModule()^.ChangeSnap(bState);
+		CMultiCameraController.Get().GetFollowGameCameraModule()^.ChangeSnap(bState);
+		CSettings.Set("Game/ControllerOptions/SnapBack",pxTmp^.GetCheckMark().ToString());
+		return(true);
+	endproc;
+	
+	proc bool OnChangeAllowCameraRotation()
+		var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("AllowCameraRotation"));
+			var bool bState=pxTmp^.GetCheckMark();
+			CMultiCameraController.Get().GetGameCameraModule()^.ChangeAllowTurn(bState);
+			CMultiCameraController.Get().GetFollowGameCameraModule()^.ChangeAllowTurn(bState);
+//			CMultiCameraController.Get().GetFreeCameraModule()^.ChangeAllowTurn(bState);
+			CSettings.Set("Game/ControllerOptions/AllowTurn",pxTmp^.GetCheckMark().ToString());
+		return(true);
+	endproc;
+	
+	proc bool OnChangeAllowSteplessZoom()
+		var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("AllowSteplessZoom"));
+			var bool bState=pxTmp^.GetCheckMark();
+			CMultiCameraController.Get().GetGameCameraModule()^.ChangeAllowZoom(bState);
+			CMultiCameraController.Get().GetFollowGameCameraModule()^.ChangeAllowZoom(bState);
+//			CMultiCameraController.Get().GetFreeCameraModule()^.ChangeAllowZoom(bState);
+			CSettings.Set("Game/ControllerOptions/AllowZoom",pxTmp^.GetCheckMark().ToString());
+		return(true);
+	endproc;
+	
+endclass;
+
+class CGameplayOptions inherit CWindow
+
+	var ^CCheckBox				m_pxAutosaveEnabler;
+	var ^CSpinCtrlNumber	m_pxAutosaveInterval;
+	var bool							m_bCheatsOn;
+	var bool							m_bObserverOn;
+
+	export constructor()
+		if(!InitFromResource("UI/OptionsMenu","GameplayOptions"))then
+			return;
+		endif;
+		var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("RotateMinimap"));
+		if(CClientWrap.GetUIMgr().GetMiniMap().GetFollowCamera())then
+			pxTmp^.SetChecked(1);
+			endif;
+			pxTmp^.m_xOnStateChange=OnRotateMinimap;
+			pxTmp=cast<CCheckBox>(GetControl("PlayerColorsCheckBox"));
+		var string sTemp;
+		if(CSettings.Get("Game/ControllerOptions/EnemyFriendColorsMiniMap",sTemp)==false)then
+			sTemp="true";
+			CSettings.Set("Game/ControllerOptions/EnemyFriendColorsMiniMap",sTemp);
+		endif;
+		pxTmp^.m_xOnStateChange=OnPlayerColors;
+		if(sTemp=="true")then
+			pxTmp^.SetChecked(1);
+		endif;
+		//Show Flatshades
+		var string sFlatshades;
+		pxTmp=cast<CCheckBox>(GetControl("ShowFlatshadesCheckBox"));
+		CSettings.Get("Game/GraphicOptions/ShowFlatshades",sFlatshades);
+		if(sFlatshades=="true")then
+			pxTmp^.SetChecked(1);
+			CClientWrap.EnableFlatshades(true);
+		else
+			pxTmp^.SetChecked(0);
+			CClientWrap.EnableFlatshades(false);
+		endif;
+		pxTmp^.m_xOnStateChange=OnEnableFlatshades;
+		
+		//Show Subtitles
+		pxTmp=cast<CCheckBox>(GetControl("ShowSequenceSubTitles"));
+		var CConfig xConf;
+		var bool bShowSubTitles=xConf.GetSetB("Game/GraphicOptions/ShowSequenceSubTitles",true);
+		if(bShowSubTitles)then
+			pxTmp^.SetChecked(1);
+			//CClientWrap.EnableFlatshades(true);
+		else
+			pxTmp^.SetChecked(0);
+			//CClientWrap.EnableFlatshades(false);
+		endif;
+		pxTmp^.m_xOnStateChange=OnEnableSeqSubTitles;
+		/*
+		//ShowQuotes
+		pxTmp=cast<CCheckBox>(GetControl("ShowQuotes"));
+		var bool bShowQuotes=xConf.GetSetB("Game/ShowQuotes", false);
+		if(bShowQuotes)then
+			pxTmp^.SetChecked(1);
+			//CClientWrap.EnableShowQuotes(true);
+		else
+			pxTmp^.SetChecked(0);
+			//CClientWrap.EnableShowQuotes(false);
+		endif;
+		pxTmp^.m_xOnStateChange=OnShowQuotes;
+		*/
+		//Show Long ToolTips
+		pxTmp=cast<CCheckBox>(GetControl("LongToolTips"));
+		var bool bLongToolTips=xConf.GetSetB("Game/GUIOptions/Help/LongTooltips",true);
+		if(bLongToolTips)then
+			pxTmp^.SetChecked(1);
+		else
+			pxTmp^.SetChecked(0);
+		endif;
+		pxTmp^.m_xOnStateChange=OnCheckLongToolTips;
+		
+		//Economy Support
+		var ^CCheckBox	pxEconomy=cast<CCheckBox>(GetControl("EconomySupport"));
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			pxEconomy^.SetDisabled(true);
+		else
+			pxEconomy^.SetDisabled(false);
+		endif;
+		
+		var string sEconomySupport;
+		CSettings.Get("Game/ControllerOptions/EconomySupport",sEconomySupport);
+		if(sEconomySupport=="true")then
+			pxEconomy^.SetChecked(1);
+			//Enable
+		else
+			pxEconomy^.SetChecked(0);
+			//Disable
+		endif;
+		pxEconomy^.m_xOnStateChange=OnEconomySupport;
+		
+		//Offensive Support
+		var ^CCheckBox	pxOffensive=cast<CCheckBox>(GetControl("OffensiveSupport"));
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			pxOffensive^.SetDisabled(true);
+		else
+			pxOffensive^.SetDisabled(false);
+		endif;
+		var string sOffensiveSupport;
+		CSettings.Get("Game/ControllerOptions/OffensiveSupport",sOffensiveSupport);
+		if(sOffensiveSupport=="true")then
+			pxOffensive^.SetChecked(1);
+			//Enable
+		else
+			pxOffensive^.SetChecked(0);
+			//Disable
+		endif;
+		pxOffensive^.m_xOnStateChange=OnOffensiveSupport;
+		
+		//Defensive Support
+		var ^CCheckBox pxDefensive=cast<CCheckBox>(GetControl("DefensiveSupport"));
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			pxDefensive^.SetDisabled(true);
+		else
+			pxDefensive^.SetDisabled(false);
+		endif;
+		var string sDefensiveSupport;
+		CSettings.Get("Game/ControllerOptions/DefensiveSupport",sDefensiveSupport);
+		if(sDefensiveSupport=="true")then
+			pxDefensive^.SetChecked(1);
+			//Enable
+		else
+			pxDefensive^.SetChecked(0);
+			//Disable
+		endif;
+		pxDefensive^.m_xOnStateChange=OnDefensiveSupport;
+		
+		begin LimitAIAssist;
+			var bool bDef=false;
+			var bool bOff=false;
+			var bool bBal=false;
+			var bool bPas=false;
+			var int iFlag=0;
+			var int iDisabledCnt=0;
+			var int iMask;
+			CSettings.Get("AI/Personalities",iMask);
+			if(iMask>=8)then iMask-=8;bPas=true;endif;
+			if(iMask>=4)then iMask-=4;bOff=true;endif;
+			if(iMask>=2)then iMask-=2;bBal=true;endif;
+			if(iMask>=1)then iMask-=1;bDef=true;endif;
+			if(!bDef)then pxDefensive^.SetVisible(true);endif;
+			if(!bOff)then pxOffensive^.SetVisible(true);endif;
+			iFlag=0;CSettings.Get("AI/AssistEnableEco",iFlag);
+			if(iFlag==0)then pxEconomy^.SetVisible(true);iDisabledCnt++;endif;
+			iFlag=0;CSettings.Get("AI/AssistEnableDefense",iFlag);
+			if(iFlag==0)then pxDefensive^.SetVisible(true);iDisabledCnt++;endif;
+			iFlag=0;CSettings.Get("AI/AssistEnableOffense",iFlag);
+			if(iFlag==0)then pxOffensive^.SetVisible(true);iDisabledCnt++;endif;
+			if(iDisabledCnt>=3)then
+				var ^CStaticCtrl pxText=cast<CStaticCtrl>(GetControl("AIAssistStatic"));
+				if(pxText!=null)then
+					pxText^.SetVisible(true);
+				endif;
+			endif;
+		end LimitAIAssist;
+		
+		// alternative hitpointbar rendering playfield
+		begin HitpointbarColoring;
+			var ^CCheckBox pxTemp=cast<CCheckBox>(GetControl("AlternativeColoringPFHP"));
+			var string sTemp;
+			CSettings.Get("Game/GraphicOptions/AlternativeColoringPFHP",sTemp);
+			if(sTemp=="true")then
+				pxTemp^.SetChecked(1);
+				//Enable
+			else
+				pxTemp^.SetChecked(0);
+				//Disable
+			endif;
+			pxTemp^.m_xOnStateChange=OnPFHPColoring;
+		end HitpointbarColoring;
+		
+		// alternative hitpointbar rendering army controller
+		begin HitpointbarColoring2;
+			var ^CCheckBox pxTemp=cast<CCheckBox>(GetControl("AlternativeColoringACHP"));
+			var string sTemp;
+			CSettings.Get("Game/GraphicOptions/AlternativeColoringACHP",sTemp);
+			if(sTemp=="true")then
+				pxTemp^.SetChecked(1);
+				//Enable
+			else
+				pxTemp^.SetChecked(0);
+				//Disable
+			endif;
+			pxTemp^.m_xOnStateChange=OnACHPColoring;
+		end HitpointbarColoring2;
+		
+		begin ShowMentorTexts;
+			var ^CCheckBox pxTemp=cast<CCheckBox>(GetControl("ShowMentorTexts"));
+			var bool bShowMentorTexts=xConf.GetSetB("Game/GUIOptions/ShowMentorTexts",true);
+			if(bShowMentorTexts)then
+				pxTemp^.SetChecked(1);
+			else
+				pxTemp^.SetChecked(0);
+			endif;
+			pxTemp^.m_xOnStateChange=OnShowMentorTexts;
+		end ShowMentorTexts;
+
+		
+		begin Autosave;
+			m_pxAutosaveEnabler=cast<CCheckBox>(GetControl("EnableAutosave"));
+			m_pxAutosaveInterval=cast<CSpinCtrlNumber>(GetControl("AutosaveInterval"));
+
+			m_pxAutosaveEnabler^.m_xOnStateChange=OnChangeAutosaveEnable;
+			m_pxAutosaveInterval^.SetLimits(1,60,5);
+			m_pxAutosaveInterval^.SetEditable(true);
+
+			var bool bAutosaveEnabled=xConf.GetSetB("Game/AutosaveEnabled",true);
+			var int iAutosaveInterval=xConf.GetSetI("Game/AutosaveInterval",10);
+			if(iAutosaveInterval<1)then iAutosaveInterval=1; endif;
+			if(iAutosaveInterval>60)then iAutosaveInterval=60; endif;
+			
+			m_pxAutosaveInterval^.SetValue(iAutosaveInterval);
+			if(bAutosaveEnabled)then
+				m_pxAutosaveEnabler^.SetChecked(1);
+			else
+				m_pxAutosaveEnabler^.SetChecked(0);
+			endif;
+			OnChangeAutosaveEnable();
+			m_pxAutosaveInterval^.m_xOnChange=OnChangeAutosaveInterval;
+		end Autosave;
+
+		begin ButtonSaveMultiplayerEnable;
+			var ^CCheckBox pxTemp=cast<CCheckBox>(GetControl("ButtonSaveMultiplayerEnable"));
+			var bool bButtonSaveMultiplayerEnable=xConf.GetSetB("Game/ButtonSaveMultiplayerEnable",false);
+			if(bButtonSaveMultiplayerEnable)then
+				pxTemp^.SetChecked(1);
+			else
+				pxTemp^.SetChecked(0);
+			endif;
+			pxTemp^.m_xOnStateChange=OnButtonSaveMultiplayerEnable;
+		end ButtonSaveMultiplayerEnable;
+
+		//Henry: Quotes
+		var ^CDropList pxDrop=cast<CDropList>(GetControl("QuotesDrop"));
+		pxDrop^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_Quotes_NONE"));
+		pxDrop^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_Quotes_COM"));
+		pxDrop^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_Quotes_SEK"));
+		pxDrop^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_Quotes_BOTH"));
+		InitQuotes();
+		pxDrop^.m_xOnChange=OnChangeQuotes;
+		
+		//EnableCheats
+		pxTmp=cast<CCheckBox>(GetControl("EnableCheats"));
+		m_bCheatsOn= xConf.GetB("Game/EnableCheats",false);
+		if(m_bCheatsOn)then
+			pxTmp^.SetChecked(1);
+		else
+			pxTmp^.SetChecked(0);
+		endif;
+		pxTmp^.m_xOnStateChange=OnEnableCheats;
+		pxTmp^.SetDisabled(CUIStateMgr.Get().GetInGameScreen()!=null);
+		
+		//EnableObserver
+		pxTmp=cast<CCheckBox>(GetControl("EnableObserver"));
+		m_bObserverOn= xConf.GetB("Server/AllowSpectator",false);
+		if(m_bObserverOn)then
+			pxTmp^.SetChecked(1);
+		else
+			pxTmp^.SetChecked(0);
+		endif;
+		pxTmp^.m_xOnStateChange=OnEnableObserver;
+		pxTmp^.SetDisabled(CUIStateMgr.Get().GetInGameScreen()!=null);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	proc bool OnRotateMinimap()
+		var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("RotateMinimap"));
+			var bool bState=pxTmp^.GetCheckMark();
+			CClientWrap.GetUIMgr().GetMiniMap().SetFollowCamera(bState);
+			CSettings.Set("Game/ControllerOptions/RotateMiniMap",pxTmp^.GetCheckMark().ToString());
+		return(true);
+	endproc;
+	
+	proc bool OnPlayerColors()
+		var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("PlayerColorsCheckBox"));
+		var bool bState=pxTmp^.GetCheckMark();
+			var int iMode=0;
+			if(bState)then iMode=1; endif;
+			CClientWrap.GetUIMgr().GetMiniMap().SetColorMode(iMode);
+			CSettings.Set("Game/ControllerOptions/EnemyFriendColorsMiniMap",pxTmp^.GetCheckMark().ToString());
+		return(true);
+	endproc;
+	
+//	proc bool OnShowLevelIcons()
+//		var ^CCheckBox pxLevelIcons=cast<CCheckBox>(GetControl("ShowLevelIconsCheckBox"));
+//		CSettings.Set("Game/GraphicOptions/LevelIcons",pxLevelIcons^.GetCheckMark().ToString());
+//		CClientWrap.EnableLevelIcons(pxLevelIcons^.GetCheckMark());
+//		var ^CCheckBox pxOnSelection=cast<CCheckBox>(GetControl("ShowLevelIconsSelectedCheckBox"));
+//		pxOnSelection^.SetDisabled(!(pxLevelIcons^.GetCheckMark()));
+//		return(true);
+//	endproc;
+	
+	proc bool OnEnableFlatshades()
+		var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("ShowFlatshadesCheckBox"));
+		CSettings.Set("Game/GraphicOptions/ShowFlatshades",pxTmp^.GetCheckMark().ToString());
+		CClientWrap.EnableFlatshades(pxTmp^.GetCheckMark());
+		return(true);
+	endproc;
+	
+	proc bool OnEnableSeqSubTitles()
+		var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("ShowSequenceSubTitles"));
+		var CConfig xConf;
+		xConf.SetB("Game/GraphicOptions/ShowSequenceSubTitles",pxTmp^.GetCheckMark());
+		return(true);
+	endproc;
+	
+	proc void InitQuotes()
+		var int iQuotes=0;
+		if(!CSettings.Get("Game/QuotesSetting",iQuotes))then
+			iQuotes=3;
+			CSettings.Set("Game/QuotesSetting",iQuotes);
+		else
+			var CConfig xConf;
+			iQuotes=xConf.GetSetI("Game/QuotesSetting",3);
+		endif;
+		if(iQuotes<0||iQuotes > 3)then
+			iQuotes=3;
+		endif;
+		var ^CDropList pxDrop=cast<CDropList>(GetControl("QuotesDrop"));
+		pxDrop^.Select(iQuotes);
+	endproc;
+
+	proc bool OnChangeQuotes()
+		var ^CDropList pxDrop=cast<CDropList>(GetControl("QuotesDrop"));
+		var int iIndex=pxDrop^.GetSelectedItem();
+		var CConfig xConf;
+		xConf.SetI("Game/QuotesSetting",iIndex);
+		return true;
+	endproc;
+	/*
+	proc bool OnShowQuotes()
+		var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("ShowQuotes"));
+		var CConfig xConf;
+		xConf.SetB("Game/ShowQuotes",pxTmp^.GetCheckMark());
+		return(true);
+	endproc;
+	*/
+	proc bool OnCheckLongToolTips()
+		var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("LongToolTips"));
+		var CConfig xConf;
+		xConf.SetB("Game/GUIOptions/Help/LongTooltips",pxTmp^.GetCheckMark());
+		return(true);
+	endproc;
+	
+	proc bool OnEconomySupport()
+		var ^CCheckBox pxEconomy=cast<CCheckBox>(GetControl("EconomySupport"));
+		CSettings.Set("Game/ControllerOptions/EconomySupport",pxEconomy^.GetCheckMark().ToString());
+		//Switch to pxEconomy^.GetCheckMark()
+		return(true);
+	endproc;
+	
+	proc bool OnOffensiveSupport()
+		var ^CCheckBox pxOffensive=cast<CCheckBox>(GetControl("OffensiveSupport"));
+		CSettings.Set("Game/ControllerOptions/OffensiveSupport",pxOffensive^.GetCheckMark().ToString());
+		return(true);
+	endproc;
+	
+	proc bool OnDefensiveSupport()
+		var ^CCheckBox pxDefensive=cast<CCheckBox>(GetControl("DefensiveSupport"));
+		CSettings.Set("Game/ControllerOptions/DefensiveSupport",pxDefensive^.GetCheckMark().ToString());
+		//Switch to pxDefensive^.GetCheckMark()
+		return(true);
+	endproc;
+	
+	proc bool OnPFHPColoring()
+		var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("AlternativeColoringPFHP"));
+		CSettings.Set("Game/GraphicOptions/AlternativeColoringPFHP",pxTmp^.GetCheckMark().ToString());
+		CClientWrap.EnableAlternativeHitpointbarRendering(pxTmp^.GetCheckMark());
+		return true;
+	endproc;
+	
+	proc bool OnACHPColoring()
+		var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("AlternativeColoringACHP"));
+		CSettings.Set("Game/GraphicOptions/AlternativeColoringACHP",pxTmp^.GetCheckMark().ToString());
+		var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+		if(pxIngameScreen!=null && pxIngameScreen^.GetPyramid()!=null)then
+			pxIngameScreen^.GetPyramid()^.RefreshAllCards(); // refresh all card in army controller
+			pxIngameScreen^.OnChangeSelection(); // refresh info window
+		endif;		
+		return true;
+	endproc;
+	
+	proc bool OnShowMentorTexts()
+		var ^CCheckBox pxTemp=cast<CCheckBox>(GetControl("ShowMentorTexts"));
+		var CConfig xConf;
+		xConf.SetB("Game/GUIOptions/ShowMentorTexts",pxTemp^.GetCheckMark());
+		return true;
+	endproc;
+	
+	proc bool OnButtonSaveMultiplayerEnable()
+		var ^CCheckBox pxTemp=cast<CCheckBox>(GetControl("ButtonSaveMultiplayerEnable"));
+		var CConfig xConf;
+		xConf.SetB("Game/ButtonSaveMultiplayerEnable",pxTemp^.GetCheckMark());
+		return true;
+	endproc;
+	
+	proc bool OnChangeAutosaveEnable()
+		var CConfig xConf;
+		var bool bState=m_pxAutosaveEnabler^.GetCheckMark();
+		if(bState)then
+			m_pxAutosaveInterval^.SetDisabled(false);
+		else
+			m_pxAutosaveInterval^.SetDisabled(true);
+		endif;
+		xConf.SetB("Game/AutosaveEnabled",bState);
+		var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+		if(pxIngameScreen!=null)then
+			pxIngameScreen^.UpdateAutosaveTimer();
+		endif;
+		return(true);
+	endproc;
+
+	proc bool OnChangeAutosaveInterval()
+		var CConfig xConf;
+		var int iInterval=m_pxAutosaveInterval^.GetValueInt();
+		if(iInterval<1)then iInterval=1; endif;
+		if(iInterval>60)then iInterval=60; endif;
+		m_pxAutosaveInterval^.SetValue(iInterval);
+		xConf.SetI("Game/AutosaveInterval",iInterval);
+		var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+		if(pxIngameScreen!=null)then
+			pxIngameScreen^.UpdateAutosaveTimer();
+		endif;
+		return(true);
+	endproc;
+
+	proc bool OnEnableCheats()
+		//EnableCheats
+		var bool bTmp=m_bCheatsOn;
+		var ^CCheckBox pxTemp=cast<CCheckBox>(GetControl("EnableCheats"));
+		m_bCheatsOn=pxTemp^.GetCheckMark();
+		var CConfig xConf;
+		xConf.SetB("Game/EnableCheats",m_bCheatsOn);
+//		if(m_bCheatsOn!=bTmp)then
+//			CMessageBox.MsgBox_YESNO(CLocalizer.Get().Translate("_UI_Options_MsgBoxTitle_ChangeRequiresRestart"),CLocalizer.Get().Translate("_UI_Options_MsgBoxText_ChangeRequiresRestart")+"\n"+CLocalizer.Get().Translate("_UI_MainMenu_Label_RestartGame"),CMessageBox.SMB_ICONQUESTION,OnConfirmChangeOnRestartMsgBox_CallBack);
+//		endif;
+		if(m_bCheatsOn!=bTmp&&!COptionsMenu.ms_bAutoRestart)then
+			CMessageBox.MsgBox_OK(CLocalizer.Get().Translate("_UI_Options_MsgBoxTitle_ChangeRequiresRestart"),CLocalizer.Get().Translate("_UI_Options_MsgBoxText_ChangeRequiresRestart"),CMessageBox.SMB_ICONEXCLAMATION,OnConfirmChangeOnRestartMsgBox_CallBack);
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnEnableObserver()
+		//EnableObserver
+		var bool bTmp=m_bObserverOn;
+		var ^CCheckBox pxTemp=cast<CCheckBox>(GetControl("EnableObserver"));
+		m_bObserverOn=pxTemp^.GetCheckMark();
+		var CConfig xConf;
+		xConf.SetB("Server/AllowSpectator",m_bObserverOn);
+//		if(m_bObserverOn!=bTmp)then
+//			CMessageBox.MsgBox_YESNO(CLocalizer.Get().Translate("_UI_Options_MsgBoxTitle_ChangeRequiresRestart"),CLocalizer.Get().Translate("_UI_Options_MsgBoxText_ChangeRequiresRestart")+"\n"+CLocalizer.Get().Translate("_UI_MainMenu_Label_RestartGame"),CMessageBox.SMB_ICONQUESTION,OnConfirmChangeOnRestartMsgBox_CallBack);
+//		endif;
+		if(m_bObserverOn!=bTmp&&!COptionsMenu.ms_bAutoRestart)then
+			CMessageBox.MsgBox_OK(CLocalizer.Get().Translate("_UI_Options_MsgBoxTitle_ChangeRequiresRestart"),CLocalizer.Get().Translate("_UI_Options_MsgBoxText_ChangeRequiresRestart"),CMessageBox.SMB_ICONEXCLAMATION,OnConfirmChangeOnRestartMsgBox_CallBack);
+		endif;
+		return(true);
+	endproc;
+	
+	proc void OnConfirmChangeOnRestartMsgBox_CallBack(int p_iResult)
+//		var bitset dwResult=Math.IntToBitset(p_iResult);
+//		if(dwResult==CMessageBox.SID_YES)then
+//			CGameWrap.Quit();
+//		endif;
+		COptionsMenu.ms_bAutoRestart=true;
+	endproc;
+	
+endclass;
+
+class CProfileOptions inherit CWindow
+
+	var ^CList				m_pxProfilesList;
+	var ^CUserProfileList	m_pxFileList;
+	var ^CStaticCtrl		m_pxCurrentProfile;
+	var string 				m_sNewProfileName;
+	
+	export constructor()
+		if(!InitFromResource("UI/OptionsMenu","ProfileOptions"))then
+			return;
+		endif;
+		
+		var ^CButton pxTmp=cast<CMenuButton>(GetControl("CreateProfile"));
+		pxTmp^.m_xOnClick=OnAskForName;
+		
+		pxTmp=cast<CMenuButton>(GetControl("DeleteProfile"));
+		pxTmp^.m_xOnClick=OnDeleteProfile;
+		
+		pxTmp=cast<CMenuButton>(GetControl("UseProfile"));
+		pxTmp^.m_xOnClick=OnUseProfile;
+		
+		m_pxProfilesList=cast<CList>(GetControl("ProfileList"));
+		m_pxProfilesList^.m_xOnLBtnDblClick=OnUseProfile;
+		
+		m_pxCurrentProfile=cast<CStaticCtrl>(GetControl("CurrentProfile"));
+		
+		UpdateList();
+		
+	endconstructor;
+	
+	export destructor()
+	
+	enddestructor;
+	
+	class CAddProfile inherit CStateUIWnd;
+	
+		var string m_sProfileName;
+		
+		export constructor()
+			if(!InitFromResource("UI/OptionsMenu","AddProfile"))then
+				return;
+			endif;
+		
+			var ^CButton pxOkButton=cast<CButton>(GetControl("OkButton"));
+			pxOkButton^.m_xOnClick=OnOk;
+	
+			var ^CButton pxCancelButton=cast<CButton>(GetControl("CancelButton"));
+			pxCancelButton^.m_xOnClick=OnCancel;
+			
+			var ^CEdit pxNameEdit=cast<CEdit>(GetControl("NameEdit"));
+			pxNameEdit^.SetTextLimit(15);
+			pxNameEdit^.m_xOnChange=OnEditName;
+	
+			SetPos((CClientWrap.GetDesktop()^.GetSize().GetX()/2)-GetSize().GetX()/2,(CClientWrap.GetDesktop()^.GetSize().GetY()/2)-GetSize().GetY()/2);
+			
+		endconstructor;
+		
+		proc bool OnEditName()
+			var ^CEdit pxNameEdit=cast<CEdit>(GetControl("NameEdit"));
+			// Herny: HACK, so that human players names are not allowed to start with underscore (_) (otherwise they could localize their names)
+			var string sNewName=pxNameEdit^.GetText();
+			// Henry: with if it could still be done ^^ (like making the name "vw______xyz" and then deleting the first two characters)
+			while(sNewName.GetLength()>0 && sNewName.GetAt(0).ToString()=="_")do
+				sNewName.Delete(0,1);
+				pxNameEdit^.SetText(sNewName);
+				pxNameEdit^.SetCursorIndex(0);
+			endwhile;
+			m_sProfileName=sNewName;
+			return(true);
+		endproc;
+		
+		proc bool OnOk()
+			if(m_sProfileName!="")then
+				CUIStateMgr.Get().SetNewProfileName(m_sProfileName);
+				Destroy();
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnCancel()
+			Destroy();
+			return(true);
+		endproc;
+		
+		
+	endclass;
+	 
+	proc bool UpdateList()
+		m_pxProfilesList^.Clear();
+		m_pxFileList=^(CClientWrap.GetUserProfileList());
+		var int i,iC=m_pxFileList^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_pxProfilesList^.AddItem((^(m_pxFileList^[i]))^.GetUserName());
+		endfor;
+		m_pxCurrentProfile^.SetText(m_pxFileList^.GetCurrentProfile()^.GetUserName());
+		return(true);
+	endproc;
+	
+	proc bool OnAskForName()
+		var ^CProfileOptions.CAddProfile pxTmp=new CProfileOptions.CAddProfile();
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return(true);
+	endproc;
+	
+	export proc bool SetNewProfileName(string p_sName)
+		m_sNewProfileName=p_sName;
+		OnCreateProfile();
+		return(true);
+	endproc;
+	
+	proc void OnCreateProfile()
+		var string sTmp=m_sNewProfileName;
+		var int i=0;
+		while(m_pxFileList^.CreateProfile(sTmp)==(-1))do
+			KLog.LogWarn("OptionsMenu","Could not create new profile. Changing name.");
+			i++;
+			sTmp=m_sNewProfileName+"("+i.ToString()+")";
+		endwhile;
+		m_pxFileList^.SetCurrentProfile(sTmp);
+		CClientWrap.UpdateUserProfile();
+		UpdateList();
+		return();
+	endproc;
+		
+	proc bool OnDeleteProfile()
+		//L KLog.LogWarn("Manni",m_pxProfilesList^.GetSelectedItem().ToString());
+		if(!m_pxFileList^.DeleteProfile(m_pxProfilesList^.GetSelectedItem()))then
+			KLog.LogWarn("OptionsMenu","Could not delete profile!");
+		endif;
+		CClientWrap.UpdateUserProfile();
+		UpdateList();
+		return(true);
+	endproc;
+	
+	proc bool OnUseProfile()
+		m_pxFileList^.SetCurrentProfile(m_pxProfilesList^.GetSelectedItem());
+		CClientWrap.UpdateUserProfile();
+		UpdateList();
+		return(true);
+	endproc;
+	
+endclass;
+
+class CMirageClientO inherit CWindow
+	
+	export constructor()
+		if(!InitFromResource("UI/MirageSettings","MirageClient"))then
+			return;
+		endif;
+		
+		var ^CButton pxButton;
+		
+		pxButton = cast<CButton>(GetControl("SoundButton"));
+		pxButton^.m_xOnClick=OnSound;
+		
+		pxButton = cast<CButton>(GetControl("UILayoutButton"));
+		pxButton^.m_xOnClick=OnUILayout;
+		
+		pxButton = cast<CButton>(GetControl("GameplayButton"));
+		pxButton^.m_xOnClick=OnGameplay;
+		
+		pxButton = cast<CButton>(GetControl("ControlButton"));
+		pxButton^.m_xOnClick=OnControlButton;
+		
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	proc bool OnSound()
+		var ^CMirageClientO.CAdjustSound pxTmp=new CMirageClientO.CAdjustSound();
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return(true);
+	endproc;
+	
+	proc bool OnUILayout()
+		var ^CMirageClientO.CAdjustUILayout pxTmp=new CMirageClientO.CAdjustUILayout();
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return(true);
+	endproc;
+	
+	proc bool OnGameplay()
+		var ^CMirageClientO.CAdjustGameplay pxTmp=new CMirageClientO.CAdjustGameplay();
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return(true);
+	endproc;
+	
+	proc bool OnControlButton()
+		var ^CMirageClientO.CAdjustControl pxTmp=new CMirageClientO.CAdjustControl();
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return(true);
+	endproc;
+	
+	class CAdjustSound inherit CStateUIWnd;
+		
+		export constructor()
+			if(!InitFromResource("UI/MirageSettings","AdjustSound"))then
+				return;
+			endif;
+			var CConfig xConf;
+			var ^CCheckBox pxCheckBox;
+			var ^CDropList pxDrop;
+			var ^CSpinCtrlNumber pxSpinCtrl;
+			var ^CButton pxButton;
+			var string sName;
+			var bool bEnabled;
+			var int iSetting, iDef, iStep, k, iK;
+			SetPos((CClientWrap.GetDesktop()^.GetSize().GetX()/2)-GetSize().GetX()/2,(CClientWrap.GetDesktop()^.GetSize().GetY()/2)-GetSize().GetY()/2);
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("PlayMappingSounds"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/Mapping",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnablePlayMappingSounds;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("StorageFull"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/StorageFull",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableStorageFull;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("Population"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/Population",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnablePopulation;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("EpochFinished"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/EpochFinished",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableEpochFinished;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("EpochWarning"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/EpochWarning",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableEpochWarning;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("DimgateFeedback"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/Warpgates",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableDimgateFeedback;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("EnemyAttacks"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/EnemyAttacks",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableEnemyAttacks;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("MultiplayerRelated"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/MultiplayerRelated",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableMultiplayerRelated;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("BuildingReady"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/BuildingReady",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableBuildingReady;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("ResourcesNeeded"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/ResourcesNeeded",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableResourcesNeeded;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("ImprovementReady"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/ImprovementReady",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableImprovementReady;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("QuestRelated"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/QuestRelated",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableQuestRelated;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("ArtifactsRelated"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/ArtifactsRelated",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableArtifactsRelated;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("EconomyRelated"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/EconomyRelated",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableEconomyRelated;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("DieAcks"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/DieAcks",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableDieAcks;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("Endscreen"));
+			bEnabled=xConf.GetSetB("Client/SoundFeedbacks/Endscreen",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableEndscreen;
+			
+			pxButton = cast<CButton>(GetControl("OkButton"));
+			pxButton^.m_xOnClick=OnOk;
+			
+		endconstructor;
+		
+		proc bool OnEnablePlayMappingSounds()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("PlayMappingSounds"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/Mapping",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_MAPPING,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableStorageFull()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("StorageFull"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/StorageFull",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_FULLSTORAGE,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnablePopulation()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("Population"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/Population",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_POPULATION,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableEpochFinished()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("EpochFinished"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/EpochFinished",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_EPOCHDONE,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableEpochWarning()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("EpochWarning"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/EpochWarning",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_EPOCHSTART,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableDimgateFeedback()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("DimgateFeedback"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/Warpgates",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_DIMENSION,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableEnemyAttacks()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("EnemyAttacks"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/EnemyAttacks",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_ATTACKS,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableMultiplayerRelated()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("MultiplayerRelated"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/MultiplayerRelated",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_MULTIPLAYER,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableBuildingReady()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("BuildingReady"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/BuildingReady",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_BUILDINGS,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableResourcesNeeded()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("ResourcesNeeded"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/ResourcesNeeded",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_DEFICIT,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableImprovementReady()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("ImprovementReady"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/ImprovementReady",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_IMPROVEMENT,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableQuestRelated()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("QuestRelated"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/QuestRelated",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_QUEST,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableArtifactsRelated()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("ArtifactsRelated"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/ArtifactsRelated",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_TREASURES,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableEconomyRelated()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("EconomyRelated"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/EconomyRelated",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_ECONOMY,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableDieAcks()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("DieAcks"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/DieAcks",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_DEATH,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableEndscreen()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("Endscreen"));
+			var CConfig xConf;
+			xConf.SetB("Client/SoundFeedbacks/Endscreen",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetFeedback(CMirageClnMgr.FB_ENDSCREEN,pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnOk()
+			Destroy();
+			return(true);
+		endproc;
+		
+	endclass;
+	
+	class CAdjustUILayout inherit CStateUIWnd;
+		
+		export constructor()
+			if(!InitFromResource("UI/MirageSettings","AdjustUILayout"))then
+				return;
+			endif;
+			var CConfig xConf;
+			var ^CCheckBox pxCheckBox;
+			var ^CDropList pxDrop;
+			var ^CSpinCtrlNumber pxSpinCtrl;
+			var ^CButton pxButton;
+			var string sName;
+			var bool bEnabled;
+			var int iSetting, iDef, iStep, k, iK;
+			var real fSetting;
+			SetPos((CClientWrap.GetDesktop()^.GetSize().GetX()/2)-GetSize().GetX()/2,(CClientWrap.GetDesktop()^.GetSize().GetY()/2)-GetSize().GetY()/2);
+			
+			//Henry: Hide army controller in game
+			pxCheckBox=cast<CCheckBox>(GetControl("HideACInGame"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/HideACInGame",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableHideACInGame;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("ShowRangeMarkers"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/ShowRangeMarkers",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableShowRangeMarkers;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("ShowObjectLines"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/ShowObjectLines",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableShowObjectLines;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("ShowIconObjects"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/ShowIconObjects",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableShowIconObjects;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("ShowObjectTexts"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/ShowObjectTexts",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableShowObjectTexts;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("UseOwnDefCamPos"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/UseOwnDefCamPos",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableUseOwnDefCamPos;
+			
+			pxDrop=cast<CDropList>(GetControl("CustomCameraDroplist"));
+			fSetting=Math.Clamp(xConf.GetSetF("Client/GameplayOptions/CustomCamera",0.785),0.0,6.28318530718);
+//			pxDrop^.AddItem("0.785");
+//			pxDrop^.AddItem("2.355");
+//			pxDrop^.AddItem("3.925");
+//			pxDrop^.AddItem("5.495");
+			pxDrop^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_NW")+": 0.785");
+			pxDrop^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_NE")+": 2.355");
+			pxDrop^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_SE")+": 3.925");
+			pxDrop^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_SW")+": 5.495");
+			pxDrop^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_OWN")+": "+fSetting.ToString());
+			if(fSetting==0.785)then
+				pxDrop^.Select(0);
+			elseif(fSetting==2.355)then
+				pxDrop^.Select(1);
+			elseif(fSetting==3.925)then
+				pxDrop^.Select(2);
+			elseif(fSetting==5.495)then
+				pxDrop^.Select(3);
+			else
+				pxDrop^.Select(4);
+			endif;
+			pxDrop^.m_xOnChange=OnChangeCustomCamera;
+			pxDrop^.SetAllowAnyText(true);
+			pxDrop^.SetDisabled(!bEnabled);
+			
+			pxButton = cast<CButton>(GetControl("OkButton"));
+			pxButton^.m_xOnClick=OnOk;
+			
+		endconstructor;
+		
+		proc bool OnEnableHideACInGame()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("HideACInGame"));
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/HideACInGame",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetACHidden(pxTmp^.GetCheckMark());
+				var ^CNewPyramid pxPyra=^(CNewPyramid.Get());
+				if(pxPyra != null)then
+					pxPyra^.SetVisible(!(pxTmp^.GetCheckMark()));
+				endif;
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableShowRangeMarkers()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("ShowRangeMarkers"));
+//			var bool bOn=pxTmp^.GetCheckMark();
+			var bool bOn=pxTmp^.GetCheckMark();
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/ShowRangeMarkers",bOn);
+			bOn=bOn&&CMultiPlayerClientMgr.Get().GetSkirmishMode();
+			CGameInst.ms_bShowRangeMarkers=bOn;
+			if(bOn)then
+				CMainController.Get().GetRangeMgr().RangeMarkerUpdate();
+			else
+				CMainController.Get().GetRangeMgr().ClearAll();
+				CClientWrap.GetObjMgr().DeleteAllRangeMarkers();
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableShowObjectLines()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("ShowObjectLines"));
+			var bool bOn=pxTmp^.GetCheckMark();
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/ShowObjectLines",bOn);
+			bOn=bOn&&CMultiPlayerClientMgr.Get().GetSkirmishMode();
+			CGameInst.ms_bShowObjectLines=bOn;
+			if(bOn)then
+				CMainController.Get().GetObjectLineMgr().ObjectLineUpdate();
+			else
+				CMainController.Get().GetObjectLineMgr().ClearAll();
+				CClientWrap.GetObjMgr().DeleteAllObjLineConnections();
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableShowIconObjects()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("ShowIconObjects"));
+			var bool bOn=pxTmp^.GetCheckMark();
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/ShowIconObjects",bOn);
+			bOn=bOn&&CMultiPlayerClientMgr.Get().GetSkirmishMode();
+			CIconMgr.Get().SetEnabled(bOn);
+			return(true);
+		endproc;
+		
+		proc bool OnEnableShowObjectTexts()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("ShowObjectTexts"));
+			var bool bOn=pxTmp^.GetCheckMark();
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/ShowObjectTexts",bOn);
+			bOn=bOn&&CMultiPlayerClientMgr.Get().GetSkirmishMode();
+			CGameInst.ms_bShowObjectTexts=bOn;
+			if(bOn)then
+				CMainController.Get().GetObjectTextMgr().ObjectTextUpdate();
+			else
+				CMainController.Get().GetObjectTextMgr().ClearAll();
+	//			CClientWrap.GetObjMgr().DeleteAllInfoTexts();
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableUseOwnDefCamPos()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("UseOwnDefCamPos"));
+			var bool bOn=pxTmp^.GetCheckMark();
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/UseOwnDefCamPos",bOn);
+			var ^CDropList pxDrop=cast<CDropList>(GetControl("CustomCameraDroplist"));
+			pxDrop^.SetDisabled(!bOn);
+			var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+			if(pxIngameScreen!=null)then
+				SetDefaultCameraPos();
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnChangeCustomCamera()
+			var string sName="CustomCamera";
+			var ^CDropList pxDrop=cast<CDropList>(GetControl(sName+"Droplist"));
+			var real fSetting;
+			var int i=pxDrop^.GetSelectedItem();
+			if(i==0)then
+				fSetting=0.785;
+			elseif(i==1)then
+				fSetting=2.355;
+			elseif(i==2)then
+				fSetting=3.925;
+			elseif(i==3)then
+				fSetting=5.495;
+			else
+				var string sTemp=pxDrop^.GetText();
+				sTemp=sTemp.Mid(sTemp.Find(": ")+2);
+				fSetting=Math.Clamp(sTemp.ToReal(),0.0,6.28318530718);
+			endif;
+			var CConfig xConf;
+			xConf.SetF("Client/GameplayOptions/"+sName,fSetting);
+			var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+			if(pxIngameScreen!=null)then
+				SetDefaultCameraPos();
+			endif;
+			return(true);
+		endproc;
+		
+		proc void SetDefaultCameraPos()
+			var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+			var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+			var real fTmp=pxBaseNode^.GetValueR("DefaultCamera",0.785f);
+			var CConfig xConf;
+			if(xConf.GetSetB("Client/GameplayOptions/UseOwnDefCamPos",false))then
+				fTmp=Math.Clamp(xConf.GetSetF("Client/GameplayOptions/CustomCamera",0.785f),0.0,6.28318530718);
+			endif;
+			CMultiCameraController.Get().GetGameCameraModule()^.m_fDefaultView=fTmp;
+		endproc;
+		
+		proc bool OnOk()
+			Destroy();
+			return(true);
+		endproc;
+		
+	endclass;
+	
+	class CAdjustGameplay inherit CStateUIWnd;
+		
+		export constructor()
+			if(!InitFromResource("UI/MirageSettings","AdjustGameplay"))then
+				return;
+			endif;
+			var CConfig xConf;
+			var ^CCheckBox pxCheckBox;
+			var ^CDropList pxDrop;
+			var ^CSpinCtrlNumber pxSpinCtrl;
+			var ^CButton pxButton;
+			var string sName;
+			var bool bEnabled;
+			var int iSetting, iDef, iStep, k, iK;
+			var real fInitial;
+			SetPos((CClientWrap.GetDesktop()^.GetSize().GetX()/2)-GetSize().GetX()/2,(CClientWrap.GetDesktop()^.GetSize().GetY()/2)-GetSize().GetY()/2);
+			
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl("DefSpeedSpinCtrl"));
+			pxSpinCtrl^.SetDecimals(2);
+			pxSpinCtrl^.SetLimits(0.01,4.0,0.1);
+			pxSpinCtrl^.SetEditable(true);
+			fInitial = Math.Clamp(xConf.GetSetF("Client/GameplayOptions/DefSpeed",1.2),0.01,4.0);
+			pxSpinCtrl^.SetValue(fInitial);
+			pxSpinCtrl^.m_xOnChange=OnChangeDefSpeed;
+			
+			sName="EnableShakes";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/"+sName,true);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableShakes;
+			
+			sName="EnableSpirits";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableSpirits;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("BloodEffect"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/BloodEffect",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableBloodEffect;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("TurnOnIAM"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/TurnOnIAM",true);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnTurnOnIAM;
+			
+			pxButton = cast<CButton>(GetControl("OkButton"));
+			pxButton^.m_xOnClick=OnOk;
+			
+		endconstructor;
+		
+		export proc bool OnChangeDefSpeed()
+			var ^CSpinCtrlNumber pxSpinCtrl = cast<CSpinCtrlNumber>(GetControl("DefSpeedSpinCtrl"));
+			var real fDefSpeed = Math.Clamp(pxSpinCtrl^.GetValueFloat(),0.01,4.0);
+			var CConfig xConf;
+			xConf.SetF("Client/GameplayOptions/DefSpeed",fDefSpeed);
+			CGameInst.ms_fDefSpeed=fDefSpeed;
+	//		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+	//			CGameWrap.GameSpeedSet(fDefSpeed);
+	//		endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableShakes()
+			var string sName="EnableShakes";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			CGameCameraModule.ms_bENABLESHAKES=pxTmp^.GetCheckMark();
+			return(true);
+		endproc;
+		
+		proc bool OnEnableSpirits()
+			var string sName="EnableSpirits";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			CGameInst.UpdateSpiritCards(pxTmp^.GetChecked());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableBloodEffect()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("BloodEffect"));
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/BloodEffect",pxTmp^.GetCheckMark());
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+				CMirageClnMgr.Get().SetMoreBlood(pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnTurnOnIAM()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("TurnOnIAM"));
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/TurnOnIAM",pxTmp^.GetCheckMark());
+			CIdleAnimMgr.ms_bTurnOnIAM=pxTmp^.GetCheckMark();
+			var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+			if(pxIngameScreen!=null)then
+				CIdleAnimMgr.Get().OnUpdateScreenObjs(0);
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnOk()
+			Destroy();
+			return(true);
+		endproc;
+		
+	endclass;
+	
+	class CAdjustControl inherit CStateUIWnd;
+		
+		export constructor()
+			if(!InitFromResource("UI/MirageSettings","AdjustControl"))then
+				return;
+			endif;
+			var CConfig xConf;
+			var ^CCheckBox pxCheckBox;
+			var ^CDropList pxDrop;
+			var ^CSpinCtrlNumber pxSpinCtrl;
+			var ^CButton pxButton;
+			var string sName;
+			var bool bEnabled;
+			var int iSetting, iDef, iStep, k, iK;
+			SetPos((CClientWrap.GetDesktop()^.GetSize().GetX()/2)-GetSize().GetX()/2,(CClientWrap.GetDesktop()^.GetSize().GetY()/2)-GetSize().GetY()/2);
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("ShowAccelerators"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/ShowAccelerators",true);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnShowAccelerators;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("ToggleZooming"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/ToggleZooming",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnToggleZooming;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("EnableGW"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/EnableGW",true);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableGW;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("NewCommandSystem"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/NewCommandSystem",true);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableNewCommandSystem;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("DisableDelete"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/DisableDelete",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableDisableDelete;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("ResetRallyPoint"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/ResetRallyPoint",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableResetRallyPoint;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("AllyBoarding"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/AllyBoarding",true);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableAllyBoarding;
+			
+			pxCheckBox=cast<CCheckBox>(GetControl("ContinueRepair"));
+			bEnabled=xConf.GetSetB("Client/GameplayOptions/ContinueRepair",false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableContinueRepair;
+			
+			k=0; iK=360; iStep=16; iDef= 16;
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl("BuildingRotationSpinCtrl"));
+			pxSpinCtrl^.SetDecimals(0);
+			pxSpinCtrl^.SetLimits(k,iK,iStep);
+			pxSpinCtrl^.SetEditable(true);
+			iSetting = Math.Clamp(xConf.GetSetI("Game/GUIOptions/BuildingRotation/Steps",iDef),k,iK);
+			pxSpinCtrl^.SetValue(iSetting);
+			pxSpinCtrl^.m_xOnChange=OnChangeBuildingRotation;
+			
+			pxDrop=cast<CDropList>(GetControl("WASDDroplist"));
+			pxDrop^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_WASD_NONE"));
+			pxDrop^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_WASD_GAME"));
+			pxDrop^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_WASD_SDK"));
+			pxDrop^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_OptionsM_WASD_BOTH"));
+			var int iSel=Math.Clamp(xConf.GetSetI("Client/GameplayOptions/WASDSwitch",0),0,(pxDrop^.NumItems()-1));
+			if(pxDrop^.NumItems()>0)then
+				pxDrop^.Select(iSel);
+			endif;
+			pxDrop^.m_xOnChange=OnChangeWASD;
+			
+			pxButton = cast<CButton>(GetControl("OkButton"));
+			pxButton^.m_xOnClick=OnOk;
+			
+		endconstructor;
+		
+		proc bool OnShowAccelerators()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("ShowAccelerators"));
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/ShowAccelerators",pxTmp^.GetCheckMark());
+			var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+			if(pxIngameScreen!=null)then
+				pxIngameScreen^.ToggleAccelerators(pxTmp^.GetCheckMark());
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnToggleZooming()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("ToggleZooming"));
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/ToggleZooming",pxTmp^.GetCheckMark());
+			CGameCameraModule.ms_bNEWZOOM=pxTmp^.GetCheckMark();
+			return(true);
+		endproc;
+		
+		proc bool OnEnableGW()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("EnableGW"));
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/EnableGW",pxTmp^.GetCheckMark());
+			CGameInputController.ms_bEGW=pxTmp^.GetCheckMark();
+			return(true);
+		endproc;
+		
+		proc bool OnEnableNewCommandSystem()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("NewCommandSystem"));
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/NewCommandSystem",pxTmp^.GetCheckMark());
+			CCommandBar.ms_bNewCommandSystem=pxTmp^.GetCheckMark();
+			return(true);
+		endproc;
+		
+		proc bool OnEnableDisableDelete()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("DisableDelete"));
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/DisableDelete",pxTmp^.GetCheckMark());
+			CGameInst.ms_bDisableDelete=pxTmp^.GetCheckMark();
+			return(true);
+		endproc;
+		
+		proc bool OnEnableResetRallyPoint()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("ResetRallyPoint"));
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/ResetRallyPoint",pxTmp^.GetCheckMark());
+			CGameInst.UpdateResetRallyPoint(pxTmp^.GetChecked());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableAllyBoarding()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("AllyBoarding"));
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/AllyBoarding",pxTmp^.GetCheckMark());
+			CGameInputController.ms_bAllyBoarding=pxTmp^.GetCheckMark();
+			return(true);
+		endproc;
+		
+		proc bool OnEnableContinueRepair()
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl("ContinueRepair"));
+			var CConfig xConf;
+			xConf.SetB("Client/GameplayOptions/ContinueRepair",pxTmp^.GetCheckMark());
+			CGameInst.UpdateContinueRepair(pxTmp^.GetChecked());
+			return(true);
+		endproc;
+		
+		export proc bool OnChangeBuildingRotation()
+			var string sName="BuildingRotation";
+			var ^CSpinCtrlNumber pxSpinCtrl = cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			var int iSetting = Math.Clamp(pxSpinCtrl^.GetValueInt(),0,360);
+			var CConfig xConf;
+			xConf.SetI("Game/GUIOptions/BuildingRotation/Steps",iSetting);
+			var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+			if(pxIngameScreen!=null)then
+				CMainController.Get().GetPlacer().Reset();
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnChangeWASD()
+			var ^CDropList pxDrop=cast<CDropList>(GetControl("WASDDroplist"));
+			var int iIndex=pxDrop^.GetSelectedItem();
+			var CConfig xConf;
+			xConf.SetI("Client/GameplayOptions/WASDSwitch",iIndex);
+			var ^CGameCameraModule pxGCM=CMultiCameraController.Get().GetGameCameraModule();
+			if(pxGCM!=null)then
+				pxGCM^.SetMovementKeys(iIndex);
+			endif;
+//			var ^CFreeCameraModule pxFCM=CMultiCameraController.Get().GetFreeCameraModule();
+//			if(pxFCM!=null)then
+//				pxFCM^.SetMovementKeys(iIndex);
+//			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnOk()
+			Destroy();
+			return(true);
+		endproc;
+		
+	endclass;
+	
+endclass;
+	
+class CMirageServerO inherit CWindow
+	
+	export constructor()
+		if(!InitFromResource("UI/MirageSettings","MirageServer"))then
+			return;
+		endif;
+		
+//		var CConfig xConf;
+//		var ^CCheckBox pxCheckBox;
+//		var ^CDropList pxDrop;
+//		var ^CSpinCtrlNumber pxSpinCtrl;
+		var ^CButton pxButton;
+//		var string sName;
+//		var bool bEnabled;
+//		var int iSetting, iDef, iStep, k, iK;
+		
+		pxButton = cast<CButton>(GetControl("WorldButton"));
+		pxButton^.m_xOnClick=OnWorld;
+		
+		pxButton = cast<CButton>(GetControl("BuildingButton"));
+		pxButton^.m_xOnClick=OnBuilding;
+		
+		pxButton = cast<CButton>(GetControl("UnitButton"));
+		pxButton^.m_xOnClick=OnUnit;
+		
+		pxButton = cast<CButton>(GetControl("GameMechanicButton"));
+		pxButton^.m_xOnClick=OnGameMechanic;
+		
+		pxButton = cast<CButton>(GetControl("TimerButton"));
+		pxButton^.m_xOnClick=OnTime;
+		
+		pxButton = cast<CButton>(GetControl("PhantomModeButton"));
+		pxButton^.m_xOnClick=OnPhantomMode;
+		
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	proc bool OnWorld()
+		var ^CMirageServerO.CAdjustWorld pxTmp=new CMirageServerO.CAdjustWorld();
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return(true);
+	endproc;
+	
+	proc bool OnBuilding()
+		var ^CMirageServerO.CAdjustBuilding pxTmp=new CMirageServerO.CAdjustBuilding();
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return(true);
+	endproc;
+	
+	proc bool OnUnit()
+		var ^CMirageServerO.CAdjustUnit pxTmp=new CMirageServerO.CAdjustUnit();
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return(true);
+	endproc;
+	
+	proc bool OnGameMechanic()
+		var ^CMirageServerO.CAdjustGameMechanic pxTmp=new CMirageServerO.CAdjustGameMechanic();
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return(true);
+	endproc;
+	
+	proc bool OnTime()
+		var ^CMirageServerO.CAdjustTimer pxTmp=new CMirageServerO.CAdjustTimer();
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return(true);
+	endproc;
+	
+	proc bool OnPhantomMode()
+		var ^CMirageServerO.CAdjustPhantomMode pxTmp=new CMirageServerO.CAdjustPhantomMode();
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp,true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return(true);
+	endproc;
+	
+	class CAdjustWorld inherit CStateUIWnd;
+		
+		export constructor()
+			if(!InitFromResource("UI/MirageSettings","AdjustWorld"))then
+				return;
+			endif;
+			var CConfig xConf;
+			var ^CCheckBox pxCheckBox;
+			var ^CDropList pxDrop;
+			var ^CSpinCtrlNumber pxSpinCtrl;
+			var ^CButton pxButton;
+			var string sName;
+			var bool bEnabled;
+			var int iSetting, iDef, iStep, k, iK;
+			SetPos((CClientWrap.GetDesktop()^.GetSize().GetX()/2)-GetSize().GetX()/2,(CClientWrap.GetDesktop()^.GetSize().GetY()/2)-GetSize().GetY()/2);
+			
+			sName="FruitsRemovement";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableFruitsRemovement;
+			
+			sName="NestRespawn";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableNestRespawn;
+			
+			sName="AnimalsVisInFOW";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableAnimalsVisInFOW;
+			
+			sName="ShowResourcesInFOW";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableShowResourcesInFOW;
+			
+			sName="UnitResources";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableUnitResources;
+			
+			sName="CorpseDamage";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableCorpseDamage;
+			
+			pxButton = cast<CButton>(GetControl("OkButton"));
+			pxButton^.m_xOnClick=OnOk;
+			
+		endconstructor;
+		
+		proc bool OnEnableFruitsRemovement()
+			var string sName="FruitsRemovement";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableNestRespawn()
+			var string sName="NestRespawn";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		export proc bool OnEnableAnimalsVisInFOW()
+			var string sName="AnimalsVisInFOW";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableShowResourcesInFOW()
+			var string sName="ShowResourcesInFOW";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableUnitResources()
+			var string sName="UnitResources";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableCorpseDamage()
+			var string sName="CorpseDamage";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnOk()
+			Destroy();
+			return(true);
+		endproc;
+		
+	endclass;
+	
+	class CAdjustBuilding inherit CStateUIWnd;
+		
+		export constructor()
+			if(!InitFromResource("UI/MirageSettings","AdjustBuilding"))then
+				return;
+			endif;
+			var CConfig xConf;
+			var ^CCheckBox pxCheckBox;
+			var ^CDropList pxDrop;
+			var ^CSpinCtrlNumber pxSpinCtrl;
+			var ^CButton pxButton;
+			var string sName;
+			var bool bEnabled;
+			var int iSetting, iDef, iStep, k, iK;
+			SetPos((CClientWrap.GetDesktop()^.GetSize().GetX()/2)-GetSize().GetX()/2,(CClientWrap.GetDesktop()^.GetSize().GetY()/2)-GetSize().GetY()/2);
+			
+			sName="BuildingBurndown";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableBuildingBurndown;
+			
+			sName="BuildingCancellation";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableBuildingCancellation;
+			
+			sName="WarpInvisible";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableWarpInvisible;
+			
+			sName="Portals";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnablePortals;
+			
+			sName="BldgMaxCapacity";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableBldgMaxCapacity;
+			
+			sName="AllyBuildup";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,true);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableAllyBuildup;
+			
+			pxButton = cast<CButton>(GetControl("OkButton"));
+			pxButton^.m_xOnClick=OnOk;
+			
+		endconstructor;
+		
+		proc bool OnEnableBuildingBurndown()
+			var string sName="BuildingBurndown";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableBuildingCancellation()
+			var string sName="BuildingCancellation";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableWarpInvisible()
+			var string sName="WarpInvisible";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnablePortals()
+			var string sName="Portals";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableBldgMaxCapacity()
+			var string sName="BldgMaxCapacity";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableAllyBuildup()
+			var string sName="AllyBuildup";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnOk()
+			Destroy();
+			return(true);
+		endproc;
+		
+	endclass;
+	
+	class CAdjustUnit inherit CStateUIWnd;
+		
+		export constructor()
+			if(!InitFromResource("UI/MirageSettings","AdjustUnit"))then
+				return;
+			endif;
+			var CConfig xConf;
+			var ^CCheckBox pxCheckBox;
+			var ^CDropList pxDrop;
+			var ^CSpinCtrlNumber pxSpinCtrl;
+			var ^CButton pxButton;
+			var string sName;
+			var bool bEnabled;
+			var bool bSteal;
+			var int iSetting, iDef, iStep, k, iK;
+			SetPos((CClientWrap.GetDesktop()^.GetSize().GetX()/2)-GetSize().GetX()/2,(CClientWrap.GetDesktop()^.GetSize().GetY()/2)-GetSize().GetY()/2);
+			
+			sName="EarlyTransport";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableEarlyTransport;
+			
+			sName="FlyingEnabled";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableFlyingEnabled;
+			
+			sName="TitanSlots";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableTitanSlots;
+			
+			sName="RemoveTitans";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableRemoveTitans;
+			
+			sName="RemoveTrading";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableRemoveTrading;
+			
+			sName="PerfectArmor";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnablePerfectArmor;
+			
+			sName="BonusSkulls";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableBonusSkulls;
+			
+			sName="FreeSpecials";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableFreeSpecials;
+			
+			sName="HeroGratis";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableHeroGratis;
+			
+			sName="TechtreeSteal";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			bSteal=bEnabled;
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableTechtreeSteal;
+			
+			sName="MultiTribe";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false)&&bSteal;
+			if(bEnabled&&bSteal)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.SetDisabled(!bSteal);
+			pxCheckBox^.m_xOnStateChange=OnEnableMultiTribe;
+			
+			sName="GeneralAdvancement";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false)&&bSteal;
+			if(bEnabled&&bSteal)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.SetDisabled(!bSteal);
+			pxCheckBox^.m_xOnStateChange=OnEnableGeneralAdvancement;
+			
+			sName="NoHumpWalking";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableNoHumpWalking;
+			
+			sName="InfantryWar";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableInfantryWar;
+			
+			sName="ManaEnabled";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableManaEnabled;
+			
+			sName="TransportHealing";
+			k=0; iK=100; iStep=10; iDef= 60;
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetLimits(k,iK,iStep);
+			pxSpinCtrl^.SetEditable(true);
+			iSetting=Math.Clamp(xConf.GetSetI("Server/GameplayOptions/"+sName,iDef),k,iK);
+			pxSpinCtrl^.SetValue(iSetting);
+			pxSpinCtrl^.m_xOnChange=OnChangeTransportHealing;
+			
+			pxButton = cast<CButton>(GetControl("OkButton"));
+			pxButton^.m_xOnClick=OnOk;
+			
+		endconstructor;
+		
+		proc bool OnEnableEarlyTransport()
+			var string sName="EarlyTransport";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableFlyingEnabled()
+			var string sName="FlyingEnabled";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableTitanSlots()
+			var string sName="TitanSlots";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableRemoveTitans()
+			var string sName="RemoveTitans";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableRemoveTrading()
+			var string sName="RemoveTrading";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnablePerfectArmor()
+			var string sName="PerfectArmor";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableBonusSkulls()
+			var string sName="BonusSkulls";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableFreeSpecials()
+			var string sName="FreeSpecials";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableHeroGratis()
+			var string sName="HeroGratis";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableTechtreeSteal()
+			var string sName="TechtreeSteal";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			CheckMultiTribe(pxTmp^.GetCheckMark());
+			CheckGeneralAdvancement(pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableMultiTribe()
+			var string sName="MultiTribe";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool CheckMultiTribe(bool p_bSteal)
+			var string sName="MultiTribe";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			var bool bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false)&&p_bSteal;
+			if(!bEnabled)then
+				pxTmp^.SetChecked(0);
+				xConf.SetB("Server/GameplayOptions/"+sName,false);
+			endif;
+			pxTmp^.SetDisabled(!p_bSteal);
+			return(true);
+		endproc;
+		
+		proc bool OnEnableGeneralAdvancement()
+			var string sName="GeneralAdvancement";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool CheckGeneralAdvancement(bool p_bSteal)
+			var string sName="GeneralAdvancement";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			var bool bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false)&&p_bSteal;
+			if(!bEnabled)then
+				pxTmp^.SetChecked(0);
+				xConf.SetB("Server/GameplayOptions/"+sName,false);
+			endif;
+			pxTmp^.SetDisabled(!p_bSteal);
+			return(true);
+		endproc;
+		
+		proc bool OnEnableNoHumpWalking()
+			var string sName="NoHumpWalking";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableInfantryWar()
+			var string sName="InfantryWar";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableManaEnabled()
+			var string sName="ManaEnabled";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		export proc bool OnChangeTransportHealing()
+			var string sName="TransportHealing";
+			var ^CSpinCtrlNumber pxSpinCtrl = cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			var int iSetting = pxSpinCtrl^.GetValueInt();
+			var CConfig xConf;
+			xConf.SetI("Server/GameplayOptions/"+sName,iSetting);
+			return(true);
+		endproc;
+		
+		proc bool OnOk()
+			Destroy();
+			return(true);
+		endproc;
+		
+	endclass;
+	
+	class CAdjustGameMechanic inherit CStateUIWnd;
+		
+		export constructor()
+			if(!InitFromResource("UI/MirageSettings","AdjustGameMechanic"))then
+				return;
+			endif;
+			var CConfig xConf;
+			var ^CCheckBox pxCheckBox;
+			var ^CDropList pxDrop;
+			var ^CSpinCtrlNumber pxSpinCtrl;
+			var ^CButton pxButton;
+			var string sName;
+			var bool bEnabled;
+			var int iSetting, iDef, iStep, k, iK;
+			SetPos((CClientWrap.GetDesktop()^.GetSize().GetX()/2)-GetSize().GetX()/2,(CClientWrap.GetDesktop()^.GetSize().GetY()/2)-GetSize().GetY()/2);
+			
+			sName="ResourcesUnlimited";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableResourcesUnlimited;
+			
+			sName="HeroPool";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableHeroPool;
+			
+			sName="UseSupply";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableUseSupply;
+			
+			sName="TreasureSharing";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableTreasureSharing;
+			
+			sName="UseFM";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableUseFM;
+			
+			sName="AllowThrow";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,true);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableAllowThrow;
+			
+			sName="UseOldSpirits";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableUseOldSpirits;
+			
+			sName="GlobalReanim";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableGlobalReanim;
+			
+			sName="ExcludeBuildUp";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableExcludeBuildUp;
+			
+			sName="AttackInFOW";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableAttackInFOW;
+			
+			sName="OldDisembark";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,true);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableOldDisembark;
+			
+			sName="AuraSharing";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,true);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableAuraSharing;
+			
+			sName="DivideSkulls";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableDivideSkulls;
+			
+			sName="DeliveryUnbound";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableDeliveryUnbound;
+			
+			sName="DisableArtifactRelease";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableDisableArtifactRelease;
+			
+			sName="ObserverChat";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableObserverChat;
+			
+			sName="DwnLvlSwitch";
+			iK=4; iDef=0;
+			pxDrop=cast<CDropList>(GetControl(sName+"Droplist"));
+			for(k=0)cond(k<iK)iter(k++)do
+				pxDrop^.AddItem(CLocalizer.Get().Translate("_MIRAGE_UI_MirageServer_"+sName+"_"+k.ToString()));
+			endfor;
+			k=0;
+			iSetting=Math.Clamp(xConf.GetSetI("Server/GameplayOptions/"+sName,iDef),k,iK-1);
+			if(pxDrop^.NumItems()>iSetting && pxDrop^.NumItems()>0)then
+				pxDrop^.Select(iSetting);
+			endif;
+			pxDrop^.m_xOnChange=OnChangeDwnLvlSwitch;
+			
+			pxButton = cast<CButton>(GetControl("OkButton"));
+			pxButton^.m_xOnClick=OnOk;
+			
+		endconstructor;
+		
+		proc bool OnEnableResourcesUnlimited()
+			var string sName="ResourcesUnlimited";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableHeroPool()
+			var string sName="HeroPool";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableUseSupply()
+			var string sName="UseSupply";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableTreasureSharing()
+			var string sName="TreasureSharing";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		export proc bool OnEnableUseFM()
+			var string sName="UseFM";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableAllowThrow()
+			var string sName="AllowThrow";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableUseOldSpirits()
+			var string sName="UseOldSpirits";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableGlobalReanim()
+			var string sName="GlobalReanim";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableExcludeBuildUp()
+			var string sName="ExcludeBuildUp";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableAttackInFOW()
+			var string sName="AttackInFOW";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableOldDisembark()
+			var string sName="OldDisembark";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableAuraSharing()
+			var string sName="AuraSharing";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableDivideSkulls()
+			var string sName="DivideSkulls";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableDeliveryUnbound()
+			var string sName="DeliveryUnbound";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableDisableArtifactRelease()
+			var string sName="DisableArtifactRelease";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableObserverChat()
+			var string sName="ObserverChat";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnChangeDwnLvlSwitch()
+			var string sName="DwnLvlSwitch";
+			var ^CDropList pxDrop=cast<CDropList>(GetControl(sName+"Droplist"));
+			var int iSetting=pxDrop^.GetSelectedItem();
+			var CConfig xConf;
+			xConf.SetI("Server/GameplayOptions/"+sName,iSetting);
+			return(true);
+		endproc;
+		
+		proc bool OnOk()
+			Destroy();
+			return(true);
+		endproc;
+		
+	endclass;
+	
+	class CAdjustTimer inherit CStateUIWnd;
+		
+		export constructor()
+			if(!InitFromResource("UI/MirageSettings","AdjustTimer"))then
+				return;
+			endif;
+			var CConfig xConf;
+			var ^CCheckBox pxCheckBox;
+			var ^CDropList pxDrop;
+			var ^CSpinCtrlNumber pxSpinCtrl;
+			var ^CButton pxButton;
+			var string sName;
+			var bool bEnabled;
+			var int iSetting, iDef, iStep, k, iK;
+			SetPos((CClientWrap.GetDesktop()^.GetSize().GetX()/2)-GetSize().GetX()/2,(CClientWrap.GetDesktop()^.GetSize().GetY()/2)-GetSize().GetY()/2);
+			
+			sName="SpeedUp";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableSpeedUp;
+			
+			sName="ExternalUnpause";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableExternalUnpause;
+			
+			sName="DominationContinue";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableDominationContinue;
+			
+			sName="CustomTime";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableCustomTime;
+			
+			sName="PauseLimit";
+			k=-1; iK=50; iStep=1; iDef=3;
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetLimits(k,iK,iStep);
+			pxSpinCtrl^.SetEditable(true);
+			iSetting=Math.Clamp(xConf.GetSetI("Server/GameplayOptions/"+sName,iDef),k,iK);
+			pxSpinCtrl^.SetValue(iSetting);
+			pxSpinCtrl^.m_xOnChange=OnChangePauseLimit;
+			
+			sName="MinEpoch";
+			k=1; iK=6; iStep=1; iDef=1;
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetLimits(k,iK,iStep);
+			pxSpinCtrl^.SetEditable(true);
+			iSetting=Math.Clamp(xConf.GetSetI("Server/GameplayOptions/"+sName,iDef),k,iK);
+			pxSpinCtrl^.SetValue(iSetting);
+			pxSpinCtrl^.m_xOnChange=OnChangeMinEpoch;
+			
+			sName="MaxEpoch";
+			k=1; iK=6; iStep=1; iDef=5;
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetLimits(k,iK,iStep);
+			pxSpinCtrl^.SetEditable(true);
+			iSetting=Math.Clamp(xConf.GetSetI("Server/GameplayOptions/"+sName,iDef),k,iK);
+			pxSpinCtrl^.SetValue(iSetting);
+			pxSpinCtrl^.m_xOnChange=OnChangeMaxEpoch;
+			
+			sName="StartHour";
+			k=0; iK=23; iStep=1; iDef=8;
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetLimits(k,iK,iStep);
+			pxSpinCtrl^.SetEditable(true);
+			iSetting=Math.Clamp(xConf.GetSetI("Game/MPSettings/"+sName,iDef),k,iK);
+			pxSpinCtrl^.SetValue(iSetting);
+			pxSpinCtrl^.m_xOnChange=OnChangeStartHour;
+			
+			sName="StartMin";
+			k=0; iK=59; iStep=1; iDef=30;
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetLimits(k,iK,iStep);
+			pxSpinCtrl^.SetEditable(true);
+			iSetting=Math.Clamp(xConf.GetSetI("Game/MPSettings/"+sName,iDef),k,iK);
+			pxSpinCtrl^.SetValue(iSetting);
+			pxSpinCtrl^.m_xOnChange=OnChangeStartMin;
+			
+			sName="StartSec";
+			k=0; iK=59; iStep=1; iDef=0;
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetLimits(k,iK,iStep);
+			pxSpinCtrl^.SetEditable(true);
+			iSetting=Math.Clamp(xConf.GetSetI("Game/MPSettings/"+sName,iDef),k,iK);
+			pxSpinCtrl^.SetValue(iSetting);
+			pxSpinCtrl^.m_xOnChange=OnChangeStartSec;
+			
+			sName="WarpGateTimer";
+			k=0; iK=15; iStep=1; iDef=5;
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetLimits(k,iK,iStep);
+			pxSpinCtrl^.SetEditable(true);
+			iSetting=Math.Clamp(xConf.GetSetI("Server/GameplayOptions/"+sName,iDef),k,iK);
+			pxSpinCtrl^.SetValue(iSetting);
+			pxSpinCtrl^.m_xOnChange=OnChangeWarpGateTimer;
+			
+			sName="HQTimer";
+			k=-1; iK=15; iStep=1; iDef=5;
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetLimits(k,iK,iStep);
+			pxSpinCtrl^.SetEditable(true);
+			iSetting=Math.Clamp(xConf.GetSetI("Server/GameplayOptions/"+sName,iDef),k,iK);
+			pxSpinCtrl^.SetValue(iSetting);
+			pxSpinCtrl^.m_xOnChange=OnChangeHQTimer;
+			
+			sName="DominationUpDownTimer";
+			k=1; iK=30; iStep=1; iDef=10;
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetLimits(k,iK,iStep);
+			pxSpinCtrl^.SetEditable(true);
+			iSetting=Math.Clamp(xConf.GetSetI("Server/GameplayOptions/"+sName,iDef),k,iK);
+			pxSpinCtrl^.SetValue(iSetting);
+			pxSpinCtrl^.m_xOnChange=OnChangeDominationUpDownTimer;
+			
+			sName="SandGlass";
+			k=0; iK=2880; iStep=5; iDef=0;
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetLimits(k,iK,iStep);
+			pxSpinCtrl^.SetEditable(true);
+			iSetting=Math.Clamp(xConf.GetSetI("Server/GameplayOptions/"+sName,iDef),k,iK);
+			pxSpinCtrl^.SetValue(iSetting);
+			pxSpinCtrl^.m_xOnChange=OnChangeSandGlass;
+			
+			pxButton = cast<CButton>(GetControl("OkButton"));
+			pxButton^.m_xOnClick=OnOk;
+			
+		endconstructor;
+		
+		proc bool OnEnableSpeedUp()
+			var string sName="SpeedUp";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableExternalUnpause()
+			var string sName="ExternalUnpause";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableDominationContinue()
+			var string sName="DominationContinue";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableCustomTime()
+			var string sName="CustomTime";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnChangePauseLimit()
+			var string sName="PauseLimit";
+			var ^CSpinCtrlNumber pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			var int iSetting=pxSpinCtrl^.GetValueInt();
+			var CConfig xConf;
+			xConf.SetI("Server/GameplayOptions/"+sName,iSetting);
+			return true;
+		endproc;
+		
+		proc bool OnChangeMinEpoch()
+			var string sName="MinEpoch";
+			var ^CSpinCtrlNumber pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			var int iMinEpoch=pxSpinCtrl^.GetValueInt();
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl("MaxEpoch"+"SpinCtrl"));
+			var int iMaxEpoch=pxSpinCtrl^.GetValueInt();
+			if(iMaxEpoch<iMinEpoch)then
+				pxSpinCtrl^.SetValue(iMinEpoch);
+				OnChangeMaxEpoch();
+			endif;
+			var CConfig xConf;
+			xConf.SetI("Server/GameplayOptions/"+sName,iMinEpoch);
+			return true;
+		endproc;
+		
+		proc bool OnChangeMaxEpoch()
+			var string sName="MaxEpoch";
+			var ^CSpinCtrlNumber pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			var int iMaxEpoch=pxSpinCtrl^.GetValueInt();
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl("MinEpoch"+"SpinCtrl"));
+			var int iMinEpoch=pxSpinCtrl^.GetValueInt();
+			if(iMinEpoch>iMaxEpoch)then
+				pxSpinCtrl^.SetValue(iMaxEpoch);
+				OnChangeMinEpoch();
+			endif;
+			var CConfig xConf;
+			xConf.SetI("Server/GameplayOptions/"+sName,iMaxEpoch);
+			return true;
+		endproc;
+		
+		proc bool OnChangeStartHour()
+			var string sName="StartHour";
+			var ^CSpinCtrlNumber pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			var int iSetting=pxSpinCtrl^.GetValueInt();
+			var CConfig xConf;
+			xConf.SetI("Game/MPSettings/"+sName,iSetting);
+			return true;
+		endproc;
+		
+		proc bool OnChangeStartMin()
+			var string sName="StartMin";
+			var ^CSpinCtrlNumber pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			var int iSetting=pxSpinCtrl^.GetValueInt();
+			var CConfig xConf;
+			xConf.SetI("Game/MPSettings/"+sName,iSetting);
+			return true;
+		endproc;
+		
+		proc bool OnChangeStartSec()
+			var string sName="StartSec";
+			var ^CSpinCtrlNumber pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			var int iSetting=pxSpinCtrl^.GetValueInt();
+			var CConfig xConf;
+			xConf.SetI("Game/MPSettings/"+sName,iSetting);
+			return true;
+		endproc;
+		
+		proc bool OnChangeWarpGateTimer()
+			var string sName="WarpGateTimer";
+			var ^CSpinCtrlNumber pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			var int iSetting=pxSpinCtrl^.GetValueInt();
+			var CConfig xConf;
+			xConf.SetI("Server/GameplayOptions/"+sName,iSetting);
+			return true;
+		endproc;
+		
+		proc bool OnChangeHQTimer()
+			var string sName="HQTimer";
+			var ^CSpinCtrlNumber pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			var int iSetting=pxSpinCtrl^.GetValueInt();
+			var CConfig xConf;
+			xConf.SetI("Server/GameplayOptions/"+sName,iSetting);
+			return true;
+		endproc;
+		
+		proc bool OnChangeDominationUpDownTimer()
+			var string sName="DominationUpDownTimer";
+			var ^CSpinCtrlNumber pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			var int iSetting=pxSpinCtrl^.GetValueInt();
+			var CConfig xConf;
+			xConf.SetI("Server/GameplayOptions/"+sName,iSetting);
+			return true;
+		endproc;
+		
+		proc bool OnChangeSandGlass()
+			var string sName="SandGlass";
+			var ^CSpinCtrlNumber pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			var int iSetting=pxSpinCtrl^.GetValueInt();
+			var CConfig xConf;
+			xConf.SetI("Server/GameplayOptions/"+sName,iSetting);
+			return true;
+		endproc;
+		
+		proc bool OnOk()
+			Destroy();
+			return(true);
+		endproc;
+		
+	endclass;
+	
+	class CAdjustPhantomMode inherit CStateUIWnd;
+		
+		var bool m_bOff, m_bRandom;
+		var int m_iAvailable;
+		var int m_iC, m_iP, m_iD;
+		var array ^CCheckBox m_apxBoxes;
+		var array ^CSpinCtrl m_apxSpins;
+		
+		export constructor()
+			if(!InitFromResource("UI/MirageSettings","AdjustPhantomMode"))then
+				return;
+			endif;
+			m_iAvailable=8;
+			m_apxBoxes=0;
+			m_apxSpins=0;
+			m_bOff=false;
+			SetPos((CClientWrap.GetDesktop()^.GetSize().GetX()/2)-GetSize().GetX()/2,(CClientWrap.GetDesktop()^.GetSize().GetY()/2)-GetSize().GetY()/2);
+			
+			var CConfig xConf;
+			var ^CCheckBox pxCheckBox;
+			var ^CSpinCtrlNumber pxSpinCtrl;
+			var ^CButton pxButton;
+			var string sName;
+			var bool bEnabled;
+			var int iSetting, iDef, iStep, k, iK;
+			
+			sName="PhantomMode";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+				m_bOff=true;
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnablePhantomMode;
+			
+			sName="RandomRoles";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			m_bRandom=bEnabled;
+			pxCheckBox^.m_xOnStateChange=OnEnableRandomRoles;
+			pxCheckBox^.SetDisabled(m_bOff);
+			m_apxBoxes.AddEntry(pxCheckBox);
+			
+			sName="SeerPlayer";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(!m_bRandom)then
+				xConf.SetB("Server/GameplayOptions/"+sName,false);
+			elseif(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableSeerPlayer;
+			pxCheckBox^.SetDisabled(m_bOff||!m_bRandom);
+			m_apxBoxes.AddEntry(pxCheckBox);
+			
+			sName="ConquerorNumber";
+			k=1; iK=4; iStep=1; iDef= 1;
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetLimits(k,iK,iStep);
+			pxSpinCtrl^.SetEditable(true);
+			iSetting = Math.Clamp(xConf.GetSetI("Server/GameplayOptions/"+sName,iDef),k,iK);
+			xConf.SetI("Server/GameplayOptions/"+sName,iSetting);
+			m_iC=iSetting;
+			m_iAvailable-=iSetting;
+			pxSpinCtrl^.SetValue(iSetting);
+			pxSpinCtrl^.m_xOnChange=OnChangeConquerorNumber;
+			pxSpinCtrl^.SetDisabled(m_bOff||m_bRandom);
+			m_apxSpins.AddEntry(pxSpinCtrl);
+			
+			sName="PaladinNumber";
+			k=0; iK=5; iStep=1; iDef=0;
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetLimits(k,iK,iStep);
+			pxSpinCtrl^.SetEditable(true);
+			iSetting=Math.Clamp(xConf.GetSetI("Server/GameplayOptions/"+sName,iDef),k,iK);
+			xConf.SetI("Server/GameplayOptions/"+sName,iSetting);
+			m_iP=iSetting;
+			m_iAvailable-=iSetting;
+			pxSpinCtrl^.SetValue(iSetting);
+			pxSpinCtrl^.m_xOnChange=OnChangePaladinNumber;
+			pxSpinCtrl^.SetDisabled(m_bOff||m_bRandom);
+			m_apxSpins.AddEntry(pxSpinCtrl);
+			
+			sName="DefenderNumber";
+			k=0; iK=7; iStep=1; iDef=3;
+			pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetLimits(k,iK,iStep);
+			pxSpinCtrl^.SetEditable(true);
+			iSetting=Math.Clamp(xConf.GetSetI("Server/GameplayOptions/"+sName,iDef),k,Math.Min(iK,m_iAvailable));
+			xConf.SetI("Server/GameplayOptions/"+sName,iSetting);
+			m_iD=iSetting;
+			m_iAvailable-=iSetting;
+			pxSpinCtrl^.SetValue(iSetting);
+			pxSpinCtrl^.m_xOnChange=OnChangeDefenderNumber;
+			pxSpinCtrl^.SetDisabled(m_bOff||m_bRandom);
+			m_apxSpins.AddEntry(pxSpinCtrl);
+			
+			sName="Revelation";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(!m_bRandom&&m_iC<2)then
+				xConf.SetB("Server/GameplayOptions/"+sName,false);
+			elseif(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableRevelation;
+			pxCheckBox^.SetDisabled(m_bOff||(m_iC<2&&!m_bRandom));
+			m_apxBoxes.AddEntry(pxCheckBox);
+			
+			sName="BloodBrothers";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableBloodBrothers;
+			pxCheckBox^.SetDisabled(m_bOff);
+			m_apxBoxes.AddEntry(pxCheckBox);
+			
+			sName="SoulKeepers";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(!m_bRandom&&m_iD<1)then
+				xConf.SetB("Server/GameplayOptions/"+sName,false);
+			elseif(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnableSoulKeepers;
+			pxCheckBox^.SetDisabled(m_bOff||(!m_bRandom&&m_iD<1));
+			m_apxBoxes.AddEntry(pxCheckBox);
+			
+			sName="PopulationBonus";
+			pxCheckBox=cast<CCheckBox>(GetControl(sName));
+			bEnabled=xConf.GetSetB("Server/GameplayOptions/"+sName,false);
+			if(!m_bRandom&&m_iD<1)then
+				xConf.SetB("Server/GameplayOptions/"+sName,false);
+			elseif(bEnabled)then
+				pxCheckBox^.SetChecked(1);
+			else
+				pxCheckBox^.SetChecked(0);
+			endif;
+			pxCheckBox^.m_xOnStateChange=OnEnablePopulationBonus;
+			pxCheckBox^.SetDisabled(m_bOff);
+			m_apxBoxes.AddEntry(pxCheckBox);
+			
+			pxButton = cast<CButton>(GetControl("OkButton"));
+			pxButton^.m_xOnClick=OnOk;
+			
+		endconstructor;
+		
+		proc void ValidateControllers(bool p_bDisable)
+			var int i, iC=m_apxBoxes.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+//				m_apxBoxes[i]^.SetDisabled(p_bDisable);
+				m_apxBoxes[i]^.m_xOnStateChange.Call();
+			endfor;
+			iC=m_apxSpins.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+//				m_apxSpins[i]^.SetDisabled(p_bDisable);
+				m_apxSpins[i]^.m_xOnChange.Call();
+			endfor;
+		endproc;
+		
+		proc bool OnEnablePhantomMode()
+			var string sName="PhantomMode";
+			var bool bPrev=m_bOff;
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			m_bOff = !(pxTmp^.GetCheckMark());
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			if(bPrev!=m_bOff)then
+				ValidateControllers(m_bOff);
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableRandomRoles()
+			var string sName="RandomRoles";
+			var bool bPrev=m_bRandom;
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			m_bRandom=pxTmp^.GetCheckMark();
+			xConf.SetB("Server/GameplayOptions/"+sName,m_bRandom);
+			var int i, iC=m_apxSpins.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				m_apxSpins[i]^.SetDisabled(m_bRandom);
+			endfor;
+			pxTmp^.SetDisabled(m_bOff);
+			if(bPrev!=m_bRandom)then
+				OnEnableSeerPlayer();
+				OnEnableRevelation();
+				OnEnableSoulKeepers();
+			endif;
+			return(true);
+		endproc;
+		
+		proc bool OnEnableSeerPlayer()
+			var string sName="SeerPlayer";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			if(!m_bRandom)then
+				pxTmp^.SetChecked(0);
+			endif;
+			pxTmp^.SetDisabled(m_bOff||!m_bRandom);
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnChangeConquerorNumber()
+			var string sName="ConquerorNumber";
+			var ^CSpinCtrlNumber pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetDisabled(m_bOff||m_bRandom);
+			var int iSetting=pxSpinCtrl^.GetValueInt();
+			if((m_iAvailable-(iSetting-m_iC))<0)then
+				pxSpinCtrl^.SetValue(m_iC);
+				return true;
+			else
+				m_iAvailable-=(iSetting-m_iC);
+				m_iC=iSetting;
+				OnEnableRevelation();
+			endif;
+			var CConfig xConf;
+			xConf.SetI("Server/GameplayOptions/"+sName,iSetting);
+			return true;
+		endproc;
+	
+		proc bool OnChangePaladinNumber()
+			var string sName="PaladinNumber";
+			var ^CSpinCtrlNumber pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetDisabled(m_bOff||m_bRandom);
+			var int iSetting=pxSpinCtrl^.GetValueInt();
+			if((m_iAvailable-(iSetting-m_iP))<0)then
+				pxSpinCtrl^.SetValue(m_iP);
+				return true;
+			else
+				m_iAvailable-=(iSetting-m_iP);
+				m_iP=iSetting;
+			endif;
+			var CConfig xConf;
+			xConf.SetI("Server/GameplayOptions/"+sName,iSetting);
+			return true;
+		endproc;
+		
+		proc bool OnChangeDefenderNumber()
+			var string sName="DefenderNumber";
+			var ^CSpinCtrlNumber pxSpinCtrl=cast<CSpinCtrlNumber>(GetControl(sName+"SpinCtrl"));
+			pxSpinCtrl^.SetDisabled(m_bOff||m_bRandom);
+			var int iSetting=pxSpinCtrl^.GetValueInt();
+			if((m_iAvailable-(iSetting-m_iD))<0)then
+				pxSpinCtrl^.SetValue(m_iD);
+				return true;
+			else
+				m_iAvailable-=(iSetting-m_iD);
+				m_iD=iSetting;
+				OnEnableSoulKeepers();
+			endif;
+			var CConfig xConf;
+			xConf.SetI("Server/GameplayOptions/"+sName,iSetting);
+			return true;
+		endproc;
+		
+		proc bool OnEnableRevelation()
+			var string sName="Revelation";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			if(!m_bRandom&&m_iC<2)then
+				pxTmp^.SetChecked(0);
+			endif;
+			pxTmp^.SetDisabled(m_bOff||(!m_bRandom&&m_iC<2));
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableBloodBrothers()
+			var string sName="BloodBrothers";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			pxTmp^.SetDisabled(m_bOff);
+			var CConfig xConf;
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnableSoulKeepers()
+			var string sName="SoulKeepers";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			if(!m_bRandom&&m_iD<1)then
+				pxTmp^.SetChecked(0);
+			endif;
+			pxTmp^.SetDisabled(m_bOff||(!m_bRandom&&m_iD<1));
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnEnablePopulationBonus()
+			var string sName="PopulationBonus";
+			var ^CCheckBox pxTmp=cast<CCheckBox>(GetControl(sName));
+			var CConfig xConf;
+			pxTmp^.SetDisabled(m_bOff);
+			xConf.SetB("Server/GameplayOptions/"+sName,pxTmp^.GetCheckMark());
+			return(true);
+		endproc;
+		
+		proc bool OnOk()
+			Destroy();
+			return(true);
+		endproc;
+		
+	endclass;
+	
+endclass;

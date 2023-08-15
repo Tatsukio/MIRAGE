@@ -1,0 +1,175 @@
+class CWinByGold1 inherit CWizardStepWnd
+
+	var CWinByGoldCreator 	m_xCreator;
+	
+	export constructor()
+		if (!InitFromResource("Trigger/WizardWinByGold", "WinByGold_Step1")) then
+			KLog.LogError("UI.TriggerWizard", "InitFromResource failed");
+			return;
+		endif;
+		
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	proc void StoreData()
+		//
+	endproc;
+	
+	export proc void OnNext()
+		StoreData();
+	endproc;
+	
+	export proc void OnBack()
+		StoreData();
+	endproc;
+	
+	export proc bool IsLast()
+		return true;
+	endproc;
+
+	export proc ^CWizardTriggerCreater GetTriggerCreater()
+		StoreData();
+		return ^m_xCreator;
+	endproc;
+endclass;
+
+class CWinByGoldCreator inherit CWizardTriggerCreater
+
+	export constructor()
+	endconstructor;
+
+	export proc bool CreateTrigger(^CTriggerWizard p_pxWizard)
+		if(p_pxWizard==null) then return false; endif;
+		var ^CPropDB.CNode pxRoot = ^(p_pxWizard^.GetData().GetRoot());
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+
+		var CTriggerDescMgr.CNode xRoot = pxTM^.GetHierarchyRoot();
+		var CTriggerDescMgr.CNode xMakroNode = xRoot.FindChild("WinByGold");
+		if(!xMakroNode.IsValid()) then
+			xMakroNode = pxTM^.CreateNewNode(xRoot, "WinByGold");
+		endif;
+		// Main trigger, just to activate the player-triggers
+		// For each player, check if he has reached winlimit, if yes:
+		// Disable all triggers & set winner & l00tzers ^^
+		var ^CTriggerDesc pxTrigger;
+		var CGuid xGuid;
+		var int iTriggerIdx;
+		var array ^CTriggerDesc apxTriggers;
+		apxTriggers = 9;
+		xGuid = pxTM^.CreateTrigger("main trigger");
+		iTriggerIdx = pxTM^.FindTrigger(xGuid);
+		if(iTriggerIdx>=0) then
+			pxTrigger = pxTM^.GetTrigger(iTriggerIdx);
+		else
+			return true;
+		endif;
+		pxTM^.MoveTrigger(pxTrigger,xRoot,xMakroNode);
+		var string sTriggerGuid = pxTrigger^.GetGuid().ToString();
+		apxTriggers[8] = pxTrigger;
+
+		var ^CAttribs pxAttr;
+		var bitset dwType;
+		var int iCondIdx;
+		var ^CTriggerDesc.CCondition pxCond;
+		var int iActIdx;
+		var ^CTriggerDesc.CAction pxAct;
+		var int i;
+		var int j;
+		var CFourCC xT;
+		xT = "TRUE";
+		iCondIdx = pxTrigger^.AddCondition(xT);
+		pxCond = pxTrigger^.GetCondition(iCondIdx);
+		pxCond^.SetName("true");
+
+		for(i=0) cond(i<8) iter(++i) do
+			xGuid = pxTM^.CreateTrigger("winning pl"+i.ToString());
+			iTriggerIdx = pxTM^.FindTrigger(xGuid);
+			if(iTriggerIdx>=0) then
+				pxTrigger = pxTM^.GetTrigger(iTriggerIdx);
+			else
+				return true;
+			endif;
+			pxTM^.MoveTrigger(pxTrigger,xRoot,xMakroNode);
+			dwType=pxTrigger^.GetEdgeType();
+			dwType &= ~CTriggerDesc.TF_InitialyEnabled;
+			pxTrigger^.SetEdgeType(dwType);
+			//pxTrigger^.SetExpression("1 && 2");
+			apxTriggers[i] = pxTrigger;
+			xT = "CVAR";
+			iCondIdx = pxTrigger^.AddCondition(xT);
+			pxCond = pxTrigger^.GetCondition(iCondIdx);
+			pxCond^.SetName("gold_pl"+i.ToString()+" >= winlimit");
+			if(pxCond!=null) then
+				pxAttr = ^(pxCond^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("local",1);
+					pxAttr^.SetValue("varname","gold_pl"+i.ToString());
+					pxAttr^.SetValue("value","$(winlimit)");
+					pxAttr^.SetValue("operation",">=");
+				endif;
+			endif;
+			// add to main trigger
+			xT="TRIG";
+			iActIdx = apxTriggers[8]^.AddAction(xT);
+			pxAct = apxTriggers[8]^.GetAction(iActIdx);
+			pxAct^.SetName("activate pl"+i.ToString()+" wintrigger");
+			if(pxAct!=null) then
+				pxAttr = ^(pxAct^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("guid", pxTrigger^.GetGuid().ToString());
+					pxAttr^.SetValue("state",1);
+					pxAttr^.SetValue("difficulty",1);
+				endif;
+			endif;
+		endfor;
+		for(i=0) cond(i<8) iter(++i) do
+			pxTrigger = apxTriggers[i];
+			for(j=0) cond(j<8) iter(++j) do
+				if(i==j) then
+					continue;
+				endif;
+				xT="TRIG";
+				iActIdx = pxTrigger^.AddAction(xT);
+				pxAct = pxTrigger^.GetAction(iActIdx);
+				pxAct^.SetName("deactivate pl"+j.ToString()+" wintrigger");
+				if(pxAct!=null) then
+					var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+					if (pxAttr!=null) then
+						pxAttr^.SetValue("guid", apxTriggers[j]^.GetGuid().ToString());
+						pxAttr^.SetValue("state",0);
+						pxAttr^.SetValue("difficulty",1);
+					endif;
+				endif;
+			endfor;
+		endfor;
+		var string sGAOR;
+		var string sDesc;
+		for(i=0) cond(i<8) iter(++i) do
+			pxTrigger = apxTriggers[i];
+			for(j=0) cond(j<8) iter(++j) do
+				if (i==j) then
+					sGAOR = "_GAOV_Accomplished";
+					sDesc = "won";
+				else
+					sGAOR = "_GAOV_Failed";
+					sDesc = "lost";
+				endif;
+				xT="GAOV";
+				iActIdx = pxTrigger^.AddAction(xT);
+				pxAct = pxTrigger^.GetAction(iActIdx);
+				pxAct^.SetName("gameover pl"+j.ToString()+" ("+sDesc+")");
+				if(pxAct!=null) then
+					var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+					if (pxAttr!=null) then
+						pxAttr^.SetValue("player_id", j.ToString());
+						pxAttr^.SetValue("reason",sGAOR);
+						pxAttr^.SetValue("difficulty",1);
+					endif;
+				endif;
+			endfor;
+		endfor;
+		return true;
+	endproc;
+endclass;

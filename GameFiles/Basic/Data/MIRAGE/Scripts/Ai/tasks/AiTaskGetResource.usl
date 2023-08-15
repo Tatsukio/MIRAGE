@@ -1,0 +1,137 @@
+// This class is abstract and have to be fully implemented to be used
+class CAiTaskGetResource inherit CAiTaskTargetRealization
+
+	var int				m_iNeededResources;		///<count of resources to get, before we are completed
+	var int				m_iOldResourceCount;	///<resource count before the task began getting resources
+	var CAiArea 		m_xMaxArea;				///<holds the resource area, in which we get the specific resource (set by derived classes)
+	var CAiMap			m_xInvalidMap;			///<AI-map, which contains values at invalid resource positions (positions at which getting resources has failed)	
+	var ^CAiNodeInstance m_pxResourceNI;		///<the NI forthe specific resource
+	
+
+	///GetResultCount
+	export proc int GetResultCount()
+		return m_iNeededResources;
+	endproc;
+
+
+	///GetMaxArea
+	export proc CAiArea GetMaxArea()
+		return m_xMaxArea;
+	endproc;
+
+
+	///Init
+	export proc void Init(^CAiGoal p_pxGoal)
+		super.Init(p_pxGoal);
+		if(p_pxGoal==null)then return; endif;
+
+		m_pxBrain = p_pxGoal^.GetAiBrain(); 
+		if(m_pxBrain==null)then return; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		
+//		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		
+		SetThinkWait(5);
+				
+		var ^CAiMaps pxMaps = ^(m_pxBrain^.GetSensor().GetAiMaps());
+		m_xInvalidMap.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID);
+		m_xInvalidMap.ClearTo(1.0);
+		m_iMaxChkPointTimeouts = 10;
+		m_iNeededResources = 20;
+		SetPriority(0.1);
+	endproc;
+
+
+	///EvtAllocationComplete
+	export proc void EvtAllocationComplete(^CAiAllocation p_pxAllocation)
+		super.EvtAllocationComplete(p_pxAllocation);
+		if(IsAborted() == true)then return; endif;
+		
+		var ^CAiSolution pxSolution = GetSolution();
+		var int iResult;
+		var int iCResult = pxSolution^.NumResults();
+		
+		for(iResult = 0)cond(iResult < iCResult)iter(iResult++)do
+			if(pxSolution^.GetResult(iResult)^.IsResource() == true)then
+				m_pxResourceNI = pxSolution^.GetResult(iResult);
+				m_iOldResourceCount = m_pxResourceNI^.GetInstanceCount();
+				break;
+			endif;
+		endfor;
+	endproc;
+	
+
+	///EvtAllocationReached
+	export proc void EvtCheckpointReached(int p_iCheckpointId, int p_iObjHandle)
+		if(m_pxSensor==null)then return; endif;
+		if(p_iCheckpointId>=600)then
+			return;
+		elseif(p_iCheckpointId>=500)then
+			m_pxSensor^.RemoveCheckpoint(this,p_iCheckpointId);
+			return;
+		elseif(p_iCheckpointId>=100)then
+			m_pxSensor^.RemoveCheckpoint(this,p_iCheckpointId);
+			m_pxSensor^.AddCheckpoint(this, 600 + p_iCheckpointId - 100, "atto:123456,CurProcessObj,==,Rochen", 200.0);
+			return;
+		else
+			m_xInvalidMap.SetValueSafeFast(m_xMaxArea, 0.0);
+			m_xInvalidMap.SetDirty(true);
+			CalculateStartCost();
+			m_iChkPointTimeouts++;
+			if((m_iChkPointTimeouts > m_iMaxChkPointTimeouts) || (IsNotPossible() == true))then
+				return;
+			endif;
+			Abort();
+			if(Start() == false)then
+				Abort();
+			endif;
+		endif;
+	endproc;
+	
+	
+	///EvtCheckpointTimeOut
+	export proc void EvtCheckpointTimeout(int p_iCheckpointId)
+		if(p_iCheckpointId >= 600)then
+			Abort();
+		elseif(p_iCheckpointId >= 100)then
+			m_xInvalidMap.SetValueSafeFast(m_xMaxArea, 0.0);
+			m_xInvalidMap.SetDirty(true);
+			CalculateStartCost();
+			Abort();
+			m_iChkPointTimeouts++;
+			if((m_iChkPointTimeouts > m_iMaxChkPointTimeouts) || (IsNotPossible() == true))then
+				return;
+			endif;
+			if(Start() == false)then 
+				Abort();
+			endif;
+		endif;
+	endproc;
+	
+	
+	///Think
+	export proc void Think()
+		super.Think();
+		if (IsWaitingForResources()) then
+			return;
+		endif;
+		if(IsRunning())then
+			if(m_pxResourceNI^.GetTTPath() != "iron")then //ignore resource cap checking foriron!
+				if(m_pxResourceNI^.GetInstanceCount() >= m_pxResourceNI^.GetMaxInstanceCount())then
+					Abort();
+					return;
+				endif;
+			endif;
+			if(m_pxResourceNI^.GetInstanceCount() >= m_pxResourceNI^.GetMaxInstanceCount())then
+				Abort();
+			endif;
+		endif;
+	endproc;
+	
+endclass;

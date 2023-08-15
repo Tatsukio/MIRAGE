@@ -1,0 +1,148 @@
+class CMultiPlayerJoinIPScreen inherit CStateUIWnd
+	
+	var ^CDesktop m_pxDesktop;
+	var ^CEdit m_pxPort;
+	var ^CDropList m_pxAddress;
+	var ^CEdit m_pxPassword;
+	var int m_iTimerID;
+	var array string m_asAddresses;
+	
+	export constructor()
+		if(!InitFromResource("UI/MultiPlayerJoinIPScreen","MultiPlayerJoinIPScreen")) then
+			return;
+		endif;
+		m_pxDesktop=CClientWrap.GetDesktop();
+
+		var real fPercantageX=4.0f;
+		var real fPercantageY=3.0f;
+		
+//		var real fWidth=m_pxDesktop^.GetWidth().ToReal();
+//		var real fHeight=m_pxDesktop^.GetHeight().ToReal();
+//		var int iPosX=((fWidth/100.0f)*fPercantageX).ToInt();
+//		var int iPosY=((fHeight/100.0f)*fPercantageY).ToInt();
+//		SetSize(400,380);
+//		SetPos(iPosX,iPosY);
+		SetSize(300 * CGameInst.ms_iUIScaleFactor,380 * CGameInst.ms_iUIScaleFactor);
+		SetPos(30 * CGameInst.ms_iUIScaleFactor,30 * CGameInst.ms_iUIScaleFactor);
+
+		SetWindowTitle(CLocalizer.Get().Translate("_UI_MPJIPScr_Title_JoinDirectIP"));
+
+		var ^CButton pxTmp=cast<CButton>(GetControl("Join"));
+		pxTmp^.m_xOnClick=OnJoin;
+		pxTmp^.SetTextAlign(0);
+		SetCmd("Commit", OnJoin );
+		AddAccelerator("SPACE,NONE,Commit");
+		
+		pxTmp=cast<CButton>(GetControl("Back"));
+		pxTmp^.m_xOnClick=OnBack;
+		SetCmd("Exit", OnBack );
+		AddAccelerator("ESCAPE,NONE,Exit");
+		
+		var int i, iCache;
+		if(!CSettings.Get("Game/HostNJoinSettings/CacheSize",iCache))then
+			iCache=5;
+			CSettings.Set("Game/HostNJoinSettings/CacheSize",iCache);
+		endif;
+//		m_asAddresses=iCache;
+		var string sIP,sTemp;
+		var int iPort;
+		m_pxAddress=cast<CDropList>(GetControl("AddressEdit"));
+		for(i=0)cond(i<iCache)iter(i++)do
+			if(!CSettings.Get("Game/HostNJoinSettings/History/Address"+i.ToString(),sTemp))then
+				sTemp=Network.GetLocalIPAddress();
+				CSettings.Set("Game/HostNJoinSettings/History/Address"+i.ToString(),sTemp);
+			endif;
+			if(m_asAddresses.FindEntry(sTemp)==-1)then
+				m_pxAddress^.AddItem(sTemp);
+			endif;
+			m_asAddresses.AddEntry(sTemp);
+		endfor;
+		m_pxAddress^.SetAllowAnyText(true);
+		m_pxPort=cast<CEdit>(GetControl("PortEdit"));
+		m_pxPort^.SetTextLimit(5);
+		m_pxPort^.m_xOnChange=OnPortChange;
+		
+		m_pxPassword=cast<CEdit>(GetControl("PasswordEdit"));
+		
+		if(!CSettings.Get("Game/RecentSettings/JoinIP",sIP))then
+			sIP="192.168.0.1";
+			CSettings.Set("Game/RecentSettings/JoinIP",sIP);
+		endif;
+		m_pxAddress^.SetText(sIP);
+		
+		if(!CSettings.Get("Game/RecentSettings/JoinPort",iPort))then
+			iPort=1905;
+			CSettings.Set("Game/RecentSettings/JoinPort",iPort);
+		endif;
+		m_pxPort^.SetTextLimit(5);
+		m_pxPort^.SetText(iPort.ToString());
+		
+		CGameWrap.ShutProxyServer();
+	endconstructor;
+	
+	export proc bool Init(int p_iState)
+		var string sAutoConnect=CClientWrap.GetDedicatedAutoConnect();
+		if(sAutoConnect!="")then
+			CClientWrap.SetDedicatedAutoConnect("");
+			var int iColonPos=sAutoConnect.Find(':');
+			var string sAddr=sAutoConnect.Left(iColonPos);
+			var string sPort=sAutoConnect.Mid(iColonPos+1);
+			m_pxAddress^.SetText(sAddr);
+			m_pxPort^.SetText(sPort);
+			m_iTimerID=SetTimer(100,true);
+		endif;
+		return(true);
+	endproc;
+
+	proc bool OnTimer(int p_iTimerID)
+		if(p_iTimerID==m_iTimerID)then
+			UnsetTimer(m_iTimerID);
+			OnJoin();
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnJoin()
+		CGameWrap.StopFindServers();
+		var int iPort=m_pxPort^.GetText().ToInt();
+		var string sAddress=m_pxAddress^.GetText();
+		var string sPassword = m_pxPassword^.GetText();
+		while(sAddress.GetLength()>0&&(sAddress.GetAt(sAddress.GetLength()-1).ToString()==" "||sAddress.GetAt(sAddress.GetLength()-1).ToString()=="	"))do
+//			sAddress.Delete(sAddress^.GetLength()-1,1);
+			sAddress=sAddress.Left(sAddress.GetLength()-2);
+		endwhile;
+		CSettings.Set("Game/RecentSettings/JoinIP",sAddress);
+		CSettings.Set("Game/RecentSettings/JoinPort",iPort);
+		if(m_asAddresses.FindEntry(sAddress)==-1)then
+			var int i, iC=m_asAddresses.NumEntries()-1;
+			CSettings.Set("Game/HostNJoinSettings/History/Address0",sAddress);
+			for(i=0)cond(i<iC)iter(i++)do
+				CSettings.Set("Game/HostNJoinSettings/History/Address"+(i+1).ToString(),m_asAddresses[i]);
+			endfor;
+		endif;
+		var string sClientVersion = CVersionInfo.GetCompatibleVersionsString();
+		CGameWrap.SetClientCompatibleVersions(sClientVersion);
+		CGameWrap.SetClientPassword(sPassword);
+		CGameWrap.JoinToServer(sAddress,iPort);
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_JOINTOMULTIPLAYERGAME,"DirectIP");
+		return true;
+	endproc;
+	
+	proc bool OnBack()
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_MULTIPLAYERSELECT);
+		return true;
+	endproc;
+	
+	proc bool OnPortChange()
+		var string sPort = m_pxPort^.GetText();
+		var int iLength = sPort.GetLength();
+		if(iLength>0) then
+			if(sPort.GetAt(iLength-1)!='0' && sPort.GetAt(iLength-1)!='1' && sPort.GetAt(iLength-1)!='2' && sPort.GetAt(iLength-1)!='3' && sPort.GetAt(iLength-1)!='4' && sPort.GetAt(iLength-1)!='5' && sPort.GetAt(iLength-1)!='6' && sPort.GetAt(iLength-1)!='7' && sPort.GetAt(iLength-1)!='8' && sPort.GetAt(iLength-1)!='9') then
+				sPort.Delete(iLength-1);
+				m_pxPort^.SetText(sPort);
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+endclass;

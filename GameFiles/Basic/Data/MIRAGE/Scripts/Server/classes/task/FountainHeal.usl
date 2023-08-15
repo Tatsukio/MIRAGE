@@ -1,0 +1,130 @@
+class CFountainHeal inherit CTargetTask
+	
+	const int STATE_WALKTO 	= 1;
+	const int STATE_ARRIVED	= 2;
+	const int STATE_WAIT		= 3;
+	const int STATE_CHECK		= 4;
+	const int STATE_BREAK		= 5;
+	
+	var CObjHndl		m_xActor;
+	var CObjHndl		m_xTarget;
+	var int					m_iState;
+	
+	export constructor()
+		SetName("FntnHeal");
+		SetCivil(true);
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="FnHe";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xActor.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		pxArc^ << m_iState;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="FnHe")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xActor.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			pxArc^ << m_iState;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xActor, CObjHndl p_xTarget)
+		if(!p_xActor.IsValid()||!p_xTarget.IsValid())then
+			m_iState=STATE_BREAK;
+			return false;
+		endif;
+		m_xActor = p_xActor;
+		m_xTarget = p_xTarget;
+		m_iState =STATE_WALKTO;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		SetMaxCounter(5);
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		if(m_iState==STATE_WALKTO) then
+			var ^CFountain pxFountain = cast<CFountain>(m_xTarget.GetObj());
+			var ^CFightingObj pxFO = cast<CFightingObj>(m_xActor.GetObj());
+			if(pxFountain==null||pxFO==null) then EndTask(); return; endif;
+			var vec3 vDest = pxFountain^.GetPos();
+			SetCurrentTarget(vDest);
+			var vec3 vTmp=pxFO^.GetPos();
+			if(pxFO^.IsFlyingUnit())then
+				vTmp.SetZ(pxFountain^.GetPos().GetZ());
+			endif;
+			if(!IsAlreadyAtTargetPos(vTmp, pxFO^.GetRadius()+7.0f))then
+				if(pxFO^.IsFlyingUnit())then
+					pxFO^.WalkAction(vDest,pxFO^.GetDefaultSpeed());
+				else
+					CSrvWrap.GetObjMgr()^.GetFreePos(vDest, pxFO, vDest);
+					var CGameObj.CAdvanceActionParams xAWAP;
+					xAWAP.m_fMinDistance=3.0f;
+					xAWAP.m_iPrefSpeed=pxFO^.GetDefaultSpeed();
+					pxFO^.AdvanceAction(m_xTarget,xAWAP);
+				endif;
+				m_iState = STATE_CHECK;
+			else
+				m_iState=STATE_ARRIVED;
+				USLOnTick(0);
+				return;
+			endif;
+		elseif(m_iState==STATE_CHECK) then
+			var ^CFountain pxFountain = cast<CFountain>(m_xTarget.GetObj());
+			var ^CFightingObj pxFO = cast<CFightingObj>(m_xActor.GetObj());
+			if(pxFountain==null||pxFO==null)then EndTask(); return; endif;
+			var vec3 vTmp=pxFO^.GetPos();
+			if(pxFO^.IsFlyingUnit())then
+				vTmp.SetZ(pxFountain^.GetPos().GetZ());
+			endif;
+			if(!HasArrivedTarget(vTmp,pxFO^.GetRadius()+7.0f)&&((pxFountain^.GetPos()-pxFO^.GetPos()).Abs2S()>900.0f))then
+				if(!CanFollow())then
+					ResetCounter();
+					m_iState=STATE_BREAK;
+					return;
+				else
+					m_iState=STATE_WALKTO;
+					return;
+				endif;
+			else
+				m_iState=STATE_ARRIVED;
+			endif;
+		elseif(m_iState == STATE_ARRIVED) then
+			var ^CFountain pxFountain = cast<CFountain>(m_xTarget.GetObj());
+			if(pxFountain==null) then EndTask(); return; endif;
+			var ^CFightingObj pxFO = cast<CFightingObj>(m_xActor.GetObj());
+			if(pxFO==null)then EndTask(); return; endif;
+			pxFountain^.ObjArrived(m_xActor);
+			EndTask();
+		elseif(m_iState==STATE_BREAK)then
+			EndTask();
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+	
+	export proc bool Break()
+		return true;
+	endproc;
+	
+	export proc void Skip()
+	endproc;
+	
+	export proc void EndTask()
+		UpdateAggressionPos(m_xActor);
+		super.EndTask();
+	endproc;
+	
+endclass;

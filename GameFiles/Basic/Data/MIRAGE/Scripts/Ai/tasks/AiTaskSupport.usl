@@ -1,0 +1,304 @@
+class CAiTaskSupport inherit CAiTask
+
+	var ^CAiBrain			m_pxBrain;
+	var ^CAiSensor			m_pxSensor;
+	var CAiObjWrap			m_xActor;
+	var CAiObjWrapList		m_xActors;
+	var CAiObjWrapList		m_xTargets;
+	var CAiObjWrapList		m_xEnemies;
+	var CAiObjWrap			m_xPotentialEnemy;
+	
+	var vec3				m_vTargetsPos;
+	var vec3				m_vMyTargetPos;
+	var bool				m_bSpecialAttack;
+	var array string		m_asSpecialAttacks;
+	var array int			m_aiAttackLevel;
+	var int					m_iTimer;
+	var int					m_iCheck;
+	var bool				m_bDoingSpecialMove;
+	var int					m_iPlayerID;
+	var string				m_sPlayerID;
+
+	
+	///Init
+	export proc void Init(^CAiGoal p_pxGoal,CAiObjWrapList p_xActors,ref CAiObjWrapList p_rxTargets, vec3 p_vPos)
+		super.Init(p_pxGoal);
+		if(p_pxGoal==null)then return; endif;
+				
+		m_pxBrain = GetGoal()^.GetAiBrain(); 
+		if(m_pxBrain==null)then return; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();	
+		
+//		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(pxCM^.GetDifficultyInt()+iType);
+		
+		m_bSpecialAttack = false;
+		m_asSpecialAttacks = 0;
+		m_xActors=p_xActors;
+		m_xTargets.CopyFrom(p_rxTargets);
+		m_vTargetsPos = p_vPos;
+		m_iCheck = 1;
+		
+		if(IsSpecialAttackCharacter())then
+			m_bSpecialAttack = true;
+		endif;
+	endproc;
+
+
+	///called on start
+	export proc bool Start()
+		super.Start();
+		SetRunning();
+		return true;
+	endproc;
+
+
+	///called to shut
+	export proc void Shut()
+		Abort();
+	endproc;
+	
+	
+	///UPdateSupporterPos
+	export proc void UpdateSupportPos(vec3 p_vPos, CAiObjWrapList p_xEnemies)
+		m_vTargetsPos = p_vPos;
+		m_xEnemies = p_xEnemies;
+	endproc;
+
+	
+	///IsSpecialCharacter
+	proc bool IsSpecialAttackCharacter()
+		var int i, iC=m_xActors.Validate();
+		if(iC>0)then
+			for(i=0)cond(i<iC)iter(i++)do
+				var string sClassName = m_xActors[i].GetClassName();
+				if(sClassName=="aje_shaman")then
+					m_asSpecialAttacks.AddEntry("Resurrect");
+					m_aiAttackLevel.AddEntry(3);
+					m_asSpecialAttacks.AddEntry("quicksand");
+					m_aiAttackLevel.AddEntry(3);
+					m_asSpecialAttacks.AddEntry("tornado");
+					m_aiAttackLevel.AddEntry(3);
+					m_asSpecialAttacks.AddEntry("termites");
+					m_aiAttackLevel.AddEntry(3);
+					m_iCheck = 2;
+					m_xActor=m_xActors[i];
+					return true;
+				endif;
+			endfor;
+		endif;
+		return false;
+	endproc;
+
+
+	///CheckLocalConditions
+	proc bool CheckLocalConditions(string p_sAttack)
+		if(!m_xActor.IsValid())then return false; endif;
+		var int iNumEnemies = m_xEnemies.NumEntries();
+		var real fDistanceToEnemy = 999999.0;
+		m_xPotentialEnemy.FromInt(-1);
+		if(iNumEnemies>0 && m_xEnemies[0].IsValid())then
+			fDistanceToEnemy = (m_xEnemies[0].GetPos()-m_xActor.GetPos()).Abs2();
+		endif;
+		if(p_sAttack=="tornado" || p_sAttack=="quicksand")then
+			if(iNumEnemies<1)then return false; endif;
+			var bool bDoIt = false;
+			var CAiObjWrap xObj;
+			var CAiObjWrapList xList;
+			var vec3 vTargetPos;
+			var int iMaxHP = -1;
+			var int i, iC = iNumEnemies;
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!m_xEnemies[i].IsValid())then continue; endif;
+				if(m_xEnemies[i].GetType()=="BLDG")then continue; endif;
+				vTargetPos = m_xEnemies[i].GetPos();
+				fDistanceToEnemy = (vTargetPos-m_xActor.GetPos()).Abs2();
+				if(fDistanceToEnemy>50.0)then continue; endif;
+				xList.Include(m_xEnemies[i]);
+				if(m_xEnemies[i].GetAttribValueInt("hitpoints")<iMaxHP)then continue; endif;
+				iMaxHP = m_xEnemies[i].GetAttribValueInt("hitpoints");
+				xObj = m_xEnemies[i];
+			endfor;
+			if(!xObj.IsValid())then return false; endif;
+			if(iMaxHP>4000)then bDoIt = true; endif;
+			iC = xList.NumEntries();
+			var int iValidEnemies;
+			var int iSumHP = 0;
+			var real fDistanceToTarget = 64.0;
+			if(p_sAttack=="tornado")then
+				fDistanceToTarget = 100.0;
+			endif;
+			for(i=1)cond(i<iC)iter(i++)do
+				if((xList[i].GetPos()-vTargetPos).Abs2S()>fDistanceToTarget)then continue; endif;
+				iSumHP += xList[i].GetAttribValueInt("hitpoints");
+				iValidEnemies++;
+			endfor;
+			m_xPotentialEnemy = xObj;
+			if(bDoIt)then
+				return true;
+			elseif(iValidEnemies>6)then
+				return true;
+			elseif(iSumHP>6000)then
+				return true;
+			endif;
+		elseif(p_sAttack=="termites")then
+			if(iNumEnemies<1)then return false; endif;
+			var CAiObjWrap xObj;
+			var vec3 vTargetPos;
+			var int iMaxHP=-1;
+			var int i, iC=iNumEnemies;
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!m_xEnemies[i].IsValid())then continue; endif;
+				if(m_xEnemies[i].GetType()!="BLDG")then continue; endif;
+				vTargetPos = m_xEnemies[i].GetPos();
+				fDistanceToEnemy = (vTargetPos-m_xActor.GetPos()).Abs2();
+				if(fDistanceToEnemy>75.0)then continue; endif;
+				if(iMaxHP<m_xEnemies[i].GetAttribValueInt("hitpoints"))then
+					iMaxHP=m_xEnemies[i].GetAttribValueInt("hitpoints");
+					xObj=m_xEnemies[i];
+				endif;
+			endfor;
+			if(!xObj.IsValid())then return false; endif;
+			if(iMaxHP>500)then
+				m_xPotentialEnemy=xObj;
+				return true;
+			endif;
+		elseif(p_sAttack=="Resurrect")then
+			var CAiObjWrapList xList;
+			var CAiObjQuery xQuery;
+			xQuery.SetOwner(m_iPlayerID);
+			xQuery.SetClass("FOOD");
+			xQuery.SetAttribNeg("Meat","false");
+			xQuery.SetAttribNeg("food_guid","dummy");
+			xQuery.RegionCircle(m_xActor.GetPos(), 50.0);
+			if(!xQuery.Execute(xList))then return false; endif;
+			var int j, iD=xList.NumEntries();
+			if(iD<=0)then return false; endif;
+			var int iMax=-1;
+			var bool bHero=false;
+			var CAiObjWrap xMax;
+			for(j=0)cond(j<iD)iter(j++)do
+				if(!xList[j].IsValid())then continue; endif;
+//				var CAiObjWrap xObj=xList[j];
+				var string sClass=xList[j].GetAttribValue("class");
+				if(sClass=="Miyagi_s0"||sClass=="special_eusmilus"||sClass=="babbage_s0"||sClass=="Barry_s0"||sClass=="Bela_s0"||sClass=="Cole_s0"||sClass=="darwin_s0"||sClass=="Harry_s0"||sClass=="hermit_s0"||sClass=="Larry_s0"||sClass=="livingstone_s0"||sClass=="lovelace_s0"||sClass=="mayor_s0"||sClass=="schliemann_s0"||sClass=="Stina_s0"||sClass=="Tarna_s0"||sClass=="tesla_s0"||sClass=="special_mobile_suit")then
+					xMax=xList[j];
+					bHero=true;
+					break;
+				endif;
+				var int iValue = xList[j].GetAttribValueInt("value");
+				if(iValue>iMax)then
+					xMax=xList[j];
+					iMax=iValue;
+				endif;
+			endfor;
+			if(!xMax.IsValid())then return false; endif;
+			if(iMax<1500&&!bHero)then return false; endif;
+			m_xPotentialEnemy=xMax;
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	
+	///CheckGlobalConditions
+	proc bool CheckGlobalConditions(string p_sAttack, int p_iLevel)
+		if(!m_xActor.IsValid())then return false; endif;
+		var int iLevel = m_xActor.GetAttribValueInt("level")+1;
+		if(iLevel<p_iLevel)then
+			return false;
+		endif;
+		var string sActions = m_xActor.GetAttribValue("SpecialActionNames");
+		var array string asToken;
+		sActions.Split(asToken,"\n",true);
+		if(asToken.FindEntry(p_sAttack)!=-1)then
+			return false;
+		endif;
+		if(p_sAttack=="tornado" || p_sAttack=="quicksand" || p_sAttack=="termites")then
+			var ^CAiTechTree pxT = GetAiTechTree();
+			if(pxT==null)then return false; endif;
+			var ^CAiNodeInstance pxNI = pxT^.GetNodeInstanceFromPartialName("InventObjects/"+p_sAttack);
+			if(pxNI==null)then return false; endif;
+			if(pxNI^.GetInstanceCount()<=0)then return false; endif;
+		endif;
+		return true;
+	endproc;
+
+
+	///SpecialAttack
+	proc void SpecialAttack(string p_sAttack, CAiObjWrap p_xEnemy)
+		if(m_pxSensor==null) then return; endif;
+		if(!m_xActor.IsValid())then return; endif;
+		var int iHandle=-1;
+		var vec3 vPos=m_xActor.GetPos();
+		if(p_xEnemy.IsValid())then
+			iHandle=p_xEnemy.GetHandle();
+			vPos=p_xEnemy.GetPos();
+		endif;
+		if(p_xEnemy.IsValid())then
+			if(p_sAttack=="Resurrect")then
+				m_pxSensor^.ExecuteGamePlayCommand(m_xActor.GetHandle(), "Action", iHandle, vPos, "/Actions/Aje/Moves/CHTR/Resurrect Guid "+p_xEnemy.GetAttribValue("food_guid"));
+			elseif(p_sAttack=="termites")then
+				m_pxSensor^.ExecuteGamePlayCommand(m_xActor.GetHandle(), "Action", iHandle, vPos, "/Actions/Aje/Moves/CHTR/termites");
+			endif;
+		endif;
+		if(p_sAttack=="tornado")then
+			m_pxSensor^.ExecuteGamePlayCommand(m_xActor.GetHandle(), "Action", iHandle, vPos, "/Actions/Aje/Moves/CHTR/tornado");
+		elseif(p_sAttack=="quicksand")then
+			m_pxSensor^.ExecuteGamePlayCommand(m_xActor.GetHandle(), "Action", iHandle, vPos, "/Actions/Aje/Moves/CHTR/quicksand");
+		endif;
+	endproc;
+
+
+	//called when thinking
+	export proc void Think()
+		if(IsRunning())then
+			var int i, iC = m_xActors.Validate();
+			if(iC<=0)then
+				Abort();
+				return;
+			endif;
+			if(m_bDoingSpecialMove)then
+				if(m_iTimer<6)then
+					m_iTimer++;
+				else
+					m_iTimer = 0;
+					m_bDoingSpecialMove = false;
+				endif;
+				return;
+			endif;
+			if(m_bSpecialAttack)then
+				if(m_iTimer<m_iCheck)then
+					m_iTimer++;
+				else
+					m_iTimer = 0;
+					var int i, iC = m_asSpecialAttacks.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						var string sAttack = m_asSpecialAttacks[i];
+						var int iAttackLevel = m_aiAttackLevel[i];
+						if(CheckGlobalConditions(sAttack, iAttackLevel) && CheckLocalConditions(sAttack))then
+							SpecialAttack(sAttack, m_xPotentialEnemy);
+							m_bDoingSpecialMove = true;
+							return;
+						endif;
+					endfor;
+				endif;
+			endif;
+			if((m_vTargetsPos - m_xActors[0].GetPos()).AbsSquare()>400.0)then
+				m_vMyTargetPos = m_vTargetsPos;
+				if(m_pxSensor==null) then return; endif;
+				m_pxSensor^.ExecuteGamePlayCommand(m_xActors[0].GetHandle(), "Action", -1, m_vMyTargetPos, "/Walk");
+			endif;
+		endif;
+	endproc;
+	
+endclass;

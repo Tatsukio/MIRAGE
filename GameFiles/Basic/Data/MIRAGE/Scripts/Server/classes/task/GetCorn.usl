@@ -1,0 +1,460 @@
+class CGetCorn inherit CGenericHarvest
+	
+	var vec3 m_vLastImportantPos;
+	var real m_fDelivRadius;
+	var bool m_bLastEnd;
+	var bool m_bFirstHit;
+	var string m_sResource;
+	var string m_sTool;
+
+	var CFourCC m_xFCCRightHandLink;
+	var CFourCC m_xFCCLeftHandLink;
+	var CObjQuery m_xDeliverSearch;
+	
+	var CObjList m_xInvalidDeliverySites;
+	var bool m_bAllDeliverySitesInvalid;
+	
+	export constructor()
+		SetName("GetCorn");
+		m_xFCCRightHandLink="HndR";
+		m_xFCCLeftHandLink="HndL";
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="GeCo";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		(pxArc^) << m_vLastImportantPos;
+		(pxArc^) << m_fDelivRadius;
+		(pxArc^) << m_bLastEnd;
+		(pxArc^) << m_bFirstHit;
+		(pxArc^) << m_sResource;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="GeCo")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			(pxArc^) << m_vLastImportantPos;
+			(pxArc^) << m_fDelivRadius;
+			(pxArc^) << m_bLastEnd;
+			(pxArc^) << m_bFirstHit;
+			(pxArc^) << m_sResource;
+			var ^CFightingObj pxWorker=cast<CFightingObj>(m_xWorker.GetObj());
+			if(pxWorker != null)then
+				if(pxWorker^.GetClassName().Find("arry_s0")!=-1)then
+					m_sTool = "hu_pick";
+				else
+					m_sTool = pxWorker^.GetClassName().Left(pxWorker^.GetClassName().Find("_"))+"_pick";
+				endif;
+			endif;
+			InitQueries();
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xWorker, CObjHndl p_xBuilding)
+		if(!p_xWorker.IsValid()||!p_xBuilding.IsValid())then
+			return false;
+		endif;
+		m_xWorker=p_xWorker;
+		m_xHarvestSite=p_xBuilding;
+		var ^CCharacter pxWorker = cast<CCharacter>(m_xWorker.GetObj());
+		var ^CUnlimitedBuilding pxBuilding = cast<CUnlimitedBuilding>(m_xHarvestSite.GetObj());
+		if(pxWorker==null||pxBuilding==null)then
+			CSrvWrap.LogError("GetCorn","invalid worker/bulding");
+			m_sState="exit";
+			return false;
+		elseif(pxBuilding^.GetAutomatized())then
+			m_sState="exit";
+			return false;
+		endif;
+		if(pxWorker^.GetClassName().Find("arry_s0")!=-1)then
+			m_sTool = "hu_pick";
+		else
+			m_sTool = pxWorker^.GetClassName().Left(pxWorker^.GetClassName().Find("_"))+"_pick";
+		endif;
+		pxWorker^.AnnounceState("getcorn");
+		var array string asRes;
+		asRes = pxBuilding^.GetResourceArray();
+		if(asRes.NumEntries()>0)then
+			m_sResource = asRes[0];
+		endif;
+		InitQueries();
+		SetThing(pxWorker^.GetTribeName(),pxBuilding^.GetClassName());
+		m_sState="goto_cornfield";
+		m_bLastEnd=true;
+		return true;
+	endproc;
+
+	export proc void SetThing(string p_sTribe, string p_sTarget)
+		m_sThing = "Hu_Corn";
+		m_xThingLink = "HndR";
+		m_sWaitAnim = "shoulder_standanim";
+		if(p_sTarget.Find("_mine")!=-1)then
+			if(p_sTribe=="Hu")then
+				m_sThing = "hu_pannier";
+				m_xThingLink = "Back";
+				m_sWaitAnim = "standing";
+			elseif(p_sTribe=="Aje")then
+				m_sThing = "aje_clay_jug";
+				m_xThingLink = "HndR";
+				m_sWaitAnim = "standing";
+			elseif(p_sTribe=="Ninigi")then
+				m_sThing = "ninigi_basket";
+				m_xThingLink = "HndR";
+				m_sWaitAnim = "standing";
+			elseif(p_sTribe=="SEAS")then
+				m_sThing = "seas_backpack";
+				m_xThingLink = "Back";
+				m_sWaitAnim = "standing";
+			elseif(p_sTribe=="Special")then
+				m_sThing = "aje_clay_jug";
+				m_xThingLink = "HndR";
+				m_sWaitAnim = "standing";
+			endif;
+		endif;
+	endproc;
+
+	proc void InitQueries()
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker==null) then return; endif;
+		m_xDeliverSearch.SetOwner(pxWorker^.GetOwner());
+		m_xDeliverSearch.SetAttribsNeg("CurTask","BuildUp");
+		m_xDeliverSearch.SetAttribsPos(m_sResource+"Delivery",true);
+	endproc;
+
+	export proc bool OnActionEnd(bool p_bBroken)
+		if(p_bBroken)then
+			ResetCounter();
+		endif;
+		if(m_sState=="drop_food")then
+			SetWaitAnim();
+		endif;
+		return false;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom,^CState p_pxTo)
+		if(!m_xWorker.IsValid()||!m_xHarvestSite.IsValid()||m_sState=="exit")then EndTask();return;endif;
+		//L CSrvWrap.LogSpam( "GetCorn", "GetCorn USLONENTER "+m_xWorker.AsInt().ToString()+"State "+m_sState);
+		var ^CFightingObj pxWorker = cast<CFightingObj>(m_xWorker.GetObj());
+		if(pxWorker==null)then EndTask();return;endif;
+		pxWorker^.HideWeapons();
+		var ^CAttribs pxAttr = pxWorker^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+		endif;
+		var ^CGrowingField pxCornfield = cast<CGrowingField>(m_xHarvestSite.GetObj());
+		if(pxCornfield!=null)then
+			if(pxCornfield^.GetAutomatized())then EndTask(); return; endif;
+			pxCornfield^.UnRegister(m_xWorker);
+			if(!pxCornfield^.Register(m_xWorker))then
+				var CObjList xCornFields=SearchCornfield(pxCornfield,m_xWorker);
+				var int i,iC=xCornFields.NumEntries();
+				var bool bFound=false;
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CGrowingField pxTmpField=cast<CGrowingField>(xCornFields[i].GetObj());
+					if(pxTmpField!=null)then
+						if(pxTmpField^.Register(m_xWorker))then
+							pxCornfield=pxTmpField;
+							m_xHarvestSite=pxTmpField^.GetHandle();
+							bFound=true;
+							break;
+						endif;
+					endif;
+				endfor;
+				if(!bFound)then
+					EndTask();
+					return();
+				endif;
+			endif;
+		else
+			EndTask();
+			return;
+		endif;
+		var ^CCharacter pxChar = cast<CCharacter>(m_xWorker.GetObj());
+		if(pxChar==null)then EndTask(); return; endif;
+		pxChar^.SetTaskDescription(m_sResource);
+		if(m_sState=="harvest_corn")then
+			pxWorker^.SetLinkGFX(m_xFCCRightHandLink,m_sTool);
+		endif;
+		SetMaxCounter(1);
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		if(m_bAllDeliverySitesInvalid)then
+			EndTask();
+			return;
+		endif;
+		if(!m_xWorker.IsValid())then EndTask();return;endif;
+		if(!m_xHarvestSite.IsValid())then EndTask();return;endif;
+		var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+		var ^CGrowingField pxCornfield=cast<CGrowingField>(m_xHarvestSite.GetObj());
+		if(pxWorker==null||pxCornfield==null)then EndTask();return;endif;
+		if(pxCornfield^.GetAutomatized())then EndTask(); return; endif;
+		if(pxCornfield^.GetCurrentResource()!=m_sResource)then
+			m_sResource=pxCornfield^.GetCurrentResource();
+			pxWorker^.SetTaskDescription(m_sResource);
+			m_xInvalidDeliverySites.Clear();
+			InitQueries();
+			m_sState="goto_cornfield";
+		endif;
+		var string sTool = pxWorker^.GetClassName().Left(pxWorker^.GetClassName().Find("_"))+"_sickle";
+		if(pxWorker^.ResInvIsFull(m_sResource)&&m_sState!="drop_food"&&m_sState!="goto_deliveryplace")then
+			pxWorker^.RemLinkGFX(m_xFCCLeftHandLink);
+			if(m_sState=="goto_cornfield")then
+				m_sState="goto_deliveryplace";
+			else
+				m_sState="pickup_corn";
+			endif;
+		endif;
+		if(pxCornfield==null&&m_sState!="drop_food")then
+			if(pxWorker^.ResInvIsEmpty(m_sResource))then
+				EndTask();
+				return;
+			else
+				m_sState="goto_deliveryplace";
+			endif;
+		endif;
+		if(m_sState=="goto_cornfield")then
+			if(pxCornfield!=null&&!pxCornfield^.GetWorkerJobPos(m_xWorker,m_vCurTarget))then
+				m_vCurTarget=UseComplexGundlachAlgorithm(pxCornfield^.GetPos(),2.0f);
+			endif;
+			if(pxWorker^.GetOnWall())then
+				pxWorker^.WallWalkAction(m_vCurTarget,true,pxWorker^.GetDefaultSpeed(),false);
+			else
+				pxWorker^.WalkAction(m_vCurTarget,pxWorker^.GetDefaultSpeed(),true);
+			endif;
+			// e.g. 25.0/(5.0*2.0)=2.5
+			m_fProgressStep=pxWorker^.GetResourceInventorySize(m_sResource)/(5.0*pxWorker^.GetTimeFactor(m_xHarvestSite));
+			m_sState="rotate";
+			SetCurrentTarget(m_vCurTarget);
+		elseif(m_sState=="rotate")then
+			if(!HasArrivedTarget(pxWorker^.GetPos(),pxCornfield^.GetRadius()))then
+				if(!CanFollow())then
+					EndTask();
+					return;
+				endif;
+				m_sState="goto_cornfield";
+				return;
+			else
+				var vec3 vLookAt=UseComplexGundlachAlgorithm(pxWorker^.GetPos(),2.0f);
+				var vec3 vDir=vLookAt-pxWorker^.GetPos();
+				var Quat qTRot;
+				qTRot.FromXYDir(vDir.GetX(),vDir.GetY());
+				pxWorker^.RotateAction(qTRot);
+				if(pxCornfield^.GetClassName()=="hu_mine"||pxCornfield^.GetClassName()=="seas_mine")then
+					pxWorker^.SetLinkGFX(m_xFCCRightHandLink,m_sTool);
+				endif;
+				m_bFirstHit=true;
+				m_sState="harvest_corn";
+			endif;
+		elseif(m_sState=="harvest_corn")then
+			var int iNumLoops=2+Random.GetInt()%4;
+			var real fRemSpace=pxWorker^.GetResInvSpace(m_sResource);
+			if(m_fProgressStep*iNumLoops.ToReal()>fRemSpace)then
+				iNumLoops=(fRemSpace/m_fProgressStep).ToInt()+1;
+			endif;
+			var real fHit = Math.Min(m_fProgressStep*iNumLoops.ToReal(),fRemSpace);
+			var real fMined=pxCornfield^.Mine(fHit,m_sResource);
+			pxWorker^.ResInvAdd(m_sResource,fMined);
+			if(pxWorker^.ResInvIsFull(m_sResource))then
+				pxWorker^.RemLinkGFX(m_xFCCLeftHandLink);
+				pxWorker^.RemLinkGFX(m_xFCCRightHandLink);
+				pxWorker^.RemLinkGFX(m_xThingLink);
+				m_sState="pickup_corn";
+			endif;
+			pxCornfield^.SetAnim("grow",0,pxCornfield^.GetGrowStep());
+			pxCornfield^.SetGrowStep(pxCornfield^.GetGrowStep()+1);
+			pxWorker^.RemLinkGFX(m_xFCCRightHandLink);
+			pxWorker^.RemLinkGFX(m_xFCCLeftHandLink);
+			pxWorker^.RemLinkGFX(m_xThingLink);
+			if(pxCornfield^.GetClassName()=="hu_mine"||pxCornfield^.GetClassName()=="seas_mine")then
+				pxWorker^.SetLinkGFX(m_xFCCRightHandLink,m_sTool);
+				pxWorker^.AnimAction("hacking_stone",iNumLoops,true,true);
+			elseif(pxCornfield^.GetGrowStep()<25)then
+				pxWorker^.SetLinkGFX(m_xFCCLeftHandLink,"Hu_Seed_Basket");
+				pxWorker^.AnimAction("sowing",iNumLoops,true,true);
+			else
+				pxWorker^.SetLinkGFX(m_xFCCRightHandLink,"Hu_Sickle");
+				pxWorker^.AnimAction("scything",iNumLoops,true,true);
+			endif;
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			if(m_bFirstHit)then
+				m_bFirstHit=false;
+			endif;
+			m_xLastTick=xNow;
+		elseif(m_sState=="pickup_corn")then
+			pxWorker^.AnimAction("shoulder_pick_up");
+//			pxWorker^.RemLinkGFX(m_xFCCRightHandLink);
+			pxWorker^.SetLinkGFX(m_xThingLink,m_sThing);
+			m_sState="goto_deliveryplace";
+		elseif(m_sState=="goto_deliveryplace")then
+			pxWorker^.SetLinkGFX(m_xThingLink,m_sThing);
+			var CObjList xDeliveries;
+			if(m_xDeliverSearch.Execute(xDeliveries))then
+				xDeliveries.SortDistance(pxWorker^.GetPos());
+				while(xDeliveries.NumEntries()>0)do
+					if(m_xInvalidDeliverySites.FindEntry(xDeliveries[0])!=-1)then
+						xDeliveries.DeleteEntry(0);
+						continue;
+					endif;
+					if(xDeliveries.NumEntries()>1&&!pxWorker^.CheckMaxAutoprodDist(xDeliveries[0])) then
+						xDeliveries.DeleteEntry(0);
+						continue;
+					endif;
+					break;
+				endwhile;
+				if(xDeliveries.NumEntries()<=0)then
+					if(m_bAllDeliverySitesInvalid)then
+						EndTask();
+						return;
+					else
+						m_xInvalidDeliverySites.Clear();
+						m_bAllDeliverySitesInvalid=true;
+						return;
+					endif;
+				endif;
+				var ^CGameObj pxDelivery=xDeliveries[0].GetObj();
+				m_vCurDelivery=pxDelivery^.GetPos();
+				m_xCurDelivery = xDeliveries[0];
+				m_vCurTarget=m_vCurDelivery;
+				m_iWalkFailCnt=0;
+				m_fDelivRadius=pxDelivery^.GetRadius();
+				if(pxDelivery!=null)then
+					var string sClass=pxDelivery^.GetClassName();
+					if(sClass!="aje_resource_collector"&&sClass.Find("_zeppelin")==-1&&sClass!="seas_small_tent")then
+						CSrvWrap.GetObjMgr()^.GetFreePos(m_vCurTarget,pxWorker,m_vCurDelivery);
+					endif;
+				endif;
+				var CGameObj.CAdvanceActionParams xAWAP;
+				xAWAP.m_fMinDistance=0.0;
+				xAWAP.m_iPrefSpeed=pxWorker^.GetDefaultSpeed();
+				xAWAP.m_xWalkSet="sldr";
+				xAWAP.m_vGoalOffset=m_vCurTarget;
+				if(pxWorker^.GetOnWall())then
+					pxWorker^.AdvanceWallAction(CObjHndl.Invalid(),xAWAP,true,false);
+				else
+					pxWorker^.AdvanceAction(CObjHndl.Invalid(),xAWAP);
+				endif;
+				m_sState="drop_food";
+				SetCurrentTarget(m_vCurTarget);
+			else
+				//L CSrvWrap.LogInfo("GetCorn","No place for delivery found!");
+				EndTask();
+				return;
+			endif;
+		elseif(m_sState=="drop_food") then
+			if(!m_xCurDelivery.IsValid())then
+				m_sState="goto_deliveryplace";
+				return;
+			endif;
+//			if(!HasArrivedTarget(pxWorker^.GetPos(), 4.0))then
+			if(!HasArrivedTarget(pxWorker^.GetPos(), m_xCurDelivery.GetObj()^.GetRadius()*3.0))then
+				if(!CanFollow())then
+					ResetCounter();
+					m_xInvalidDeliverySites.Include(m_xCurDelivery);
+					m_sState="goto_deliveryplace";
+					return;
+				else
+					m_sState="goto_deliveryplace";
+					return;
+				endif;
+			else
+				m_xInvalidDeliverySites.Clear();
+				if(pxWorker^.CheckInResInvAllPossible(m_xCurDelivery.GetObj()))then
+					var ^CFightingObj pxDelivery = cast<CFightingObj>(m_xCurDelivery.GetObj());
+					if(pxDelivery!=null)then
+						pxDelivery^.AcceptDeliveries();
+					endif;
+					pxWorker^.SetAnim("shoulder_put_down",1);
+					m_sState="unlink_corn";
+				else
+					pxWorker^.WaitAction(2.0f); //wait 2 secs for free checkin
+				endif;
+			endif;
+		elseif(m_sState=="unlink_corn") then
+			pxWorker^.RemLinkGFX(m_xFCCRightHandLink);
+			pxWorker^.RemLinkGFX(m_xThingLink);
+			m_sState="goto_cornfield";
+		elseif(m_sState=="exit") then
+			//L CSrvWrap.LogSpam( "GetCorn", "Exit "+m_xWorker.AsInt().ToString());
+			EndTask();
+			return();
+		else
+			//L CSrvWrap.LogSpam("GetCorn","invalid state: "+m_sState);
+			EndTask();
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		//L CSrvWrap.LogSpam( "GetCorn", "GetCorn USLONLEAVE "+m_xWorker.AsInt().ToString()+"State "+m_sState);
+		var ^CGameObj pxCornfield=m_xHarvestSite.GetObj();
+		if(pxCornfield!=null)then
+			var ^CGrowingField pxTemp = cast<CGrowingField>(pxCornfield);
+			pxTemp^.UnRegister(m_xWorker);
+		endif;
+		var ^CCharacter pxChar = cast<CCharacter>(m_xWorker.GetObj());
+		if(pxChar==null)then return; endif;
+		pxChar^.ShowWeapons();
+		pxChar^.SetTaskDescription("");
+	endproc;
+	
+	export proc bool Break()
+		var ^CGameObj pxWorker=m_xWorker.GetObj();
+		if(pxWorker!=null)then pxWorker^.TerminateAction(); endif;
+		return true;
+	endproc;
+	
+	proc vec3 UseComplexGundlachAlgorithm(vec3 p_vPos, real p_fOffset);
+		Random.Seed();
+		var real fOffset=(Random.GetInt()%(p_fOffset*100.0f).ToInt()).ToReal()/100.0f;
+		if((Random.GetInt()%100)>50)then
+			p_vPos.SetX(p_vPos.GetX()+fOffset);
+		else
+			p_vPos.SetX(p_vPos.GetX()-fOffset);
+		endif;
+		fOffset=(Random.GetInt()%(p_fOffset*100.0f).ToInt()).ToReal()/100.0f;
+		if((Random.GetInt()%100)>50)then
+			p_vPos.SetY(p_vPos.GetY()+fOffset);
+		else
+			p_vPos.SetY(p_vPos.GetY()-fOffset);
+		endif;
+		return(p_vPos);
+	endproc;
+	
+	export proc CObjList SearchCornfield(^CGrowingField p_pxCornfield, CObjHndl p_xWorker);
+		var real fRange=50.0f;
+		var CObjList xList;
+		var CObjQuery xBuildingSearch;
+		xBuildingSearch.SetType("BLDG");
+		xBuildingSearch.SetOwner(p_pxCornfield^.GetOwner(),true);
+		var CObjList xBuildings;
+		xBuildingSearch.RegionCircle(p_pxCornfield^.GetPos(),fRange);
+		var ^CCharacter pxWorker = cast<CCharacter>(p_xWorker.GetObj());
+		if(xBuildingSearch.Execute(xBuildings))then
+			xBuildings.SortDistance(p_pxCornfield^.GetPos());
+			var int i;
+			for(i=0)cond(i<xBuildings.NumEntries())iter(i++)do
+				var CObjHndl xBuilding=xBuildings[i];
+				var ^CGrowingField pxCornfield=cast<CCornfield>(xBuilding.GetObj());
+				if(pxCornfield!=null)then
+					if(pxCornfield^.IsReady()&&(pxCornfield!=p_pxCornfield)&&pxWorker^.CheckMaxAutoprodDist(xBuilding))then
+						xList.Include(xBuilding);
+					endif;
+				endif;
+			endfor;
+		endif;
+		return(xList);
+	endproc;
+	
+//	export proc void UpdateResource(string p_sResource)
+//		if(m_sState=="harvest_corn")then
+//			USLOnTick(0);
+//		endif;
+//	endproc;
+	
+endclass;

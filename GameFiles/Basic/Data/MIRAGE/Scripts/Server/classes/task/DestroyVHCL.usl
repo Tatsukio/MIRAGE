@@ -1,0 +1,146 @@
+class CDestroyVHCL inherit CSpecialActionTask
+	
+	var CObjHndl	m_xActor;
+	var CObjHndl	m_xVictim;
+	var string		m_sState;
+	
+	export constructor()
+		SetName("DstrVhcl");
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="DeVh";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xActor.DoKArc(pxArc^);
+		m_xVictim.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="DeVh")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xActor.DoKArc(pxArc^);
+			m_xVictim.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xActor, CObjHndl p_xVictim, string p_sPath)
+		if(!p_xActor.IsValid()||!p_xVictim.IsValid())then return false; endif;
+		SetSpecialActionPath(p_sPath);
+		m_xActor = p_xActor;
+		m_xVictim = p_xVictim;
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xActor.GetObj());
+		if(pxFightingObj==null || !pxFightingObj^.CheckSpecialActionTimer(GetSpecialActionPath()))then
+			EndTask();
+			return;
+		endif;
+		SetMaxCounter(3);
+		m_sState = "goto_vhcl";
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var real fDistance=10.0f;
+		if(Check(fDistance))then
+			var ^CFightingObj pxActor = cast<CFightingObj>(m_xActor.GetObj());
+			var ^CFightingObj pxVictim = cast<CFightingObj>(m_xVictim.GetObj());
+			if(m_sState == "goto_vhcl")then
+				if(!CheckSpecialActionTimer(pxActor))then
+					EndTask();
+					return;
+				endif;
+				pxActor^.MemorizeCurrentFightState(m_xVictim,true,false);
+				SetCurrentTarget(m_xVictim);
+				if(!IsAlreadyAtTargetPos(pxActor^.GetPos(), fDistance))then
+					var CGameObj.CAdvanceActionParams xAWAP;
+					xAWAP.m_fMinDistance=3.0f;
+					xAWAP.m_iPrefSpeed=pxActor^.GetMaxSpeed();
+					pxActor^.AdvanceAction(pxVictim^.GetHandle(),xAWAP);
+//					pxActor^.AdvanceAction(m_xVictim, pxVictim^.GetRadius(), pxActor^.GetMaxSpeed());
+					m_sState = "check_pos";
+				else
+					m_sState = "do_anim";
+					USLOnTick(0);
+					return;
+				endif;
+			elseif(m_sState == "check_pos")then
+				if(!HasArrivedTarget(pxActor^.GetPos(), fDistance))then
+					if(!CanFollow())then
+						ResetCounter();
+						m_sState = "EndTask";
+						return;
+					else
+						m_sState = "goto_vhcl";
+						return;
+					endif;
+				else
+					m_sState = "do_anim";
+				endif;
+			elseif(m_sState == "do_anim")then
+				if(!StartSpecialActionTimer(pxActor))then EndTask();return;endif;
+				SetUnStoppable(true);
+				pxActor^.AnimAction("destroy_vehicle");  // teslas vehicle destroy animation
+				m_sState = "destroy";
+			elseif(m_sState == "destroy")then
+				SetUnStoppable(false);
+//				pxVictim^.TakeDirectMeleeDmg(999999.9,pxActor^.GetOwner(),m_xActor);
+				if(pxVictim^.GetType()=="BLDG")then
+					pxVictim^.SetIncapacitated(40.0f);
+				else
+					pxVictim^.OneHitKilling(pxActor^.GetOwner(),m_xActor);
+				endif;
+				m_sState = "EndTask";
+				pxActor^.ReturnToFight();
+				return;
+			elseif(m_sState == "EndTask") then
+				EndTask();
+			endif;
+		else
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc bool Break()
+		if(GetUnStoppable())then
+			return false;
+		endif;
+		if (m_xActor.IsValid()) then
+			m_xActor.GetObj()^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+	
+	export proc void Skip()
+	endproc;
+	
+	proc bool Check(ref real p_rfDist)
+		var ^CFightingObj pxActor = cast<CFightingObj>(m_xActor.GetObj());
+		var ^CFightingObj pxVictim = cast<CFightingObj>(m_xVictim.GetObj());
+		if(pxActor!=null && pxVictim!=null)then
+			var ^CVehicle pxV = cast<CVehicle>(pxVictim);
+			if((pxV!=null&&!pxV^.IsFlyingUnit()))then return true; endif;
+			if(pxVictim^.GetType()=="BLDG")then p_rfDist=16.0f; return true; endif;
+		endif;
+		return false;
+	endproc;
+	
+	export proc void EndTask()
+		UpdateAggressionPos(m_xActor);
+		super.EndTask();
+	endproc;
+
+endclass;

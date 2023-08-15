@@ -1,0 +1,156 @@
+class CCharacterBash inherit CActionTask
+
+	var CObjHndl		m_xActor;
+	var string			m_sState;
+	var string			m_sAnim;
+	var real				m_fRange;
+	var real				m_fTimeOffset;
+	var real				m_fTime;
+	var real				m_fAnimLength;
+	var bool				m_bSkipVis;
+	
+	export constructor()
+		SetName("ChtrBash");
+		m_bSkipVis=false;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="ChBa";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,3);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xActor.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_sAnim;
+		(pxArc^) << m_fRange;
+		(pxArc^) << m_fTimeOffset;
+		(pxArc^) << m_fTime;
+		(pxArc^) << m_fAnimLength;
+		(pxArc^) << m_bSkipVis;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="ChBa")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			if(p_pxReaderNode^.GetVersion()>=1)then
+				m_xActor.DoKArc(pxArc^);
+				(pxArc^) << m_sState;
+				(pxArc^) << m_sAnim;
+			endif;
+			if(p_pxReaderNode^.GetVersion()>=2)then
+				(pxArc^) << m_fRange;
+				(pxArc^) << m_fTimeOffset;
+				(pxArc^) << m_fTime;
+				(pxArc^) << m_fAnimLength;
+			endif;
+			if(p_pxReaderNode^.GetVersion()>=3)then
+				(pxArc^) << m_bSkipVis;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xActor, string p_sAnim, real p_fRange, real p_fTimeOffset, real p_fTime, string p_sPath, bool p_bSkipVis)
+		m_sState="start_anim";
+		if(!p_xActor.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xActor = p_xActor;
+		m_sAnim = p_sAnim;
+		if(p_fRange>0.0)then
+			m_fRange = p_fRange;
+		else
+			m_fRange=5.0;
+		endif;
+		m_fTimeOffset = p_fTimeOffset;
+		m_fTime = p_fTime;
+		m_bSkipVis=p_bSkipVis;
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(p_xActor, p_sPath, true);
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxActor = cast<CCharacter>(m_xActor.GetObj());
+		if(pxActor==null)then EndTask(); return; endif;
+		if(m_sState == "start_anim")then
+			if(!StartSpecialActionTimer(pxActor, m_bSkipVis))then
+				m_sState=="EndTask";
+				EndTask();
+				return;
+			endif;
+			pxActor^.MemorizeCurrentFightState(CObjHndl.Invalid(),false,false);
+			pxActor^.SetAnim(m_sAnim,1);
+			m_fAnimLength=pxActor^.GetCurrentAnimLength();
+			pxActor^.WaitAction(m_fTimeOffset);
+			m_sState = "calc_dmg";
+		elseif(m_sState == "calc_dmg")then
+			//calc
+			var int iOwner = pxActor^.GetOwner();
+			if(iOwner>=0)then
+				if(m_fRange<=0.0)then
+					m_fRange=5.0;
+				endif;
+				var real fDmg = pxActor^.GetDmg();
+				var CObjList xList;
+				var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
+				if(pxEnemies==null) then return; endif;
+				pxEnemies^.CopySorted(xList, pxActor^.GetPos(), m_fRange);
+				var int i, iC = xList.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CCharacter pxChar = cast<CCharacter>(xList[i].GetObj());
+					if(pxChar!=null && !pxChar^.GetTransportObj().IsValid() && !pxChar^.GetOnWall())then
+						var real fDiffTime=(((Random.GetInt()%100).ToReal())/100.0f) * m_fTime;
+						var real fDiffDistance=(Random.GetInt()%40).ToReal()/10.0;
+						var vec3 vDir = (pxChar^.GetPos() - pxActor^.GetPos());
+						vDir.Normalize();
+						vDir.SetZ(vDir.GetZ()+0.5);
+						vDir.Normalize();
+						pxChar^.SetHitReactionTimer(0.1+fDiffTime,vDir*(1.0f+fDiffDistance));
+					endif;
+				endfor;
+				var ^CAreaDamage pxDmg = new CAreaDamage(m_fRange, fDmg, fDmg, pxActor^.GetOwner(), pxActor^.GetPos());
+			endif;
+			if(m_fAnimLength>m_fTimeOffset)then
+				pxActor^.WaitAction(m_fAnimLength-m_fTimeOffset);
+			endif;
+			m_sState = "finished";
+		elseif(m_sState == "finished")then
+			m_sState="EndTask";
+			pxActor^.ReturnToFight();
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc void EndTask()
+		SetPrepareActionPath(m_xActor, GetSpecialActionPath(), false);
+		super.EndTask();
+	endproc;
+	
+	export proc bool OnActionEnd(bool p_bBroken)
+		return false;
+	endproc;
+
+	export proc bool Break()
+		return false;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+endclass;

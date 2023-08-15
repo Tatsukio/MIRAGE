@@ -1,0 +1,710 @@
+class CHostListEntry inherit CWindow
+	
+	export constructor(int p_iNumPlayers,string p_sMapName)
+		InitFromResource("UI/LevelSettingsPage","HostListEntry");
+		var ^CStaticCtrl pxNumPlayers= cast<CStaticCtrl>(GetControl("NumPlayers"));
+		var ^CStaticCtrl pxMapName= cast<CStaticCtrl>(GetControl("MapName"));
+		var color xCustomMapCol = {{ 55,255,155,255 }};
+		var color xMulticampMapCol = {{ 238,187,119,255 }};
+		pxNumPlayers^.SetText(p_iNumPlayers.ToString());
+		
+		pxMapName^.SetText(p_sMapName);
+		if(p_sMapName.Find("[CUSTOM]") != -1) then
+			pxMapName^.SetTextColor(xCustomMapCol);
+		elseif(p_sMapName.Find(": ") != -1) then
+			pxMapName^.SetTextColor(xMulticampMapCol);
+			pxMapName^.SetText(p_sMapName + " [COOP]");
+		endif;
+	endconstructor;
+	
+endclass;
+
+class CMapListWindow inherit CFrameWindow
+	
+	export proc bool UpdateGameInfoWindow()
+		return true;
+	endproc;
+	
+endclass;
+
+class CLevelSettingsPage inherit CWindow
+	var ^CMapListWindow		m_pxOwner;
+	var CMapInfoList			m_xMapInfoList;
+	var ^CList						m_pxHostMapList;
+	var ^CEdit						m_pxGameName;
+	var ^CEdit						m_pxPassword;
+	var ^CEdit						m_pxPort;
+	var ^CDropList				m_pxGameType;
+	var ^CDropList				m_pxMaxPlayers;
+	var ^CDropList				m_pxTeams;
+	var ^CDropList				m_pxPoints;
+	var ^CCheckBox				m_pxDisableWarpgate;
+	var ^CCheckBox				m_pxDisableFOW;
+	var ^CCheckBox				m_pxLockDiplomacy;
+	var ^CCheckBox				m_pxAllowHandicap;
+	var ^CCheckBox				m_pxChooseHQ;
+	var ^CCheckBox				m_pxChooseColor;
+	var ^CSpinCtrlNumber	m_pxDefenderTimer;
+	var ^CStaticCtrl			m_pxDefenderTimerStat;
+	
+	export constructor()
+		//System.Assert(false,"invalid constructor");
+	endconstructor;
+	
+	export constructor(^CMapListWindow p_pxOwner,bool p_bShowPassword)
+		Init(p_pxOwner,p_bShowPassword);
+	endconstructor;
+	
+	export proc void Init(^CMapListWindow p_pxOwner,bool p_bShowPassword)
+		if(!InitFromResource("UI/LevelSettingsPage","LevelSettingsPage"))then
+			KLog.LogError("CLevelSettingsPage","InitFromResource failed");
+			return;
+		endif;
+		m_pxOwner=p_pxOwner;
+		var string sDir=CClientWrap.GetUrsRelPath()+"/Data/Base/Maps/Multiplayer/";
+		CGameWrap.GetMapInfoList(sDir,m_xMapInfoList,200,200);
+		
+		m_pxHostMapList=cast<CList>(GetControl("MapList"));
+		var string sUserName;
+		var ^CUserProfile pxUP=CClientWrap.GetUserProfileList().GetCurrentProfile();
+		if(pxUP!=null)then
+			sUserName=pxUP^.GetUserName();
+		endif;
+		if(sUserName.IsEmpty())then
+			sUserName=Windows.GetUserName();
+			CSettings.Set("Game/PlayerName",sUserName);
+		endif;
+		
+		m_pxGameName=cast<CEdit>(GetControl("NameEdit"));
+		var string sDefGameName=CUIMgr.GetLocalizedNewstickerMsg("_UI_GamLWind_Tab_GameOf\t"+sUserName);
+		var string sGameName=CClientWrap.GetUserProfileValue("Multiplayer/GameName",sDefGameName);
+		m_pxGameName^.SetText(sGameName);
+		m_pxGameName^.m_xOnUpdate=OnChangeName;
+		
+		//GAMETYPE
+		m_pxGameType=cast<CDropList>(GetControl("GameTypeDropList"));
+		m_pxGameType^.AddItem(CLocalizer.Get().Translate("_GAMETYPE_Deathmatch"),new CItemDataString("deathmatch"));
+		m_pxGameType^.AddItem(CLocalizer.Get().Translate("_GAMETYPE_KingOfTheHill"),new CItemDataString("domination"));
+		m_pxGameType^.AddItem(CLocalizer.Get().Translate("_GAMETYPE_Defender"),new CItemDataString("defender"));
+		var int iGameType=CClientWrap.GetUserProfileValueI("Multiplayer/GameType",0);
+		m_pxGameType^.Select(iGameType);
+		m_pxGameType^.m_xOnChange=OnChangeGameType;
+		
+		m_pxDefenderTimer=cast<CSpinCtrlNumber>(GetControl("DefenderTimer"));
+		m_pxDefenderTimerStat=cast<CStaticCtrl>(GetControl("TimerStatic"));
+		m_pxDefenderTimerStat^.SetTextLineBreak(true);
+		var int iTimerValue=CClientWrap.GetUserProfileValueI("Multiplayer/DefenderTimer",45);
+		m_pxDefenderTimer^.SetValue(iTimerValue);
+		m_pxDefenderTimer^.m_xOnChange=OnChangeDefenderTimer;
+		m_pxDefenderTimer^.SetEditable(true);
+		m_pxDefenderTimer^.SetLimits(5,300,5);
+		
+		//PASSWORD
+		m_pxPassword=cast<CEdit>(GetControl("PasswordEdit"));
+		var string sPassword=CClientWrap.GetUserProfileValue("Multiplayer/Password","");
+		m_pxPassword^.SetText(sPassword);
+		m_pxPassword^.m_xOnUpdate=OnChangePassword;
+		
+		var ^CStaticCtrl pxPasswordStatic=cast<CStaticCtrl>(GetControl("PasswordStatic"));
+		m_pxPassword^.SetVisible(p_bShowPassword);
+		pxPasswordStatic^.SetVisible(p_bShowPassword);
+		
+		//PORT
+		m_pxPort=cast<CEdit>(GetControl("PortEdit"));
+		var string sPort=CClientWrap.GetUserProfileValue("Multiplayer/Port","1905");
+		m_pxPort^.SetText(sPort);
+		m_pxPort^.SetTextLimit(5);
+		m_pxPort^.SetVisible(false);
+		m_pxPort^.m_xOnChange=OnChangePort;
+		m_pxPort^.m_xOnUpdate=OnUpdatePort;
+		
+		var ^CStaticCtrl pxPortStatic=cast<CStaticCtrl>(GetControl("PortStatic"));
+		pxPortStatic^.SetVisible(false);
+
+		if(!CGameWrap.IsGameSpyGame() && p_bShowPassword)then
+			m_pxPort^.SetVisible(true);
+			pxPortStatic^.SetVisible(true);
+		endif;
+		
+		if(CMultiPlayerClientMgr.Get().GetSkirmishMode())then
+			var ^CStaticCtrl pxGameNameStatic=cast<CStaticCtrl>(GetControl("NameStatic"));
+			pxGameNameStatic^.SetVisible(false);
+			m_pxGameName^.SetVisible(false);
+			m_pxPort^.SetVisible(false);
+			pxPortStatic^.SetVisible(false);
+			m_pxPassword^.SetVisible(false);
+			pxPasswordStatic^.SetVisible(false);
+		endif;
+
+		//ALLOW CHANGE HQ
+		m_pxChooseHQ=cast<CCheckBox>(GetControl("ChooseHQ"));
+		var int iChooseHQ=CClientWrap.GetUserProfileValueI("Multiplayer/ChooseHQ",0);
+		m_pxChooseHQ^.SetChecked(iChooseHQ);
+		m_pxChooseHQ^.m_xOnStateChange=OnChangeChooseHQ;
+		
+		//ALLOW CHANGE COLOR
+		m_pxChooseColor=cast<CCheckBox>(GetControl("ChooseColor"));
+		var int iChooseColor=CClientWrap.GetUserProfileValueI("Multiplayer/ChooseColor",0);
+		m_pxChooseColor^.SetChecked(iChooseColor);
+		m_pxChooseColor^.m_xOnStateChange=OnChangeChooseColor;
+		
+		//NUMPLAYER
+		//---------------noch nicht fertig----------------
+		m_pxMaxPlayers=cast<CDropList>(GetControl("PlayersDropList"));
+		var int iNumPlayers=CClientWrap.GetUserProfileValueI("Multiplayer/NumPlayers",2);
+		var int i,iC=8;
+		var int iMinPlayers=2;
+		if(CMultiPlayerClientMgr.Get().GetSkirmishMode())then
+			iMinPlayers=1;
+		endif;
+		for(i=(iMinPlayers-1))cond(i<iC)iter(i++)do
+			m_pxMaxPlayers^.AddItem((i+1).ToString());
+		endfor;
+		var int iIdx=Math.Max(m_pxMaxPlayers^.FindItem(iNumPlayers.ToString()),0);
+		m_pxMaxPlayers^.Select(iIdx);
+		m_pxMaxPlayers^.m_xOnChange=OnChangePlayers;
+		CMultiPlayerClientMgr.Get().SetNumPlayers(iNumPlayers);
+		//-------------------------------
+		
+		//NUMTEAMS
+		m_pxTeams=cast<CDropList>(GetControl("TeamsDropList"));
+		m_pxTeams^.m_xOnChange=OnChangeTeams;
+		
+		//LOCKDIPLOMACYSETTINGS
+		m_pxLockDiplomacy=cast<CCheckBox>(GetControl("LockDiplomacy"));
+		var int iLockDiplomacy=CClientWrap.GetUserProfileValueI("Multiplayer/LockDiplomacy",0);
+		if(iGameType==1)then
+			m_pxLockDiplomacy^.SetChecked(1);
+			m_pxLockDiplomacy^.SetDisabled(true);
+		else
+			m_pxLockDiplomacy^.SetChecked(iLockDiplomacy);
+		endif;
+		m_pxLockDiplomacy^.m_xOnStateChange=OnChangeLockDiplomacy;
+		var CConfig xConf;
+		xConf.SetB("Server/GameplayOptions/DiploLocked",m_pxLockDiplomacy^.GetCheckMark());
+		OnChangePlayers();//WT#1315
+		//CheckNumTeams(iNumPlayers);
+		OnChangeTeams();
+		//POINTS
+		m_pxPoints=cast<CDropList>(GetControl("PointsDropList"));
+		m_pxPoints^.AddItem(CLocalizer.Get().Translate("_LOCKED_STANDARD_PRESET"),new CItemDataInt(-1));
+		m_pxPoints^.AddItem("1000",new CItemDataInt(1000));
+		m_pxPoints^.AddItem("3000",new CItemDataInt(3000));
+		m_pxPoints^.AddItem("10000",new CItemDataInt(10000));
+		m_pxPoints^.AddItem("100000",new CItemDataInt(100000));
+		m_pxPoints^.AddItem("1000000",new CItemDataInt(1000000));
+		var int iCredits=CClientWrap.GetUserProfileValueI("Multiplayer/Credits",-1);
+		if(iCredits!=1000&&iCredits!=3000&&iCredits!=10000&&iCredits!=100000&&iCredits!=1000000&&iCredits!=-1)then
+			iCredits==-1;
+			CClientWrap.SetUserProfileValue("Multiplayer/Credits",iCredits);
+		endif;
+		begin Select_Points;
+			var int iItemIdx=-1;
+			var int i,iC=m_pxPoints^.NumItems();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CItemDataInt pxData=cast<CItemDataInt>(m_pxPoints^.GetItemData(i));
+				if(pxData!=null)then
+					if(pxData^.m_iData==iCredits)then
+						iItemIdx=i;
+						break;
+					endif;
+				endif;
+			endfor;
+			m_pxPoints^.Select(Math.Max(iItemIdx,0));
+		end Select_Points;
+		m_pxPoints^.m_xOnChange=OnChangePoints;
+		
+		//DISABLEWARPGATE
+		m_pxDisableWarpgate=cast<CCheckBox>(GetControl("DisableWarpgate"));
+		var int iDisableWarpgate=CClientWrap.GetUserProfileValueI("Multiplayer/DisableWarpgate",-1);
+		if(iDisableWarpgate==0||iDisableWarpgate==1)then
+			m_pxDisableWarpgate^.SetChecked(iDisableWarpgate);
+		else
+			if(iGameType==0)then
+				m_pxDisableWarpgate^.SetChecked(0);
+			else
+				m_pxDisableWarpgate^.SetChecked(1);
+			endif;
+		endif;
+		m_pxDisableWarpgate^.m_xOnStateChange=OnChangeDisableWarpgate;
+		CClientWrap.SetUserProfileValue("Multiplayer/DisableWarpgate",m_pxDisableWarpgate^.GetChecked());
+		
+		//DISABLEFOW
+		m_pxDisableFOW=cast<CCheckBox>(GetControl("DisableFOW"));
+		var int iDisableFOW=CClientWrap.GetUserProfileValueI("Multiplayer/DisableFOW",0);
+		m_pxDisableFOW^.SetChecked(iDisableFOW);
+		m_pxDisableFOW^.m_xOnStateChange=OnChangeDisableFOW;
+		
+		//ALLOWPLAYERHANDICAP
+		m_pxAllowHandicap=cast<CCheckBox>(GetControl("AllowHandicap"));
+		var int iAllowHandicap=CClientWrap.GetUserProfileValueI("Multiplayer/AllowHandicap",0);
+		m_pxAllowHandicap^.SetChecked(iAllowHandicap);
+		m_pxAllowHandicap^.m_xOnStateChange=OnChangeAllowHandicap;
+		
+		//m_pxDisableWarpgate^.SetDisabled(iGameType==2); // commented out WT1221 bzw. CR140
+		m_pxDefenderTimer^.SetDisabled(iGameType!=2);
+		m_pxDefenderTimerStat^.SetDisabled(iGameType!=2);
+		
+		//MAPS
+		ReloadHostMapList();
+		
+		OnChangeGameType();
+		
+	endproc;
+	
+	export destructor()
+		ClearHostMapList();
+	enddestructor;
+	
+	proc bool ClearHostMapList()
+		if(m_pxHostMapList!=null)then
+			m_pxHostMapList^.m_xOnSelect.Clear();
+			var int i,iC=m_pxHostMapList^.NumItems();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CWindow pxWnd=m_pxHostMapList^.GetItemWindow(i);
+				if(pxWnd!=null)then
+					pxWnd^.Destroy();
+				endif;
+				var ^CItemData pxItemData=m_pxHostMapList^.GetItemData(i);
+				delete pxItemData;
+			endfor;
+			m_pxHostMapList^.Clear();
+		endif;
+		return(true);
+	endproc;
+		
+	proc void ReloadHostMapList()
+		var string sSelectedMap=CClientWrap.GetUserProfileValue("Multiplayer/LastSelectedMap","");
+		var int iPlayers=m_pxMaxPlayers^.GetSelectedItemAsString().ToInt();
+		var int iGameType=m_pxGameType^.GetSelectedItem();
+		var int iTeams=m_pxTeams^.GetSelectedItemAsString().ToInt();
+		m_pxHostMapList^.m_xOnSelect.Clear();
+		ClearHostMapList();
+		var int i,iC=m_xMapInfoList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CMapInfoList.CMapInfo pxMapInfo=^(m_xMapInfoList.GetMapInfo(i));
+//			CMirageClnMgr.DumpMapInfo(pxMapInfo);
+			if(pxMapInfo^.GetMaxPlayers()< iPlayers)then continue; endif;
+			if(!CMirageClnMgr.AllowMap(pxMapInfo,iPlayers))then continue; endif;
+			var string sGameType=pxMapInfo^.GetGameType();
+			if(iGameType==0)then
+				if(sGameType.Find("Deathmatch")==-1)then
+					continue;
+				endif;
+			elseif(iGameType==1)then
+				if(sGameType.Find("Domination")==-1 && sGameType.Find("KingOfTheHill")==-1)then
+					continue;
+				endif;
+			elseif(iGameType==2)then
+				if(sGameType.Find("Defender")==-1)then
+					continue;
+				endif;
+			endif;
+			var int iMaxPlayers=pxMapInfo^.GetMaxPlayers();
+			var string sMapName=CLocalizer.Get().Translate(pxMapInfo^.GetMapName());
+			var string sSortText=iMaxPlayers.ToString()+sMapName;//temporär nur zum sortieren
+			var int iIdx=m_pxHostMapList^.AddItem(sSortText,new CHostListEntry(iMaxPlayers,sMapName));
+			var string sCheckSumme=pxMapInfo^.GetLevelInfo().GetLevelCheckSumme();
+			m_pxHostMapList^.SetItemData(iIdx,new CItemDataString(sCheckSumme));
+		endfor;
+		m_pxHostMapList^.QSort();
+		var int iSelIdx=-1;
+		iC=m_pxHostMapList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CItemDataString pxItemData=cast<CItemDataString>(m_pxHostMapList^.GetItemData(i));
+			if(pxItemData!=null)then
+				if(pxItemData^.m_sData==sSelectedMap)then
+					iSelIdx=i;
+				endif;
+			endif;
+			m_pxHostMapList^.SetItemText(i,"");
+		endfor;
+		m_pxHostMapList^.m_xOnSelect=OnSelectMap;
+		if(iSelIdx==-1)then
+			iSelIdx=0;
+		endif;
+		m_pxHostMapList^.Select(iSelIdx);
+	endproc;
+	
+	export proc bool OnChangeGameType()
+		var int iGameType=m_pxGameType^.GetSelectedItem();
+		if(iGameType==0)then
+			if(CClientWrap.GetUserProfileValueI("Multiplayer/GameType",iGameType)!=iGameType)then;
+				m_pxDisableWarpgate^.SetChecked(0);
+				m_pxLockDiplomacy^.SetChecked(0);
+				m_pxChooseHQ^.SetChecked(0);
+			endif;
+			m_pxDisableWarpgate^.SetDisabled(false);
+			m_pxLockDiplomacy^.SetDisabled(false);
+			m_pxChooseHQ^.SetDisabled(false);
+		elseif(iGameType==1)then
+			if(CClientWrap.GetUserProfileValueI("Multiplayer/GameType",iGameType)!=iGameType)then;
+				m_pxDisableWarpgate^.SetChecked(1);
+				m_pxChooseHQ^.SetChecked(0);
+			endif;
+			m_pxLockDiplomacy^.SetChecked(1);
+			m_pxDisableWarpgate^.SetDisabled(false);
+			m_pxLockDiplomacy^.SetDisabled(true);
+			m_pxChooseHQ^.SetDisabled(false);
+		elseif(iGameType==2)then
+			if(CClientWrap.GetUserProfileValueI("Multiplayer/GameType",iGameType)!=iGameType)then;
+				m_pxDisableWarpgate^.SetChecked(1);
+			endif;
+			m_pxLockDiplomacy^.SetChecked(1);
+			m_pxChooseHQ^.SetChecked(1);
+			m_pxDisableWarpgate^.SetDisabled(false);
+			m_pxLockDiplomacy^.SetDisabled(true);
+			m_pxChooseHQ^.SetDisabled(true);
+		endif;
+		CClientWrap.SetUserProfileValue("Multiplayer/GameType",iGameType);
+		CClientWrap.SetUserProfileValue("Multiplayer/DisableWarpgate",m_pxDisableWarpgate^.GetChecked());
+		CClientWrap.SetUserProfileValue("Multiplayer/LockDiplomacy",m_pxLockDiplomacy^.GetChecked());
+		CClientWrap.SetUserProfileValue("Multiplayer/ChooseHQ",m_pxChooseHQ^.GetChecked());
+		CClientWrap.SetUserProfileValue("Multiplayer/ChooseColor",m_pxChooseColor^.GetChecked());
+		m_pxDefenderTimer^.SetDisabled(iGameType!=2);
+		m_pxDefenderTimerStat^.SetDisabled(iGameType!=2);
+		var CConfig xConf;
+		xConf.SetB("Server/GameplayOptions/DiploLocked",m_pxLockDiplomacy^.GetCheckMark());
+		ReloadHostMapList();
+		OnSelectMap();
+		return true;
+	endproc;
+	
+	export proc bool OnChangeDefenderTimer()
+		var int iValue=m_pxDefenderTimer^.GetValueInt();
+		CClientWrap.SetUserProfileValue("Multiplayer/DefenderTimer",iValue);
+		return true;
+	endproc;
+	
+	export proc bool OnChangeName()
+		CClientWrap.SetUserProfileValue("Multiplayer/GameName",m_pxGameName^.GetText());
+		return true;
+	endproc;
+	
+	export proc bool OnChangePassword()
+		CClientWrap.SetUserProfileValue("Multiplayer/Password",m_pxPassword^.GetText());
+		return true;
+	endproc;
+
+	export proc bool OnChangePort()
+		var string sPort=m_pxPort^.GetText();
+		var int iLength=sPort.GetLength();
+		if(iLength>0)then
+			if(sPort.GetAt(iLength-1)!='0' && sPort.GetAt(iLength-1)!='1' && sPort.GetAt(iLength-1)!='2' && sPort.GetAt(iLength-1)!='3' && sPort.GetAt(iLength-1)!='4' && sPort.GetAt(iLength-1)!='5' && sPort.GetAt(iLength-1)!='6' && sPort.GetAt(iLength-1)!='7' && sPort.GetAt(iLength-1)!='8' && sPort.GetAt(iLength-1)!='9')then
+				sPort.Delete(iLength-1);
+				m_pxPort^.SetText(sPort);
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool OnUpdatePort()
+		var string sPort=m_pxPort^.GetText();
+		var int iPort=sPort.ToInt();
+		if(iPort>=1024 && iPort <= 65535)then
+		else
+			iPort=1905;
+		endif;
+		CClientWrap.SetUserProfileValue("Multiplayer/Port",iPort);
+		m_pxPort^.SetText(iPort.ToString());
+		return true;
+	endproc;
+	
+	export proc bool OnChangeChooseHQ()
+		CClientWrap.SetUserProfileValue("Multiplayer/ChooseHQ",m_pxChooseHQ^.GetChecked());
+		return true;
+	endproc;
+	
+	export proc bool OnChangeChooseColor()
+		CClientWrap.SetUserProfileValue("Multiplayer/ChooseColor",m_pxChooseColor^.GetChecked());
+		return true;
+	endproc;
+	
+	export proc bool OnChangeDisableWarpgate()
+		CClientWrap.SetUserProfileValue("Multiplayer/DisableWarpgate",m_pxDisableWarpgate^.GetChecked());		
+		return true;
+	endproc;
+	
+	export proc bool OnChangeDisableFOW()
+		CClientWrap.SetUserProfileValue("Multiplayer/DisableFOW",m_pxDisableFOW^.GetChecked());		
+		return true;
+	endproc;
+		
+	export proc bool OnChangeLockDiplomacy()
+		CClientWrap.SetUserProfileValue("Multiplayer/LockDiplomacy",m_pxLockDiplomacy^.GetChecked());
+		var CConfig xConf;
+		xConf.SetB("Server/GameplayOptions/DiploLocked",m_pxLockDiplomacy^.GetCheckMark());
+		var int iPlayers=m_pxMaxPlayers^.GetSelectedItemAsString().ToInt();
+		CheckNumTeams(iPlayers);
+		return true;
+	endproc;
+	
+	export proc bool OnChangeAllowHandicap()
+		CClientWrap.SetUserProfileValue("Multiplayer/AllowHandicap",m_pxAllowHandicap^.GetChecked());
+		return true;
+	endproc;
+	
+	export proc bool OnChangeTeams()
+		var int iTeams=m_pxTeams^.GetSelectedItemAsString().ToInt();
+		CClientWrap.SetUserProfileValue("Multiplayer/NumTeams",iTeams);		
+		ReloadHostMapList();
+		m_pxLockDiplomacy^.SetDisabled(iTeams==1);
+		return true;
+	endproc;
+	
+	export proc bool OnChangePoints()
+		var int iCredits=-1;
+		var int iSelItemIdx=m_pxPoints^.GetSelectedItem();
+		if(iSelItemIdx!=-1)then
+			var ^CItemDataInt pxItemData=cast<CItemDataInt>(m_pxPoints^.GetItemData(iSelItemIdx));
+			if(pxItemData!=null)then
+				iCredits=pxItemData^.m_iData;
+			endif;
+		endif;
+		CClientWrap.SetUserProfileValue("Multiplayer/Credits",iCredits);
+		return(true);
+	endproc;
+
+	export proc bool OnChangePlayers()
+		var int iPlayers=m_pxMaxPlayers^.GetSelectedItemAsString().ToInt();
+		CClientWrap.SetUserProfileValue("Multiplayer/NumPlayers",iPlayers);
+		ReloadHostMapList();
+		CheckNumTeams(iPlayers);
+		return true;
+	endproc;
+	
+	proc void CheckNumTeams(int p_iMaxTeams)
+		var int iNumItems=m_pxTeams^.NumItems();
+		//if(iNumItems!=p_iMaxTeams)then
+			var int iNumTeams=CClientWrap.GetUserProfileValueI("Multiplayer/NumTeams",2);
+			m_pxTeams^.m_xOnChange.Clear();
+			m_pxTeams^.Clear();
+			var int i,iC=p_iMaxTeams;
+			var int iMinTeams=0;
+			if(m_pxLockDiplomacy^.GetCheckMark())then
+				iMinTeams=1;
+			endif;
+			for(i=iMinTeams)cond(i<iC)iter(i++)do
+				m_pxTeams^.AddItem((i+1).ToString());
+			endfor;
+			m_pxTeams^.m_xOnChange=OnChangeTeams;
+			var int iItemIdx=m_pxTeams^.FindItem(iNumTeams.ToString());
+			if(iItemIdx==-1)then
+				iItemIdx=p_iMaxTeams-1;
+			endif;
+			m_pxTeams^.Select(iItemIdx);
+		//endif;
+	endproc;
+	
+	export proc bool OnSelectMap()
+		var string sLevelCheckSumme;
+		if(m_pxHostMapList!=null)then
+			sLevelCheckSumme=GetSelectedLevelCheckSumme();
+		endif;
+		CClientWrap.SetUserProfileValue("Multiplayer/LastSelectedMap",sLevelCheckSumme);
+		var string sTmp=CClientWrap.GetUserProfileValue("Multiplayer/LastSelectedMap","");
+		m_pxOwner^.UpdateGameInfoWindow();
+		return(true);
+	endproc;
+	
+	export proc string GetSelectedLevelCheckSumme()
+		var int iIndex=m_pxHostMapList^.GetSelectedItem();
+		if(iIndex != -1)then
+			var ^CItemDataString pxItemData=cast<CItemDataString>(m_pxHostMapList^.GetItemData(iIndex));
+			if(pxItemData!=null)then
+				return pxItemData^.m_sData;
+			endif;
+		endif;
+		return "";
+	endproc;
+endclass;
+
+class CLevelSettingsPageHost inherit CLevelSettingsPage
+	
+	export constructor()
+		//System.Assert(false,"invalid constructor");
+	endconstructor;
+	
+	export constructor(^CMapListWindow p_pxOwner,bool p_bShowPassword)
+		Init(p_pxOwner,p_bShowPassword);
+		OnSelectMap();
+		CGameWrap.GetGame().SetAttrib("Password",CClientWrap.GetUserProfileValue("Multiplayer/Password",""));
+		CGameWrap.GetGame().SetAttrib("GameType",CClientWrap.GetUserProfileValueI("Multiplayer/GameType",0));
+		CGameWrap.GetGame().SetAttrib("DefenderTimer",CClientWrap.GetUserProfileValueI("Multiplayer/DefenderTimer",10));
+		CGameWrap.GetGame().SetAttrib("GameName",CClientWrap.GetUserProfileValue("Multiplayer/GameName",""));
+		CGameWrap.GetGame().SetAttrib("ChooseHQ",CClientWrap.GetUserProfileValueI("Multiplayer/ChooseHQ",0)!=0);
+//		CGameWrap.GetGame().SetAttrib("ChooseColor",CClientWrap.GetUserProfileValueI("Multiplayer/ChooseColor",0)!=0);
+		CGameWrap.GetGame().SetAttrib("RandomColor",CClientWrap.GetUserProfileValueI("Multiplayer/ChooseColor",0)==0);
+		CGameWrap.GetGame().SetAttrib("DimGateForbidden",CClientWrap.GetUserProfileValueI("Multiplayer/DisableWarpgate",0)!=0);
+		CGameWrap.GetGame().SetAttrib("FOWEnabled",CClientWrap.GetUserProfileValueI("Multiplayer/DisableFOW",0)==0);
+		CGameWrap.GetGame().SetAttrib("DiplomacyLocked",CClientWrap.GetUserProfileValueI("Multiplayer/LockDiplomacy",0)!=0);
+		CGameWrap.GetGame().SetAttrib("AllowHandicap",CClientWrap.GetUserProfileValueI("Multiplayer/AllowHandicap",0)!=0);
+		CGameWrap.GetGame().SetAttrib("NumTeams",CClientWrap.GetUserProfileValueI("Multiplayer/NumTeams",2));
+		CGameWrap.GetGame().SetAttrib("Credits",CClientWrap.GetUserProfileValueI("Multiplayer/Credits",-1));
+		var int iNumPlayers=CClientWrap.GetUserProfileValueI("Multiplayer/NumPlayers",2);
+		CGameWrap.GetClient().GetLevelPreview().SetNumPlayers(iNumPlayers);
+		CMultiPlayerClientMgr.Get().SetNumPlayers(iNumPlayers);
+	endconstructor;
+	
+	proc bool OnSelectMap()
+		super.OnSelectMap();
+		var int iIndex=m_pxHostMapList^.GetSelectedItem();
+		if(iIndex!=-1)then
+			var ^CItemDataString pxItemData=cast<CItemDataString>(m_pxHostMapList^.GetItemData(iIndex));
+			if(pxItemData!=null)then
+				var string sLevelCheckSumme=pxItemData^.m_sData;
+				var ^CMapInfoList.CMapInfo pxMapInfo=m_xMapInfoList.GetMapInfo_CheckSumme(sLevelCheckSumme);
+				if(pxMapInfo!=null)then
+					//var string sPath=CClientWrap.GetUrsRelPath()+"/Data/Base/Maps/Multiplayer/"+pxMapInfo^.GetFile();
+					CUIStateMgr.Get().SetLoadScreenInfo(CUIStateMgr.CLoadScreenInfo.LOADSCR_MULTIPLAYER,pxMapInfo^.GetMapName(),pxMapInfo^.GetLevelInfo().GetLevelCheckSumme());
+					var string sPath=pxMapInfo^.GetFile();
+					sPath.Replace("/BoosterPack1/","/Base/"); // Henry: on dedicated server the maps from Boosterpack and Mirage were unusable without this
+					sPath.Replace("/MIRAGE/","/Base/");
+					CEvt_LoadLevelPreview.Send(sPath);
+					CUIStateMgr.Get().SetSelectedMapFile(sPath);
+				endif;
+			endif;
+		else
+			CUIStateMgr.Get().SetSelectedMapFile("");
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnChangeGameType()
+		super.OnChangeGameType();
+		var int iGameType=m_pxGameType^.GetSelectedItem();
+		CGameWrap.GetGame().SetAttrib("GameType",iGameType);
+		return true;
+	endproc;
+	
+	proc bool OnChangeDefenderTimer()
+		super.OnChangeDefenderTimer();
+		var int iValue=m_pxDefenderTimer^.GetValueInt();
+		CGameWrap.GetGame().SetAttrib("DefenderTimer",iValue);
+		return true;
+	endproc;
+	
+	proc bool OnChangeName()
+		super.OnChangeName();
+		CGameWrap.GetGame().SetAttrib("GameName",m_pxGameName^.GetText());
+		return true;
+	endproc;
+	
+	proc bool OnChangeChooseHQ()
+		super.OnChangeChooseHQ();
+		var int iChecked=m_pxChooseHQ^.GetChecked();
+		CGameWrap.GetGame().SetAttrib("ChooseHQ",iChecked!=0);
+		var int i=0;
+		if(!m_pxChooseHQ^.GetCheckMark())then
+			var ^CLevelInfo pxLevelInfo=CMultiPlayerClientMgr.Get().GetLevelInfo();
+			if(pxLevelInfo!=null)then
+				var CPlayerSlotID xIter;
+				for(xIter=CPlayerSlotID.First())cond(xIter<=CPlayerSlotID.Last())iter(xIter.Incr())do
+					if(xIter.IsValid())then
+						var ^CLevelInfo.CPlayerSlot pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(xIter));
+						if(pxPlayerSlot!=null)then
+							pxPlayerSlot^.SetHeadQuater(i);
+							i++;
+						endif;
+					endif;
+				endfor;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnChangeChooseColor()
+		super.OnChangeChooseColor();
+		var int iChecked=m_pxChooseColor^.GetChecked();
+		CGameWrap.GetGame().SetAttrib("RandomColor",iChecked==0);
+		var int i=0;
+		if(!m_pxChooseColor^.GetCheckMark())then
+			var ^CLevelInfo pxLevelInfo=CMultiPlayerClientMgr.Get().GetLevelInfo();
+			if(pxLevelInfo!=null)then
+				var CPlayerSlotID xIter;
+				for(xIter=CPlayerSlotID.First())cond(xIter<=CPlayerSlotID.Last())iter(xIter.Incr())do
+					if(xIter.IsValid())then
+						var ^CLevelInfo.CPlayerSlot pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(xIter));
+						if(pxPlayerSlot!=null)then
+							pxPlayerSlot^.SetColor(i);
+							i++;
+						endif;
+					endif;
+				endfor;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnChangeDisableWarpgate()
+		super.OnChangeDisableWarpgate();
+		var int iChecked=m_pxDisableWarpgate^.GetChecked();
+		CGameWrap.GetGame().SetAttrib("DimGateForbidden",iChecked!=0);
+		return true;
+	endproc;
+	
+	proc bool OnChangeDisableFOW()
+		super.OnChangeDisableFOW();
+		var int iChecked=m_pxDisableFOW^.GetChecked();
+		CGameWrap.GetGame().SetAttrib("FOWEnabled",iChecked==0);
+		return true;
+	endproc;
+		
+	proc bool OnChangeLockDiplomacy()
+		super.OnChangeLockDiplomacy();
+		var int iChecked=m_pxLockDiplomacy^.GetChecked();
+		CGameWrap.GetGame().SetAttrib("DiplomacyLocked",iChecked!=0);
+		return true;
+	endproc;
+	
+	proc bool OnChangeAllowHandicap()
+		super.OnChangeAllowHandicap();
+		var int iChecked=m_pxAllowHandicap^.GetChecked();
+		CGameWrap.GetGame().SetAttrib("AllowHandicap",iChecked!=0);
+		if(!m_pxAllowHandicap^.GetCheckMark())then
+			var ^CLevelInfo pxLevelInfo=CMultiPlayerClientMgr.Get().GetLevelInfo();
+			if(pxLevelInfo!=null)then
+				var CPlayerSlotID xIter;
+				for(xIter=CPlayerSlotID.First())cond(xIter<=CPlayerSlotID.Last())iter(xIter.Incr())do
+					if(xIter.IsValid())then
+						var ^CLevelInfo.CPlayerSlot pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(xIter));
+						if(pxPlayerSlot!=null)then
+							pxPlayerSlot^.SetHP(100);
+						endif;
+					endif;
+				endfor;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnChangeTeams()
+		super.OnChangeTeams();
+		var int iTeams=m_pxTeams^.GetSelectedItemAsString().ToInt();
+		CGameWrap.GetGame().SetAttrib("NumTeams",iTeams);
+		return true;
+	endproc;
+	
+	proc bool OnChangePoints()
+		super.OnChangePoints();
+		var int iCredits=-1;
+		var int iSelItemIdx=m_pxPoints^.GetSelectedItem();
+		if(iSelItemIdx!=-1)then
+			var ^CItemDataInt pxItemData=cast<CItemDataInt>(m_pxPoints^.GetItemData(iSelItemIdx));
+			if(pxItemData!=null)then
+				iCredits=pxItemData^.m_iData;
+			endif;
+		endif;
+		CGameWrap.GetGame().SetAttrib("Credits",iCredits);
+		return(true);
+	endproc;
+	
+	proc bool OnChangePlayers()
+		super.OnChangePlayers();
+		var int iNumPlayers=m_pxMaxPlayers^.GetSelectedItemAsString().ToInt();
+		CGameWrap.GetClient().GetLevelPreview().SetNumPlayers(iNumPlayers);
+		CMultiPlayerClientMgr.Get().SetNumPlayers(iNumPlayers);
+		return true;
+	endproc;
+	
+endclass;

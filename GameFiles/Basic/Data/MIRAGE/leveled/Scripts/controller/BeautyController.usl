@@ -1,0 +1,132 @@
+class CBeautyController inherit CInputController
+
+	var ^CScapeHeightBrush m_pxTreeBrush;
+	var int m_iState;
+	var CBrush m_xBrush;
+	var bool m_bLBtnDown, m_bRBtnDown;
+	var ^CDesktop m_pxDesktop;
+	var vec3 m_vPrevPos;
+
+	export constructor()
+		m_iState = -1;	// -1 	-> off
+						// 0 	-> paint bushes and trees
+
+		m_bLBtnDown = false;
+		m_bRBtnDown = false;
+
+		m_pxTreeBrush=new CScapeHeightBrush(30,30);
+
+		m_pxDesktop=CClientWrap.GetDesktop();
+		var procref<void> xProcRefRender=OnRender;
+		CClientWrap.SetProcRefRender(xProcRefRender);
+	endconstructor;
+
+	export destructor()
+		delete m_pxTreeBrush;
+	enddestructor;
+
+	export proc bool SetState(int p_iState);
+		m_iState=p_iState;
+		var procref<void> xProcRefRender=OnRender;
+		CClientWrap.SetProcRefRender(xProcRefRender);
+		return(true);
+	endproc;
+
+	export proc bool HandleMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+		CLevelEditorWrap.LogSpam("Controller.Beauty","HandleMsg "+p_dwType.ToString()+" | "+p_iKey.ToString());
+		if(p_dwType==CInputController.MT_MouseLBtnDown)then m_bLBtnDown=true;
+		elseif(p_dwType==CInputController.MT_MouseLBtnUp)then m_bLBtnDown=false;
+		elseif(p_dwType==CInputController.MT_MouseRBtnDown)then m_bRBtnDown=true;
+		elseif(p_dwType==CInputController.MT_MouseRBtnUp)then m_bRBtnDown=false;
+		endif;
+		if(m_bLBtnDown)then
+			switch(m_iState)
+				case (0) do
+					SetBushes();
+				endcase;
+				case default do
+				endcase;
+			endswitch;
+		endif;
+		if(m_bRBtnDown)then
+			switch(m_iState)
+				case (0) do
+//					TerrainDown();
+				endcase;
+				case default do
+				endcase;
+			endswitch;
+		endif;
+		return(true);
+	endproc;
+
+	export proc bool SetBrush(ref CBrush p_rxBrush);
+		m_xBrush=p_rxBrush;
+		delete m_pxTreeBrush;
+		m_pxTreeBrush=new CScapeHeightBrush(p_rxBrush.GetSizeX(),p_rxBrush.GetSizeY());
+		m_pxTreeBrush^.SetBrushType(p_rxBrush.GetForm());
+		m_pxTreeBrush^.SetHeightValue(0.0);
+		m_pxTreeBrush^.SetFalloffWidth(2);
+		m_pxTreeBrush^.SetFalloffType(p_rxBrush.GetFalloffType());
+		return(true);
+	endproc;
+
+	export proc bool ChangeBrushSize(int p_iDelta)
+		var CBrush xTemp;
+		xTemp=m_xBrush;
+		xTemp.SetSizeX(Math.Clamp(xTemp.GetSizeX()+p_iDelta,5,100));
+		xTemp.SetSizeY(Math.Clamp(xTemp.GetSizeX()+p_iDelta,5,100));
+		CLevelEditorWrap.LogSpam("Controller.Beauty","brush: "+xTemp.GetSizeX().ToString()+"x"+xTemp.GetSizeY().ToString());
+		SetBrush(xTemp);
+		return(true);
+	endproc;
+
+	proc bool SetBushes();
+		var vec3 vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		if(vPPoint!={0.0,0.0,0.0})then
+			AddBushes(vPPoint);
+		endif;
+		return(true);
+	endproc;
+
+	proc void AddBushes(vec3 p_vPos)
+		var vec3 vSet;
+		var CGuid xGuid;
+		vSet.SetX(p_vPos.GetX()+Random.MTRandF(-(m_xBrush.GetSizeX()/2).ToReal(),(m_xBrush.GetSizeX()/2).ToReal()));
+		vSet.SetY(p_vPos.GetY()+Random.MTRandF(-(m_xBrush.GetSizeY()/2).ToReal(),(m_xBrush.GetSizeY()/2).ToReal()));
+		vSet.SetZ(CClientWrap.GetScapeMgr().GetHeight(vSet.GetX(),vSet.GetY()));
+		if(vSet!=m_vPrevPos)then
+			var string sClass;
+			var array string asClass;
+			asClass.AddEntry("Bush_1");
+			asClass.AddEntry("Bush_2");
+			asClass.AddEntry("Bush_3");
+			asClass.AddEntry("Shrub_01");
+			asClass.AddEntry("Shrub_01a");
+			asClass.AddEntry("Shrub_02");
+			asClass.AddEntry("Shrub_02b");
+			asClass.AddEntry("Shrub_03");
+			asClass.AddEntry("Shrub_03b");
+			sClass = "Northland_"+asClass[Random.MTRandI()%asClass.NumEntries()];
+			xGuid.Generate();
+			var vec3 vRot = {0.0,0.0,0.0};
+			vRot.SetZ(Random.MTRandF(Math.Pi()*2.0));
+			var Quat qRot;
+			qRot.FromVec3(vRot);
+			CEvt_CreateObj.Send(sClass,(-1),xGuid,vSet);
+			CEvt_SetRot.Send(xGuid,qRot);
+			m_vPrevPos=vSet;
+			//CLevelEditorWrap.LogSpam("Controller.Beauty","neuer Baum an "+vSet.ToString()+" gesetzt");
+		endif;
+	endproc;
+
+	export proc void OnRender()
+		if(m_iState != -1) then
+			//draw HeightBrush
+			if(CWindowMgr.Get().GetHoveredWindow() == m_pxDesktop && (CLevelEditorWrap.GetScapeMgr().GetPickPoint()!={0.0,0.0,0.0})) then
+				CLevelEditorWrap.GetScapeMgr().DrawHeightBrush(CLevelEditorWrap.GetScapeMgr().GetPickPoint(),m_pxTreeBrush,{{90,80,60,128}});
+			endif;
+		endif;
+	endproc;
+
+endclass;

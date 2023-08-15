@@ -1,0 +1,1373 @@
+class CFight inherit CTask
+	
+	var CObjHndl	m_xFighter;
+	var CObjHndl	m_xEnemy;
+	var CObjHndl	m_xLastMinRangeTarget;
+	var CObjList	m_xFailedEnemyList;
+	var CGameTime	m_xActionStart;
+	var CGameTime	m_xLastTick;
+	var CGameTime	m_xLastEvent;
+	
+	var string		m_sState;
+	var string		m_sFoodName;
+	var vec3			m_vFoodPos;
+	var int				m_iFoodOwner;
+	var bool			m_bRetryFollowEnemy;
+	var real			m_fDuration;
+	var bool			m_bInTransport;
+	var bool			m_bAttackScape;
+	var vec3			m_vAttackPos;
+	var vec3			m_vLastAttackPos;
+	var bool			m_bEnemyDead;
+	var bool			m_bTicked;
+	var int				m_iFollowCounter;
+	var bool			m_bFollowed;
+	var bool			m_bNoUserBerserkerMode;
+	var bool			m_bHunting;
+	
+	static var int ms_iCount;
+	var int m_iID;
+	
+	export constructor()
+		ms_iCount++;
+		SetName("Fight");
+		SetCivil(false);
+		m_iFollowCounter=2;
+		m_bFollowed=false;
+		m_bAttackScape=false;
+		m_bNoUserBerserkerMode=false;
+		m_iID=ms_iCount;
+		m_bHunting=false;
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Fght";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,5);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xFighter.DoKArc(pxArc^);
+		m_xEnemy.DoKArc(pxArc^);
+		m_xFailedEnemyList.DoKArc(pxArc^);
+		m_xActionStart.DoKArc(pxArc^);
+		m_xLastTick.DoKArc(pxArc^);
+		m_xLastEvent.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_sFoodName;
+		(pxArc^) << m_vFoodPos;
+		(pxArc^) << m_iFoodOwner;
+		(pxArc^) << m_bRetryFollowEnemy;
+		(pxArc^) << m_fDuration;
+		(pxArc^) << m_bInTransport;
+		(pxArc^) << m_bAttackScape;
+		(pxArc^) << m_vAttackPos;
+		(pxArc^) << m_vLastAttackPos;
+		(pxArc^) << m_bEnemyDead;
+		(pxArc^) << m_bTicked;
+		(pxArc^) << m_iFollowCounter;
+		m_xLastMinRangeTarget.DoKArc(pxArc^);
+		(pxArc^) << m_bHunting;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Fght")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xFighter.DoKArc(pxArc^);
+			m_xEnemy.DoKArc(pxArc^);
+			m_xFailedEnemyList.DoKArc(pxArc^);
+			m_xActionStart.DoKArc(pxArc^);
+			m_xLastTick.DoKArc(pxArc^);
+			m_xLastEvent.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_sFoodName;
+			(pxArc^) << m_vFoodPos;
+			(pxArc^) << m_iFoodOwner;
+			(pxArc^) << m_bRetryFollowEnemy;
+			(pxArc^) << m_fDuration;
+			(pxArc^) << m_bInTransport;
+			(pxArc^) << m_bAttackScape;
+			(pxArc^) << m_vAttackPos;
+			(pxArc^) << m_vLastAttackPos;
+			(pxArc^) << m_bEnemyDead;
+			if(pxArc^.GetVersion()>=2)then
+				(pxArc^) << m_bTicked;
+			endif;
+			if(pxArc^.GetVersion()>=3)then
+				(pxArc^) << m_iFollowCounter;
+			endif;
+			if(pxArc^.GetVersion()>=4)then
+				m_xLastMinRangeTarget.DoKArc(pxArc^);
+			endif;
+			if(pxArc^.GetVersion()>=5)then
+				(pxArc^) << m_bHunting;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	/// return value specifies if idleanim should be set
+	export proc bool OnActionEnd(bool p_bBroken)
+		return false;
+	endproc;
+	
+	export proc CObjHndl GetEnemy()
+		return m_xEnemy;
+	endproc;
+	
+	export proc void SetNoUserBerserkerMode(bool p_bValue)
+		m_bNoUserBerserkerMode=p_bValue;
+	endproc;
+	
+	export proc bool GetNoUserBerserkerMode()
+		return m_bNoUserBerserkerMode;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xFighter, CObjHndl p_xEnemy, vec3 p_vPos, ref bool p_rbHBUAW)
+		m_sState="EndTask";
+		if(!p_xFighter.IsValid())then return false; endif;
+		var ^CFightingObj pxFighter=cast<CFightingObj>(p_xFighter.GetObj());
+		if(pxFighter==null)then return false; endif;
+		if(!p_xEnemy.IsValid())then
+			//Scape Attack
+			if(!p_vPos.ToBool())then return false; endif;
+			if(pxFighter^.GetPenetration())then
+				return false;
+			endif;
+			m_bAttackScape=true;
+			m_vAttackPos=p_vPos;
+		else
+			if(pxFighter^.GetTransportObj().IsValid())then
+				if(pxFighter^.GetTransportObj()==p_xEnemy)then
+					return false;
+				endif;
+			endif;
+			var ^CFightingObj pxEnemy=cast<CFightingObj>(p_xEnemy.GetObj());
+			if(pxEnemy!=null && pxEnemy^.GetTransportObj().IsValid())then
+				p_xEnemy=pxEnemy^.GetTransportObj();
+				pxEnemy=cast<CFightingObj>(p_xEnemy.GetObj());
+			endif;
+			if(pxEnemy==null||pxEnemy^.GetOnWall())then return false; endif;
+			//Direct Attack
+			if(p_xFighter==p_xEnemy)then return false; endif;
+			if(!CMirageSrvMgr.Get().AllowAttackOwnStuff())then
+				if(pxEnemy^.GetOwner()!=-1 && pxEnemy^.GetOwner()==pxFighter^.GetOwner())then return false; endif;
+			endif;
+			if(pxEnemy^.InvalidEnemy())then return false; endif;
+			if(pxEnemy^.HidingEnemy()&&!pxFighter^.IsDetector())then return false; endif;
+			if(pxEnemy^.IsFlyingUnit()&&!pxFighter^.CanShootAir())then
+				p_rbHBUAW=pxFighter^.HasBuildUpAirWeapons();
+				pxFighter^.ClearFightState();
+				return false;
+			endif;
+			m_xEnemy=p_xEnemy;
+		endif;
+		//HACK Henry: to allow leightons flamethrowers to fight in open transporters
+		var bool bFlamer=pxFighter^.GetClassName()=="aje_flamethrower"||pxFighter^.GetClassName()=="hu_flamethrower"||pxFighter^.GetClassName()=="ninigi_flamethrower"||pxFighter^.GetClassName()=="seas_flamethrower";
+		//ENDHACK
+		if(!pxFighter^.WouldBeAbleToWalk() && pxFighter^.GetProjectile().IsEmpty() && !bFlamer /*HACK*/&& pxFighter^.GetClassName()!="scorpion"/*ENDHACK*/)then return false; endif;
+		pxFighter^.AnnounceState("fight");
+		m_sState="";
+		m_xFighter=p_xFighter;
+		m_fDuration=pxFighter^.GetWeaponDuration();
+		m_xFailedEnemyList.Clear();
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+		var ^CFightingObj pxFighter=cast<CFightingObj>(m_xFighter.GetObj());
+		var ^CFightingObj pxEnemy=cast<CFightingObj>(m_xEnemy.GetObj());
+		if(pxFighter==null||(pxEnemy==null && !m_bAttackScape))then
+			EndTask();
+			return;
+		endif;
+		if(pxFighter^.InvalidFighter())then
+			EndTask();
+			return;
+		endif;
+		m_bInTransport=pxFighter^.IsOnOpenTransporter();
+		if(pxFighter^.GetTransportObj().IsValid() && !m_bInTransport)then
+			EndTask();
+			return;
+		endif;
+		var ^CAttribs pxAttr=pxFighter^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+			pxFighter^.SetTaskDescription("fight");
+		endif;
+		ResetFollowTimer();
+		pxFighter^.ShowWeapons();
+		pxFighter^.SetCurEnemy(m_xEnemy);
+		pxFighter^.OnStartFight();
+		if(!m_bAttackScape)then
+			CheckFoodAbility(pxEnemy, m_sFoodName);
+			CheckHunting(m_xEnemy, pxFighter^.FreeHunting());
+		endif;
+		if(!pxFighter^.m_bIsHelpShout && !IsUserCommand())then
+			pxFighter^.ShoutForHelp(true);
+		endif;
+		m_sState="hit_wait";
+		if(pxFighter^.HasFallAction())then return; endif;
+		if(!m_bInTransport)then pxFighter^.TerminateAction(); endif;//really?
+		if(!m_bTicked)then USLOnTick(0); endif; //if we want to walk in a group, we must invoke walk actions immediately
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		if(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+		m_bTicked=true;
+		var ^CFightingObj pxFighter=cast<CFightingObj>(m_xFighter.GetObj());
+		if(pxFighter==null)then
+			EndTask();
+			return;
+		endif;
+		if(pxFighter^.InvalidFighter())then
+			EndTask();
+			return;
+		endif;
+		if(pxFighter^.GetIntimidate().IsValid())then
+			m_xEnemy=pxFighter^.GetIntimidate();
+			m_bAttackScape=false;
+		endif;
+		if(!pxFighter^.DoesAreaDamage()&&m_bAttackScape)then
+			EndTask();
+			return;
+		endif;
+		var ^CFightingObj pxEnemy=cast<CFightingObj>(m_xEnemy.GetObj());
+		if(!m_bAttackScape)then
+			if(pxEnemy==null||pxEnemy^.InvalidEnemy()||(pxEnemy^.HidingEnemy()&&!pxFighter^.IsDetector()))then
+				m_bEnemyDead=true;
+			endif;
+			if(!m_bEnemyDead)then
+				if(!m_sFoodName.IsEmpty())then
+					m_vFoodPos=pxEnemy^.GetPos();
+				endif;
+				var bitset dwVis=pxEnemy^.GetVisibleMask();
+				if(pxFighter^.GetOwner()>=0 && (dwVis&(01b<<pxFighter^.GetOwner()))==00b)then
+					if(!(pxFighter^.IsDetector()&&!pxEnemy^.HasUniqueMask()))then
+						EndTask();
+						return;
+					endif;
+				endif;
+				if(pxFighter^.GetOwner()!=-1&&pxFighter^.GetOwner()==pxEnemy^.GetOwner())then
+					if(!CMirageSrvMgr.Get().AllowAttackOwnStuff())then
+						EndTask();
+						return;
+					endif;
+				endif;
+				if(pxEnemy^.IsFlyingUnit()&&!pxFighter^.CanShootAir())then
+					pxFighter^.ClearFightState();
+					EndTask();
+					return;
+				endif;
+			else
+				if(m_bHunting)then
+					if(!pxFighter^.ExamineEnemies(false, pxFighter^.GetAggressionState()!=1 && pxFighter^.GetAggressionState()!=-1 && pxFighter^.GetAggressionState()!=3) && !pxFighter^.GetTransportObj().IsValid())then
+						if(HuntAnimals(m_xFighter))then
+							return;
+						else
+							Break();
+							return;
+						endif;
+					endif;
+					Break();
+					return;
+				endif;
+			endif;
+		endif;
+		m_bInTransport=pxFighter^.IsOnOpenTransporter();
+		if(m_xEnemy.IsValid()&&pxFighter^.GetTransportObj().IsValid())then
+			if(pxFighter^.GetTransportObj()==m_xEnemy)then
+				EndTask();
+				return;
+			endif;
+			if(!m_bInTransport)then
+				EndTask();
+				return;
+			endif;
+		endif;
+		if(pxFighter^.GetTransportObj().IsValid())then
+			var ^CFightingObj pxParent=cast<CFightingObj>(pxFighter^.GetTransportObj().GetObj());
+			if(pxParent!=null)then
+				if(pxParent^.IsTrapped()&&!pxParent^.ExcludeBuildUp())then
+					EndTask();
+					return;
+				endif;
+			endif;
+		endif;
+		if(m_sState=="hit_wait")then
+			if(!pxFighter^.CanDoNextHit(m_fDuration))then
+				return;
+			else
+				m_sState="hit_end";
+			endif;
+		endif;
+		if(m_sState=="hit_end")then
+			var ^CCharacter pxCharacter=cast<CCharacter>(pxFighter);
+			if(pxCharacter!=null)then 
+				if(pxCharacter^.GetHealingRadius()>0.0f && pxCharacter^.SomeoneToHeal(false))then
+					EndTask();
+					pxCharacter^.HealUnits(false);
+					return;
+				endif;
+			endif;
+			if(m_bEnemyDead)then
+				//ende und ernten
+				if(m_bHunting)then
+					if(!pxFighter^.ExamineEnemies(false, pxFighter^.GetAggressionState()!=1 && pxFighter^.GetAggressionState()!=-1 && pxFighter^.GetAggressionState()!=3) && !pxFighter^.GetTransportObj().IsValid())then
+						if(HuntAnimals(m_xFighter))then
+							return;
+						else
+							Break();
+							return;
+						endif;
+					endif;
+					Break();
+					return;
+				elseif(!m_sFoodName.IsEmpty() && m_vFoodPos!={0.0,0.0,0.0})then
+					var bool bWorker=(pxFighter^.GetClassName().Find("_worker")!=-1||pxFighter^.GetClassName().Find("arry_s0")!=-1);
+					var CGameEvtPtr xEvt;
+					if(bWorker && !m_bInTransport && IsUserCommand())then
+						//ernten
+						xEvt=CGameEvtPtr.CreateStringEvent("GetFood",m_sFoodName+"/"+m_vFoodPos.ToString());
+					else
+						xEvt=CGameEvtPtr.CreateStringEvent("Feed",m_sFoodName+"/"+m_vFoodPos.ToString());
+					endif;
+					Break();
+					pxFighter^.HandleEvent(xEvt);
+					return;
+				endif;
+				Break();
+				return;
+			endif;
+			m_sState="hit_start";
+		endif;
+		if(m_sState=="hit_start")then
+			if(!pxFighter^.m_bIsHelpShout && !IsUserCommand())then
+				pxFighter^.ShoutForHelp(false);
+			endif;
+			pxFighter^.m_bIsHelpShout=false;
+			if(m_bEnemyDead)then
+				//ende und ernten
+				if(!m_sFoodName.IsEmpty() && m_vFoodPos!={0.0,0.0,0.0})then
+					var bool bWorker=(pxFighter^.GetClassName().Find("_worker")!=-1||pxFighter^.GetClassName().Find("arry_s0")!=-1);
+					var CGameEvtPtr xEvt;
+					if(bWorker && !m_bInTransport && IsUserCommand())then
+						//ernten
+						xEvt=CGameEvtPtr.CreateStringEvent("GetFood",m_sFoodName+"/"+m_vFoodPos.ToString());
+					else
+						xEvt=CGameEvtPtr.CreateStringEvent("Feed",m_sFoodName+"/"+m_vFoodPos.ToString());
+					endif;
+					Break();
+					pxFighter^.HandleEvent(xEvt);
+					return;
+				endif;
+				EndTask();
+				return;
+			endif;
+			var bool bIsRider=true;
+			if(!m_bAttackScape)then
+				while(bIsRider)do
+					var ^CFightingObj pxTmpEnemy=cast<CFightingObj>(pxEnemy^.GetTransportObj().GetObj());
+					if(pxTmpEnemy==null)then
+						bIsRider=false;
+					else
+						m_xEnemy=pxTmpEnemy^.GetHandle();
+						pxEnemy=pxTmpEnemy;
+					endif;
+				endwhile;
+				if(pxFighter!=null)then
+					if(pxEnemy==null)then
+						EndTask();
+						return;
+					elseif(pxEnemy^.InvalidEnemy())then
+						EndTask();
+						return;
+					elseif(pxEnemy^.HidingEnemy()&&!pxFighter^.IsDetector())then
+						pxFighter^.ClearFightState();
+						EndTask();
+						return;
+					elseif(pxEnemy^.IsFlyingUnit() && !pxFighter^.CanShootAir())then
+						pxFighter^.ClearFightState();
+						EndTask();
+						return;
+					endif;
+				endif;
+			endif;
+			var bool bInMinRange=false;
+			var bool bInCombatRange=false;
+			if(m_bAttackScape)then
+				bInCombatRange=pxFighter^.IsInScapeCombatRange(m_vAttackPos, bInMinRange);
+			else
+				bInCombatRange=pxFighter^.IsInCombatRange(pxEnemy, bInMinRange, m_xLastMinRangeTarget);
+			endif;
+			if(bInCombatRange)then
+//				CFeedbackEventMgr.Get().AddAttackEvent(m_xFighter,pxFighter^.GetOwner());
+				m_bFollowed=false;
+				m_xFailedEnemyList.Clear();
+				if(!pxFighter^.GetShowSpeedLines())then
+					pxFighter^.SetShowSpeedLines(true);
+				endif;
+				m_bRetryFollowEnemy=false;
+				ResetFollowTimer();
+				if(pxEnemy!=null)then
+					if(CSrvWrap.GetObjMgr()^.IsInFOW(pxEnemy, pxFighter^.GetOwner()))then
+						if(!pxEnemy^.IsVisInFOWNew(pxFighter^.GetClassName())&&!(pxFighter^.AttackInFOW() && (pxEnemy^.GetType()=="BLDG" || pxEnemy^.GetType()=="NEST"))&&!pxFighter^.FollowEnemy(pxEnemy, m_bAttackScape))then
+							EndTask();
+							return;
+						endif;
+					endif;
+				endif;
+				if(m_bAttackScape && !pxFighter^.AttackInFOW() && CSrvWrap.GetObjMgr()^.GetFOWState(m_vAttackPos, pxFighter^.GetOwner())!=2)then
+					return;
+				endif;
+				var ^CSeasScorpion pxSc=cast<CSeasScorpion>(pxFighter);
+				if(pxSc!=null)then
+					if(pxSc^.IsBusy())then
+						return;
+					endif;
+				endif;
+				var ^CTransportObj pxTO=cast<CTransportObj>(pxFighter);
+				if(pxTO!=null && pxTO^.HasBuildUp())then
+					var ^CBuildUpWeapon pxBuildUp=cast<CBuildUpWeapon>(pxTO^.GetBuildUp());
+					if(pxBuildUp!=null)then
+						if(pxBuildUp^.SwitchToAttackMode())then
+							return;
+						endif;
+						if(pxBuildUp^.RotateToEnemy(pxEnemy, m_vAttackPos))then
+							return;
+						endif;
+						if(pxBuildUp^.IsBusy())then
+							return;
+						endif;
+					endif;
+				endif;
+				var ^CSeasCarrier pxSC=cast<CSeasCarrier>(pxFighter);
+				if(pxSC!=null && pxSC^.HasBuildUp())then
+					var ^CBuildUpWeapon pxBuildUp=cast<CBuildUpWeapon>(pxSC^.GetBuildUp());
+					if(pxBuildUp!=null)then
+						if(pxBuildUp^.SwitchToAttackMode())then
+							return;
+						endif;
+						if(pxBuildUp^.RotateToEnemy(pxEnemy, m_vAttackPos))then
+							return;
+						endif;
+						if(pxBuildUp^.IsBusy())then
+							return;
+						endif;
+					endif;
+				endif;
+				pxFighter^.SetHitDone();
+//				if(!m_bInTransport && !m_bAttackScape && pxFighter^.CheckSpecialMoves(pxEnemy))then
+				if(!m_bAttackScape && pxFighter^.CheckSpecialMoves(pxEnemy, m_bInTransport))then
+					return;
+				endif;
+				if(!m_bAttackScape)then
+					m_vAttackPos=pxEnemy^.GetPos();
+				endif;
+				if(!m_xFighter.IsValid()||(!m_xEnemy.IsValid() && !m_bAttackScape))then
+					//extra check RT#14733, dont know why...
+					m_sState="EndTask";
+					return;
+				endif;
+				var bool bRotatedWithoutAnim=false;
+				var bool bAttackEnemy=pxFighter^.AttackEnemy(pxEnemy, m_vAttackPos, bRotatedWithoutAnim);
+				if(pxEnemy==null && !m_bAttackScape)then
+					m_sState="EndTask";
+					return;
+				endif;
+				if(bAttackEnemy && !m_bAttackScape)then //direct dmg?
+					if(pxFighter^.DoesAreaDamage())then
+						if(!m_xEnemy.IsValid())then
+							var ^CAreaDamage pxDmg=new CAreaDamage(pxFighter, pxFighter^.GetPos());
+						else
+							var ^CAreaDamage pxDmg=new CAreaDamage(pxFighter, pxEnemy^.GetPos());
+						endif;
+						if(pxFighter^.GetClassName().Find("_poisoner")!=-1)then
+							pxFighter^.Die();
+							return;
+						endif;
+					else
+						pxFighter^.SetReaction(pxEnemy^.TakeDmg(pxFighter,false));
+						if(pxFighter^.IsDead())then
+							return;
+						elseif(pxFighter^.IsDetector())then
+							if(pxEnemy^.GetIsTrap())then
+								pxEnemy^.OnReveal();
+							else
+								pxEnemy^.Reveal();
+							endif;
+						endif;
+					endif;
+				endif;
+				m_fDuration=pxFighter^.GetWeaponDuration();
+				if(!bRotatedWithoutAnim && !m_bInTransport && !pxFighter^.HasAction())then
+					pxFighter^.WaitAction(m_fDuration);
+				endif;
+				m_sState="hit_wait";
+			else
+				if(bInMinRange && !m_bAttackScape && !(m_xLastMinRangeTarget==m_xEnemy))then
+					//target has moved in MinAttackRange, get a new target, if available
+					pxFighter^.ExamineEnemies(true, true);
+					return;
+				endif;
+				var ^CTransportObj pxTO=cast<CTransportObj>(pxFighter);
+				if(pxTO!=null && pxTO^.HasBuildUp())then
+					var ^CBuildUpWeapon pxBuildUp=cast<CBuildUpWeapon>(pxTO^.GetBuildUp());
+					if(pxBuildUp!=null)then
+						if(pxBuildUp^.SwitchToWalkMode())then
+							return;
+						endif;
+						if(pxBuildUp^.IsBusy())then
+							return;
+						endif;
+					endif;
+				endif;
+				if(pxFighter^.GetShowSpeedLines())then
+					pxFighter^.SetShowSpeedLines(false);
+				endif;
+//				if(!m_bInTransport && pxFighter^.CheckSpecialMoves(pxEnemy))then
+				if(pxFighter^.CheckSpecialMoves(pxEnemy, m_bInTransport))then
+					return;
+				endif;
+				if(IsUserCommand())then
+					if(m_bRetryFollowEnemy)then
+						pxFighter^.SetFollowFailed(true);
+					else
+						pxFighter^.SetFollowFailed(false);
+					endif;
+				endif;
+				//Ich mußte das ein wenig ändern, denn es gab das totale gewusel im Kampf:
+				//Enheit A folgt Einheit B, B folgt C, C folgt D und D wiederum A, so oder noch viel komplizierter
+				//testhalber hatte ich den Schaden auskommentiert, so daß niemand stirbt
+				//  -> es war das totale Chaos
+				//
+				//Wichtig: Wenn der Schaden aus ist muß sich der Kampf so schnell wie möglich so einpendeln,
+				//daß sich keine Einheit mehr bewegt.
+				//
+				//Falls sich also durch meine Änderungen Gameplaymäßige Probleme ergeben sollten, dann sollte man
+				//bei Änderungen den obigen Punkt _unbedingt_ beachten.
+				if(m_bFollowed)then
+					m_iFollowCounter--;
+				endif;
+				if(!m_bAttackScape)then
+					if(m_iFollowCounter<=0)then
+						var int iOwner=pxFighter^.GetOwner();
+						if(iOwner>=0)then
+							m_xFailedEnemyList.Validate();
+							m_xFailedEnemyList.Include(m_xEnemy);
+							if(m_xFailedEnemyList.NumEntries()>16)then m_xFailedEnemyList.DeleteEntries(0,4); endif;
+							var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
+							if(pxEnemies!=null)then
+								var CObjList xEnemies;
+								pxEnemies^.CopySorted(xEnemies,pxFighter^.GetPos(),pxFighter^.GetAlarmRange());
+								var int i, iC=xEnemies.NumEntries();
+								for(i=0)cond(i<iC)iter(i++)do
+									if(!xEnemies[i].IsValid())then 
+										xEnemies.DeleteEntry(i);
+										i--;iC--;
+										continue;
+									endif;
+									if(m_xFailedEnemyList.FindEntry(xEnemies[i])!=-1)then
+										xEnemies.DeleteEntry(i);
+										i--;iC--;
+										continue;
+									endif;
+								endfor;
+								pxFighter^.SortEnemyList(xEnemies, pxFighter^.GetAttackRange(), pxFighter^.GetRealMinAttackRange()>0.0, false);
+								var CObjHndl xNextEnemy;
+								if(xEnemies.NumEntries()>0)then
+									xNextEnemy=xEnemies[0];
+								else
+									m_xFailedEnemyList=0; //flush failed list, avoid deadlock
+								endif;
+								var ^CFightingObj pxNew=cast<CFightingObj>(xNextEnemy.GetObj());
+								if(pxNew!=null)then
+									m_xEnemy=xNextEnemy;
+									m_iFollowCounter=2;
+									return;
+								endif;
+							endif;
+						endif;
+					endif;
+				endif;
+				if(m_iFollowCounter<0)then
+					var real fFollowDistance=(pxFighter^.GetLastPos()-pxFighter^.GetPos()).AbsSquare();
+					if(fFollowDistance<=1.0)then
+						EndTask();
+						return;
+					endif;
+				endif;
+				if(pxEnemy!=null && CSrvWrap.GetObjMgr()^.IsInFOW(pxEnemy,pxFighter^.GetOwner()))then
+					if(!pxEnemy^.IsVisInFOWNew(pxFighter^.GetClassName())&& !(pxFighter^.AttackInFOW() && (pxEnemy^.GetType()=="BLDG" || pxEnemy^.GetType()=="NEST")) && !pxFighter^.FollowEnemy(pxEnemy, m_bAttackScape))then
+						EndTask();
+						return;
+					endif;
+				endif;
+				if(bInMinRange||!pxFighter^.FollowEnemy(pxEnemy, m_bAttackScape))then
+					EndTask();
+					return;
+				endif;
+				m_bFollowed=true;
+			endif;
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		if(m_xFighter.IsValid())then
+			var ^CFightingObj pxFight=cast<CFightingObj>(m_xFighter.GetObj());
+			if(pxFight!=null)then
+				pxFight^.FreeHunt(false);
+				if(pxFight^.GetShowSpeedLines())then
+					pxFight^.SetShowSpeedLines(false);
+				endif;
+				pxFight^.SetCurEnemy(CObjHndl.Invalid());
+				pxFight^.EndFight();
+				if(IsUserCommand() && !GetNoUserBerserkerMode())then
+					pxFight^.UpdateAggressionPos(pxFight^.GetPos());
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	export proc bool Break()
+		var ^CFightingObj pxFighter=cast<CFightingObj>(m_xFighter.GetObj());
+		if(pxFighter==null)then return true; endif;
+		var CObjHndl xTemp=m_xEnemy;
+		pxFighter^.SetCurEnemy(CObjHndl.Invalid());
+		pxFighter^.FreeHunt(false);
+		pxFighter^.ShowWeapons();
+		if(!m_bInTransport)then
+			pxFighter^.TerminateActionFightTask();
+		endif;
+		var ^CTransportObj pxTO=cast<CTransportObj>(pxFighter);
+		if(pxTO!=null && pxTO^.HasBuildUp())then
+			pxTO^.CheckAdditionalWeapons(IsUserCommand(),xTemp);
+			var ^CBuildUpWeapon pxBuildUp=cast<CBuildUpWeapon>(pxTO^.GetBuildUp());
+			if(pxBuildUp!=null)then
+				m_sState="EndTask";
+				if(pxBuildUp^.CanSwitchAttackMode())then
+					pxBuildUp^.SwitchToWalkMode();
+					pxBuildUp^.ResetRotation();
+					return false;
+				else
+					pxBuildUp^.SetCurEnemy(xTemp);
+					var bool bReturn, bOk=false;
+					bReturn=pxBuildUp^.StartFightingTask(true,true,bOk,IsUserCommand());
+					if(!bReturn||!bOk)then
+						pxBuildUp^.ResetRotation();
+					endif;
+				endif;
+				return false;
+			endif;
+		endif;
+		if(pxFighter^.GetType()=="ANML")then
+			if(pxFighter^.HasFullHP() && pxFighter^.GetOwner()>-1)then
+				pxFighter^.SetHunting(false);
+			endif;
+		endif;
+		m_sState="EndTask";
+		return false;
+//		return true;
+	endproc;
+	
+	export proc bool JustEndingIt()
+		return m_sState=="EndTask";
+	endproc;
+	
+	proc void Penetrate(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy)
+		var CObjQuery xQuery;
+		CSrvWrap.GetDiplomacyMgr().AddMyEnemiesToSearch(p_pxFighter^.GetOwner(), xQuery);
+		xQuery.SetOwner(-1,true);
+		var vec3 vStartPos=p_pxFighter^.GetPos();
+		var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(p_pxFighter^.GetOwner());
+		if(pxEnemies==null)then return; endif;
+		var vec3 vDirection=(p_pxEnemy^.GetPos() - vStartPos);
+		vDirection.Normalize();
+		xQuery.ClearRegion();
+		var real fFactor=2.0;
+		var real fRadius=3.0;
+		var real fMaxRange=p_pxFighter^.GetAttackRange();
+		while(fFactor<fMaxRange)do
+			xQuery.RegionCircleAux(vStartPos+(vDirection*fFactor), fRadius);
+			fFactor += fRadius;
+			fRadius *= 1.05;
+			fFactor += fRadius;
+		endwhile;
+		var CObjList xEnemies;
+		xQuery.Execute(pxEnemies^, xEnemies);
+		xEnemies.Include(p_pxEnemy^.GetHandle());
+		var int i, iC=xEnemies.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CFightingObj pxFight=cast<CFightingObj>(xEnemies[i].GetObj());
+			if(pxFight!=null)then
+				pxFight^.TakeDmg(p_pxFighter, false);
+			endif;
+		endfor;
+		var string sAnim=p_pxFighter^.GetNextFightAnim();
+		if(sAnim!="")then
+			p_pxFighter^.SetAnim(sAnim,1);
+		endif;
+	endproc;
+	
+	proc void CheckFoodAbility(^CFightingObj p_pxEnemy, ref string p_rsFoodName)
+		m_vFoodPos={0.0,0.0,0.0};
+		p_rsFoodName="";
+		if(p_pxEnemy==null)then return; endif;
+		if(!m_xFighter.IsValid())then return; endif;
+		if(m_xFighter.GetObj()==null)then return; endif;
+		var ^CFightingObj pxAnimal=cast<CFightingObj>(m_xFighter.GetObj());
+		if(p_pxEnemy^.GetType()=="ANML" && p_pxEnemy^.GetOwner()==-1)then
+			p_rsFoodName=p_pxEnemy^.GetClassName();
+			if(pxAnimal!=null && pxAnimal^.GetType()=="ANML")then
+				if(pxAnimal^.IsCarnivore() && !pxAnimal^.HasFullHP() && IsUserCommand() && pxAnimal^.GetOwner()>-1)then
+					pxAnimal^.SetHunting(true);
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	proc void CheckHunting(CObjHndl p_xEnemy, bool p_bHunting)
+		if(!p_xEnemy.IsValid()||p_xEnemy.GetObj()==null)then return; endif;
+		if(p_xEnemy.GetObj()^.GetType()=="ANML" && p_xEnemy.GetObj()^.GetOwner()==-1 && p_bHunting)then
+			m_bHunting=true;
+			return;
+		endif;
+		m_bHunting=false;
+	endproc;
+	
+	//Updates enemy
+	export proc void UpdateEnemy(CObjHndl p_xEnemy, vec3 p_vPos)
+		var ^CFightingObj pxFighter=cast<CFightingObj>(m_xFighter.GetObj());
+		if(pxFighter==null)then return; endif;
+		if(pxFighter^.GetIntimidate().IsValid())then
+			p_xEnemy=pxFighter^.GetIntimidate();
+		endif;
+		var ^CFightingObj pxEnemy=cast<CFightingObj>(p_xEnemy.GetObj());
+		if(pxEnemy==null)then
+			if(p_vPos!={0.0,0.0,0.0} && IsUserCommand())then
+				m_bAttackScape=true;
+				m_vAttackPos=p_vPos;
+				m_xEnemy=CObjHndl.Invalid();
+			else
+				return;
+			endif;
+		else
+			m_bAttackScape=false;
+			if(m_xFighter==p_xEnemy)then
+				return;
+			endif;
+			if(m_xFailedEnemyList.FindEntry(p_xEnemy)!=-1)then
+				return;
+			endif;
+			//don't attack riders directly -> RT#13509
+			if(pxEnemy^.GetTransportObj().IsValid())then
+				p_xEnemy=pxEnemy^.GetTransportObj();
+				pxEnemy=cast<CFightingObj>(p_xEnemy.GetObj());
+			endif;
+			if(pxEnemy^.GetOnWall())then
+				p_xEnemy=CObjHndl.Invalid();
+				pxEnemy=null;
+			endif;
+			CheckFoodAbility(pxEnemy, m_sFoodName);
+			CheckHunting(p_xEnemy, pxFighter^.FreeHunting());
+			m_bEnemyDead=false;
+			m_bFollowed=false;
+			m_xEnemy=p_xEnemy;
+			pxFighter^.SetCurEnemy(m_xEnemy);
+		endif;
+		ResetFollowTimer();
+		m_xFailedEnemyList.Clear();
+		if(m_sState!="hit_wait" && !m_bInTransport)then
+			pxFighter^.TerminateAction();
+			USLOnTick(0); //group update //TP#303
+		endif;
+	endproc;
+	
+	export proc void ResetFollowTimer()
+		if(IsUserCommand())then
+			m_iFollowCounter=3;
+		else
+			m_iFollowCounter=2;
+		endif;
+	endproc;
+	
+	proc bool HuntAnimals(CObjHndl p_xFighter)
+		if(!p_xFighter.IsValid()||p_xFighter.GetObj()==null)then return false; endif;
+		var ^CFightingObj pxFighter=cast<CFightingObj>(p_xFighter.GetObj());
+		if(pxFighter==null)then return false; endif;
+		var real fRadius=100.0f;
+		var CObjQuery xHuntSearch;
+		var vec3 vPos=pxFighter^.GetPos();
+		xHuntSearch.SetOwner(-1);
+		xHuntSearch.SetType("ANML");
+		if(pxFighter^.GetClassName().Find("_worker")!=-1)then
+			xHuntSearch.SetAttribsPos("anml_aggressive_type",-1);
+		else
+			xHuntSearch.SetAttribsNeg("anml_aggressive_type",1);
+		endif;
+		xHuntSearch.SetAttribsNeg("camouflage_anml",1);
+		var CObjList xPrey;
+		xHuntSearch.SetVisibility(pxFighter^.GetOwner(),true);
+		xHuntSearch.RegionCircle(vPos,fRadius);
+		if(xHuntSearch.Execute(xPrey))then
+			xPrey.SortDistance(vPos);
+			while(xPrey.NumEntries()>0)do
+				if(!xPrey[0].IsValid())then
+					xPrey.DeleteEntry(0);
+					continue;
+				endif;
+				var ^CAnimal pxCandidat=cast<CAnimal>(xPrey[0].GetObj());
+				if(pxCandidat==null||pxCandidat^.IsBaby())then
+					xPrey.DeleteEntry(0);
+					continue;
+				endif;
+				var CObjHndl xInvalid;
+				var bool bMinRange=false;
+				var bool bCheck=pxFighter^.IsInCombatRange(pxCandidat,bMinRange,xInvalid,pxFighter^.GetAttackRange(),true);
+				if(bMinRange)then
+					xPrey.DeleteEntry(0);
+					continue;
+				endif;
+				UpdateEnemy(xPrey[0], pxCandidat^.GetPos());
+				pxFighter^.SetCurEnemy(xPrey[0]);
+				pxFighter^.UpdateAggressionPos(pxCandidat^.GetPos());
+				return true;
+			endwhile;
+		else
+			return false;
+		endif;
+		return false;
+	endproc;
+	
+endclass;
+	
+class CBuildUpFight inherit CTask
+	
+	var ^CBuildUpWeapon		m_pxBuildUp;
+	var CObjHndl					m_xFighter;
+	var CObjHndl					m_xEnemy;
+	var string						m_sState;
+	var CGameTime					m_xActionStart;
+	var real							m_fDuration;
+	
+	export constructor()
+		SetName("BuildUpFight");
+	endconstructor;
+	
+	export proc bool Init(CObjHndl p_xFighter, CObjHndl p_xEnemy, ^CBuildUpWeapon p_pxBuildUp)
+		m_sState="EndTask";
+		if(!p_xFighter.IsValid()||!p_xEnemy.IsValid())then return false; endif;
+		var ^CTransportObj pxParent=cast<CTransportObj>(p_xFighter.GetObj());
+		if(pxParent==null)then return false; endif;
+		if(p_pxBuildUp==null)then return false; endif;
+		m_sState="start";
+		m_pxBuildUp=p_pxBuildUp;
+		m_xFighter=p_xFighter;
+		m_xEnemy=p_xEnemy;
+		return true;
+	endproc;
+	
+	export proc void SetBuildUp(^CBuildUpWeapon p_pxBuildUp)
+		m_pxBuildUp=p_pxBuildUp;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+		m_xActionStart=CTimeMgr.Get().GetTime();
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		if(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+		if(m_pxBuildUp==null)then
+			EndTask();
+			return;
+		endif;
+		if(m_xFighter.GetObj()==null)then
+			EndTask();
+			return;
+		endif;
+		var string sParent="dummy";
+		var ^CFightingObj pxFighter=cast<CFightingObj>(m_xFighter.GetObj());
+		if(pxFighter!=null)then
+			sParent=pxFighter^.GetName();
+			if(pxFighter^.GetIntimidate().IsValid())then
+				m_xEnemy=pxFighter^.GetIntimidate();
+			endif;
+		endif;
+		if(!m_xEnemy.IsValid())then
+			EndTask();
+			return;
+		endif;
+		var ^CGameObj pxEnemyObj=m_xEnemy.GetObj();
+		if(pxEnemyObj==null)then
+			EndTask();
+			return;
+		endif;
+		var ^CFightingObj pxFightEnem=cast<CFightingObj>(pxEnemyObj);
+		if(pxFightEnem!=null)then
+			if(pxFightEnem^.InvalidEnemy()||(pxFightEnem^.HidingEnemy()&&!pxFighter^.IsDetector()))then
+				EndTask();
+				return;
+			endif;
+		endif;
+		var ^CTransportObj pxParent=cast<CTransportObj>(m_xFighter.GetObj());
+		if(pxParent!=null)then
+			if(pxParent^.GetOwner()==pxEnemyObj^.GetOwner()||CSrvWrap.GetDiplomacyMgr().GetIsFriend(pxEnemyObj^.GetOwner(), pxParent^.GetOwner()))then
+				if(!CMirageSrvMgr.Get().AllowAttackOwnStuff())then
+					EndTask();
+					return;
+				endif;
+			endif;
+			var bool bBuildUpChanged=(pxParent^.GetBuildUp()!=m_pxBuildUp);
+			if(bBuildUpChanged)then
+				var int i,iC=pxParent^.NumAdditionalBuildUps();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CBuildUpBase pxWalk=pxParent^.GetAdditionalBuildUp(i);
+					if(pxWalk==m_pxBuildUp)then
+						bBuildUpChanged=false;
+						break;
+					endif;
+				endfor;
+			endif;
+			if(bBuildUpChanged)then
+				EndTask();
+				return;
+			endif;
+		endif;
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		var real fTimeGone=(xNow - m_xActionStart).GetSecondsF();
+		if(fTimeGone<m_fDuration)then
+			return;
+		endif;
+		var ^CFightingObj pxEnemy=cast<CFightingObj>(m_xEnemy.GetObj());
+		if(pxEnemy==null)then
+			if(!m_pxBuildUp^.StartFightingTask(true))then
+				m_pxBuildUp^.ResetRotation();
+				EndTask();
+			endif;
+			return;
+		endif;
+		if(pxEnemy^.GetTransportObj().IsValid())then
+			m_xEnemy=pxEnemy^.GetTransportObj();
+			pxEnemy=cast<CFightingObj>(m_xEnemy.GetObj());
+		endif;
+		if(pxEnemy!=null)then
+			if(pxEnemy^.InvalidEnemy()||pxEnemy^.HidingEnemy()||pxEnemy^.GetOnWall())then
+				if(!m_pxBuildUp^.StartFightingTask(true))then
+					m_pxBuildUp^.ResetRotation();
+					EndTask();
+				endif;
+				return;
+			elseif(pxEnemy^.IsFlyingUnit()&&!m_pxBuildUp^.CanShootAir())then
+				if(!m_pxBuildUp^.StartFightingTask(true))then
+//					if(!pxFighter^.FollowEnemy(pxEnemy, false))then
+						m_pxBuildUp^.ResetRotation();
+						EndTask();
+//					endif;
+				endif;
+				return;
+			endif;
+		else
+			if(!m_pxBuildUp^.StartFightingTask(true))then
+				m_pxBuildUp^.ResetRotation();
+				EndTask();
+			endif;
+//			EndTask();
+			return;
+		endif;
+		if(pxParent==null)then return; endif;
+		if(pxParent^.GetTransportObj().IsValid())then EndTask(); return; endif;
+		if(pxParent^.IsTrapped()&&!pxParent^.ExcludeBuildUp())then EndTask(); return; endif;
+		if(!pxParent^.AttackInFOW() && CSrvWrap.GetObjMgr()^.IsInFOW(pxEnemy,pxParent^.GetOwner()))then
+			if(!m_pxBuildUp^.StartFightingTask(true))then
+				m_pxBuildUp^.ResetRotation();
+				EndTask();
+			endif;
+		endif;
+		var bool bIsInFight=pxParent^.IsInFight();
+		var bool bAdditionalWeapon=m_pxBuildUp^.GetAdditionalWeapon();
+		if(bIsInFight && !bAdditionalWeapon)then EndTask(); return; endif;
+		if(m_pxBuildUp==null)then return; endif;
+		var ^CProduct pxBuildUpObj=cast<CProduct>(m_pxBuildUp^.GetPrimaryLinkedObj().GetObj());
+		if(pxBuildUpObj==null)then return; endif;
+		if(IsInCombatRange(pxParent, pxEnemy))then
+			if(m_pxBuildUp^.RotateToEnemy(pxEnemy, pxEnemy^.GetPos()))then
+				return;
+			endif;
+			if(!m_pxBuildUp^.AutoAttackEnemy(pxEnemy,m_fDuration))then
+				if(!m_pxBuildUp^.StartFightingTask(true))then
+					m_pxBuildUp^.ResetRotation();
+					EndTask();
+				endif;
+				return;
+			endif;
+			m_xActionStart=CTimeMgr.Get().GetTime();
+//			m_fDuration=m_pxBuildUp^.GetWeaponDuration();
+		else
+			if(!m_pxBuildUp^.StartFightingTask(true))then
+				m_pxBuildUp^.ResetRotation();
+				EndTask();
+			endif;
+			return;
+		endif;
+	endproc;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="BUFi";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xFighter.DoKArc(pxArc^);
+		m_xEnemy.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		m_xActionStart.DoKArc(pxArc^);
+		(pxArc^) << m_fDuration;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="BUFi")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xFighter.DoKArc(pxArc^);
+			m_xEnemy.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			m_xActionStart.DoKArc(pxArc^);
+			(pxArc^) << m_fDuration;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc void UpdateEnemy(CObjHndl p_xNewEnemy)
+		m_xEnemy=p_xNewEnemy;
+	endproc;
+	
+	export proc bool IsInCombatRange(^CFightingObj p_pxFighter,^CFightingObj p_pxEnemy)
+		var ^CFightingObj pxFighter=p_pxFighter;
+		var ^CFightingObj pxEnemy=p_pxEnemy;
+		if(pxFighter==null||pxEnemy==null)then EndTask(); return false; endif;
+		if(m_pxBuildUp==null)then EndTask(); return false; endif
+		if(!m_pxBuildUp^.GetPrimaryLinkedObj().IsValid())then EndTask(); return false; endif
+//		if(m_pxBuildUp^.GetPrimaryLinkedObj().GetObj()==null)then EndTask(); return false; endif
+		var ^CProduct pxBuildUpObj=cast<CProduct>(m_pxBuildUp^.GetPrimaryLinkedObj().GetObj());
+		if(pxBuildUpObj==null)then EndTask(); return false; endif;
+//		var bool bTest=pxFighter^.GetClassName()=="aje_brachiosaurus"&&pxEnemy^.GetName()=="hu_scout_1";
+		var real fAttackRange=m_pxBuildUp^.GetAttackRange()+pxFighter^.GetCollisionRadius();
+		var real fMinAtRan=0.0f;
+		var real fProjFallOffCone=pxFighter^.GetProjectileFallOffCone();
+		fMinAtRan=m_pxBuildUp^.GetMinAttackRange()+1.0f;
+		var real fMinAttSec=(fMinAtRan*fMinAtRan);
+		var int iRng=pxFighter^.IsInCombatRangeAttackZone(pxEnemy,-999.0,-999.0,fAttackRange,fProjFallOffCone);
+//if(bTest)then
+//CMirageSrvMgr.Debug("name: "+pxFighter^.GetName());
+//CMirageSrvMgr.Debug("range: "+fAttackRange.ToString());
+//CMirageSrvMgr.Debug("FallOfCone: "+fProjFallOffCone.ToString());
+//CMirageSrvMgr.Debug("iRng: "+iRng.ToString());
+//endif;
+		if(iRng==0)then return false; endif; //out of range
+		var real fDistance=(pxEnemy^.GetPos() - pxFighter^.GetPos()).Abs2S();
+		if(fDistance <= (fMinAttSec-1.0f))then return false; endif; //is in minrange
+		return true;
+	endproc;
+	
+	export proc bool Break()
+		if(m_pxBuildUp!=null)then
+			m_pxBuildUp^.ResetRotation();
+		endif;
+		m_sState="EndTask";
+		return true;
+	endproc;
+	
+endclass;
+	
+class CFlee inherit CTask
+	
+	var CObjHndl	m_xVictim;
+	var CObjHndl	m_xEnemy;
+	var int				m_iWalkCount;
+	var vec3			m_vEscapePos;
+	var vec3			m_vLastPos;
+	var real			m_fStartSlowDown;
+	var int				m_iRunSpeed;
+	
+	const real		WALK_DIST=15.0f;
+	const real		FLEE_DIST=40.0f;
+	const int			MAX_WALK_COUNT=8;
+	
+	export constructor()
+		SetName("Flee");
+		m_iRunSpeed=0;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Flee";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xVictim.DoKArc(pxArc^);
+		m_xEnemy.DoKArc(pxArc^);
+		(pxArc^) << m_iWalkCount;
+		(pxArc^) << m_vEscapePos;
+		(pxArc^) << m_vLastPos;
+		(pxArc^) << m_fStartSlowDown;
+		(pxArc^) << m_iRunSpeed;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Flee")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xVictim.DoKArc(pxArc^);
+			m_xEnemy.DoKArc(pxArc^);
+			(pxArc^) << m_iWalkCount;
+			(pxArc^) << m_vEscapePos;
+			(pxArc^) << m_vLastPos;
+			(pxArc^) << m_fStartSlowDown;
+			if(p_pxReaderNode^.GetVersion()>=2)then
+				(pxArc^) << m_iRunSpeed;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xVictim,CObjHndl p_xEnemy,real p_fStartSlowDown)
+		if(!p_xVictim.IsValid()||!p_xEnemy.IsValid())then
+			return false;
+		endif;
+		m_xVictim=p_xVictim;
+		m_xEnemy=p_xEnemy;
+		m_fStartSlowDown=p_fStartSlowDown;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		m_iWalkCount=0;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CFightingObj pxVictim=cast<CFightingObj>(m_xVictim.GetObj());
+		if(pxVictim==null)then EndTask(); return; endif;
+		var ^CFightingObj pxEnemy=cast<CFightingObj>(m_xEnemy.GetObj());
+		if(pxEnemy==null)then EndTask(); return; endif;
+		if(pxVictim^.HasAction())then
+			pxVictim^.TerminateAction();
+		endif;
+		if(m_iWalkCount>MAX_WALK_COUNT)then
+			//too much fled!
+			//KLog.LogWarn("CHP","Flee: too much!!!");
+			EndTask();
+			return;
+		endif;
+		var vec3 vVictim=pxVictim^.GetPos();
+		var vec3 vDir=vVictim-pxEnemy^.GetPos();
+		var CObjHndl xInvalid;
+		var bool bInvalid;
+		var bool bInCombatRange=pxEnemy^.IsInCombatRange(pxVictim, bInvalid, xInvalid);
+		if(!bInCombatRange)then
+			var real fDist=vDir.Abs2();
+			if(fDist>FLEE_DIST)then
+				//KLog.LogWarn("CHP","Flee: ok!!!");
+				//we are ready, leave
+				EndTask();
+				return;
+			endif;
+		endif;
+		var real fWalkedDist=-1.0f;
+		if(m_iWalkCount>0)then
+			fWalkedDist=(m_vLastPos-vVictim).Abs2();
+		endif;
+		m_vLastPos=vVictim;
+		var real fFatigue=0.0f;
+		var bool bEscapeFound=false;
+		var ^CAnimal pxAnml=cast<CAnimal>(pxVictim);
+		if(pxAnml!=null)then
+			var ^CNest pxNest=cast<CNest>(pxAnml^.m_xNest.GetObj());
+			if(pxNest!=null)then
+				bEscapeFound=pxNest^.GetRandomPoint(m_vEscapePos,pxAnml^.IsBaby());
+			endif;
+			fFatigue=pxAnml^.GetFatigue();
+			if((fFatigue<1.0f) && (m_iWalkCount>0) && (fWalkedDist>0.0f))then	//schon mal gelaufen
+				var real fFactor=(2.0f/Math.Max(pxVictim^.GetMaxSpeed().ToReal(),1.0f));
+				var real fWalked=(fWalkedDist/(fFactor*(WALK_DIST+FLEE_DIST)));
+				fFatigue=pxAnml^.ChangeFatigue(fWalked);
+			endif;
+			if(fFatigue>=1.0f)then
+				EndTask();
+				return;
+			endif;
+		else
+			fFatigue=(m_iWalkCount.ToReal()/MAX_WALK_COUNT.ToReal());
+		endif;
+		if(!bEscapeFound)then
+			vDir.Normalize();
+			var vec3 vJitter;
+			begin Jitter;
+				var real fJitter=WALK_DIST/4.0;
+				vJitter.SetXYZ(Random.MTRandF(fJitter),Random.MTRandF(fJitter),Random.MTRandF(fJitter));
+				if(m_iWalkCount>0)then	//schon mal gelaufen
+					//nicht weit genug geflohen -> Fluchtweg blockiert?
+					if(fWalkedDist<0.1)then
+						//Walk fehlgeschlagen -> Wait (nicht die Performance überstrapazieren!!!)
+						if(pxAnml!=null)then pxAnml^.SetIdleAnim(); endif;
+						pxVictim^.WaitAction(1.0); //1s warten
+						return;
+					endif;
+					if(fWalkedDist<(WALK_DIST*0.5))then
+						//Fluchtrichtung rotieren
+						var Quat qRot;
+						//90° in beide Richtungen
+						qRot.SetRotationZ(Random.MTRandF(Math.Pi())-(Math.Pi()/2.0));
+						qRot.VecRotateU(vDir);
+					endif;
+				endif;
+			end Jitter;
+			//KLog.LogWarn("CHP","Flee: go!!!");
+			m_vEscapePos=vVictim+(vDir*WALK_DIST)+vJitter;
+		endif;
+		var real fWalkDist=(m_vEscapePos-pxVictim^.GetPos()).Abs2();
+		CSrvWrap.GetObjMgr()^.GetFreePos(m_vEscapePos,pxVictim,m_vEscapePos,null,true,false,false);
+		var real fWeight=1.0-fFatigue;
+		fWeight=Math.Clamp(fWeight-m_fStartSlowDown,0.0,1.0);
+		m_fStartSlowDown=Math.Max(m_fStartSlowDown-0.25,0.0);
+		var int iMaxSpeed=pxVictim^.GetMaxSpeed();
+		var int iDefSpeed=pxVictim^.GetDefaultSpeed();
+		//
+		//var real fSpeed=iDefSpeed.ToReal()+(fWeight*(iCurSpeed.ToReal()-iDefSpeed.ToReal()));
+		//var real fSpeed=iDefSpeed.ToReal()*fWeight;
+		var int iSpeed=Math.Max(1,iMaxSpeed+m_iRunSpeed);
+		var real fCurHP=pxVictim^.GetHitpoints();
+		var real fMaxHP=pxVictim^.GetMaxHitpoints();
+		fWeight=fCurHP/fMaxHP;
+		if(fWeight<0.9f)then
+			fWeight=Math.Clamp(fWeight-0.2f,0.1f,0.7f);
+		endif;
+		//TODO: use Random_Pathfinding if implemented!!!
+		var CFourCC xWalkSet=pxVictim^.GetWalkSet();
+		if(fWeight<0.6f)then
+			xWalkSet=pxVictim^.GetHumpWalkSet();
+		endif;
+		pxVictim^.WalkAction(m_vEscapePos,iSpeed,true,true,null,xWalkSet);
+		//pxVictim^.WalkAction(m_vEscapePos,Math.Round(fSpeed).ToInt());
+		m_iWalkCount++;
+	endproc;
+	
+	export proc void SetHitpoints(real p_fRatio)
+		var int iRunSpeed;
+		if(p_fRatio<0.6)then
+			iRunSpeed=-3;
+		elseif(p_fRatio<0.8)then
+			iRunSpeed=-2;
+		elseif(p_fRatio<0.9)then
+			iRunSpeed=-1;
+		endif;
+		if(iRunSpeed!=m_iRunSpeed)then
+			m_iRunSpeed=iRunSpeed;
+			USLOnTick(0);
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		if(m_xVictim.IsValid())then
+			var ^CFightingObj pxVictim=cast<CFightingObj>(m_xVictim.GetObj());
+			if(pxVictim!=null)then
+				pxVictim^.EndFlee();
+			endif;
+		endif;
+	endproc;
+	
+endclass;
+	
+class CAlarmed inherit CTask
+	
+	var CObjHndl	m_xActor;
+	var CObjHndl	m_xTarget;
+	var string		m_sState;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Alar";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xActor.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Alar")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xActor.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xActor,CObjHndl p_xTarget)
+		m_sState="rotate_to_target";
+		if(!p_xActor.IsValid()||!p_xTarget.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xActor=p_xActor;
+		m_xTarget=p_xTarget;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CFightingObj pxActor=cast<CFightingObj>(m_xActor.GetObj());
+		var ^CFightingObj pxTarget=cast<CFightingObj>(m_xTarget.GetObj());
+		if(pxActor==null||pxTarget==null)then
+			EndTask();
+			return;
+		endif;
+		if(m_sState=="rotate_to_target")then
+			var real fAngle=pxActor^.GetAngleToR(pxTarget);
+			if(fAngle>Math.Pi()/8.0)then
+				pxActor^.RotateToEnemy(pxTarget, pxTarget^.GetPos());
+			endif;
+			m_sState="anim";
+		elseif(m_sState=="anim")then
+			if(pxActor^.HasAnim(pxActor^.GetThreatAnim()))then
+				if(pxActor^.GetTransportObj().IsValid())then
+						pxActor^.SetAnim(pxActor^.GetThreatAnim(),1);
+				else
+					pxActor^.AnimAction(pxActor^.GetThreatAnim());
+				endif;
+			endif;
+			m_sState="EndTask";
+		else
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+endclass;

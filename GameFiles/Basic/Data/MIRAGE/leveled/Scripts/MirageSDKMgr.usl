@@ -1,0 +1,799 @@
+//	CMirageSDKMgr.
+//	CMirageSDKMgr.Debug("");
+//	CMirageSDKMgr.Debug("xxxx: '"+().ToString()+"'");
+//	CMirageSDKMgr.Get().
+
+class CMirageSDKMgr
+
+	static var ^CMirageSDKMgr ms_pxMgrSDKInstance;
+	export static var int ms_iDTU; // Henry: Disable Trigger Update
+	export static var bool ms_bRegName; // Henry: Register name, istead of deleting
+	export static var bool ms_bHarbour; // Henry: disable harbours
+	export static var bool ms_bLastManStanding; // Henry: disable everything important
+	
+	constructor()
+		CMirageSDKMgr.ms_iDTU=0;
+		CMirageSDKMgr.ms_bRegName=false;
+		CMirageSDKMgr.ms_bHarbour=false;
+		CMirageSDKMgr.ms_bLastManStanding=false;
+	endconstructor;
+	
+	export static proc ref CMirageSDKMgr Get()
+		if(ms_pxMgrSDKInstance==null)then
+			ms_pxMgrSDKInstance=new CMirageSDKMgr();
+		endif;
+		return ms_pxMgrSDKInstance^;
+	endproc;
+	
+	export static proc void ShutStatic()
+		delete ms_pxMgrSDKInstance;
+	endproc;
+	
+	export static proc void Kill()
+		if(ms_pxMgrSDKInstance!=null)then
+			delete ms_pxMgrSDKInstance;
+			ms_pxMgrSDKInstance=null;
+		endif;
+	endproc;
+	
+	export static proc void SetDTU(int p_iState)
+		CMirageSDKMgr.ms_iDTU=p_iState;
+	endproc;
+	
+	export static proc void SetHarbour(int p_iState)
+		CMirageSDKMgr.ms_bHarbour=p_iState==1;
+	endproc;
+	
+	export static proc void SetRegName(int p_iState)
+		CMirageSDKMgr.ms_bRegName=p_iState==1;
+	endproc;
+	
+	export static proc void SetLastManStanding(int p_iState)
+		CMirageSDKMgr.ms_bLastManStanding=p_iState==1;
+	endproc;
+	
+	export proc void AdaptRegion(string p_sNodeGuid, string p_sRegionGuid, string p_sPreviousGuid)
+		if(p_sNodeGuid==""||p_sRegionGuid==""||p_sPreviousGuid=="")then return; endif;
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		if(pxRM==null)then return; endif;
+		var CGuid xGuidNode;
+		xGuidNode.FromString(p_sNodeGuid);
+		var CGuid xGuidRegion;
+		xGuidRegion.FromString(p_sRegionGuid);
+		var CGuid xGuidPrevious;
+		xGuidPrevious.FromString(p_sPreviousGuid);
+		var ^CRegionBase pxRegion=pxRM^.GetRegion(xGuidRegion);
+		if(pxRegion==null)then return; endif;
+		var CRegionMgrClient.CNode xNode=pxRM^.FindNodeByGuid(xGuidNode);
+		if(!xNode.IsValid())then return; endif;
+		var ^CRegionBase.TNodeData pxData=xNode.GetData();
+		if(pxData==null)then return; endif;
+		var CRegionMgrClient.CNode xPrevious=pxRM^.FindNodeByGuid(xGuidPrevious);
+		if(!xPrevious.IsValid())then
+			Debug("prev node not valid!");
+			return;
+		endif;
+		var ^CRegionBase.TNodeData pxOld=xPrevious.GetData();
+		if(pxOld==null)then
+			Debug("old data is null!");
+			return;
+		endif;
+		if(pxOld^.HasRegion(pxRegion))then
+			pxOld^.RemRegion(pxOld^.FindRegion(pxRegion));
+			pxRM^.InvalidateNode(xPrevious, false);
+		endif;
+		if(!pxData^.HasRegion(pxRegion))then
+			pxData^.AddRegion(pxRegion);
+			pxRM^.InvalidateNode(xNode, false);;
+		endif;
+		CEnhancedMenu.Get().GetViewZoneCreate()^.ClearRegionTree();
+		CEnhancedMenu.Get().GetViewZoneCreate()^.UpdateRegionTree();
+	endproc;
+	
+	export proc void MassAdapt(string p_sNodeGuid, string p_sPreviousGuid, string p_sFile)
+		if(p_sNodeGuid==""||p_sPreviousGuid==""||p_sFile=="")then return; endif;
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		if(pxRM==null)then return; endif;
+		var CGuid xGuidNode;
+		xGuidNode.FromString(p_sNodeGuid);
+		var CGuid xGuidPrevious;
+		xGuidPrevious.FromString(p_sPreviousGuid);
+		var CRegionMgrClient.CNode xNode=pxRM^.FindNodeByGuid(xGuidNode);
+		if(!xNode.IsValid())then return; endif;
+		var ^CRegionBase.TNodeData pxData=xNode.GetData();
+		if(pxData==null)then return; endif;
+		var CRegionMgrClient.CNode xPrevious=pxRM^.FindNodeByGuid(xGuidPrevious);
+		if(!xPrevious.IsValid())then return; endif;
+		var ^CRegionBase.TNodeData pxOld=xPrevious.GetData();
+		if(pxOld==null)then return; endif;
+		var ^CPropDB pxSource=new CPropDB;
+		var ^CPropDB.CNode pxRegionGuids;
+		if(pxSource^.Load("C:/"+p_sFile+"_regions_sdk.txt"))then
+			pxRegionGuids=^((pxSource^).GetRoot());
+		endif;
+		if(pxRegionGuids==null)then return; endif;
+		var ^CRegionBase pxRegion;
+		var string sGuidRegion;
+		var CGuid xGuidRegion;
+		var int i, iC=pxRegionGuids^.NumSubs();
+		if(iC<1)then return; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPropDB.CNode pxSub=^(pxRegionGuids^.Get(i));
+			if(pxSub==null)then continue; endif;
+			sGuidRegion=pxSub^.Value();
+			xGuidRegion.FromString(sGuidRegion);
+			pxRegion=pxRM^.GetRegion(xGuidRegion);
+			if(pxRegion==null)then continue; endif;
+			if(pxOld^.HasRegion(pxRegion))then
+				pxOld^.RemRegion(pxOld^.FindRegion(pxRegion));
+				pxRM^.InvalidateNode(xPrevious, false);
+			endif;
+			if(!pxData^.HasRegion(pxRegion))then
+				pxData^.AddRegion(pxRegion);
+				pxRM^.InvalidateNode(xNode, false);;
+			endif;
+		endfor;
+		CEnhancedMenu.Get().GetViewZoneCreate()^.ClearRegionTree();
+		CEnhancedMenu.Get().GetViewZoneCreate()^.UpdateRegionTree();
+	endproc;
+	
+	export proc void CreateRegionNode(string p_sParentG, string p_sName)
+		if(p_sParentG==""||p_sName=="")then return; endif;
+		var ^CRegionMgrClient pxRM=^(CLevelEditorWrap.GetRegionMgr());
+		if(pxRM==null)then return; endif;
+		var CGuid xG;
+		xG.FromString(p_sParentG);
+		var CRegionMgrClient.CNode xParent = pxRM^.FindNodeByGuid(xG);
+		if(!xParent.IsValid())then return; endif;
+		pxRM^.CreateNewNode(xParent,p_sName);
+		pxRM^.InvalidateNode(xParent, true);
+		CEnhancedMenu.Get().GetViewZoneCreate()^.ClearRegionTree();
+		CEnhancedMenu.Get().GetViewZoneCreate()^.UpdateRegionTree();
+	endproc;
+	
+	export proc void CreateRegionTreeBranch(string p_sPath, string p_sSeparator)
+		if(p_sPath==""||p_sSeparator==""||p_sPath.Find(p_sSeparator)==-1)then return; endif;
+		var ^CRegionMgrClient pxRM=^(CLevelEditorWrap.GetRegionMgr());
+		if(pxRM==null)then return; endif;
+		var array string asNodes;
+		var string sPath=p_sPath;
+		sPath.Split(asNodes,p_sSeparator,false);
+		var int iEntries=asNodes.NumEntries();
+		if(iEntries>1)then
+			var CRegionMgrClient.CNode xHierarch = pxRM^.GetHierarchyRoot();
+			var ^CRegionBase.TNodeData pxData=xHierarch.GetData();
+			if(pxData==null)then return; endif;
+			CRN(pxRM^.FindNodeByGuid(pxData^.GetGuid()),1,iEntries,p_sPath,p_sSeparator);
+		endif;
+		CEnhancedMenu.Get().GetViewZoneCreate()^.ClearRegionTree();
+		CEnhancedMenu.Get().GetViewZoneCreate()^.UpdateRegionTree();
+	endproc;
+	
+	proc void CRN(CRegionMgrClient.CNode p_xParent, int p_iIdx, int p_iAll, string p_sPath, string p_sSeparator)
+		if(!p_xParent.IsValid())then return; endif;
+//		if(p_sParentG==""||p_sName=="")then return; endif;
+		var ^CRegionMgrClient pxRM=^(CLevelEditorWrap.GetRegionMgr());
+//		if(pxRM==null)then return; endif;
+		var array string asNodes;
+		var string sPath=p_sPath;
+		sPath.Split(asNodes,p_sSeparator,false);
+		var CRegionMgrClient.CNode xNewNode = p_xParent.FindChild(asNodes[p_iIdx]);
+		if(!xNewNode.IsValid())then
+			xNewNode = pxRM^.CreateNewNode(p_xParent,asNodes[p_iIdx]);
+			pxRM^.InvalidateNode(p_xParent, true);
+		endif;
+		if(!xNewNode.IsValid())then return; endif;
+		if((p_iIdx+1)>=p_iAll)then return; endif;
+		CRN(xNewNode,(p_iIdx+1),p_iAll,p_sPath,p_sSeparator);
+	endproc;
+	
+	class CNodeInfo
+		
+		export var string m_sName;
+		export var string m_sParent;
+		export var string m_sPath;
+		export var bool m_bActive;
+		export var int m_iNodes;
+		export var int m_iTriggers;
+		
+		export constructor()
+		endconstructor;
+		
+		export destructor()
+		enddestructor;
+		
+		export proc void DoKArc(ref CArc p_rxArc)
+			p_rxArc << m_sName;
+			p_rxArc << m_sParent;
+			p_rxArc << m_sPath;
+			p_rxArc << m_bActive;
+			p_rxArc << m_iNodes;
+			p_rxArc << m_iTriggers;
+		endproc;
+		
+		export proc void Init(string p_sParent, CTriggerDescMgr.CNode p_xNode)
+			if(!p_xNode.IsValid())then return; endif;
+			var ^CTriggerDescMgr.CHierarchyDesc pxData=p_xNode.GetData();
+			if(pxData==null)then return; endif;
+			m_sName=pxData^.GetNodeName();
+			m_sParent=p_sParent;
+			m_sPath=p_xNode.GetFullPath();
+			m_bActive=p_xNode.IsActive();
+			m_iNodes=p_xNode.NumChildren();
+			m_iTriggers=pxData^.NumTriggers();
+			var int i, iC = m_iNodes;
+			for(i=0)cond(i<iC)iter(i++)do
+				CMirageSDKMgr.Get().ExtractDataFromNode(m_sName, p_xNode.GetChild(i));
+			endfor;
+			iC = m_iTriggers;
+			for(i=0)cond(i<iC)iter(i++)do
+				CMirageSDKMgr.Get().RegisterDescription(m_sName, pxData^.GetTrigger(i));
+			endfor;
+		endproc;
+		
+	endclass;
+	
+	class CDescriptionInfo
+		
+		class CActCondInfo
+			
+			export var CFourCC m_xType;
+			export var string m_sName;
+			export var string m_sDescription;
+			export var array string m_asKeys;
+			export var array string m_asValues;
+			
+			export constructor()
+			endconstructor;
+			
+			export destructor()
+			enddestructor;
+			
+			export proc void InitAction(^CTriggerDesc.CAction p_pxAction)
+				if(p_pxAction==null)then return; endif;
+				m_xType = p_pxAction^.GetType();
+				m_sName = p_pxAction^.GetName();
+				m_sDescription = p_pxAction^.GetDesc();
+				var ^CAttribs pxAttribs = ^(p_pxAction^.GetParams());
+				if(pxAttribs==null)then return; endif;
+				var int i, iC = pxAttribs^.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var string sKey, sValue;
+					if(pxAttribs^.GetEntry(i, sKey, sValue))then
+//						if(m_sName=="create unit"&&sKey=="obj_name"&&sValue=="aje_ankylosaurus")then
+//							pxAttribs^.SetValue(sKey, "aje_velociraptor_handler");
+//						endif;
+						m_asKeys.AddEntry(sKey);
+						m_asValues.AddEntry(sValue);
+					endif;
+				endfor;
+			endproc;
+			
+			export proc void InitCondition(^CTriggerDesc.CCondition p_pxCondition)
+				if(p_pxCondition==null)then return; endif;
+				m_xType = p_pxCondition^.GetType();
+				m_sName = p_pxCondition^.GetName();
+				m_sDescription = p_pxCondition^.GetDesc();
+				var ^CAttribs pxAttribs = ^(p_pxCondition^.GetParams());
+				if(pxAttribs==null)then return; endif;
+				var int i, iC = pxAttribs^.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var string sKey, sValue;
+					if(pxAttribs^.GetEntry(i, sKey, sValue))then
+//						if(m_sName=="<5 units (except heroes)"&&sKey=="only_fo")then
+//							pxAttribs^.SetValue(sKey, "1");
+//						endif;
+//						if(m_sName=="<5 units (except heroes)"&&sKey=="exclude_class")then
+////							pxAttribs^.SetValue(sKey, sValue+"aje_velociraptor|");
+//							pxAttribs^.SetValue(sKey, "Barry_s0|Bela_s0|Cole_s0|Harry_s0|Larry_s0|Miyagi_s0|Stina_s0|Tarna_s0|aje_velociraptor|babbage_s0|darwin_s0|hermit_s0|livingstone_s0|lovelace_s0|mayor_s0|schliemann_s0|special_eusmilus|tesla_s0");
+//						endif;
+						m_asKeys.AddEntry(sKey);
+						m_asValues.AddEntry(sValue);
+					endif;
+				endfor;
+			endproc;
+			
+			export proc void AddAction(^CTriggerDesc p_pxDescription)
+//				if(p_pxDescription==null)then return; endif;
+				var int iIdx=p_pxDescription^.AddAction(m_xType);
+				if(iIdx<0)then return; endif;
+				var ^CTriggerDesc.CAction pxAction=p_pxDescription^.GetAction(iIdx);
+				if(pxAction==null)then return; endif;
+				pxAction^.SetName(m_sName);
+				pxAction^.SetDesc(m_sDescription);
+				var ^CAttribs pxAttribs = ^(pxAction^.GetParams());
+				if(pxAttribs==null)then return; endif;
+				var int i, iC = m_asKeys.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					pxAttribs^.SetValue(m_asKeys[i], m_asValues[i]);
+				endfor;
+			endproc;
+			
+			export proc void AddCondition(^CTriggerDesc p_pxDescription)
+//				if(p_pxDescription==null)then return; endif;
+				var int iIdx=p_pxDescription^.AddCondition(m_xType);
+				if(iIdx<0)then return; endif;
+				var ^CTriggerDesc.CCondition pxCondition=p_pxDescription^.GetCondition(iIdx);
+				if(pxCondition==null)then return; endif;
+				pxCondition^.SetName(m_sName);
+				pxCondition^.SetDesc(m_sDescription);
+				var ^CAttribs pxAttribs = ^(pxCondition^.GetParams());
+				if(pxAttribs==null)then return; endif;
+				var int i, iC = m_asKeys.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					pxAttribs^.SetValue(m_asKeys[i], m_asValues[i]);
+				endfor;
+			endproc;
+			
+			export proc void DoKArcSave(ref CArc p_rxArc)
+				p_rxArc << m_xType;
+				p_rxArc << m_sName;
+				p_rxArc << m_sDescription;
+				var int i, iC = m_asKeys.NumEntries();
+				p_rxArc << iC;
+				for(i=0)cond(i<iC)iter(i++)do
+					p_rxArc << m_asKeys[i];
+					p_rxArc << m_asValues[i];
+				endfor;
+			endproc;
+			
+			export proc void DoKArcLoad(ref CArc p_rxArc)
+				p_rxArc << m_xType;
+				p_rxArc << m_sName;
+				p_rxArc << m_sDescription;
+				var int i, iC;
+				p_rxArc << iC;
+				m_asKeys = iC;
+				m_asValues = iC;
+				for(i=0)cond(i<iC)iter(i++)do
+					p_rxArc << m_asKeys[i];
+					p_rxArc << m_asValues[i];
+				endfor;
+			endproc;
+			
+		endclass;
+		
+		var array CActCondInfo m_axActions;
+		var array CActCondInfo m_axConditions;
+		
+		export var CGuid m_xGuid;
+		export var string m_sParent;
+		export var string m_sName;
+		export var string m_sDescription;
+		export var bitset m_dwEdgeType;
+		export var string m_sExpression;
+		export var bool m_bMultiDifficulty;
+		export var bool m_bRandomAction;
+		export var bool m_bDisabled;
+		export var int m_iActions;
+		export var int m_iConditions;
+		
+		export constructor()
+		endconstructor;
+		
+		export destructor()
+			while(m_axActions.NumEntries()>0)do
+				m_axActions.DeleteEntry(0);
+			endwhile;
+			while(m_axConditions.NumEntries()>0)do
+				m_axConditions.DeleteEntry(0);
+			endwhile;
+		enddestructor;
+		
+		export proc void Init(string p_sParent, ^CTriggerDesc p_pxDescription)
+			if(p_pxDescription==null)then return; endif;
+			m_sName=p_pxDescription^.GetName();
+			m_sParent=p_sParent;
+			m_sDescription=p_pxDescription^.GetDesc();
+			m_dwEdgeType=p_pxDescription^.GetEdgeType();
+			m_sExpression=p_pxDescription^.GetExpression();
+			m_xGuid=p_pxDescription^.GetGuid();
+			m_bMultiDifficulty=p_pxDescription^.GetMultiDifficulty();
+			m_bRandomAction=p_pxDescription^.GetRandomAction();
+			m_bDisabled=p_pxDescription^.IsCompleteDisabled();
+			m_iActions=p_pxDescription^.NumActions();
+			m_iConditions=p_pxDescription^.NumConditions();
+			var int i, iC = m_iActions;
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CActCondInfo pxAI=^(m_axActions.NewEntryRef());
+				pxAI^.InitAction(p_pxDescription^.GetAction(i));
+			endfor;
+			iC = m_iConditions;
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CActCondInfo pxCI=^(m_axConditions.NewEntryRef());
+				pxCI^.InitCondition(p_pxDescription^.GetCondition(i));
+			endfor;
+		endproc;
+		
+		export proc void PassOn(CTriggerDescMgr.CNode p_xParent, ^CTriggerDesc p_pxDescription, ^CTriggerDescMgr p_pxTDM)
+			if(p_pxDescription==null||!p_xParent.IsValid())then return; endif;
+			p_pxDescription^.SetName(m_sName);
+			p_pxDescription^.SetDesc(m_sDescription);
+			p_pxDescription^.SetEdgeType(m_dwEdgeType);
+			p_pxDescription^.SetExpression(m_sExpression);
+			p_pxDescription^.SetMultiDifficulty(m_bMultiDifficulty);
+			p_pxDescription^.SetRandomAction(m_bRandomAction);
+			while(m_axActions.NumEntries()>0)do
+				m_axActions[0].AddAction(p_pxDescription);
+				m_axActions.DeleteEntry(0);
+			endwhile;
+			while(m_axConditions.NumEntries()>0)do
+				m_axConditions[0].AddCondition(p_pxDescription);
+				m_axConditions.DeleteEntry(0);
+			endwhile;
+			if(p_xParent.GetData()!=null)then
+				var ^CTriggerDescMgr.CHierarchyDesc pxData = p_xParent.GetData();
+				if(pxData^.FindTrigger(p_pxDescription)<0)then
+					pxData^.AddTrigger(p_pxDescription);
+				else
+					return;
+				endif;
+			endif;
+			var CTriggerDescMgr.CNode xRoot = p_pxTDM^.GetHierarchyRoot();
+			var ^CTriggerDescMgr.CHierarchyDesc pxRD = xRoot.GetData();
+			if(pxRD!=null)then
+				var int iIdx = pxRD^.FindTrigger(p_pxDescription);
+				if(iIdx>=0)then
+					pxRD^.RemTrigger(iIdx);
+				endif;
+			endif;
+		endproc;
+		
+		export proc void DoKArcSave(ref CArc p_rxArc)
+			p_rxArc << m_sName;
+			p_rxArc << m_sParent;
+			p_rxArc << m_sDescription;
+			p_rxArc << m_dwEdgeType;
+			p_rxArc << m_sExpression;
+			p_rxArc << m_xGuid;
+			p_rxArc << m_bMultiDifficulty;
+			p_rxArc << m_bRandomAction;
+			p_rxArc << m_bDisabled;
+			p_rxArc << m_iActions;
+			p_rxArc << m_iConditions;
+			var int i, iC = m_axActions.NumEntries();
+			p_rxArc << iC;
+			for(i=0)cond(i<iC)iter(i++)do
+				m_axActions[i].DoKArcSave(p_rxArc);
+			endfor;
+			iC = m_axConditions.NumEntries();
+			p_rxArc << iC;
+			for(i=0)cond(i<iC)iter(i++)do
+				m_axConditions[i].DoKArcSave(p_rxArc);
+			endfor;
+		endproc;
+		
+		export proc void DoKArcLoad(ref CArc p_rxArc)
+			p_rxArc << m_sName;
+			p_rxArc << m_sParent;
+			p_rxArc << m_sDescription;
+			p_rxArc << m_dwEdgeType;
+			p_rxArc << m_sExpression;
+			p_rxArc << m_xGuid;
+			p_rxArc << m_bMultiDifficulty;
+			p_rxArc << m_bRandomAction;
+			p_rxArc << m_bDisabled;
+			p_rxArc << m_iActions;
+			p_rxArc << m_iConditions;
+			var int i, iC;
+			p_rxArc << iC;
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CMirageSDKMgr.CDescriptionInfo.CActCondInfo pxA=^(m_axActions.NewEntryRef());
+				pxA^.DoKArcLoad(p_rxArc);
+			endfor;
+			p_rxArc << iC;
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CMirageSDKMgr.CDescriptionInfo.CActCondInfo pxC=^(m_axConditions.NewEntryRef());
+				pxC^.DoKArcLoad(p_rxArc);
+			endfor;
+		endproc;
+		
+	endclass;
+	
+	var array CNodeInfo m_axNodes;
+	var array CDescriptionInfo m_axDescriptions;
+	var array string m_asInactiveNodes;
+	
+	proc void RegisterAllTriggers()
+		var ^CTriggerDescMgr pxTDM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		if(pxTDM==null)then return; endif;
+		var CTriggerDescMgr.CNode xRoot=pxTDM^.GetHierarchyRoot();
+		ExtractDataFromNode("", xRoot);
+	endproc;
+	
+	export proc void ExtractDataFromNode(string p_sParent, CTriggerDescMgr.CNode p_xNode)
+//		if(!p_xNode.IsValid())then return; endif;
+		var ^CNodeInfo pxNI=^(m_axNodes.NewEntryRef());
+		pxNI^.Init(p_sParent, p_xNode);
+	endproc;
+	
+	export proc void RegisterDescription(string p_sParent, ^CTriggerDesc p_pxDescription)
+//		if(p_pxDescription==null)then return; endif;
+		var ^CDescriptionInfo pxDI=^(m_axDescriptions.NewEntryRef());
+		pxDI^.Init(p_sParent, p_pxDescription);
+	endproc;
+	
+	export proc void SaveTriggers(string p_sFile)
+		RegisterAllTriggers();
+		var ^CArc pxArc= new CArc();
+		pxArc^.OpenWrite("C:\\"+p_sFile+"_trigger_nodes.arc",0);
+		var int i, iC=m_axNodes.NumEntries();
+		(pxArc^) << iC;
+		for(i=0)cond(i<iC)iter(i++)do
+			m_axNodes[i].DoKArc(pxArc^);
+		endfor;
+		pxArc^.Close();
+		pxArc= new CArc();
+		pxArc^.OpenWrite("C:\\"+p_sFile+"_trigger_descriptions.arc",0);
+		iC=m_axDescriptions.NumEntries();
+		(pxArc^) << iC;
+		for(i=0)cond(i<iC)iter(i++)do
+			m_axDescriptions[i].DoKArcSave(pxArc^);
+		endfor;
+		pxArc^.Close();
+	endproc;
+	
+	export proc void LoadTriggers(string p_sFile)
+		var ^CTriggerDescMgr pxTDM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		if(pxTDM==null)then return; endif;
+		CMirageSDKMgr.SetDTU(1);
+		var CTriggerDescMgr.CNode xRoot=pxTDM^.GetHierarchyRoot();
+//		pxTDM^.DeleteNodeAndSubs(xRoot);
+//		CEnhancedMenu.Get().GetViewTriggerCreate()^.Reset();
+		var ^CArc pxArc= new CArc();
+		pxArc^.OpenRead("C:\\"+p_sFile+"_trigger_nodes.arc");
+		var int i, iC;
+		(pxArc^) << iC;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CMirageSDKMgr.CNodeInfo pxNode=^(m_axNodes.NewEntryRef());
+			pxNode^.DoKArc(pxArc^);
+		endfor;
+		pxArc^.Close();
+		pxArc= new CArc();
+		pxArc^.OpenRead("C:\\"+p_sFile+"_trigger_descriptions.arc");
+		(pxArc^) << iC;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CMirageSDKMgr.CDescriptionInfo pxDescription=^(m_axDescriptions.NewEntryRef());
+			pxDescription^.DoKArcLoad(pxArc^);
+		endfor;
+		pxArc^.Close();
+		// Henry: begin recreating nodes and descriptions...
+		CreateSubs("Root", xRoot, pxTDM);
+		while(m_asInactiveNodes.NumEntries()>0)do
+			var CTriggerDescMgr.CNode xTemp = pxTDM^.FindNodeByName(m_asInactiveNodes[0]);
+			if(xTemp.IsValid())then
+				xTemp.SetActive(false,true);
+			endif;
+			m_asInactiveNodes.DeleteEntry(0);
+		endwhile;
+		while(m_axNodes.NumEntries()>0)do
+			m_axNodes.DeleteEntry(0);
+		endwhile;
+		while(m_axDescriptions.NumEntries()>0)do
+			m_axDescriptions.DeleteEntry(0);
+		endwhile;
+//		CEvt_SendTriggerDescMgr.Send();
+//		CEnhancedMenu.Get().GetViewTriggerCreate()^.Reset();
+		CMirageSDKMgr.SetDTU(0);
+	endproc;
+	
+	export proc void CreateSubs(string p_sParent, CTriggerDescMgr.CNode p_xNode, ^CTriggerDescMgr p_pxTDM)
+//		if(!p_xNode.IsValid()||p_pxTDM==null)then return; endif;
+		if(!p_xNode.IsValid())then return; endif;
+		var int i, iC=m_axDescriptions.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_axDescriptions[i].m_sParent!=p_sParent)then continue; endif;
+//			var CGuid xGuid=p_pxTDM^.CreateTrigger(m_axDescriptions[i].m_sName);
+			var CGuid xGuid=p_pxTDM^.CreateTrigger();
+			var ^CTriggerDesc pxTrigger=p_pxTDM^.GetTrigger(xGuid);
+			if(pxTrigger!=null)then
+				m_axDescriptions[i].PassOn(p_xNode, pxTrigger, p_pxTDM);
+			endif;
+		endfor;
+		iC=m_axNodes.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_axNodes[i].m_sParent!=p_sParent)then continue; endif;
+			var string sChild=m_axNodes[i].m_sName;
+			if(!m_axNodes[i].m_bActive)then
+				m_asInactiveNodes.Include(sChild);
+			endif;
+			var CTriggerDescMgr.CNode xChild=p_pxTDM^.CreateNewNode(p_xNode,sChild);
+			var CTriggerDescMgr.CNode xTest=p_pxTDM^.FindNodeByName(sChild);
+			CreateSubs(sChild, xChild, p_pxTDM);
+		endfor;
+	endproc;
+	
+	export proc void LoadTAttribs(string p_sFile)
+		var ^CPropDB pxSource = new CPropDB;
+		if(!pxSource^.Load("C:/"+p_sFile+"_trigger_attribs.txt"))then return; endif;
+		var ^CPropDB.CNode pxRoot = ^(pxSource^.GetRoot());
+		var ^CTriggerDescMgr pxTDM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		if(pxTDM==null)then return; endif;
+		var int i, iC = pxTDM^.NumTrigger(), k, j;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CTriggerDesc pxTrigger=pxTDM^.GetTrigger(i);
+			if(pxTrigger==null)then continue; endif;
+			var ^CPropDB.CNode pxTNode = pxRoot^.FindNode(pxTrigger^.GetName(), false);
+			if(pxTNode==null)then continue; endif;
+			var ^CPropDB.CNode pxANode = pxTNode^.FindNode("Actions", false);
+			var ^CPropDB.CNode pxCNode = pxTNode^.FindNode("Conditions", false);
+			if(pxANode==null||pxCNode==null)then continue; endif;
+			var ^CAttribs pxAttribs;
+			var int iActions=pxTrigger^.NumActions(), iConditions=pxTrigger^.NumConditions();
+			for(k=0)cond(k<iActions)iter(k++)do
+				var ^CTriggerDesc.CAction pxAction=pxTrigger^.GetAction(k);
+				if(pxAction==null)then continue; endif;
+				var ^CPropDB.CNode pxActionN = pxANode^.FindNode("action_"+k.ToString(), false);
+				if(pxActionN==null)then continue; endif;
+				pxAttribs = ^(pxAction^.GetParams());
+				if(pxAttribs==null)then continue; endif;
+				var int iEntries = pxAttribs^.NumEntries();
+				for(j=0)cond(j<iEntries)iter(j++)do
+					var ^CPropDB.CNode pxAParam = pxActionN^.FindNode("param_"+j.ToString(), false);
+					if(pxAParam==null)then continue; endif;
+					var string sKey = pxAParam^.GetValueS("key", sKey), sValue = pxAParam^.GetValueS("value", sValue);
+					pxAttribs^.SetValue(sKey, sValue);
+				endfor;
+			endfor;
+			for(k=0)cond(k<iConditions)iter(k++)do
+				var ^CTriggerDesc.CCondition pxCondition=pxTrigger^.GetCondition(k);
+				if(pxCondition==null)then continue; endif;
+				var ^CPropDB.CNode pxConditionN = pxCNode^.FindNode("condition_"+k.ToString(), false);
+				if(pxConditionN==null)then continue; endif;
+				pxAttribs = ^(pxCondition^.GetParams());
+				if(pxAttribs==null)then continue; endif;
+				var int iEntries = pxAttribs^.NumEntries();
+				for(j=0)cond(j<iEntries)iter(j++)do
+					var ^CPropDB.CNode pxCParam = pxConditionN^.FindNode("param_"+j.ToString(), false);
+					if(pxCParam==null)then continue; endif;
+					var string sKey = pxCParam^.GetValueS("key", sKey), sValue = pxCParam^.GetValueS("value", sValue);
+					pxAttribs^.SetValue(sKey, sValue);
+				endfor;
+			endfor;
+		endfor;
+	endproc;
+	
+	export proc void LoadLevelInfo(string p_sFile)
+		var ^CPropDB pxSource = new CPropDB;
+		if(!pxSource^.Load("C:/"+p_sFile+"_levelinfo.txt"))then return; endif;
+//		var ^CPropDB.CNode pxRoot = ^(pxSource^.GetRoot());
+		var string sLevelInfo = pxSource^.ToString();
+		var ^CLevelInfo pxLevelInfo = ^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB;
+		pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		if(pxGenericDB==null)then return; endif;
+		var ^CPropDB.CNode pxLIRoot = ^(pxGenericDB^.GetRoot());
+		if(pxLIRoot==null)then return; endif;
+		pxLIRoot^.Clear();
+		pxGenericDB^.FromString(sLevelInfo);
+//		CEvt_GenericLongStringEvent.Send("SaveLevelInfoWeather\t"+sLevelInfo);
+	endproc;
+	
+	export static proc void DumpRegions(string p_sFile, bool p_bLibrary, bool p_bDebug, bool p_bDataBase)
+		var ^CRegionMgrClient pxRM=CLevelEditorWrap.GetRegionMgr();
+		if(pxRM!=null)then
+			var int i,iC=pxRM^.NumRegions();
+			if(p_bLibrary&&p_sFile!="")then
+				var ^CPropDB pxBook = new CPropDB;
+				var ^CPropDB.CNode pxContent = ^(pxBook^.GetRoot());
+				var CRegionMgrClient.CNode xHierarch = pxRM^.GetHierarchyRoot();
+				DumpRegionMgrNode("", "", "Root", "", xHierarch, pxContent);
+				pxBook^.Save("C:/"+p_sFile+"_region_library.txt");
+			endif;
+			if(p_bDebug)then
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CRegionBase pxRB=pxRM^.GetRegion(i);
+					Debug(i.ToString()+"'s region name is: "+pxRB^.GetName()+" | guid is: "+pxRB^.GetGUID().ToString(),false);
+				endfor;
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CRegionBase pxRB=pxRM^.GetRegion(i);
+					Debug(pxRB^.GetGUID().ToString(),false);
+				endfor;
+			endif;
+			if(p_bDataBase&&p_sFile!="")then
+				var ^CPropDB pxRegions = new CPropDB;
+				var ^CPropDB.CNode pxRoot = ^(pxRegions^.GetRoot());
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CRegionBase pxRB=pxRM^.GetRegion(i);
+					var string sName="region_"+i.ToString();
+//					var string sName="region_vwxyz";
+					var ^CPropDB.CNode pxNode=^(pxRoot^.AddValue(sName,pxRB^.GetGUID().ToString()));
+					if(pxNode!=null)then
+						pxNode^.AddValue("name",pxRB^.GetName().ToString());
+//						pxNode^.AddValue("description",pxRB^.GetDescription());
+//						pxNode^.AddValue("color",pxRB^.GetColor().ToString());
+//						pxNode^.AddValue("enabled",pxRB^.GetEnable().ToString());
+//						pxNode^.AddValue("numsubs",pxRB^.NumSubs().ToString());
+						pxNode^.AddValue("guid",pxRB^.GetGUID().ToString());
+					endif;
+				endfor;
+				pxRegions^.Save("C:/"+p_sFile+"_regions_sdk.txt");
+			endif;
+		endif;
+	endproc;
+	
+	export static proc void DumpRegionMgrNode(string p_sParent, string p_sPath, string p_sNodeName, string p_sParentGuid, CRegionMgrClient.CNode p_xChildNode, ^CPropDB.CNode p_pxDB)
+		var ^CRegionBase.TNodeData pxData=p_xChildNode.GetData();
+		if(pxData==null)then return; endif;
+//		if(!p_xChildNode.IsValid())then return; endif;
+		var string sName=pxData^.GetName();
+		var string sGuid=pxData^.GetGuid().ToString();
+//		var string sFullPath=p_xChildNode.GetFullPath();
+		var string sFullPath=p_sPath+"/"+sName;
+//		var ^CPropDB.CNode pxNode=^(p_pxDB^.AddValue(sName,""));
+		var ^CPropDB.CNode pxNode=^(p_pxDB^.AddValue(p_sNodeName,""));
+		if(pxNode==null)then return; endif;
+		var int i,iC=p_xChildNode.NumChildren(),iK=pxData^.NumRegions();
+		pxNode^.AddValue("name",sName);
+		pxNode^.AddValue("guid",pxData^.GetGuid().ToString());
+		pxNode^.AddValue("full_path",sFullPath);
+		pxNode^.AddValue("parent",p_sParent);
+		pxNode^.AddValue("guid_of_parent",p_sParentGuid);
+		pxNode^.AddValue("num_sub_regions",iK.ToString());
+		pxNode^.AddValue("num_sub_nodes",iC.ToString());
+		pxNode^.AddValue("valid",p_xChildNode.IsValid().ToString());
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CPropDB.CNode pxSubNodes=^(pxNode^.AddValue("sub_nodes_of_"+sName,""));
+			if(pxSubNodes!=null)then
+				for(i=0)cond(i<iC)iter(i++)do
+					DumpRegionMgrNode(sName,sFullPath,"sub_node_"+i.ToString(),sGuid,p_xChildNode.GetChild(i),pxSubNodes);
+				endfor;
+			endif;
+		endfor;
+		if(iK>0)then
+			var ^CPropDB.CNode pxSubRegions=^(pxNode^.AddValue("sub_regions_of_"+sName,""));
+			if(pxSubRegions!=null)then
+				for(i=0)cond(i<iK)iter(i++)do
+					DumpRegionMgrRegion(pxData^.GetRegionGuid(i),i.ToString(),sName,sFullPath,sGuid,pxSubRegions);
+				endfor;
+			endif;
+		endif;
+	endproc;
+	
+	export static proc void DumpRegionMgrRegion(CGuid p_xGuid, string p_sIdx, string p_sOwner, string p_sParentPath, string p_sParentGuid, ^CPropDB.CNode p_pxDB)
+		var ^CRegionMgrClient pxRM=CClientWrap.GetRegionMgr();
+		if(pxRM==null||p_pxDB==null)then return; endif;
+		var ^CRegionBase pxRegion=pxRM^.GetRegion(p_xGuid);
+		if(pxRegion==null)then return; endif;
+		var string sName="sub_region_"+p_sIdx;
+		var ^CPropDB.CNode pxNode=^(p_pxDB^.AddValue(sName,""));
+		if(pxNode!=null)then
+			pxNode^.AddValue("name",pxRegion^.GetName().ToString());
+			pxNode^.AddValue("description",pxRegion^.GetDescription());
+			pxNode^.AddValue("color",pxRegion^.GetColor().ToString());
+			pxNode^.AddValue("enabled",pxRegion^.GetEnable().ToString());
+			pxNode^.AddValue("numsubs",pxRegion^.NumSubs().ToString());
+			pxNode^.AddValue("parent_path",p_sParentPath);
+			pxNode^.AddValue("guid_of_parent",p_sParentGuid);
+			pxNode^.AddValue("guid",pxRegion^.GetGUID().ToString());
+		endif;
+	endproc;
+	
+	export static proc bool Debug(string p_sText)
+		return Debug(p_sText,true);
+	endproc;
+	
+	export static proc bool Debug(string p_sText, bool p_bTime)
+//		var string sFile = CLevelEditorWrap.GetUrsRelPath()+"/Data/"+CMirageClnMgr.MODNAME+"/Scripts/LogFiles/sdk_log.txt";
+//		if(!Filesystem.FileExists(sFile))then
+//			var string sDir = CLevelEditorWrap.GetUrsRelPath()+"/Data/"+CMirageClnMgr.MODNAME+"/Scripts/LogFiles";
+//			if(!Filesystem.DirExists(sDir)then
+//				Filesystem.MkDir(sDir);
+//			endif;
+//			var CPropDB xTemp;
+//			if(!xTemp.Save(sFile)||!Filesystem.FileExists(sFile))then return false; endif;
+//		endif;
+		var string sFile = "sdk_log.txt";
+		if(!Filesystem.FileExists(sFile))then return false; endif;
+		var Filesystem.CFile xFile;
+		xFile.OpenAppend(sFile);
+		var string sPrefix;
+		if(p_bTime)then
+			sPrefix=CTime.CurrentTime().ToString()+": ";
+		endif;
+		xFile.PrintLn(sPrefix+p_sText);
+		xFile.Close();
+		return true;
+	endproc;
+	
+endclass;

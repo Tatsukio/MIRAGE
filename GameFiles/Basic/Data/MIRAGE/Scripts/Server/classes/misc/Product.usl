@@ -1,0 +1,1234 @@
+class CProduct inherit CGameObj
+
+	var ^CTaskMgr m_pxTaskMgr;
+
+	//////////////////////////////////////////////////////////////
+	// OnInit()
+	//////////////////////////////////////////////////////////////
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		InitEvents();
+		var ^CFSM pxFSM=GetFSM();
+		if(pxFSM==null) then
+			pxFSM=InitFSM();
+			m_pxTaskMgr=cast<CTaskMgr>(CSrvWrap.GetUSLFactoryMgr().CreateState(pxFSM,"TaskMgr"));
+			if(m_pxTaskMgr!=null)then
+				m_pxTaskMgr^.SetOwner(GetHandle());
+			endif;
+		else
+			m_pxTaskMgr=cast<CTaskMgr>(pxFSM^.FindSubStateRecursive("TaskMgr"));
+			if(m_pxTaskMgr!=null)then
+				m_pxTaskMgr^.SetOwner(GetHandle());
+			endif;
+		endif;
+		if(!p_bLoad)then
+			SetType("PROD");
+		endif;
+		var ^CAttribs pxAttr = InitAttribs();
+		if (pxAttr == null) then return; endif;
+		if(!p_bLoad) then
+			SetHitable(true);
+			SetSelectable(true);
+			SetVisible(true);
+		endif;
+	endproc;
+	
+	export proc void Delete()
+		if(GetFSM()!=null)then
+			if(m_pxTaskMgr!=null && m_pxTaskMgr^.GetCurTask()!=null)then
+				m_pxTaskMgr^.StopCurTask();
+			endif;
+		endif;
+		super.Delete();
+	endproc;
+	
+	export proc void AddTask(^CTask p_pxTask,bool p_bQueue)
+		if(m_pxTaskMgr!=null)then
+			if(p_bQueue)then
+				m_pxTaskMgr^.AddTask(p_pxTask);
+			else
+				m_pxTaskMgr^.SetTask(p_pxTask);
+			endif;
+		endif;
+	endproc;
+	
+	export proc ^CTask GetCurTask()
+		if(m_pxTaskMgr!=null)then
+			return m_pxTaskMgr^.GetCurTask();
+		endif;
+		return null;
+	endproc;
+
+	export proc void BreakEveryTask()
+		if(m_pxTaskMgr!=null)then
+			var ^CTask pxT = m_pxTaskMgr^.GetCurTask();
+			if(pxT!=null)then
+				pxT^.EndTask();
+			endif;
+		endif;
+	endproc;
+	
+	proc void OnActionStart()
+		var ^CFSM pxFSM=GetFSM();
+		if(pxFSM!=null)then
+			pxFSM^.Enable(false);
+		endif;
+	endproc;
+	
+	proc void OnActionEnd(bool p_bBroken)
+		var ^CFSM pxFSM=GetFSM();
+		if(pxFSM!=null)then
+			pxFSM^.Enable(true);
+		endif;
+	endproc;
+	
+	export proc bool HasQueue()
+		if(m_pxTaskMgr!=null)then
+			m_pxTaskMgr^.HasQueue();
+		endif;
+		return false;
+	endproc;
+	
+endclass;
+
+class CTaskBuildUp inherit CProduct
+
+	proc void OnActionStart()
+	endproc;
+
+	proc void OnActionEnd(bool p_bBroken)
+	endproc;
+	
+	export proc void OnPostLoad()
+		super.OnPostLoad();
+		var ^CFSM pxFSM=GetFSM();
+		if(pxFSM!=null)then
+			pxFSM^.Enable(true);
+		endif;
+	endproc;
+	
+endclass;
+
+class CProductTrailer inherit CProduct
+	//////////////////////////////////////////////////////////////
+	// OnInit()
+	//////////////////////////////////////////////////////////////
+	export proc void OnInit(bool p_bLoad)
+		//linked Trailers will be recreated on Load!
+		if(p_bLoad) then
+			Delete();
+			return;
+		endif;
+		super.OnInit(p_bLoad);
+	endproc;
+endclass;
+
+class CLongRangeProjectile inherit CArrow
+
+endclass;
+
+class CDinoBullet inherit CLongRangeProjectile
+
+	proc void OnImpact()
+		ValidateObjects();
+		if(m_pxFighter!=null)then
+//			var ^CGameObj pxO = CSrvWrap.GetObjMgr()^.CreateObj("aje_ammo_dino_dest", m_pxFighter^.GetOwner(), m_vTarget);
+			var ^CDinoAmmoEgg pxO = cast<CDinoAmmoEgg>(CSrvWrap.GetObjMgr()^.CreateObj("aje_ammo_dino_dest", m_pxFighter^.GetOwner(), m_vTarget));
+			var vec3 vP;
+			vP = m_vTarget;
+			//vP.SetZ(CSrvWrap.GetScapeMgr().GetHeight(GetPos().GetX(), GetPos().GetY()));
+			//CSrvWrap.GetObjMgr()^.GetFreePos(vP,m_pxFighter,vP);
+			if (pxO!=null) then
+				pxO^.SetPos(vP);
+				pxO^.SetSpawner(m_xFighter,m_pxFighter^.GetCurEnemy(),m_pxFighter^.GetLevel());
+			endif;
+		endif;
+		//Delete();
+	endproc;
+
+endclass;
+
+class CDinoAmmoEgg inherit CGameObj
+
+	var bool m_bAnimPlayed;
+	var bool m_bMoved;
+	var CObjHndl m_xFighter;
+	
+	export proc void OnInit(bool p_bLoad)
+		m_bAnimPlayed=true;
+		var vec3 vPos = GetPos();
+		var real fScapeZ = CSrvWrap.GetScapeMgr().GetHeight(vPos.GetX(), vPos.GetY());
+		var real fSea = CSrvWrap.GetScapeMgr().GetSeaLevel();
+		if(!p_bLoad)then
+			if((fScapeZ+5.0f)>=fSea) then
+				AnimAction("destroy");
+				var vec3 vPos = GetPos();
+				var real fScapeZ = CSrvWrap.GetScapeMgr().GetHeight(vPos.GetX(), vPos.GetY());
+				var real fSea = CSrvWrap.GetScapeMgr().GetSeaLevel();
+				if((fScapeZ+5.0f)>=fSea) then
+					var ^CGameObj pxO = CSrvWrap.GetObjMgr()^.CreateObj("aje_velociraptor", GetOwner());
+					if (pxO!=null) then
+						m_xFighter = pxO^.GetHandle();
+						pxO^.SetPos(GetPos());
+					endif;
+				endif;
+			else
+				MoveAction(GetPos()+{0.1f,0.0f,0.0f}, 1.0f);
+			endif;
+		endif;
+	endproc;
+
+	export proc void SetSpawner(CObjHndl p_xFighter, CObjHndl p_xCurEnemy, int p_iLevel)
+		if(m_xFighter.IsValid())then
+			var ^CFightingObj pxO = cast<CFightingObj>(m_xFighter.GetObj());
+			if(pxO!=null)then
+				pxO^.SetSpawningPool(p_xFighter);
+				pxO^.SetLevelClean(p_iLevel);
+				if(p_xCurEnemy.IsValid())then
+					pxO^.SetCurEnemy(p_xCurEnemy);
+				endif;
+			endif;
+		endif;
+	endproc;
+
+	export proc void OnActionEnd(bool p_bBroken)
+		if(m_bMoved) then
+			Delete();
+			return;
+		endif;
+		var vec3 vPos = GetPos();
+		var real fScapeZ = CSrvWrap.GetScapeMgr().GetHeight(vPos.GetX(), vPos.GetY());
+		vPos.SetZ(fScapeZ-4.0f);
+		MoveAction(vPos,2.0f);
+		m_bMoved=true;
+	endproc;
+endclass;
+
+class CBurstArrow inherit CArrow
+	proc void OnImpact()
+		ValidateObjects();
+		var real fRadius=5.0;
+		if(m_pxEnemy!=null)then
+			fRadius+=m_pxEnemy^.GetCollisionRadius();
+		endif;
+		if(m_pxFighter!=null)then
+			var ^CAreaDamage pxDmg = new CAreaDamage(m_pxFighter, m_vTarget, fRadius, m_iSizeClass);
+		else
+			var ^CAreaDamage pxDmg = new CAreaDamage(fRadius, m_fDmg, m_fEndDmg, m_iOwner, m_vTarget,m_iSizeClass);
+		endif;
+		Delete();
+	endproc;
+endclass;
+	
+class CAdaArrow inherit CArrow
+
+	//BadGun Tuning: Adas & Schliemanns HeadShot
+	const real MIN_DAMAGE	= 1500.0;
+	const real MAX_DAMAGE	= 5500.0;
+	const real PERCENTAGE	= 90.0;
+	const real NEW_MAX		= 4000.0;
+	const real NEW_MIN		= 1000.0;
+
+	proc void OnImpact()
+		ValidateObjects();
+		if(m_pxEnemy!=null)then
+//			var real fRemnants=m_pxEnemy^.GetMaxHitpoints();
+//			var real fRemnants=m_pxEnemy^.GetHitpoints();
+//			if(fRemnants>=5000.0)then
+//				fRemnants=500.0f;
+//			elseif(fRemnants<=1000.0)then
+//				fRemnants=0.0f;
+//			else
+//				fRemnants=200.0f;
+//			endif;
+//			var real fDamage = Math.Clamp(m_pxEnemy^.GetHitpoints() * PERCENTAGE * 0.01, MIN_DAMAGE, MAX_DAMAGE);
+			var real fDamage = Math.Clamp(m_pxEnemy^.GetHitpoints() * PERCENTAGE * 0.01, NEW_MIN, NEW_MAX);
+//			var real fDamage = Math.Clamp(m_pxEnemy^.GetHitpoints() - fRemnants, 0.0, NEW_MAX);
+			if(m_pxFighter!=null)then
+//				m_pxEnemy^.TakeDirectDmg(fDamage, m_pxFighter^.GetArmorPiercing(), m_pxFighter^.GetOwner(),m_xFighter);
+				m_pxEnemy^.TakeDirectDmg(fDamage,100.0,m_pxFighter^.GetOwner(),m_xFighter);
+			else
+				m_pxEnemy^.TakeDirectDmg(fDamage,100.0,m_xFighter);
+			endif;
+		endif;
+		Delete();
+	endproc;
+
+	export proc void Set(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy)
+		Set(p_pxFighter, p_pxEnemy, p_pxFighter^.GetDmg(), p_pxFighter^.GetEndDmg(), p_pxFighter^.GetHitRange(), p_pxFighter^.GetProjectileJitter(), p_pxFighter^.GetProjectileDelay(), p_pxFighter^.GetWeaponSizeClass());
+		m_bDirect = false;
+	endproc;
+	
+	export proc void SetXtraDelay(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy, real p_fXtraDelay)
+		Set(p_pxFighter, p_pxEnemy, p_pxFighter^.GetDmg(), p_pxFighter^.GetEndDmg(), p_pxFighter^.GetHitRange(), p_pxFighter^.GetProjectileJitter(), p_pxFighter^.GetProjectileDelay() * p_fXtraDelay,p_pxFighter^.GetWeaponSizeClass());
+		m_bDirect = false;
+	endproc;
+
+	export proc void Set(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy, real p_fDmg)
+		Set(p_pxFighter, p_pxEnemy, p_fDmg,  p_pxFighter^.GetEndDmg(), p_pxFighter^.GetHitRange(),  p_pxFighter^.GetProjectileJitter(), p_pxFighter^.GetProjectileDelay(),p_pxFighter^.GetWeaponSizeClass());
+		m_bDirect = true;
+	endproc;
+
+	export proc void Set(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy, real p_fDmg, real p_fEndDmg, real p_fHitRange)
+		Set(p_pxFighter, p_pxEnemy, p_fDmg, p_fEndDmg, p_fHitRange,  p_pxFighter^.GetProjectileJitter(), 0.75f,p_pxFighter^.GetWeaponSizeClass());
+	endproc;
+
+	export proc void Set(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy, real p_fDmg, real p_fEndDmg, real p_fHitRange, real p_fJitterRange, real p_fDelay, int p_iSizeClass)
+		super.Set(p_pxFighter, p_pxEnemy, p_fDmg, p_fEndDmg, p_fHitRange, p_fJitterRange, 1.72, p_iSizeClass);
+	endproc;
+	
+	export proc void Set(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy, ^CBuildUpWeapon p_pxBuildUp)
+		super.Set(p_pxFighter, p_pxEnemy, p_pxBuildUp);
+	endproc;
+
+endclass;
+
+class CSniperArrow inherit CArrow
+	
+	//BadGun Tuning: Belas SniperShot
+	const real MIN_DAMAGE	= 500.0;
+	const real MAX_DAMAGE	= 2000.0;
+	const real PERCENTAGE	= 50.0;
+	const real MIN_DAMAGE_BLDG	= 200.0;
+	const real MAX_DAMAGE_BLDG	= 800.0;
+	const real PERCENTAGE_BLDG	= 20.0;
+	
+	proc void OnImpact()
+		ValidateObjects();
+		if(m_pxEnemy!=null)then
+			var string sType = m_pxEnemy^.GetType().AsString();
+			m_pxEnemy^.SetShattered(true,15.0);
+			var real fDamage;
+			if(sType=="BLDG")then
+				fDamage = Math.Clamp(m_pxEnemy^.GetHitpoints()*PERCENTAGE_BLDG*0.01, MIN_DAMAGE_BLDG, MAX_DAMAGE_BLDG);
+			else
+				fDamage = Math.Clamp(m_pxEnemy^.GetHitpoints()*PERCENTAGE*0.01, MIN_DAMAGE, MAX_DAMAGE);
+			endif;
+			if(m_pxFighter!=null)then
+				m_pxEnemy^.TakeDirectDmg(fDamage, 100.0, m_pxFighter^.GetOwner(),m_xFighter);
+//				m_pxEnemy^.TakeDirectDmg(fDamage,m_pxFighter^.GetOwner(),m_xFighter);
+			else
+//				m_pxEnemy^.TakeDirectDmg(fDamage,m_xFighter);
+				m_pxEnemy^.TakeDirectDmg(fDamage,100.0,m_xFighter);
+			endif;
+		endif;
+		Delete();
+	endproc;
+	
+	export proc void Set(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy)
+		Set(p_pxFighter, p_pxEnemy, p_pxFighter^.GetDmg(), p_pxFighter^.GetEndDmg(), p_pxFighter^.GetHitRange(), p_pxFighter^.GetProjectileJitter(), p_pxFighter^.GetProjectileDelay(), p_pxFighter^.GetWeaponSizeClass());
+		m_bDirect = false;
+	endproc;
+	
+	export proc void SetXtraDelay(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy, real p_fXtraDelay)
+		Set(p_pxFighter, p_pxEnemy, p_pxFighter^.GetDmg(), p_pxFighter^.GetEndDmg(), p_pxFighter^.GetHitRange(), p_pxFighter^.GetProjectileJitter(), p_pxFighter^.GetProjectileDelay() * p_fXtraDelay,p_pxFighter^.GetWeaponSizeClass());
+		m_bDirect = false;
+	endproc;
+	
+	export proc void Set(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy, real p_fDmg)
+		Set(p_pxFighter, p_pxEnemy, p_fDmg,  p_pxFighter^.GetEndDmg(), p_pxFighter^.GetHitRange(),  p_pxFighter^.GetProjectileJitter(), p_pxFighter^.GetProjectileDelay(),p_pxFighter^.GetWeaponSizeClass());
+		m_bDirect = true;
+	endproc;
+	
+	export proc void Set(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy, real p_fDmg, real p_fEndDmg, real p_fHitRange)
+		Set(p_pxFighter, p_pxEnemy, p_fDmg, p_fEndDmg, p_fHitRange,  p_pxFighter^.GetProjectileJitter(), 0.75f,p_pxFighter^.GetWeaponSizeClass());
+	endproc;
+	
+	export proc void Set(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy, real p_fDmg, real p_fEndDmg, real p_fHitRange, real p_fJitterRange, real p_fDelay, int p_iSizeClass)
+		super.Set(p_pxFighter, p_pxEnemy, p_fDmg, p_fEndDmg, p_fHitRange, p_fJitterRange, 2.0, p_iSizeClass);
+	endproc;
+	
+	export proc void Set(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy, ^CBuildUpWeapon p_pxBuildUp)
+		super.Set(p_pxFighter, p_pxEnemy, p_pxBuildUp);
+	endproc;
+	
+endclass;
+
+class CMultiArrow inherit CArrow
+
+	export proc void Shoot()
+		SetVisible(true);
+		DeleteTimer(START_TIMER);
+		if(ValidateObjects())then
+			TerminateAction();
+			var vec3 vSelfPos = m_pxFighter^.GetProjectileStartPos();
+			var real fSpeed = m_pxFighter^.GetProjectileSpeed();
+			var real fFallOff = m_pxFighter^.GetProjectileFallOff();
+			SetPos(vSelfPos);
+			var vec3 vPos = m_pxEnemy^.GetPos();
+			var real fRadius;
+			if(m_pxFighter!=null&&m_pxFighter^.GetBlinded())then
+				m_bBlinded=true;
+				m_fJitter*=2.0f;
+			endif;
+			m_vTarget = vPos;
+			if (m_bRandomize) then
+				RandomizePosInRadius(m_vTarget, m_fJitter);
+			endif;
+			var ^CTrap pxBldg = cast<CTrap>(m_pxEnemy); 
+			var ^CGrowingField pxField = cast<CGrowingField>(m_pxEnemy); 
+			if(pxBldg==null && pxField==null)then
+				if(!m_pxEnemy^.FindNearestAttackZone(m_pxFighter^.GetPos(),vPos,fRadius,2.0,100.0))then
+					m_vFlyPos = vPos;
+					//m_vTarget = vPos;
+					if (m_bRandomize) then
+						RandomizePosInRadius(vPos, m_fJitter);
+						m_vFlyPos = vPos;
+						//m_vTarget = vPos;
+						m_vFlyPos.SetZ( m_vFlyPos.GetZ() + m_pxEnemy^.GetSize().GetZ()*0.3 );
+						//vPos.SetZ( vPos.GetZ() + m_pxEnemy^.GetSize().GetZ()*0.7 );
+					else
+						CalculatePointOfImpact(vSelfPos, m_vFlyPos, m_pxEnemy^.GetSize(), fSpeed, -fFallOff);
+					endif;
+				else
+					RandomizePosInRadius(vPos,fRadius);
+					//m_vTarget = vPos;
+					m_vFlyPos = vPos;
+					CalculatePointOfImpact(vSelfPos, m_vFlyPos, {0.0,0.0,0.0}, fSpeed, -fFallOff);
+				endif;
+			else
+				//m_vTarget = vPos;
+				m_vFlyPos = vPos;
+			endif;
+			var vec3 vDirection = m_vFlyPos-vSelfPos;
+			var CProjectileMgr.CInitDesc xPInit;
+			xPInit.m_hSourceObj=m_xFighter;
+			xPInit.m_hTargetObj=m_xEnemy;
+			xPInit.m_iOwner=GetOwner();
+			xPInit.m_sGFX=GetGfxName();
+			xPInit.m_vSrc=vSelfPos;
+			xPInit.m_vDst=m_vFlyPos;
+			xPInit.m_fSpeed=fSpeed;
+			xPInit.m_fG=fFallOff;
+			xPInit.m_bColDet=false;
+			xPInit.m_sImpactAnim="impact";
+			//xPInit.m_bFlyThrough;
+			var CProjectileMgr.CSpawnDesc xSpawn;
+			if(!CSrvWrap.GetObjMgr()^.GetProjectileMgr().SpawnProjectile(xPInit,xSpawn)) then
+				Delete();
+			endif;
+			//BadGun Tuning: Pi/180 entspricht 1°
+			vDirection.RotZ(-0.087);
+			xPInit.m_vDst=vSelfPos+vDirection;
+			if(!CSrvWrap.GetObjMgr()^.GetProjectileMgr().SpawnProjectile(xPInit,xSpawn)) then
+				Delete();
+			endif;
+			vDirection.RotZ(0.1745);
+			xPInit.m_vDst=vSelfPos+vDirection;
+			if(!CSrvWrap.GetObjMgr()^.GetProjectileMgr().SpawnProjectile(xPInit,xSpawn)) then
+				Delete();
+			endif;
+			//BadGun Tuning: Multishot, dazu passend die Winkel der Pfeile oben anpassen
+			m_pxFighter^.Penetrate(m_pxEnemy, 10.0);
+//			BallisticAction(m_vFlyPos, fSpeed, fFallOff, true, "impact");
+//			if (!HasAction()) then
+//				Delete();
+//			endif;
+			WaitAction(xSpawn.m_fImpactDelay);
+			m_bFired=true;
+		endif;
+	endproc;
+
+endclass;
+
+class CArrow inherit CGameObj
+
+	export var procref<bool>		m_xOnShot;
+		var ^CFightingObj					m_pxEnemy;
+	var ^CFightingObj						m_pxFighter;
+	export var vec3							m_vTarget;
+	var vec3										m_vFlyPos;
+	var CObjHndl								m_xFighter;
+	var CObjHndl								m_xEnemy;
+	var bool										m_bFired;
+	export const int						START_TIMER=201;
+	var CBonus									m_xBonus;
+
+	var real			m_fDmg;
+	var real			m_fEndDmg;				// Damage on outer impact range
+	var real			m_fDmgRange;			// damage range ( radius from impact pos )
+	var real			m_fMaxRange;			// maximal fire range
+	var real			m_fMinRange;			// minimal fire range
+	var real			m_fJitter;
+	var int				m_iSizeClass;
+	var bool			m_bRandomize;
+	var bool			m_bDirect;
+	var real			m_fArmorPiercing;
+	var bool			m_bBlinded;
+	var bool			m_bSecond;
+	
+	var real			m_fProjectileFallOff;
+	var real			m_fProjectileSpeed;
+	
+	var bool			m_bAreaDamage;
+	var bool			m_bAttackScape;
+	var int				m_iEnemyOwner;
+	var int				m_iOwner;
+	
+	var CObjHndl m_xBuildUp;
+	var ^CBuildUpWeapon m_pxBuildUp;
+	var bool m_bBuildUp;
+	var bool m_bAirAttack;
+	
+	constructor()
+		m_bAreaDamage = false;
+		m_bBlinded = false;
+		m_bSecond = false;
+		m_fArmorPiercing =-1.0;
+		m_bAirAttack =true;
+		SetServerOnly(true);
+	endconstructor;
+
+	destructor()
+	enddestructor;
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Arro";
+		var int iVersion=3;
+		if(CMirageSrvMgr.SDK())then
+			iVersion=1;
+		endif;
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,iVersion);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xEnemy.DoKArc(pxArc^);
+		m_xFighter.DoKArc(pxArc^);
+		(pxArc^) << m_vTarget;
+		(pxArc^) << m_vFlyPos;
+		(pxArc^) << m_bFired;
+		(pxArc^) << m_fDmg;
+		(pxArc^) << m_fEndDmg;
+		(pxArc^) << m_fDmgRange;
+		(pxArc^) << m_fMaxRange;
+		(pxArc^) << m_fMinRange;
+		(pxArc^) << m_fJitter;
+		(pxArc^) << m_iSizeClass;
+		(pxArc^) << m_bRandomize;
+		(pxArc^) << m_bDirect;
+		(pxArc^) << m_fArmorPiercing;
+		(pxArc^) << m_fProjectileFallOff;
+		(pxArc^) << m_fProjectileSpeed;
+		(pxArc^) << m_bAreaDamage;
+		(pxArc^) << m_bAttackScape;
+		(pxArc^) << m_iEnemyOwner;
+		(pxArc^) << m_iOwner;
+		m_xBuildUp.DoKArc(pxArc^);
+		if(iVersion>=2)then
+			(pxArc^) << m_bBlinded;
+			(pxArc^) << m_bBuildUp;
+			(pxArc^) << m_bAirAttack;
+		endif;
+		if(iVersion>=3)then
+			(pxArc^) << m_bSecond;
+		endif;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Arro")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xEnemy.DoKArc(pxArc^);
+			m_xFighter.DoKArc(pxArc^);
+			(pxArc^) << m_vTarget;
+			(pxArc^) << m_vFlyPos;
+			(pxArc^) << m_bFired;
+			(pxArc^) << m_fDmg;
+			(pxArc^) << m_fEndDmg;
+			(pxArc^) << m_fDmgRange;
+			(pxArc^) << m_fMaxRange;
+			(pxArc^) << m_fMinRange;
+			(pxArc^) << m_fJitter;
+			(pxArc^) << m_iSizeClass;
+			(pxArc^) << m_bRandomize;
+			(pxArc^) << m_bDirect;
+			(pxArc^) << m_fArmorPiercing;
+			(pxArc^) << m_fProjectileFallOff;
+			(pxArc^) << m_fProjectileSpeed;
+			(pxArc^) << m_bAreaDamage;
+			(pxArc^) << m_bAttackScape;
+			(pxArc^) << m_iEnemyOwner;
+			(pxArc^) << m_iOwner;
+			m_xBuildUp.DoKArc(pxArc^);
+			if(p_pxReaderNode^.GetVersion()>=2)then
+				(pxArc^) << m_bBlinded;
+				(pxArc^) << m_bBuildUp;
+				(pxArc^) << m_bAirAttack;
+			endif;
+			if(p_pxReaderNode^.GetVersion()>=3)then
+				(pxArc^) << m_bSecond;
+			endif;
+			ValidateObjects();
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	proc void GetNewGfx()
+		var CFourCC xLink="psh1";
+		var vec3 vP;
+		if(m_pxFighter!=null && m_pxFighter^.GetLinkPosObj(m_pxFighter^.GetProjectileLink(), vP))then
+			m_pxFighter^.SetLinkGFX(m_pxFighter^.GetProjectileLink(),GetGfxName());
+		endif;
+	endproc;
+
+	export proc void OnDoDmg()
+		//InvokeSCEvent(CObjBase.TSCEvent.EID_BuildingHit_01,0.1f,0.0);
+		if(m_bAreaDamage)then
+			if(GetOwner()>=0)then
+				SetPos(m_vFlyPos);
+				var vec3 vPos = m_vTarget;
+				var real fHeight = Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vPos.GetX(), vPos.GetY()), CSrvWrap.GetScapeMgr().GetSeaLevel());
+				vPos.SetZ(fHeight);
+				ValidateObjects();
+				if(m_pxEnemy!=null)then
+					if(m_pxEnemy^.GetType()=="BLDG")then
+						InvokeSCEvent(CObjBase.TSCEvent.EID_BuildingHit_01,0.1f,0.0);
+					endif;
+				endif;
+				if(m_pxFighter!=null)then
+					if(m_bBuildUp)then
+						var ^CAreaDamage pxDmg = new CAreaDamage(m_pxFighter, m_bBuildUp, m_vTarget, m_iSizeClass, !m_bAirAttack, m_fDmgRange, m_fDmg, m_fEndDmg);
+					else
+						var ^CAreaDamage pxDmg = new CAreaDamage(m_pxFighter, m_vTarget, m_iSizeClass);
+					endif;
+				else
+					var ^CAreaDamage pxDmg = new CAreaDamage(m_fDmgRange, m_fDmg, m_fEndDmg, m_iOwner, m_vTarget, m_iSizeClass);
+				endif;
+			endif;
+		else
+			if(m_bBlinded)then return; endif;
+			var bool bV=ValidateObjects();
+			if(bV&&m_bBuildUp)then
+				if(m_bSecond)then
+					m_pxEnemy^.TakeDmgFromBuildupExtra(m_pxFighter, 1.0f, m_pxFighter^.GetHitDelay());
+				else
+					m_pxEnemy^.TakeDmgFromBuildup(m_pxFighter, 1.0f, m_pxFighter^.GetHitDelay());
+				endif;
+			elseif(bV&&!m_bDirect)then
+				m_pxEnemy^.TakeDmg(m_pxFighter,true);
+			elseif(m_xEnemy.IsValid())then
+				if(m_fArmorPiercing<0.0)then
+					m_pxEnemy^.TakeDirectDmg(m_fDmg,m_xFighter);
+				else
+					m_pxEnemy^.TakeDirectDmg(m_fDmg,m_fArmorPiercing,m_xFighter);
+				endif;
+			endif;
+		endif;
+	endproc;
+
+	export proc real GetDamage()
+		return m_fDmg;
+	endproc;
+
+	export proc void SetBonus(^CBonus p_pxBonus)
+		m_xBonus = (p_pxBonus^);
+	endproc;
+
+	proc real CalcDamage(^CFightingObj p_pxEnemy, real p_fDmg, real p_fEndDmg)
+		var real fDist = (p_pxEnemy^.GetPos() - GetPos()).Abs2();
+		if (fDist > m_fDmgRange) then
+			return 0.0f;
+		endif;
+		var real fA, fB;
+		GetDmgWithBonus(fA, fB, p_pxEnemy^.GetType());
+		return fA - (fA-fB) * (fDist/m_fDmgRange);
+	endproc;
+
+	proc void GetDmgWithBonus(ref real po_rfDmg, ref real po_rfEndDmg, CFourCC p_xType)
+		po_rfDmg = m_fDmg - (m_fDmg*0.01*m_xBonus.GetBonus(p_xType.AsString(), ""));
+		po_rfEndDmg = m_fEndDmg - (m_fEndDmg*0.01*m_xBonus.GetBonus(p_xType.AsString(), ""));
+	endproc;
+
+	proc void OnActionStart()
+	endproc;
+
+	proc void OnActionEnd(bool p_bBroken)
+		if (!m_bFired) then return; endif;
+		OnImpact();
+	endproc;
+
+	export proc void OnInit(bool p_bLoad)
+		InitEvents();
+		if(!p_bLoad)then
+			SetType("PROD");
+			m_bFired = false;
+		endif;
+		SetShowSpeedLines(true);
+		SetHitable(false);
+		SetSelectable(false);
+		SetVisible(true);
+		SetServerOnly(true); //object won't be send to client -> invisible (except leveled)
+	endproc;
+
+	export proc void Shoot()
+		SetVisible(true);
+		DeleteTimer(START_TIMER);
+		ValidateObjects();
+		var bool bLinkRemoved = false;
+		var bool bBuildUpChanged=false;
+		if(m_pxFighter!=null&&m_pxFighter^.GetBlinded())then
+			m_bBlinded=true;
+			m_fJitter*=2.0f;
+		endif;
+		var ^CTransportObj pxTO=cast<CTransportObj>(m_pxFighter);
+		if(pxTO!=null && m_pxBuildUp!=null)then
+			bBuildUpChanged=(pxTO^.GetBuildUp()!=m_pxBuildUp);
+			if(bBuildUpChanged)then
+				var int i,iC=pxTO^.NumAdditionalBuildUps();
+				for(i=0)cond(i<iC)iter(i++)do
+					var ^CBuildUpBase pxWalk=pxTO^.GetAdditionalBuildUp(i);
+					if(pxWalk==m_pxBuildUp)then
+						bBuildUpChanged=false;
+						break;
+					endif;
+				endfor;
+			endif;
+		endif;
+//		if(m_pxFighter!=null)then
+//			m_pxFighter^.ThrowBack();
+//		endif;
+		if(ValidateObjects() && !bBuildUpChanged)then
+			TerminateAction();
+			var vec3 vSelfPos;
+			if(m_xBuildUp.IsValid() && m_pxBuildUp!=null)then
+				vSelfPos = m_pxBuildUp^.GetProjectileStartPos();
+			else
+				vSelfPos = m_pxFighter^.GetProjectileStartPos();
+			endif;
+			var real fSpeed = m_fProjectileSpeed;
+			var real fFallOff = m_fProjectileFallOff;
+			SetPos(vSelfPos);
+			var vec3 vPos = m_pxEnemy^.GetPos();
+			var real fRadius;
+			m_vTarget = vPos;
+			if(m_bRandomize)then
+				RandomizePosInRadius(m_vTarget, m_fJitter);
+			endif;
+			var ^CTrap pxBldg = cast<CTrap>(m_pxEnemy); 
+			var ^CGrowingField pxField = cast<CGrowingField>(m_pxEnemy); 
+			if(pxBldg==null && pxField==null)then
+				if(!m_pxEnemy^.FindNearestAttackZone(m_pxFighter^.GetPos(),vPos,fRadius,2.0,100.0))then
+					m_vFlyPos = vPos;
+					//m_vTarget = vPos;
+					if (m_bRandomize) then
+						RandomizePosInRadius(vPos, m_fJitter);
+						m_vFlyPos = vPos;
+						//m_vTarget = vPos;
+						m_vFlyPos.SetZ( m_vFlyPos.GetZ() + m_pxEnemy^.GetSize().GetZ()*0.3 );
+						//vPos.SetZ( vPos.GetZ() + m_pxEnemy^.GetSize().GetZ()*0.7 );
+					else
+						CalculatePointOfImpact(vSelfPos, m_vFlyPos, m_pxEnemy^.GetSize(), fSpeed, -fFallOff);
+					endif;
+				else
+					RandomizePosInRadius(vPos,fRadius);
+					//m_vTarget = vPos;
+					m_vFlyPos = vPos;
+					CalculatePointOfImpact(vSelfPos, m_vFlyPos, {0.0,0.0,0.0}, fSpeed, -fFallOff);
+				endif;
+			else
+				//m_vTarget = vPos;
+				m_vFlyPos = vPos;
+			endif;
+			var CProjectileMgr.CInitDesc xPInit;
+			xPInit.m_hSourceObj=m_xFighter;
+			xPInit.m_hTargetObj=m_xEnemy;
+			xPInit.m_iOwner=GetOwner();
+			xPInit.m_sGFX=GetGfxName();
+			xPInit.m_vSrc=vSelfPos;
+			xPInit.m_vDst=m_vFlyPos;
+			xPInit.m_fSpeed=fSpeed;
+			xPInit.m_fG=fFallOff;
+			xPInit.m_bColDet=true;
+			xPInit.m_sImpactAnim="impact";
+			//xPInit.m_bFlyThrough;
+			var CProjectileMgr.CSpawnDesc xSpawn;
+			if(!CSrvWrap.GetObjMgr()^.GetProjectileMgr().SpawnProjectile(xPInit,xSpawn)) then
+				Delete();
+			else
+				if(m_pxFighter!=null)then
+					m_pxFighter^.ThrowBack();
+				endif;
+			endif;
+			WaitAction(xSpawn.m_fImpactDelay);
+//			BallisticAction(m_vFlyPos, fSpeed, fFallOff, true, "impact");
+//			if (!HasAction()) then
+//				Delete();
+//			endif;
+			m_bFired=true;
+		elseif (m_bAttackScape) then
+			if(m_xFighter.IsValid())then
+//				BallisticAction(m_vFlyPos, m_pxFighter^.GetProjectileSpeed(), m_pxFighter^.GetProjectileFallOff(), true, "impact");
+				//if (!HasAction()) then
+				//	Delete();
+				//endif;
+				var vec3 vSelfPos = m_pxFighter^.GetProjectileStartPos();
+				if (m_bRandomize) then
+					RandomizePosInRadius(m_vTarget, m_fJitter);
+				endif;
+				var CProjectileMgr.CInitDesc xPInit;
+				xPInit.m_hSourceObj=m_xFighter;
+				//xPInit.m_hTargetObj=m_xEnemy;
+				xPInit.m_iOwner=GetOwner();
+				xPInit.m_sGFX=GetGfxName();
+				xPInit.m_vSrc=vSelfPos;
+				xPInit.m_vDst=m_vTarget;
+				xPInit.m_fSpeed=m_fProjectileSpeed;
+				xPInit.m_fG=m_fProjectileFallOff;
+				xPInit.m_bColDet=true;
+				xPInit.m_sImpactAnim="impact";
+				//xPInit.m_bFlyThrough;
+				
+				var CProjectileMgr.CSpawnDesc xSpawn;
+				if(!CSrvWrap.GetObjMgr()^.GetProjectileMgr().SpawnProjectile(xPInit,xSpawn)) then
+					Delete();
+				else
+					if(m_pxFighter!=null)then
+						m_pxFighter^.ThrowBack();
+					endif;
+				endif;
+				WaitAction(xSpawn.m_fImpactDelay);
+				m_bFired=true;
+			endif;
+		else
+			Delete();
+		endif;
+		//Lowtec: Liebe Grüsse an meine Mama! Ich hab dich lieb!
+		//Ich soll auch Dävids Mama ganz lieb grüssen!
+		//Ich soll auch Max seine Frau ganz lieb grüssen!
+	endproc;
+
+	proc void CalculatePointOfImpact(vec3 p_vSelfPos, ref vec3 p_rvPos, vec3 p_vSize, real p_fSpeed, real p_fFallOff)
+		var vec3 vDist;
+		if(p_vSize.GetZ()>0.5)then
+			if(Math.Abs(CSrvWrap.GetScapeMgr().GetHeight(p_rvPos.GetX(), p_rvPos.GetY())-p_rvPos.GetZ())<0.5f)then
+			//	p_rvPos.SetZ(p_rvPos.GetZ()+p_vSize.GetZ()*0.66f);
+			endif;
+		endif;
+		vDist=p_rvPos-p_vSelfPos;
+		vDist.SetZ(vDist.GetZ()-p_vSize.GetZ()*0.1);
+		vDist.Normalize();
+//		p_rvPos=p_rvPos+vDist*10.0f;
+//		p_rvPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(p_rvPos.GetX(), p_rvPos.GetY())+1.0f);
+	endproc;
+
+	export proc void RandomizePos(ref vec3 po_rvPos)
+		po_rvPos.SetX(po_rvPos.GetX() + ((Random.GetInt()%4)-4).ToReal());
+		po_rvPos.SetY(po_rvPos.GetY() + ((Random.GetInt()%4)-4).ToReal());
+		po_rvPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(po_rvPos.GetX(), po_rvPos.GetY()));
+	endproc;
+
+	export proc void RandomizePosInRadius(ref vec3 po_rvPos, real p_fRadius)
+		var int iRadius = (p_fRadius+0.5).ToInt();
+		if(iRadius>0)then
+			var real fRandomLength		= ((Random.GetInt()%(p_fRadius*20.0).ToInt()).ToReal()/10.0) - p_fRadius;
+			var real fRandomRotation	= ((Random.GetInt()%314).ToReal()/100.0);
+			var vec3 vDir = {1.0,0.0,0.0};
+			vDir*=fRandomLength;
+			vDir.RotZ(fRandomRotation);
+			po_rvPos += vDir;
+/*			po_rvPos.SetX(po_rvPos.GetX() + ((Random.GetInt()%(p_fRadius*20.0).ToInt()).ToReal()-p_fRadius).ToReal());
+			po_rvPos.SetY(po_rvPos.GetY() + ((Random.GetInt()%(p_fRadius*20.0).ToInt()).ToReal()-p_fRadius).ToReal());
+*/		endif;
+	endproc;
+
+	proc bool ValidateObjects()
+		m_pxEnemy=cast<CFightingObj>(m_xEnemy.GetObj());
+		m_pxFighter=cast<CFightingObj>(m_xFighter.GetObj());
+		return (m_pxFighter!=null && m_pxEnemy!=null);
+	endproc;
+
+	proc void OnImpact()
+		//m_iDieTimer = CreateTimer(200, CGameTimeSpan.OneSecond() * 5.0, false);
+		//delete on impact, we are done here!
+		OnDoDmg();
+		Delete();
+	endproc;
+	
+	proc void UpdateDirection()
+	endproc;
+
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if (p_rxEvtPtr.GetClass() == ms_xTimerClass) then
+			if (p_rxEvtPtr.GetInt(0) == START_TIMER ) then
+				DeleteTimer(START_TIMER);
+				Shoot();
+//			elseif (p_rxEvtPtr.GetInt(0) == 200 ) then
+//				DeleteTimer(m_iDieTimer);
+//				m_iDieTimer = -1;
+//				Delete();
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		else
+			super.HandleEvent(p_rxEvtPtr);
+		endif;
+	endproc;
+
+	export proc void Set(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy)
+		Set(p_pxFighter, p_pxEnemy, p_pxFighter^.GetDmg(), p_pxFighter^.GetEndDmg(), p_pxFighter^.GetHitRange(), p_pxFighter^.GetProjectileJitter(), p_pxFighter^.GetProjectileDelay(), p_pxFighter^.GetWeaponSizeClass());
+		m_bDirect = false;
+	endproc;
+	
+	export proc void SetXtraDelay(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy, real p_fXtraDelay)
+		Set(p_pxFighter, p_pxEnemy, p_pxFighter^.GetDmg(), p_pxFighter^.GetEndDmg(), p_pxFighter^.GetHitRange(), p_pxFighter^.GetProjectileJitter(), p_pxFighter^.GetProjectileDelay() * p_fXtraDelay,p_pxFighter^.GetWeaponSizeClass());
+		m_bDirect = false;
+	endproc;
+
+	export proc void Set(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy, real p_fDmg)
+		Set(p_pxFighter, p_pxEnemy, p_fDmg,  p_pxFighter^.GetEndDmg(), p_pxFighter^.GetHitRange(),  p_pxFighter^.GetProjectileJitter(), p_pxFighter^.GetProjectileDelay(),p_pxFighter^.GetWeaponSizeClass());
+		m_bDirect = true;
+	endproc;
+
+	export proc void Set(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy, real p_fDmg, real p_fEndDmg, real p_fHitRange)
+		Set(p_pxFighter, p_pxEnemy, p_fDmg, p_fEndDmg, p_fHitRange,  p_pxFighter^.GetProjectileJitter(), 0.75f,p_pxFighter^.GetWeaponSizeClass());
+	endproc;
+
+	export proc void Set(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy, real p_fDmg, real p_fEndDmg, real p_fHitRange, real p_fJitterRange, real p_fDelay, int p_iSizeClass)
+		m_pxEnemy = p_pxEnemy;
+		m_pxFighter = p_pxFighter;
+		m_xFighter=m_pxFighter^.GetHandle();
+		m_iOwner = p_pxFighter^.GetOwner();
+		m_xEnemy=p_pxEnemy^.GetHandle();
+		CreateTimer(START_TIMER, CGameTimeSpan.OneSecond() * p_fDelay, false);
+		m_fDmg = p_fDmg;
+		m_fEndDmg = p_fEndDmg;
+		m_fDmgRange = p_fHitRange;
+		if(m_fDmgRange>0.0f)then
+			m_bAreaDamage = true;
+		endif;
+		m_iSizeClass=p_iSizeClass;
+		m_iEnemyOwner = m_pxEnemy^.GetOwner();
+		//GetNewGfx();
+		p_pxFighter^.SetProjectileOnTimer();
+		p_pxFighter^.SetProjectileOffTimer();
+		m_fJitter = p_fJitterRange;
+		m_bRandomize = m_fJitter!=0.0;
+		m_bAttackScape = false;
+		m_fProjectileFallOff = p_pxFighter^.GetProjectileFallOff();
+		m_fProjectileSpeed = p_pxFighter^.GetProjectileSpeed();
+		UpdateDirection();
+	endproc;
+
+	export proc void Set(^CFightingObj p_pxFighter, ^CFightingObj p_pxEnemy, ^CBuildUpWeapon p_pxBuildUp)
+		m_xBuildUp = p_pxBuildUp^.GetPrimaryLinkedObjFight();
+		m_pxBuildUp = p_pxBuildUp;
+		m_bBuildUp = m_xBuildUp.IsValid();
+		m_pxFighter = p_pxFighter;
+		m_pxEnemy = p_pxEnemy;
+		m_xFighter=m_pxFighter^.GetHandle();
+		m_xEnemy=p_pxEnemy^.GetHandle();
+		m_iOwner = p_pxFighter^.GetOwner();
+		m_iEnemyOwner = m_pxEnemy^.GetOwner();
+		var real fBUDelay=p_pxBuildUp^.GetProjectileDelay();
+		m_bAirAttack=p_pxBuildUp^.CanShootAir();
+		if(fBUDelay<=0.0f)then
+			fBUDelay=0.75f;
+		endif;
+		m_fDmg = p_pxBuildUp^.GetDmg();
+		m_fEndDmg = p_pxBuildUp^.GetEndDmg();
+		m_fDmgRange = p_pxBuildUp^.GetHitRange();
+		if(m_fDmgRange>0.0f)then
+			m_bAreaDamage = true;
+		endif;
+		m_bSecond=p_pxBuildUp^.GetSecond();
+		m_iSizeClass=p_pxBuildUp^.GetWeaponSizeClass();
+		m_fJitter = p_pxBuildUp^.GetProjectileJitter();
+		m_bRandomize = m_fJitter!=0.0;
+		m_bAttackScape = false;
+		m_fProjectileFallOff = p_pxBuildUp^.GetProjectileFallOff();
+		m_fProjectileSpeed = p_pxBuildUp^.GetProjectileSpeed();
+		m_bDirect = true;
+		m_fArmorPiercing=p_pxBuildUp^.GetArmorPiercing();
+		UpdateDirection();
+		CreateTimer(START_TIMER, CGameTimeSpan.OneSecond() * fBUDelay, false);
+	endproc;
+
+	export proc void SetAttackScape(^CFightingObj p_pxFighter, vec3 p_vPos)
+		SetAttackScape(p_pxFighter, p_vPos, p_pxFighter^.GetProjectileDelay());
+	endproc;
+
+	export proc void SetAttackScape(^CFightingObj p_pxFighter, vec3 p_vPos, real p_fDelay)
+		m_pxFighter = p_pxFighter;
+		m_xFighter = p_pxFighter^.GetHandle();
+		m_iOwner = p_pxFighter^.GetOwner();
+		m_pxEnemy = null;
+		m_xEnemy = CObjHndl.Invalid();
+		m_fDmg 			= p_pxFighter^.GetDmg();
+		m_fEndDmg 		= p_pxFighter^.GetEndDmg();
+		m_fDmgRange 	= p_pxFighter^.GetHitRange();
+		if(m_fDmgRange>0.0)then
+			m_bAreaDamage = true;
+		else
+			//L KLog.LogSpam("MaZi", "Attacking scape with Non-Area-Damage-Weapon");
+		endif;
+		m_vTarget = p_vPos;
+		m_iSizeClass=p_pxFighter^.GetWeaponSizeClass();
+		m_iEnemyOwner = -1;
+		m_bAttackScape = true;
+		m_fJitter = p_pxFighter^.GetProjectileJitter();
+		m_bRandomize = m_fJitter!=0.0;
+		//GetNewGfx();
+		m_fProjectileFallOff = p_pxFighter^.GetProjectileFallOff();
+		m_fProjectileSpeed = p_pxFighter^.GetProjectileSpeed();
+		p_pxFighter^.SetProjectileOnTimer();
+		p_pxFighter^.SetProjectileOffTimer();
+		UpdateDirection();
+		CreateTimer(START_TIMER, CGameTimeSpan.OneSecond() * p_fDelay, false);
+	endproc;
+
+endclass;
+
+class CBurningArrow inherit CArrow
+
+	proc void OnImpact()
+		m_pxEnemy^.HandleGamePlayCommand("CatchArrow", null, {0.0,0.0,0.0},"");
+		Delete();
+	endproc;
+
+endclass;
+
+class CTorpedo inherit CArrow
+
+	const int		DIRECTION_TIMER = 456;
+	const int		EXPLOSION_TIMER = 4567;
+	const int		DIE_TIMER		= 45678;
+	var Quat		m_qLastDirection;
+	var real		m_fReisehoehe;
+	
+	constructor()
+	endconstructor;
+	
+	destructor()
+	enddestructor;
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		SetServerOnly(false);
+	endproc;
+	
+	proc bool StartTimer()
+		if(!HasTimer(DIRECTION_TIMER))then
+			CreateTimer(DIRECTION_TIMER, CGameTimeSpan.OneSecond() * 0.2, true);
+		endif;
+		if(!HasTimer(EXPLOSION_TIMER))then
+			CreateTimer(EXPLOSION_TIMER, CGameTimeSpan.OneSecond() * 15.0, false);
+		endif;
+		
+		return true;
+	endproc;
+	
+	proc void StopTimer()
+		if(HasTimer(DIRECTION_TIMER))then
+			DeleteTimer(DIRECTION_TIMER);
+		endif;
+		if(HasTimer(EXPLOSION_TIMER))then
+			DeleteTimer(EXPLOSION_TIMER);
+		endif;
+	endproc;
+	
+	proc void StartExplosion()
+		MoveAction(GetPos()+{0.0,0.0,-1.0}, 8.0);
+		StopTimer();
+		InvokeGenericSCEvent(34,2.0f);
+		if(!HasTimer(DIE_TIMER))then
+			CreateTimer(DIE_TIMER, CGameTimeSpan.OneSecond() * 3.0, false);
+		endif;
+	endproc;
+
+	
+	export proc void Shoot()
+		SetVisible(true);
+		var vec3 vPos=GetPos();
+		vPos.SetZ(CSrvWrap.GetScapeMgr().GetSeaLevel());
+		SetPos(vPos);
+		DeleteTimer(START_TIMER);
+		if(ValidateObjects())then
+			TerminateAction();
+			StartTimer();
+		else
+			StopTimer();
+			Delete();
+			return;
+		endif;
+	endproc;
+
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if (p_rxEvtPtr.GetClass() == ms_xTimerClass)then
+			if(p_rxEvtPtr.GetInt(0)==DIRECTION_TIMER)then
+				CheckRotation();
+			elseif(p_rxEvtPtr.GetInt(0)==EXPLOSION_TIMER)then
+				StartExplosion();
+			elseif(p_rxEvtPtr.GetInt(0)==DIE_TIMER)then
+				Delete();
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		else
+			super.HandleEvent(p_rxEvtPtr);
+		endif;
+	endproc;
+	
+	proc void UpdateDirection()
+		ValidateObjects();
+		if(m_pxEnemy!=null)then
+			var vec3 vDirection = m_pxEnemy^.GetPos() - GetPos();
+			var Quat qRot;
+			qRot.FromXYDir(vDirection.GetX(), vDirection.GetY());
+			SetRot(qRot);
+		endif;
+	endproc;
+
+	proc void CheckRotation()
+		var real fScapeHeight = CSrvWrap.GetScapeMgr().GetHeight(GetPos().GetX(), GetPos().GetY());
+		var real fWaterHeight = CSrvWrap.GetScapeMgr().GetSeaLevel();
+		if(fScapeHeight>fWaterHeight)then
+			StartExplosion();
+			return;
+		endif;
+		
+		ValidateObjects();
+		if(m_pxEnemy!=null)then
+			var vec3 vDistance = m_pxEnemy^.GetPos() - GetPos();
+			var real fRadius = m_pxEnemy^.GetCollisionRadius();
+			if(vDistance.Abs2S()<(fRadius*fRadius))then
+				m_pxEnemy^.InvokeGenericSCEvent(34,2.0f);
+				OnImpact();
+				return;
+			endif;
+			var vec3 vDir = vDistance.GetNormalized();
+			var Quat qRot;
+			qRot.FromXYDir(vDir.GetX(), vDir.GetY());
+			var vec3 vRot;
+			var Quat qRotDiff=qRot/GetRot();
+			qRotDiff.ToVec3(vRot);
+			var real fDiff = vRot.GetZ();
+			var real fAngle = Math.Abs(fDiff);
+			if(fAngle>0.07)then
+				if(fDiff>0.0)then
+					fDiff -= 0.07;
+				else
+					fDiff += 0.07;
+				endif;
+				vDir.RotZ(-fDiff);
+			endif;
+			MoveAction(GetPos()+(vDir*100.0), m_fProjectileSpeed, 0.0);
+		else
+			var Quat qRot;
+			qRot = GetRot();
+			var vec3 vDir = {0.0,1.0,0.0};
+			qRot.VecRotateU(vDir);
+			MoveAction(GetPos()+(vDir*1000.0), m_fProjectileSpeed, 0.0);
+		endif;
+	endproc;
+
+	export proc void OnActionEnd(bool p_bBroken)
+		if (!m_bFired) then return; endif;
+		ValidateObjects();
+		if(m_pxEnemy!=null)then
+			var vec3 vDistance = m_pxEnemy^.GetPos() - GetPos();
+			var real fRadius = m_pxEnemy^.GetCollisionRadius();
+			if(vDistance.Abs2S()<(fRadius*fRadius))then
+				m_pxEnemy^.InvokeGenericSCEvent(34,2.0f);
+				OnImpact();
+				return;
+			endif;
+		endif;
+	endproc;
+
+endclass;
+
+class CPirateBossArrow inherit CArrow
+	
+	var int m_iIndex;
+	
+	export proc void SetIndex(int p_iIdx)
+		m_iIndex=p_iIdx;
+	endproc;
+
+	export proc void Shoot()
+		
+		SetVisible(true);
+		DeleteTimer(CArrow.START_TIMER);
+		ValidateObjects();
+		var bool bLinkRemoved = false;
+		if(ValidateObjects())then
+			TerminateAction();
+			var vec3 vSelfPos = m_pxFighter^.GetProjectileStartPos(m_iIndex);
+			var real fSpeed = m_fProjectileSpeed;
+			var real fFallOff = m_fProjectileFallOff;
+			SetPos(vSelfPos);
+			var vec3 vPos = m_pxEnemy^.GetPos();
+			var real fRadius;
+			m_vTarget = vPos;
+			if (m_bRandomize) then
+				RandomizePosInRadius(m_vTarget, m_fJitter);
+			endif;
+			var ^CTrap pxBldg = cast<CTrap>(m_pxEnemy); 
+			var ^CGrowingField pxField = cast<CGrowingField>(m_pxEnemy); 
+			if(pxBldg==null && pxField==null)then
+				if(!m_pxEnemy^.FindNearestAttackZone(m_pxFighter^.GetPos(),vPos,fRadius,2.0,100.0))then
+					m_vFlyPos = vPos;
+					if (m_bRandomize) then
+						RandomizePosInRadius(vPos, m_fJitter);
+						m_vFlyPos = vPos;
+						m_vFlyPos.SetZ( m_vFlyPos.GetZ() + m_pxEnemy^.GetSize().GetZ()*0.3 );
+					else
+						CalculatePointOfImpact(vSelfPos, m_vFlyPos, m_pxEnemy^.GetSize(), fSpeed, -fFallOff);
+					endif;
+				else
+					RandomizePosInRadius(vPos,fRadius);
+					//m_vTarget = vPos;
+					m_vFlyPos = vPos;
+					CalculatePointOfImpact(vSelfPos, m_vFlyPos, {0.0,0.0,0.0}, fSpeed, -fFallOff);
+				endif;
+			else
+				//m_vTarget = vPos;
+				m_vFlyPos = vPos;
+			endif;
+			var CProjectileMgr.CInitDesc xPInit;
+			xPInit.m_hSourceObj=m_xFighter;
+			xPInit.m_hTargetObj=m_xEnemy;
+			xPInit.m_iOwner=GetOwner();
+			xPInit.m_sGFX=GetGfxName();
+			xPInit.m_vSrc=vSelfPos;
+			xPInit.m_vDst=m_vFlyPos;
+			xPInit.m_fSpeed=fSpeed;
+			xPInit.m_fG=fFallOff;
+			xPInit.m_bColDet=true;
+			xPInit.m_sImpactAnim="impact";
+			var CProjectileMgr.CSpawnDesc xSpawn;
+			if(!CSrvWrap.GetObjMgr()^.GetProjectileMgr().SpawnProjectile(xPInit,xSpawn)) then
+				Delete();
+			endif;
+			WaitAction(xSpawn.m_fImpactDelay);
+			m_bFired=true;
+		elseif (m_bAttackScape) then
+			if(m_xFighter.IsValid())then
+				var vec3 vSelfPos = m_pxFighter^.GetProjectileStartPos(m_iIndex);
+				if (m_bRandomize) then
+					RandomizePosInRadius(m_vTarget, m_fJitter);
+				endif;
+				var CProjectileMgr.CInitDesc xPInit;
+				xPInit.m_hSourceObj=m_xFighter;
+				//xPInit.m_hTargetObj=m_xEnemy;
+				xPInit.m_iOwner=GetOwner();
+				xPInit.m_sGFX=GetGfxName();
+				xPInit.m_vSrc=vSelfPos;
+				xPInit.m_vDst=m_vTarget;
+				xPInit.m_fSpeed=m_fProjectileSpeed;
+				xPInit.m_fG=m_fProjectileFallOff;
+				xPInit.m_bColDet=true;
+				xPInit.m_sImpactAnim="impact";
+				var CProjectileMgr.CSpawnDesc xSpawn;
+				if(!CSrvWrap.GetObjMgr()^.GetProjectileMgr().SpawnProjectile(xPInit,xSpawn)) then
+					Delete();
+				endif;
+				WaitAction(xSpawn.m_fImpactDelay);
+				m_bFired=true;
+			endif;
+		else
+			Delete();
+		endif;
+	endproc;
+	
+endclass;

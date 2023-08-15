@@ -1,0 +1,160 @@
+class CFeignDeath inherit CTask
+
+	var CObjHndl	m_xObject;
+	var string		m_sState;
+	var bool		m_bToFeignDeath;
+	var bool	m_bUnStoppable;
+	var string	m_sActionPath;
+
+	export constructor()
+		SetName("FeignDeath");
+		SetCivil(false);
+		m_bUnStoppable = false;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="FeDe";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xObject.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_bToFeignDeath;
+		(pxArc^) << m_bUnStoppable;
+		(pxArc^) << m_sActionPath;
+		pxWalk^.Close();
+	endproc;
+
+	export proc bool GetUnStoppable()
+		return m_bUnStoppable;
+	endproc;
+	
+	export proc void SetUnStoppable(bool p_bValue)
+		m_bUnStoppable = p_bValue;
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="FeDe")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xObject.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_bToFeignDeath;
+			if(pxArc^.GetVersion()>=2)then
+				(pxArc^) << m_bUnStoppable;
+				(pxArc^) << m_sActionPath;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;	
+	
+	// Proc Init =============================================================
+	export proc bool Init(CObjHndl p_xObject, bool p_bToFD, string p_sActionPath)
+		if(!p_xObject.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		//KLog.LogSpam("MaZi", "FeignDeath init ( to == " + p_bToFD.ToString() + ")");
+		SetName("FeignDth");
+		m_xObject=p_xObject;
+		m_bToFeignDeath = p_bToFD;
+		m_sActionPath = p_sActionPath;
+		return true;
+	endproc;
+
+	// Proc USLOnEnter ======================================================
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(!m_xObject.IsValid())then EndTask(); return; endif;
+		var ^CFightingObj pxFO = cast<CFightingObj>(m_xObject.GetObj());
+		if(pxFO==null)then EndTask(); return; endif;
+		if(pxFO^.GetType()!="ANML"||!pxFO^.CheckSpecialActionTimer(m_sActionPath))then EndTask(); return; endif;
+		//if(pxFO^.GetClassName()=="aje_resource_collector")then EndTask(); return; endif;
+		pxFO^.SetTaskDescription("feigndeath");
+		if(!pxFO^.IsFeignDeath() && m_bToFeignDeath)then
+			m_sState = "in_feigndeath";
+		elseif(pxFO^.IsFeignDeath() && m_bToFeignDeath)then
+			m_sState = "out_feigndeath";
+		else
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	// Proc USLOnTick =======================================================
+	proc void USLOnTick(int p_iTime)
+		if(!m_xObject.IsValid())then EndTask(); return; endif;
+		//KLog.LogSpam("MaZi", "FeignDeath + " + m_sState);
+		var ^CFightingObj pxFO = cast<CFightingObj>(m_xObject.GetObj());
+		if(pxFO==null)then EndTask(); return; endif;
+		SetUnStoppable(true);
+		pxFO^.TerminateAction();
+		UpdateAggressionPos(m_xObject);
+		if(m_sState == "in_feigndeath")then
+			var ^CTransportObj pxTO = cast<CTransportObj>(pxFO);
+			if(pxTO!=null)then
+				pxTO^.DismountAll();
+			endif;
+			pxFO^.SetFeignDeath(true);
+			pxFO^.SetIsVanished(true);
+//			pxFO^.SetEffectFlag(CFightingObj.EFFECT_SMOKER_INVIS, true);
+			pxFO^.AddCamouflageEffect("feign");
+			pxFO^.AddRangedBuff("is_invisible");
+			pxFO^.AnimAction("dying");
+			UpdateAggressionPos(m_xObject);
+			m_sState="shut_in";
+		elseif(m_sState=="shut_in")then
+			if(pxFO^.HasAction())then return; endif;
+			pxFO^.SetAnim("faked_death", 0, 1);
+			pxFO^.AddRangedBuff("is_invisible");
+			pxFO^.SetIsVanished(false);
+			SetUnStoppable(false);
+		elseif(m_sState == "out_feigndeath")then
+			var CTechTree xTT=pxFO^.GetTechTree();
+			var ^CTechTree.CNode pxAction=xTT.FindNode("Actions/"+pxFO^.GetTribeName()+"/Moves/ANML/FeignDeath");
+			if(pxAction!=null)then
+				if(pxAction^.GetSubValueI("duration")>0)then
+					pxFO^.AddSpecialActionTimer(pxAction^.GetAbsPath());
+				endif;
+			endif;
+			pxFO^.RemoveCamouflageEffect("feign");
+			pxFO^.RemoveRangedBuff("is_invisible");
+			pxFO^.SetFeignDeath(false);
+			pxFO^.SetIsVanished(false);
+			pxFO^.AnimAction("faked_death");
+			m_sState="shut_out";
+		elseif(m_sState=="shut_out")then
+			pxFO^.SetIsVanished(false);
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	// Proc USLOnLeave ======================================================
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		var ^CFightingObj pxAnimal=cast<CFightingObj>(m_xObject.GetObj());
+		if(pxAnimal==null)then return; endif;
+		pxAnimal^.SetTaskDescription("");
+	endproc;
+
+	// Proc Break ===========================================================
+	export proc bool Break()
+		var ^CFightingObj pxFO = cast<CFightingObj>(m_xObject.GetObj());
+		if(pxFO==null)then EndTask(); return true; endif;
+		if(GetUnStoppable())then
+			return false;
+		endif;
+		if(m_sState=="shut_in")then
+			pxFO^.TerminateAction();
+			m_sState = "out_feigndeath";
+			pxFO^.SetIsVanished(false);
+			pxFO^.SetFeignDeath(false);
+		endif;
+		return false;
+	endproc;
+
+	// Proc Skip ============================================================
+	export proc void Skip()
+	endproc;
+
+endclass;

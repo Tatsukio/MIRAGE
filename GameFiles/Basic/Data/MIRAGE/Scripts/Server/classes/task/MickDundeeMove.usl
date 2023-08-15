@@ -1,0 +1,173 @@
+class CMickDundeeMove inherit CSpecialActionTask
+	
+	//Badgun Tuning: Stina Special Move
+	const real		m_fDuration=10.0f;
+	
+	var CObjHndl	m_xMick;
+	var CObjHndl	m_xTarget;
+	var string		m_sState;
+	var CGameTime	m_xTime;
+	
+	export constructor()
+		SetName("MickDundeeMove");
+		SetCivil(false);
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="MDMo";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xMick.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		m_xTime.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="MDMo")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xMick.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			if(p_pxReaderNode^.GetVersion()>=2)then
+				m_xTime.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xMick,CObjHndl p_xTarget, string p_sPath)
+		if(!p_xMick.IsValid()||(!p_xTarget.IsValid()))then return(false);endif;
+		SetName("MickDundeeMove");
+		m_xMick=p_xMick;
+		m_xTarget=p_xTarget;
+		SetSpecialActionPath(p_sPath);
+		return(true);
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xMick.GetObj());
+		if(pxFightingObj==null || !pxFightingObj^.CheckSpecialActionTimer(GetSpecialActionPath()))then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		if(!m_xMick.IsValid())then EndTask();return;endif;
+		if(!m_xTarget.IsValid())then EndTask();return;endif;
+		if(m_xMick==m_xTarget)then EndTask();return;endif;
+		var ^CFightingObj pxTarget=cast<CFightingObj>(m_xTarget.GetObj());
+		var ^CFightingObj pxMick=cast<CFightingObj>(m_xMick.GetObj());
+		if(pxTarget==null)then EndTask();return;endif;
+		if(pxMick==null)then EndTask();return;endif;
+		if(m_sState!="prepare"&&m_sState!="end_anim")then
+			if(IsInCombatRange())then
+				if(!pxTarget^.IsDead())then
+					var vec3 vTarget=GetLookAtRot(pxTarget^.GetPos()-pxMick^.GetPos());
+					pxMick^.SetRotation(vTarget);
+					m_sState="do_anim";
+				endif;
+			else
+				if(pxMick^.GetMovableInFight())then
+					if(pxMick^.GetOnWall())then
+						var CGameObj.CAdvanceActionParams xAWAP;
+						xAWAP.m_fMinDistance=10.0f;
+						xAWAP.m_iPrefSpeed=pxMick^.GetMaxSpeed();
+						xAWAP.m_xWalkSet="def";
+						pxMick^.AdvanceWallAction(pxTarget^.GetHandle(),xAWAP,true,false);
+					else
+						pxMick^.AdvanceAction(pxTarget^.GetHandle(),10.0,4);
+					endif;
+				else
+					EndTask();
+					return;
+				endif;
+			endif;
+		endif;
+		if(m_sState=="do_anim")then
+			if(!StartSpecialActionTimer(pxMick))then EndTask();return;endif;
+			pxMick^.MemorizeCurrentFightState(m_xTarget,true,false);
+			SetUnStoppable(true);
+			if(pxMick^.GetClassName()=="special_eusmilus")then
+				pxMick^.SetAnim("sm_01",1);
+			else
+//				pxMick^.SetAnim("catch_animal",3);
+				pxMick^.SetAnim("lashing",1);
+			endif;
+			m_xTime = CTimeMgr.Get().GetTime();
+			m_sState="prepare";
+		elseif(m_sState=="prepare")then
+			var CGameTime xNow = CTimeMgr.Get().GetTime();
+			if((xNow-m_xTime).GetSecondsF()<2.6)then
+				return;
+			endif;
+			var bool bFight=pxTarget^.GetTaskMgr()^.GetCurTaskName()=="Fight"/*||pxTarget^.IsInFight()*/;
+//			if(pxTarget^.GetOwner()==-1&&pxTarget^.GetTaskMgr()^.GetCurTaskName()!="Fight"&&pxMick^.WardenEmpowered())then
+//				pxTarget^.CouldBeStolen(pxMick);
+//			endif;
+			var int iLoops = 1;
+			var string sAnim="rest";
+			if(!pxTarget^.HasAnim("rest")&&pxTarget^.HasAnim("sleep"))then
+				sAnim="sleep";
+			endif;
+			if(pxTarget^.HasAnim(sAnim))then
+				var real fDuration = 0.0;
+				while(fDuration<m_fDuration)do
+					pxTarget^.SetSLEAnim(sAnim, iLoops, true, true, fDuration);
+					iLoops++;
+				endwhile;
+			endif;
+			pxTarget^.SetTrappedTime(m_fDuration);
+			pxTarget^.AnimAction(sAnim,iLoops,true,true);
+			if(pxTarget^.GetOwner()==-1&&pxTarget^.GetType()=="ANML"&&!bFight&&pxMick^.WardenEmpowered())then
+				pxTarget^.CouldBeStolen(pxMick);
+			endif;
+			m_sState="end_anim";
+		elseif(m_sState=="end_anim")then
+			var CGameTime xNow = CTimeMgr.Get().GetTime();
+			if((xNow-m_xTime).GetSecondsF()<3.4)then
+				return;
+			endif;
+			SetUnStoppable(false);
+			m_sState="EndTask";
+			pxMick^.ReturnToFight();
+			return;
+		elseif(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+	
+	export proc bool Break()
+		if(m_xMick.IsValid())then
+			m_xMick.GetObj()^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+	
+	//Checks if enemy is in combat range
+	export proc bool IsInCombatRange()
+		var ^CFightingObj pxMick=cast<CFightingObj>(m_xMick.GetObj());
+		var ^CFightingObj pxTarget=cast<CFightingObj>(m_xTarget.GetObj());
+		var real fFightDistance=pxTarget^.GetRadius()+pxMick^.GetRadius();
+		var real fDistVariance=10.0;
+		return((pxMick^.GetPos()-pxTarget^.GetPos()).Abs()<=fFightDistance+fDistVariance);
+	endproc;
+	
+	export proc void EndTask()
+		UpdateAggressionPos(m_xMick);
+		super.EndTask();
+	endproc;
+	
+endclass;

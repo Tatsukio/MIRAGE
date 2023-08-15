@@ -1,0 +1,644 @@
+class CViewObjFinder inherit CEnhancedFrameWindow
+
+	var ^CViewObjProperties			m_pxObjProp;
+	var ^CViewObjTransform			m_pxObjTrans;
+	var ^CList 									m_pxDirListObjFinder;
+	var ^CTreeCtrl 							m_pxTreeCtrl;
+	var ^CObjRenderFilter				m_pxRenderFilter;
+	var bool										m_bInUpdate;
+	var array string 						m_asTempObjTC;
+
+	export constructor()
+		if(!InitFromResource("objects/ViewObjFinder","ObjFinder")) then
+			CLevelEditorWrap.LogError("UI.ViewObjFinder","InitFromResource failed");
+			return;
+		endif;
+
+		m_bInUpdate=false;
+
+		m_pxDirListObjFinder = new CList();
+		m_pxDirListObjFinder^.m_xOnSelect = OnSelectItem;
+		m_pxDirListObjFinder^.m_xOnLBtnDblClick = ShowItem;
+		m_pxDirListObjFinder^.SetCmd("ShowItem",ShowItem);
+		m_pxDirListObjFinder^.AddAccelerator("RETURN,NONE,ShowItem");
+		m_pxDirListObjFinder^.Clear();
+		m_pxDirListObjFinder^.AllowMultiSelection(true);
+		m_pxDirListObjFinder^.SetCmd("DeleteEntry",DeleteEntry);
+		m_pxDirListObjFinder^.AddAccelerator("DELETE,NONE,DeleteEntry");
+		m_pxDirListObjFinder^.SetAutoToolTips(true);
+
+		m_pxTreeCtrl = new CTreeCtrl();
+		m_pxTreeCtrl^.m_xOnSelect = OnSelectItemTC;
+		//m_pxTreeCtrl^.m_xOnMoveNode = 
+		m_pxTreeCtrl^.m_xOnLBtnDblClick = ShowItem;
+		m_pxTreeCtrl^.SetCmd("ShowItem",ShowItem);
+		m_pxTreeCtrl^.AddAccelerator("RETURN,NONE,ShowItem");
+		m_pxTreeCtrl^.SetCmd("DeleteEntry",DeleteEntry);
+		m_pxTreeCtrl^.AddAccelerator("DELETE,NONE,DeleteEntry");
+		m_pxTreeCtrl^.SetShowNumChildren(true);
+		m_pxTreeCtrl^.AssureMinSize({200,400});
+		m_pxTreeCtrl^.SetDisabled(true);
+		m_pxTreeCtrl^.AllowMultiSelection(true);
+		
+		m_pxRenderFilter=new CObjRenderFilter;
+
+		var ^CGroupBox pxGBSearch = cast<CGroupBox>(GetControl("CGroupBoxSearch"));
+		pxGBSearch^.SetText(CLocalizer.Get().Translate("_ViewObjFinder_CGroupBoxSearch"));
+		var ^CEdit pxEObjectFinderSearch = cast<CEdit>(GetControl("CGroupBoxSearch/CEditSearch"));
+		pxEObjectFinderSearch^.SetText("");
+		pxEObjectFinderSearch^.m_xOnChange = SearchObject;
+		var ^CButton pxShowObj = cast<CButton>(GetControl("CGroupBoxSearch/Btn_ShowObj"));
+		pxShowObj^.SetText(CLocalizer.Get().Translate("_ViewObjFinder_CGroupBoxSearch/Btn_ShowObj"));
+		pxShowObj^.m_xOnClick = ShowItem;
+		var ^CButton pxReplaceObj = cast<CButton>(GetControl("CGroupBoxSearch/Btn_ReplaceObj"));
+		pxReplaceObj^.SetText(CLocalizer.Get().Translate("_ViewObjFinder_CGroupBoxSearch/Btn_ReplaceObj"));
+		pxReplaceObj^.m_xOnClick = ReplaceObj;
+		var ^CButton pxBtnReName = cast<CButton>(GetControl("CGroupBoxSearch/Btn_RenameObj"));
+		pxBtnReName^.SetText(CLocalizer.Get().Translate("_ViewObjFinder_CGroupBoxSearch/Btn_RenameObj"));
+		pxBtnReName^.m_xOnClick = RenameObj;
+		var ^CEdit pxEditName = cast<CEdit>(GetControl("CGroupBoxSearch/Edit_RenameObj"));
+		pxEditName^.SetText(CLocalizer.Get().Translate("_ViewObjFinder_CGroupBoxSearch/Edit_RenameObj"));
+		pxEditName^.m_xOnUpdate=RenameObj;
+		var ^CButton pxDelObj = cast<CButton>(GetControl("CGroupBoxSearch/Btn_DelObj"));
+		pxDelObj^.SetText(CLocalizer.Get().Translate("_ViewObjFinder_CGroupBoxSearch/Btn_DelObj"));
+		pxDelObj^.m_xOnClick = DeleteEntry;
+		var ^CTabCtrl pxTabCtrl = cast<CTabCtrl>(GetControl("CGroupBoxSearch/TaBTest"));
+		pxTabCtrl^.AddTab(" List ",m_pxDirListObjFinder);
+		pxTabCtrl^.AddTab(" Tree ",m_pxTreeCtrl);
+		pxTabCtrl^.AddTab(" RenderFilter ",m_pxRenderFilter);
+
+		LoadPosition("ObjFinder");
+	endconstructor;
+
+	export destructor()
+		ClearList();
+		ClearTree();
+	enddestructor;
+
+	export proc void SetVisible(bool p_bFlag)
+		if(p_bFlag)then
+			m_pxDirListObjFinder^.QSort();
+		endif;
+		super.SetVisible(p_bFlag);
+	endproc;
+
+	export proc bool SetObjPropWin(^CViewObjProperties p_pxObjProp);
+		m_pxObjProp = p_pxObjProp;
+		return(true);
+	endproc;
+
+	export proc bool SetObjTransWin(^CViewObjTransform p_pxObjTrans);
+		m_pxObjTrans = p_pxObjTrans;
+		return(true);
+	endproc;
+
+	export proc void Include2(CClntHndl p_xObj)
+		AddObjToList(p_xObj);
+		AddDelObjToTreeCtrl(p_xObj,true);
+		InvalidateContent();//UpdateList
+	endproc;
+
+	export proc void RemEntry(CClntHndl p_xObj)
+		RemEntryFromList(p_xObj);
+		AddDelObjToTreeCtrl(p_xObj,false);
+		InvalidateContent();//UpdateList
+	endproc;
+
+	export proc void OnSelectionChanged()
+		if(m_bInUpdate)then return; endif;
+		m_bInUpdate=true;
+		InvalidateContent();//UpdateList ??? so wichtig ???
+		UpdateTree();
+		UpdateSubs();
+		m_bInUpdate=false;
+	endproc;
+
+	export proc void Clear()
+		ClearList();
+		ClearTree();
+		UpdateSubs();
+	endproc;
+
+	proc void UpdateSubs()
+		if(m_pxObjProp!=null)then
+			m_pxObjProp^.Update();
+		endif;
+		if(m_pxObjTrans!=null)then
+			m_pxObjTrans^.OnSelectionChanged();
+		endif;
+	endproc;
+
+	proc void OnUpdateContent()
+		super.OnUpdateContent();
+		m_pxTreeCtrl^.AutoSize(true);
+		UpdateList();
+	endproc;
+
+	proc void UpdateList()
+		m_pxDirListObjFinder^.m_xOnSelect.Clear();
+		m_pxDirListObjFinder^.RemoveSelection();
+		var int i,iC=m_pxDirListObjFinder^.NumItems();
+		var ^CFinderItem pxItemObj;
+		var ^CObj pxObj;
+		for(i=0)cond(i<iC)iter(i++)do
+			pxItemObj=cast<CFinderItem>(m_pxDirListObjFinder^.GetItemData(i));
+			pxObj=pxItemObj^.GetHndl().GetObj();
+			if((pxObj!=null)&&(pxObj^.IsSelected()))then
+				m_pxDirListObjFinder^.Select(i,false);
+				var ^CEdit pxEditObj = cast<CEdit>(GetControl("CGroupBoxSearch/Edit_RenameObj"));
+				pxEditObj^.SetText(m_pxDirListObjFinder^.GetSelectedItemAsString());
+			endif;
+		endfor;
+		m_pxDirListObjFinder^.m_xOnSelect=OnSelectItem;
+	endproc;
+
+	export proc void GetStartLocations(ref array ^CObj po_rapxStartLocations)
+		po_rapxStartLocations=0;
+		var int i,iC=m_pxDirListObjFinder^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_pxDirListObjFinder^.GetItem(i).Left(13)=="StartLocation")then
+				var ^CFinderItem pxItemObj;
+				var ^CObj pxObj;
+				pxItemObj=cast<CFinderItem>(m_pxDirListObjFinder^.GetItemData(i));
+				pxObj=pxItemObj^.GetHndl().GetObj();
+				if(pxObj!=null)then
+					po_rapxStartLocations.AddEntry(pxObj);
+				endif;
+			endif;
+		endfor;
+	endproc;
+
+	proc void UpdateTree()
+		m_pxTreeCtrl^.m_xOnSelect.Clear();
+		m_pxTreeCtrl^.RemoveSelection();
+		m_pxTreeCtrl^.StartIterate();
+		var int iItem;
+		while(m_pxTreeCtrl^.Iterate(iItem))do
+			if(m_pxTreeCtrl^.ItemNumChildren(iItem)==0)then
+				var ^CFinderItem pxItemObj=cast<CFinderItem>(m_pxTreeCtrl^.GetItemData(iItem));
+				if(pxItemObj!=null)then
+					var ^CObj pxObj=pxItemObj^.GetHndl().GetObj();
+					if((pxObj!=null)&&(pxObj^.IsSelected()))then
+						m_pxTreeCtrl^.Select(iItem,false);
+					endif;
+				endif;
+			endif;
+		endwhile;
+		m_pxTreeCtrl^.m_xOnSelect=OnSelectItemTC;
+	endproc;
+
+	proc bool SearchObject()
+		var ^CEdit pxEdit = cast<CEdit>(GetControl("CGroupBoxSearch/CEditSearch"));
+		if(pxEdit^.GetText().GetLength()>0&&pxEdit^.GetText().GetLength()<2)then
+			var char cChar = pxEdit^.GetText().GetAt(0);
+			if(cChar>96&&cChar<123)then
+				var string sTemp = (cChar-32);
+				pxEdit^.SetText(sTemp);
+			endif;
+		endif;
+		m_pxDirListObjFinder^.SelectItemBeginningWithString(pxEdit^.GetText());
+		ShowItem();
+		return(true);
+	endproc;
+
+	proc bool ShowItem()
+		var int iSelReg=m_pxDirListObjFinder^.GetSelectedItem();
+		if(iSelReg!=-1)then
+			if(m_pxDirListObjFinder^.GetItemData(iSelReg)==null) then
+				CLevelEditorWrap.LogError("UI.ViewObjFinder","null pointer @ item: "+iSelReg.ToString());
+				return false;
+			endif;
+			var ^CFinderItem pxObj=cast<CFinderItem>(m_pxDirListObjFinder^.GetItemData(iSelReg));
+			if(pxObj^.IsTypeObject())then
+				CMainController.Get().SetCameraTarget(CClientWrap.GetSelection().GetPos());
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool ReplaceObj()
+		var string sReplaceClass=CEnhancedMenu.Get().GetObjInsert()^.GetSelectedClass();
+		if(sReplaceClass.IsEmpty()) then return false; endif;		
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		if(pxSel^.NumEntries()<1) then return false; endif;
+		CLevelEditorWrap.GetUndoBuffer().BeginStep();
+		iterloop(pxSel^,i) do
+			var ^CObj pxObj=(pxSel^)[i].GetObj();
+			if(pxObj==null) then continue; endif;
+			var Quat qRot=pxObj^.GetRot();
+			var CGuid xGuid;xGuid.Generate();
+			CLevelEditorWrap.GetUndoBuffer().Add2Step(new CObjUndoEntry(pxObj^));
+			CLevelEditorWrap.GetUndoBuffer().Add2Step(new CObjCreator.CObjCreateUndoEntry(xGuid));
+			CEvt_DeleteEntry.Send(pxObj^.GetGuid());
+			CEvt_CreateObj.Send(sReplaceClass,pxObj^.GetOwner(),xGuid,pxObj^.GetPos());
+			CEvt_SetRot.Send(xGuid,qRot);
+		enditerloop;
+		CLevelEditorWrap.GetUndoBuffer().AcceptStep("Obj replace");
+		return(true);
+	endproc;
+
+	proc bool RenameObj()
+		var ^CEdit pxEditObj = cast<CEdit>(GetControl("CGroupBoxSearch/Edit_RenameObj"));
+		var string sNewName = pxEditObj^.GetText();
+		var int iSel = m_pxDirListObjFinder^.GetSelectedItem();
+		if(iSel>=0)then
+			var ^CFinderItem  pxItemData = cast<CFinderItem>(m_pxDirListObjFinder^.GetItemData(iSel));
+			if(pxItemData!=null && pxItemData^.IsTypeObject()) then
+				var ^CFinderItemObject  pxItemObj=cast<CFinderItemObject>(pxItemData);
+				var CClntHndl xObj=pxItemObj^.GetHndl();
+				var ^CObj pxObj=xObj.GetObj();
+				if(pxObj!=null) then
+					m_pxDirListObjFinder^.SetItemText(iSel,sNewName);
+					AddDelObjToTreeCtrl(xObj,false);
+					pxObj^.SetName(sNewName);
+					AddDelObjToTreeCtrl(xObj,true);
+					UpdateSubs();
+				endif;
+			elseif(pxItemData==null) then
+				CLevelEditorWrap.LogError("UI.ViewObjFinder","No Object selected!!!");
+			endif;
+		endif;
+		return (true);
+	endproc;
+
+	proc bool OnSelectItem()
+		CIconBar.Get().OnObjectSelect();
+		CLevelEditorWrap.LogSpam("UI.ViewObjFinder","OnSelectItem()");
+		if(m_bInUpdate)then return(true); endif;
+		m_bInUpdate=true;
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		pxSel^.Clear();
+		var int iIter;
+		m_pxDirListObjFinder^.StartIterateSelectedItems(iIter);
+		while(m_pxDirListObjFinder^.IterateSelectedItems(iIter))do
+			var ^CFinderItem pxObj=cast<CFinderItem>(m_pxDirListObjFinder^.GetItemData(iIter));
+			if(pxObj!=null)then
+				if(pxObj^.IsTypeObject()) then
+					var CClntHndl xObj=pxObj^.GetHndl();
+					if(xObj.IsValid()) then
+						pxSel^.Include(xObj);
+					else
+						CLevelEditorWrap.LogSpam("UI.ViewObjFinder","Invalid handle "+xObj.AsInt().ToString());
+					endif;
+				endif;
+			endif;
+		endwhile;
+		UpdateTree();
+		UpdateSubs();
+		var ^CEdit pxEditObj = cast<CEdit>(GetControl("CGroupBoxSearch/Edit_RenameObj"));
+		pxEditObj^.SetText(m_pxDirListObjFinder^.GetSelectedItemAsString());
+		m_bInUpdate=false;
+		return(true);
+	endproc;
+
+	proc bool DeleteEntry()
+		var bool bDelete=!CMirageSDKMgr.ms_bRegName;
+		if(bDelete)then
+			CLevelEditorWrap.GetUndoBuffer().BeginStep();
+		endif;
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		if(bDelete)then
+			CLevelEditorWrap.GetUndoBuffer().Add2Step(new CObjUndoEntry(pxSel^));
+		endif;
+		var int idx;
+		for(idx=0)cond(idx<pxSel^.NumEntries())iter(idx++)do
+			if(bDelete)then
+				CEvt_DeleteEntry.Send(pxSel^[idx].GetObj()^.GetGuid());
+			else
+				CMirageSDKMgr.Debug(pxSel^[idx].GetObj()^.GetName(),false);
+			endif;
+		endfor;
+		if(bDelete)then
+			CLevelEditorWrap.GetUndoBuffer().AcceptStep("Obj deletion");
+			pxSel^.Clear();
+		endif;
+		return(true);
+	endproc;
+
+	proc void AddObjToList(CClntHndl p_xObj)
+		m_pxDirListObjFinder^.m_xOnSelect.Clear();
+		m_pxDirListObjFinder^.AddItem(p_xObj.GetObj()^.GetName(),new CFinderItemObject(p_xObj));
+		if(this^.GetVisible())then
+			m_pxDirListObjFinder^.QSort();
+		endif;
+		m_pxDirListObjFinder^.m_xOnSelect=OnSelectItem;
+	endproc;
+
+	proc void RemEntryFromList(CClntHndl p_xObj)
+		var ^CObj pxObj=p_xObj.GetObj();
+		if(pxObj!=null)then
+			var string sName=pxObj^.GetName();
+			var int iItem=m_pxDirListObjFinder^.FindItem(sName);
+			if(iItem!=-1) then
+				// check handle ???
+				var ^CFinderItem pxObj=cast<CFinderItem>(m_pxDirListObjFinder^.GetItemData(iItem));
+				if(pxObj!=null && pxObj^.IsTypeObject())then
+					if(p_xObj==pxObj^.GetHndl())then
+						delete pxObj;
+						m_pxDirListObjFinder^.DeleteItem(iItem);
+					endif;
+				endif;
+			endif;
+		endif;
+	endproc;
+
+	proc void ClearList()
+		var int i;
+		for(i=0)cond(i<m_pxDirListObjFinder^.NumItems())iter(i++)do
+			delete m_pxDirListObjFinder^.GetItemData(i);
+		endfor;
+		m_pxDirListObjFinder^.m_xOnSelect.Clear();
+		m_pxDirListObjFinder^.Clear();
+		m_pxDirListObjFinder^.m_xOnSelect=OnSelectItem;
+	endproc;
+
+	export proc ^CList GetList();
+		return(m_pxDirListObjFinder);
+	endproc;
+
+	proc void ClearTree()
+		m_pxTreeCtrl^.StartIterate();
+		var int iItem;
+		while(m_pxTreeCtrl^.Iterate(iItem))do
+			if(m_pxTreeCtrl^.ItemNumChildren(iItem)==0)then
+				delete m_pxTreeCtrl^.GetItemData(iItem);
+			endif;
+		endwhile;
+		m_pxTreeCtrl^.m_xOnSelect.Clear();
+		m_pxTreeCtrl^.Clear();
+		m_pxTreeCtrl^.m_xOnSelect=OnSelectItemTC;
+	endproc;
+
+	proc bool AddDelObjToTreeCtrl(CClntHndl p_xObj,bool p_bAddDel)
+		m_pxTreeCtrl^.SetDisabled(false);
+		var ^CObj pxTmp=p_xObj.GetObj();
+		m_asTempObjTC=0;
+		m_asTempObjTC.AddEntry(pxTmp^.GetName());
+		var int iClass=pxTmp^.GetClassID();
+		var ^CObjClassMgrBase pxCM=^(CLevelEditorWrap.GetObjClassMgr());
+		var ^CClassNode pxClass=pxCM^.GetClassNode(iClass);
+		DumpClassNode(pxClass,0);
+		if(p_bAddDel)then
+			CreateObjOnTC(p_xObj);
+		elseif(!p_bAddDel)then
+			DeleteEntryOnTC(p_xObj);
+		endif;
+		return(true);
+	endproc;
+
+	proc void DumpClassNode(^CClassNode p_pxClass,int p_iLevel)
+		var int iC=p_iLevel;
+		if(p_pxClass!=null)then
+			if(p_pxClass^.m_sName!="Root")then
+				m_asTempObjTC.AddEntry(p_pxClass^.m_sName);
+			endif;
+			DumpClassNode(p_pxClass^.m_pxParent,p_iLevel+1);
+		endif;
+	endproc;
+
+	proc bool CreateObjOnTC(CClntHndl p_xObj)
+		var int idx,i;
+		i=0;
+		for(idx=m_asTempObjTC.NumEntries()-1)cond(idx>=0)iter(idx--)do
+			var int iItemIdx=m_pxTreeCtrl^.FindItem(i,m_asTempObjTC[idx]);
+			if(iItemIdx==0)then
+				var ^CFinderItemObject pxItem;
+				if(idx==0)then
+					pxItem=new CFinderItemObject(p_xObj);
+				endif;
+				iItemIdx=m_pxTreeCtrl^.AddItem(i,m_asTempObjTC[idx],pxItem);
+			endif;
+			i=iItemIdx;
+		endfor;
+		return(true);
+	endproc;
+
+	proc bool DeleteEntryOnTC(CClntHndl p_xObj)
+		var int idx,i;
+		i=0;
+		for(idx=0)cond(idx<m_asTempObjTC.NumEntries())iter(idx++)do
+			var int iItemIdx=m_pxTreeCtrl^.FindItem(i,m_asTempObjTC[idx]);
+			if(iItemIdx==0)then continue; endif;
+			if(m_pxTreeCtrl^.ItemNumChildren(iItemIdx)==0)then
+				delete m_pxTreeCtrl^.GetItemData(iItemIdx);
+				m_pxTreeCtrl^.DeleteItem(iItemIdx,true);
+			endif;
+		endfor;
+		return(true);
+	endproc;
+
+	export proc bool OnSelectItemTC()
+		if(m_bInUpdate)then return(true); endif;
+		m_bInUpdate=true;
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		pxSel^.Clear();
+		m_pxTreeCtrl^.StartIterateSelectedItems();
+		var int iItem;
+		while(m_pxTreeCtrl^.IterateSelectedItems(iItem))do
+			if(m_pxTreeCtrl^.ItemNumChildren(iItem)==0)then
+				var ^CFinderItem pxObj=cast<CFinderItem>(m_pxTreeCtrl^.GetItemData(iItem));
+				if(pxObj!=null)then
+					if(pxObj^.IsTypeObject()) then
+						var CClntHndl xObj=pxObj^.GetHndl();
+						if(xObj.IsValid()) then
+							pxSel^.Include(xObj);
+						else
+							CLevelEditorWrap.LogSpam("UI.ViewObjFinder","Invalid handle "+xObj.AsInt().ToString());
+						endif;
+					endif;
+				endif;
+			else
+				SelectAllChilds(m_pxTreeCtrl, iItem);
+			endif;
+		endwhile;
+		
+		InvalidateContent();//UpdateList
+		UpdateSubs();
+		
+		var ^CEdit pxEditObj = cast<CEdit>(GetControl("CGroupBoxSearch/Edit_RenameObj"));
+		pxEditObj^.SetText(m_pxTreeCtrl^.GetSelectedItemAsString());
+		m_bInUpdate=false;
+		return(true);
+	endproc;
+	
+	proc void SelectAllChilds(^CTreeCtrl p_pxTreeCtrl, int p_iItem)
+		var string sDebug = p_pxTreeCtrl^.GetItemText(p_iItem);
+		var int iItemNum = p_pxTreeCtrl^.ItemNumChildren(p_iItem);
+		if(iItemNum>0)then
+			var int i = 0;
+			while(i < iItemNum) do
+				p_pxTreeCtrl^.EnsureVisible(p_pxTreeCtrl^.GetChildItem(p_iItem, i));
+				SelectAllChilds(p_pxTreeCtrl, p_pxTreeCtrl^.GetChildItem(p_iItem, i));
+				i++;
+			endwhile;
+		else
+			p_pxTreeCtrl^.Select(p_iItem, false);
+			var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+			pxSel^.Clear();
+			var ^CFinderItem pxObj=cast<CFinderItem>(m_pxTreeCtrl^.GetItemData(p_iItem));
+			if(pxObj!=null)then
+				if(pxObj^.IsTypeObject()) then
+					var CClntHndl xObj=pxObj^.GetHndl();
+					if(xObj.IsValid()) then
+						pxSel^.Include(xObj);
+					else
+						CLevelEditorWrap.LogSpam("UI.ViewObjFinder","Invalid handle "+xObj.AsInt().ToString());
+					endif;
+				endif;
+			endif;
+		endif;
+	endproc;
+
+	// HACK !!!!!
+	// This is only needed until the ObjQuery is avaiable on the Client
+	export proc ^CList GetObjList()
+		return m_pxDirListObjFinder;
+	endproc;
+	// ENDHACK
+	
+	export proc void SwapRender()
+		if(m_pxRenderFilter!=null)then
+			if(m_pxRenderFilter^.RenderAll())then
+				m_pxRenderFilter^.OnSelectNone();
+			else
+				m_pxRenderFilter^.OnSelectAll();
+			endif;
+		endif;
+	endproc;
+	
+endclass;
+
+class CFinderItem inherit CItemData
+	export const int TYPE_UNKNOWN	=-1;
+	export const int TYPE_OBJECT	=0;
+	export const int TYPE_REGION	=1;
+	var int			m_iType;
+	export constructor()
+		m_iType=TYPE_UNKNOWN;
+	endconstructor;
+	export proc int GetType()			return m_iType;				endproc;
+	export proc bool IsTypeObject()		return m_iType==TYPE_OBJECT;	endproc;
+	export proc bool IsTypeRegion()		return m_iType==TYPE_REGION;	endproc;
+	export proc CClntHndl GetHndl();
+		var CClntHndl xDummy;
+		return(xDummy);
+	endproc;
+endclass;
+
+class CFinderItemObject inherit CFinderItem
+	var CClntHndl m_xHndl;
+	export constructor(ref CClntHndl p_rxHndl)
+		m_xHndl=p_rxHndl;
+		m_iType=TYPE_OBJECT;
+	endconstructor;
+	export proc CClntHndl GetHndl();
+		return(m_xHndl);
+	endproc;
+endclass;
+
+class CObjRenderFilter inherit CWindow
+
+	var bool m_bAll;
+	var ^CList m_pxFilterList;
+	
+	export constructor()
+		if(!InitFromResource("objects/ViewObjFinder","ObjRenderFilter")) then
+			CLevelEditorWrap.LogError("UI.ObjRenderFilter","InitFromResource failed");
+			return;
+		endif;
+		m_bAll=true;
+		m_pxFilterList=cast<CList>(GetControl("FilterList"));
+		m_pxFilterList^.AddItem("IDI Objs",new CItemDataString("IDI"));
+		m_pxFilterList^.AddItem("CHTR",new CItemDataString("CHTR"));
+		m_pxFilterList^.AddItem("ANML",new CItemDataString("ANML"));
+		m_pxFilterList^.AddItem("VGTN",new CItemDataString("VGTN"));
+		m_pxFilterList^.AddItem("TREE",new CItemDataString("TREE"));
+		m_pxFilterList^.AddItem("ITEM",new CItemDataString("ITEM"));
+		m_pxFilterList^.AddItem("SHIP",new CItemDataString("SHIP"));
+		m_pxFilterList^.AddItem("VHCL",new CItemDataString("VHCL"));
+		m_pxFilterList^.AddItem("BLDG",new CItemDataString("BLDG"));
+		m_pxFilterList^.AddItem("NEST",new CItemDataString("NEST"));
+		m_pxFilterList^.AddItem("FGHT",new CItemDataString("FGHT"));
+		m_pxFilterList^.AddItem("WYPT",new CItemDataString("WYPT"));
+		m_pxFilterList^.AddItem("DOFL",new CItemDataString("DOFL"));
+		m_pxFilterList^.AddItem("SLOC",new CItemDataString("SLOC"));
+		m_pxFilterList^.AddItem("SLCT",new CItemDataString("SLCT"));
+		m_pxFilterList^.AddItem("PyCO",new CItemDataString("PyCO"));
+		m_pxFilterList^.AddItem("ITSP",new CItemDataString("ITSP"));
+		m_pxFilterList^.AddItem("GROU",new CItemDataString("GROU"));
+		m_pxFilterList^.AddItem("QMRK",new CItemDataString("QMRK"));
+		m_pxFilterList^.AddItem("DECO",new CItemDataString("DECO"));
+		m_pxFilterList^.AddItem("BCRT",new CItemDataString("BCRT"));
+		m_pxFilterList^.AddItem("WOOD",new CItemDataString("WOOD"));
+		m_pxFilterList^.AddItem("FOOD",new CItemDataString("FOOD"));
+		m_pxFilterList^.AddItem("STON",new CItemDataString("STON"));
+		m_pxFilterList^.AddItem("ANTD",new CItemDataString("ANTD"));
+		m_pxFilterList^.AddItem("TRRT",new CItemDataString("TRRT"));
+		m_pxFilterList^.AddItem("FRUI",new CItemDataString("FRUI"));
+		m_pxFilterList^.AddItem("OTHR",new CItemDataString("OTHR"));
+		m_pxFilterList^.AddItem("FLCK",new CItemDataString("FLCK"));
+		m_pxFilterList^.AddItem("ITSP",new CItemDataString("ITSP"));
+		m_pxFilterList^.AddItem("DMGL",new CItemDataString("DMGL"));
+		m_pxFilterList^.AddItem("LAVA",new CItemDataString("LAVA"));
+		m_pxFilterList^.AddItem("LGHT",new CItemDataString("LGHT"));
+		m_pxFilterList^.AddItem("RALL",new CItemDataString("RALL"));
+		m_pxFilterList^.AddItem("ATMO",new CItemDataString("ATMO"));
+		m_pxFilterList^.AddItem("EAXE",new CItemDataString("EAXE"));
+		m_pxFilterList^.AddItem("COLL",new CItemDataString("COLL"));
+		m_pxFilterList^.AddItem("DCCO",new CItemDataString("DCCO"));
+		m_pxFilterList^.AddItem("ZONE",new CItemDataString("ZONE"));
+		m_pxFilterList^.AddItem("PROD",new CItemDataString("PROD"));
+		m_pxFilterList^.AddItem("FNTH",new CItemDataString("FNTH"));
+		m_pxFilterList^.AddItem("MNIO",new CItemDataString("MNIO"));
+		
+		m_pxFilterList^.Select(0,m_pxFilterList^.NumItems()-1);
+		m_pxFilterList^.m_xOnSelect=OnSelect;
+		
+		var ^CButton pxButtonAll=cast<CButton>(GetControl("ButtonAll"));
+		pxButtonAll^.m_xOnClick=OnSelectAll;
+		var ^CButton pxButtonNone=cast<CButton>(GetControl("ButtonNone"));
+		pxButtonNone^.m_xOnClick=OnSelectNone;
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	proc bool OnSelect()
+		var ^CObjMgr pxObjMgr=^(CClientWrap.GetObjMgr());
+		var ^CIdiObjMgrClient pxIdiObjMgr=^(CLevelEditorWrap.GetIdiObjMgr());
+		pxObjMgr^.RenderIgnoreListClear();
+		pxIdiObjMgr^.SetRenderFlag(true);
+		var int i,iC=m_pxFilterList^.NumItems();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_pxFilterList^.IsItemSelected(i))then
+				var ^CItemDataString pxItemData=cast<CItemDataString>(m_pxFilterList^.GetItemData(i));
+				if(pxItemData!=null)then
+					if(pxItemData^.m_sData=="IDI")then
+						pxIdiObjMgr^.SetRenderFlag(false);
+					else
+						var CFourCC xType=pxItemData^.m_sData;
+						pxObjMgr^.RenderIgnoreListAdd(xType);
+					endif;
+				endif;
+			endif;
+		endfor;
+		return true;
+	endproc;
+	
+	export proc bool OnSelectAll()
+		m_pxFilterList^.Select(0,m_pxFilterList^.NumItems()-1);
+		m_bAll=true;
+		return true;
+	endproc;
+	
+	export proc bool OnSelectNone()
+		m_pxFilterList^.Select(-1);
+		m_bAll=false;
+		return true;
+	endproc;
+	
+	export proc bool RenderAll()
+		return m_bAll;
+	endproc;
+	
+endclass;

@@ -1,0 +1,810 @@
+class CTerrainController inherit CInputController
+
+	var ^CDesktop							m_pxDesktop;
+	var ^CScapeHeightBrush		m_pxPlateauBrush;
+	var ^CScapeHeightBrush		m_pxHeightUpBrush;
+	var ^CScapeHeightBrush		m_pxHeightDownBrush;
+	var ^CScapeMaterialBrush	m_pxMatBrush;
+	
+	var CBrush				m_xBrush;
+	var int						m_iState;
+	var int						m_iMaterial;
+	var bool					m_bLBtnDown;
+	var bool					m_bRBtnDown;
+	var real					m_fHeight;
+	var int						m_iDetailLevel;
+	var int						m_iMatRes;
+
+	var real					m_fBottom; //for cone and pyramid mode
+
+	var bool					m_bBegin;
+	var ^CViewScapeEdit			m_pxViewScapeEdit;
+
+	var int 					m_iSymmetryKind;
+	var int 					m_iSymmetryCount;
+	export const int SYMMETRY_NONE		= 0;
+	export const int SYMMETRY_MIRROR_X	= 1;
+	export const int SYMMETRY_MIRROR_Y	= 2;
+	export const int SYMMETRY_MIRROR_XY	= 3;
+	export const int SYMMETRY_ROTATE	= 4;
+	
+	var bool					m_bBlockPainting;
+	var real					m_fMin;
+	var real					m_fMax;
+	var int						m_iX;
+	var int						m_iY;
+	var int						m_iSwitch;
+	
+	export constructor()
+		m_iState = -1;	// -1 	-> off
+						// 0 	-> Altitude up/down
+						// 1 	-> Blur
+						// 2 	-> Detail up/down
+						// 3 	-> set/pick Plateau
+						// 4 	-> paint Material
+						// 5	-> Detail Abs/pick
+						// 6	-> MatRes
+						// 7	-> MatRes Abs/pick
+						// 8	-> FullForest set/del
+						// 9	-> Noise
+						// 10	-> Cliff
+						// 11	-> Cone
+						// 12	-> Pyramid
+		m_bLBtnDown = false;
+		m_bRBtnDown = false;
+		m_pxPlateauBrush=new CScapeHeightBrush(30,30);
+		m_pxHeightUpBrush=new CScapeHeightBrush(30,30);
+		m_pxHeightDownBrush=new CScapeHeightBrush(30,30);
+		m_pxMatBrush=new CScapeMaterialBrush(3,1,1);
+		m_pxDesktop=CClientWrap.GetDesktop();
+		var procref<void> xProcRefRender=OnRender;
+		CClientWrap.SetProcRefRender(xProcRefRender);
+		m_bBegin=true;
+		//mirror-x, mirror-y, mirror-xy, rotate
+		m_iSymmetryKind= SYMMETRY_NONE; 
+		m_iSymmetryCount= 1;
+		m_bBlockPainting=false;
+		m_fMin=0.0;
+		m_fMax=15.0;
+		m_iX=1;
+		m_iY=1;
+		m_iSwitch=0;
+	endconstructor;
+
+	export destructor()
+		delete m_pxPlateauBrush;
+		delete m_pxHeightUpBrush;
+		delete m_pxHeightDownBrush;
+		delete m_pxMatBrush;
+	enddestructor;
+
+	export proc bool SetState(int p_iState);
+		if(p_iState!=-1&&m_iState==-1)then
+			ChangeBrushSize(0);
+		endif;
+		m_iState=p_iState;
+		var procref<void> xProcRefRender=OnRender;
+		CClientWrap.SetProcRefRender(xProcRefRender);
+		return(true);
+	endproc;
+
+	export proc bool HandleMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+		CLevelEditorWrap.LogSpam("Controller.Terrain","HandleMsg"+p_dwType.ToString()+" | "+p_iKey.ToString());
+		if(p_dwType==CInputController.MT_MouseLBtnDown)then
+			if(!m_bLBtnDown)then
+				CLevelEditorWrap.GetScapeMgr().GetUndoBuffer().StartHistoryItem();
+				CLevelEditorWrap.GetUndoBuffer().BeginStep();
+				CLevelEditorWrap.GetUndoBuffer().Add2Step(new CScapeUndoEntry());
+			endif;
+			m_bLBtnDown = true;
+		elseif(p_dwType==CInputController.MT_MouseLBtnUp)then
+			if(m_bLBtnDown)then
+				CLevelEditorWrap.GetScapeMgr().GetUndoBuffer().EndHistoryItem();
+				CLevelEditorWrap.GetUndoBuffer().AcceptStep("Terrain Edit");
+			endif;
+			m_bLBtnDown = false;
+			m_bBegin=true;
+		elseif(p_dwType==CInputController.MT_MouseRBtnDown)then
+			if(!m_bRBtnDown)then
+				CLevelEditorWrap.GetScapeMgr().GetUndoBuffer().StartHistoryItem();
+				CLevelEditorWrap.GetUndoBuffer().BeginStep();
+				CLevelEditorWrap.GetUndoBuffer().Add2Step(new CScapeUndoEntry());
+			endif;
+			m_bRBtnDown = true;
+		elseif(p_dwType==CInputController.MT_MouseRBtnUp)then
+			if(m_bRBtnDown)then
+				CLevelEditorWrap.GetScapeMgr().GetUndoBuffer().EndHistoryItem();
+				CLevelEditorWrap.GetUndoBuffer().AcceptStep("Terrain Edit");
+			endif;
+			m_bRBtnDown = false;
+			m_bBegin=true;
+		endif;
+		if(m_bLBtnDown)then
+			switch(m_iState)
+				case(0)do
+					TerrainUp();
+				endcase;
+				case(1)do
+					Blur();
+				endcase;
+				case(2)do
+					if(m_bBegin)then
+						//DetailUp();
+						m_bBegin=false;
+					endif;
+				endcase;
+				case(3)do
+					SetPlateau();
+				endcase;
+				case(4)do
+					PaintMaterial();
+				endcase;
+				case(5)do
+					//DetailUpAbs();
+				endcase;
+				case(6)do
+					//MatResUp();
+				endcase;
+				case(7)do
+					//MatResAbs();
+				endcase;
+				case(8)do
+					SetFullForest();
+				endcase;
+				case(9)do
+					Noise();
+				endcase;
+				case(10)do
+					CliffUp();
+				endcase;
+				case(11)do
+					ConeUp();
+				endcase;
+				case(12)do
+					PyramidUp();
+				endcase;
+				case default do
+				endcase;
+			endswitch;
+		endif;
+		if(m_bRBtnDown)then
+			switch(m_iState)
+				case(0)do
+					TerrainDown();
+				endcase;
+				case(1)do
+				endcase;
+				case(2)do
+					if(m_bBegin)then
+						//DetailDown();
+						m_bBegin=false;
+					endif;
+				endcase;
+				case(3)do
+					PickPlateau();
+				endcase;
+				case(4)do
+					PickMaterial();
+				endcase;
+				case(5)do
+					//DetailPickAbs();
+				endcase;
+				case(6)do
+					//MatResDown();
+				endcase;
+				case(7)do
+					//MatResPickAbs();
+				endcase;
+				case(8)do
+					DelForrest();
+				endcase;
+				case(9)do
+				endcase;
+				case(10)do
+					CliffDown();
+				endcase;
+				case(11)do
+					ConeDown();
+				endcase;
+				case(12)do
+					PyramidDown();
+				endcase;
+				case default do
+				endcase;
+			endswitch;
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool IsInScape(vec3 p_vPos)
+		var real fWidth = CLevelEditorWrap.GetScapeMgr().GetMapWidth().ToReal(); 
+		var real fHeight = CLevelEditorWrap.GetScapeMgr().GetMapHeight().ToReal(); 
+		if(p_vPos.GetX()<0.0 || p_vPos.GetX()>fWidth)then
+			return false;
+		endif;
+		if(p_vPos.GetY()<0.0 || p_vPos.GetY()>fHeight)then
+			return false;
+		endif;
+			return true;
+	endproc;
+
+	export proc bool SetSymmetry(int p_iSymmetryKind, int p_iSymmetryCount)
+		m_iSymmetryKind=p_iSymmetryKind; 
+		m_iSymmetryCount=p_iSymmetryCount;
+		return true;
+	endproc;
+
+	proc bool doRectanglesOverlap(vec3 p_vPosA, vec3 p_vPosAEnd, vec3 p_vPosB, vec3 p_vPosBEnd)
+		return p_vPosA.GetX() < p_vPosBEnd.GetX() && p_vPosAEnd.GetX() > p_vPosB.GetX() && p_vPosA.GetY() < p_vPosBEnd.GetY() && p_vPosAEnd.GetY() > p_vPosB.GetY();
+	endproc;
+
+	proc array vec3 GetPoints(vec3 p_vPos, int p_iBrushX, int p_iBrushY, bool p_bDetectOverlap)
+		return GetPoints(p_vPos, p_iBrushX.ToReal(), p_iBrushY.ToReal(), p_bDetectOverlap);	
+	endproc;
+
+	proc array vec3 GetPoints(vec3 p_vPos, real p_fBrushX, real p_fBrushY, bool p_bDetectOverlap)
+		var array vec3 avPos;
+		if(m_iSymmetryKind==0)then
+			avPos.AddEntry(p_vPos);
+			return avPos;
+		endif;
+		var real fWidth = CLevelEditorWrap.GetScapeMgr().GetMapWidth().ToReal(); 
+		var real fHeight = CLevelEditorWrap.GetScapeMgr().GetMapHeight().ToReal(); 
+		if(p_vPos.GetX()<=0.0 || p_vPos.GetX()>fWidth)then //<0.0 makes problems
+			avPos= 0;
+			return avPos;
+		endif;
+		if(p_vPos.GetY()<=0.0 || p_vPos.GetY()>fHeight)then //<0.0 makes problems
+			avPos= 0;
+			return avPos;
+		endif;
+		avPos.AddEntry(p_vPos);
+		//for checking overlap
+		var vec3 vPosStart(p_vPos.GetX()-0.5*p_fBrushX, p_vPos.GetY()-0.5*p_fBrushY, 0.0f);
+		var vec3 vPosEnd(p_vPos.GetX()+0.5*p_fBrushX, p_vPos.GetY()+0.5*p_fBrushY, 0.0f);
+		var vec3 vCenter;
+		vCenter.SetX(fWidth*0.5f);
+		vCenter.SetY(fHeight*0.5f);
+		var vec3 vRelative= p_vPos-vCenter;
+		var vec3 vAdd;
+		var bool b_overlap;
+		switch(m_iSymmetryKind)
+//			case(0)do //none
+//			endcase;
+			case(1)do //mirror-x
+				vAdd.SetX(vRelative.GetX()+vCenter.GetX());
+				vAdd.SetY(-vRelative.GetY()+vCenter.GetY());
+				vAdd.SetZ(p_vPos.GetZ());
+				b_overlap = false;
+				if(p_bDetectOverlap)then
+					var vec3 vAddStart(vAdd.GetX()-0.5*p_fBrushX, vAdd.GetY()-0.5*p_fBrushY, 0.0f);
+					var vec3 vAddEnd(vAdd.GetX()+0.5*p_fBrushX, vAdd.GetY()+0.5*p_fBrushY, 0.0f);
+					b_overlap = doRectanglesOverlap(vPosStart, vPosEnd, vAddStart, vAddEnd); 
+				endif;
+				if(!b_overlap)then
+					avPos.AddEntry(vAdd);
+				endif;
+			endcase;
+			case(2)do //mirror-y
+				vAdd.SetX(-vRelative.GetX()+vCenter.GetX());
+				vAdd.SetY(vRelative.GetY()+vCenter.GetY());
+				vAdd.SetZ(p_vPos.GetZ());
+				b_overlap = false;
+				if(p_bDetectOverlap)then
+					var vec3 vAddStart(vAdd.GetX()-0.5*p_fBrushX, vAdd.GetY()-0.5*p_fBrushY, 0.0f);
+					var vec3 vAddEnd(vAdd.GetX()+0.5*p_fBrushX, vAdd.GetY()+0.5*p_fBrushY, 0.0f);
+					b_overlap = doRectanglesOverlap(vPosStart, vPosEnd, vAddStart, vAddEnd); 
+				endif;
+				if(!b_overlap)then
+					avPos.AddEntry(vAdd);
+				endif;
+			endcase;
+			case(3)do //mirror-xy
+				vAdd.SetX(vRelative.GetX()+vCenter.GetX());
+				vAdd.SetY(-vRelative.GetY()+vCenter.GetY());
+				vAdd.SetZ(p_vPos.GetZ());
+				b_overlap = false;
+				if(p_bDetectOverlap)then
+					var vec3 vAddStart(vAdd.GetX()-0.5*p_fBrushX, vAdd.GetY()-0.5*p_fBrushY, 0.0f);
+					var vec3 vAddEnd(vAdd.GetX()+0.5*p_fBrushX, vAdd.GetY()+0.5*p_fBrushY, 0.0f);
+					b_overlap = doRectanglesOverlap(vPosStart, vPosEnd, vAddStart, vAddEnd); 
+				endif;
+				if(!b_overlap)then
+					avPos.AddEntry(vAdd);
+				endif;
+				vAdd.SetX(-vRelative.GetX()+vCenter.GetX());
+				vAdd.SetY(vRelative.GetY()+vCenter.GetY());
+				vAdd.SetZ(p_vPos.GetZ());
+				b_overlap = false;
+				if(p_bDetectOverlap)then
+					var vec3 vAddStart(vAdd.GetX()-0.5*p_fBrushX, vAdd.GetY()-0.5*p_fBrushY, 0.0f);
+					var vec3 vAddEnd(vAdd.GetX()+0.5*p_fBrushX, vAdd.GetY()+0.5*p_fBrushY, 0.0f);
+					b_overlap = doRectanglesOverlap(vPosStart, vPosEnd, vAddStart, vAddEnd); 
+				endif;
+				if(!b_overlap)then
+					avPos.AddEntry(vAdd);
+				endif;
+				vAdd.SetX(-vRelative.GetX()+vCenter.GetX());
+				vAdd.SetY(-vRelative.GetY()+vCenter.GetY());
+				vAdd.SetZ(p_vPos.GetZ());
+				b_overlap = false;
+				if(p_bDetectOverlap)then
+					var vec3 vAddStart(vAdd.GetX()-0.5*p_fBrushX, vAdd.GetY()-0.5*p_fBrushY, 0.0f);
+					var vec3 vAddEnd(vAdd.GetX()+0.5*p_fBrushX, vAdd.GetY()+0.5*p_fBrushY, 0.0f);
+					b_overlap = doRectanglesOverlap(vPosStart, vPosEnd, vAddStart, vAddEnd); 
+				endif;
+				if(!b_overlap)then
+					avPos.AddEntry(vAdd);
+				endif;
+			endcase;
+			case(4)do //rotate
+				var Quat qRot= Quat.RotationZ(Math.Pi()*(2.0f/m_iSymmetryCount.ToReal()));
+				var real fNorm= vRelative.Abs();
+				var vec3 vRot= vRelative.GetNormalized();
+				var int i, iC = m_iSymmetryCount-1;
+				for(i=0)cond(i<iC)iter(i++)do
+					qRot.VecRotateU(vRot);
+					vAdd.SetX(fNorm*vRot.GetX()+vCenter.GetX());
+					vAdd.SetY(fNorm*vRot.GetY()+vCenter.GetY());
+					vAdd.SetZ(p_vPos.GetZ());
+					b_overlap = false;
+					if(p_bDetectOverlap)then
+						var vec3 vAddStart(vAdd.GetX()-0.5*p_fBrushX, vAdd.GetY()-0.5*p_fBrushY, 0.0f);
+						var vec3 vAddEnd(vAdd.GetX()+0.5*p_fBrushX, vAdd.GetY()+0.5*p_fBrushY, 0.0f);
+						b_overlap = doRectanglesOverlap(vPosStart, vPosEnd, vAddStart, vAddEnd); 
+					endif;
+					if(!b_overlap)then
+						avPos.AddEntry(vAdd);
+					else
+						return avPos;
+					endif;
+				endfor;
+			endcase;
+			case default do
+			endcase;
+		endswitch;
+		return avPos;
+	endproc;
+
+	//circle function for Henry by Adder
+	proc array vec3 getPointsInCircle(vec3 p_vCenter, real p_fDist, int p_iSymmetryCount)
+		var array vec3 avPos;
+		var vec3 vRelative;
+		vRelative.SetX(p_fDist);
+		var vec3 vAdd;
+		var real fNorm= vRelative.Abs();
+		var vec3 vRot= vRelative.GetNormalized();
+		//random start position
+		var real fAngle= (Math.Pi()*2.0f/360.0f)*(Random.GetInt()%360).ToReal();
+		var Quat qRotRand= Quat.RotationZ(fAngle);
+		qRotRand.VecRotateU(vRot);
+		vAdd.SetX(fNorm*vRot.GetX()+p_vCenter.GetX());
+		vAdd.SetY(fNorm*vRot.GetY()+p_vCenter.GetY());
+		vAdd.SetZ(p_vCenter.GetZ());
+		avPos.AddEntry(vAdd);
+		var Quat qRot= Quat.RotationZ(Math.Pi()*(2.0f/p_iSymmetryCount.ToReal()));
+		var int i, iC = p_iSymmetryCount-1;
+		for(i=0)cond(i<iC)iter(i++)do
+			qRot.VecRotateU(vRot);
+			vAdd.SetX(fNorm*vRot.GetX()+p_vCenter.GetX());
+			vAdd.SetY(fNorm*vRot.GetY()+p_vCenter.GetY());
+			vAdd.SetZ(p_vCenter.GetZ());
+			avPos.AddEntry(vAdd);
+		endfor;
+		return avPos;
+	endproc;
+
+	export proc bool SetBrush(ref CBrush p_rxBrush);
+		m_xBrush=p_rxBrush;
+		CLevelEditorWrap.LogSpam("Controller.Terrain","Neuer Brush gesetzt: "+p_rxBrush.GetName());
+		delete m_pxPlateauBrush;
+		delete m_pxHeightUpBrush;
+		delete m_pxHeightDownBrush;
+		delete m_pxMatBrush;
+		m_pxPlateauBrush=new CScapeHeightBrush(p_rxBrush.GetSizeX(),p_rxBrush.GetSizeY());
+		m_pxHeightUpBrush=new CScapeHeightBrush(p_rxBrush.GetSizeX(),p_rxBrush.GetSizeY());
+		m_pxHeightDownBrush=new CScapeHeightBrush(p_rxBrush.GetSizeX(),p_rxBrush.GetSizeY());
+		m_pxMatBrush=new CScapeMaterialBrush(3,p_rxBrush.GetSizeX()/2,p_rxBrush.GetSizeY()/2);
+		m_pxPlateauBrush^.SetBrushType(p_rxBrush.GetForm());
+		m_pxPlateauBrush^.SetHeightValue(m_fHeight);
+		m_pxPlateauBrush^.SetFalloffWidth(0);
+		m_pxPlateauBrush^.SetFalloffType(p_rxBrush.GetFalloffType());
+		m_pxHeightUpBrush^.SetBrushType(p_rxBrush.GetForm());
+		m_pxHeightUpBrush^.SetHeightValue(p_rxBrush.GetHeight());
+		m_pxHeightUpBrush^.SetFalloffWidth(p_rxBrush.GetFalloff());
+		m_pxHeightUpBrush^.SetFalloffType(p_rxBrush.GetFalloffType());
+		m_pxHeightDownBrush^.SetBrushType(p_rxBrush.GetForm());
+		m_pxHeightDownBrush^.SetHeightValue(-p_rxBrush.GetHeight());
+		m_pxHeightDownBrush^.SetFalloffWidth(p_rxBrush.GetFalloff());
+		m_pxHeightDownBrush^.SetFalloffType(p_rxBrush.GetFalloffType());
+		CLevelEditorWrap.LogSpam("Controller.Terrain","MatBrush Scale: "+m_pxMatBrush^.GetScale().ToString());
+		SetMaterial(m_iMaterial);
+		return(true);
+	endproc;
+
+	export proc bool ChangeBrushSize(int p_iDelta)
+		m_bBlockPainting=false;
+		var CBrush xTemp;
+		xTemp=m_xBrush;
+		xTemp.SetSizeX(Math.Clamp(xTemp.GetSizeX()+p_iDelta,2,100));
+		xTemp.SetSizeY(Math.Clamp(xTemp.GetSizeY()+p_iDelta,2,100));
+		CLevelEditorWrap.LogSpam("Controller.Terrain","ChangeBrushSize: "+xTemp.GetSizeX().ToString()+"x"+xTemp.GetSizeY().ToString());
+		SetBrush(xTemp);
+		return(true);
+	endproc;
+	
+	export proc void SetMaterial(int p_iMaterial);
+		m_iMaterial=p_iMaterial;
+		var int iY,iX;
+		for(iY=0)cond(iY<m_pxMatBrush^.GetHeight())iter(iY++)do
+			for(iX=0)cond(iX<m_pxMatBrush^.GetWidth())iter(iX++)do
+				m_pxMatBrush^.SetValue(iX+(iY*m_pxMatBrush^.GetWidth()),m_iMaterial);
+			endfor;
+		endfor;
+	endproc;
+
+	export proc bool SetPlateauHeight(real p_fHeight);
+		m_fHeight = p_fHeight;
+		m_pxPlateauBrush^.SetHeightValue(m_fHeight);
+		return(true);
+	endproc;
+
+	export proc bool SetBottomHeight(real p_fBottom);
+		m_fBottom = p_fBottom;
+		//m_pxBottomBrush^.SetHeightValue(m_fHeight);
+		return(true);
+	endproc;
+
+	proc bool TerrainUp();
+		var vec3 vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		if(IsInScape(vPPoint))then
+			var array vec3 avPos;
+			avPos= GetPoints(vPPoint, m_pxHeightUpBrush^.GetWidth(), m_pxHeightUpBrush^.GetHeight(), true);
+			var int i,iC= avPos.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var vec3 vClone= avPos[i];
+				CLevelEditorWrap.GetScapeMgr().SetHeightBrush( 00b, vClone.GetX(), vClone.GetY(), m_pxHeightUpBrush^);
+			endfor;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool TerrainDown();
+		var vec3 vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		if(IsInScape(vPPoint))then
+			var array vec3 avPos;
+			avPos= GetPoints(vPPoint, m_pxHeightDownBrush^.GetWidth(), m_pxHeightDownBrush^.GetHeight(), true);
+			var int i,iC= avPos.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var vec3 vClone= avPos[i];
+				CLevelEditorWrap.GetScapeMgr().SetHeightBrush( 00b, vClone.GetX(), vClone.GetY(), m_pxHeightDownBrush^);
+			endfor;
+		endif;
+		return(true);
+	endproc;
+
+	export proc bool SetDetailLevel(int p_iDetailLevel)
+		m_iDetailLevel = p_iDetailLevel;
+		return(true);
+	endproc;
+
+	proc bool Blur();
+		var vec3 vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		if(IsInScape(vPPoint))then
+			var array vec3 avPos;
+			avPos= GetPoints(vPPoint, m_pxHeightUpBrush^.GetWidth(), m_pxHeightUpBrush^.GetHeight(), true);
+			var int i,iC= avPos.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var vec3 vClone= avPos[i];
+				CLevelEditorWrap.GetScapeMgr().SetHeightBrush( 010b, vClone.GetX(), vClone.GetY(), m_pxHeightUpBrush^);
+			endfor;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool Noise();
+		var vec3 vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		if(IsInScape(vPPoint))then
+			var array vec3 avPos;
+			avPos= GetPoints(vPPoint, m_pxHeightUpBrush^.GetWidth(), m_pxHeightUpBrush^.GetHeight(), true);
+			var int i,iC= avPos.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var vec3 vClone= avPos[i];
+				CLevelEditorWrap.GetScapeMgr().SetHeightBrush( 011b, vClone.GetX(), vClone.GetY(), m_pxHeightUpBrush^);
+			endfor;
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool CliffUp();
+		var vec3 vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		if(IsInScape(vPPoint))then
+			var array vec3 avPos;
+			avPos= GetPoints(vPPoint, m_pxHeightUpBrush^.GetWidth(), m_pxHeightUpBrush^.GetHeight(), true);
+			var int i,iC= avPos.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var vec3 vClone= avPos[i];
+				CLevelEditorWrap.GetScapeMgr().SetHeightBrush( 0100b, vClone.GetX(), vClone.GetY(), m_pxHeightUpBrush^);
+			endfor;
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool CliffDown();
+		var vec3 vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		if(IsInScape(vPPoint))then
+			var array vec3 avPos;
+			avPos= GetPoints(vPPoint, m_pxHeightUpBrush^.GetWidth(), m_pxHeightUpBrush^.GetHeight(), true);
+			var int i,iC= avPos.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var vec3 vClone= avPos[i];
+				CLevelEditorWrap.GetScapeMgr().SetHeightBrush( 0100b, vClone.GetX(), vClone.GetY(), m_pxHeightUpBrush^);
+			endfor;
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool ConePyramidDownUp(real p_fFactor, bitset p_dwBrushType)
+		var vec3 vPPointCommon = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		var real fWidth= m_pxHeightUpBrush^.GetWidth().ToReal()*0.5;
+		//var real fWidthY= m_pxHeightUpBrush^.GetHeight().ToReal()*0.5;
+		if(fWidth>0.0 && p_fFactor*(m_fHeight-m_fBottom) > 0.0)then
+			//symmetry loop
+			var array vec3 avPos;
+			avPos= GetPoints(vPPointCommon, m_pxHeightUpBrush^.GetWidth(), m_pxHeightUpBrush^.GetHeight(), true);
+			var int i,iC= avPos.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var vec3 vClone= avPos[i];
+				//pyramid loop
+				var vec3 vPPoint = vClone;
+				var int iWidth= m_pxHeightUpBrush^.GetWidth();
+				var real fHeight= m_fBottom;
+				var vec3 vAdd= {1.0, 1.0, 0.0};
+				var real fStep= (m_fHeight-m_fBottom)/fWidth;
+				var bool bStart= true;
+				while(iWidth>0)do 
+					var ^CScapeHeightBrush pxHeightUpBrush= new CScapeHeightBrush(iWidth, iWidth);
+					pxHeightUpBrush^.SetBrushType(p_dwBrushType); //00b= Rectangle 01b= Circle
+					if(bStart)then
+						pxHeightUpBrush^.SetHeightValue(fStep);
+						//pxHeightUpBrush^.SetHeightValue(fHeight);
+					else
+						pxHeightUpBrush^.SetHeightValue(fStep);
+					endif;
+					pxHeightUpBrush^.SetFalloffWidth(1); //0?
+					pxHeightUpBrush^.SetFalloffType(01b); //01b= Linear
+					if(bStart)then
+						CLevelEditorWrap.GetScapeMgr().SetHeightBrush( 00b, vClone.GetX(), vClone.GetY(), pxHeightUpBrush^);
+						//CLevelEditorWrap.GetScapeMgr().SetHeightBrush( 01b, vClone.GetX(), vClone.GetY(), pxHeightUpBrush^);
+						//CMessageBox.MsgBox("Debug","TC: PyramidUp: fHeight="+fHeight.ToString());
+					else
+						CLevelEditorWrap.GetScapeMgr().SetHeightBrush( 00b, vClone.GetX(), vClone.GetY(), pxHeightUpBrush^);
+					endif;
+					iWidth=  iWidth - 2;
+					vPPoint = vPPoint + vAdd;
+					bStart= false;
+					fHeight= fHeight + fStep;
+					delete pxHeightUpBrush;
+				endwhile;
+			endfor;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool ConeUp()
+		return ConePyramidDownUp(1.0, 01b);
+	endproc;
+	
+	proc bool ConeDown();
+		return ConePyramidDownUp(-1.0, 01b);
+	endproc;
+
+	proc bool PyramidUp();
+		return ConePyramidDownUp(1.0, 00b);
+	endproc;
+	
+	proc bool PyramidDown();
+		return ConePyramidDownUp(-1.0, 00b);
+	endproc;
+
+	proc bool PickMaterial()
+		var vec3 vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		if(IsInScape(vPPoint))then
+			var int iPickedMaterial=CLevelEditorWrap.GetScapeMgr().GetMaterial(vPPoint.GetX(),vPPoint.GetY());
+			SetMaterial(iPickedMaterial);
+			CEnhancedMenu.Get().GetScapeEdit()^.PushMaterialButton(iPickedMaterial);
+		endif;
+		return(true);
+	endproc;
+
+	proc bool PaintMaterial();
+		var vec3 vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		if(m_bBlockPainting)then
+			return PaintBlockWithMaterial(vPPoint);
+		endif;
+		if(IsInScape(vPPoint))then
+			var array vec3 avPos;
+			avPos= GetPoints(vPPoint, m_pxMatBrush^.GetWidth(), m_pxMatBrush^.GetHeight(), false );
+			var int i,iC= avPos.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var vec3 vClone= avPos[i];
+				vClone.SetX(vClone.GetX()+3.5);
+				vClone.SetY(vClone.GetY()+3.5);
+				CLevelEditorWrap.GetScapeMgr().SetMaterialBrush(vClone.GetX(), vClone.GetY(), m_pxMatBrush^);
+			endfor;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool SetPlateau();
+		var vec3 vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		if(IsInScape(vPPoint))then
+			var array vec3 avPos;
+			avPos= GetPoints(vPPoint, m_pxPlateauBrush^.GetWidth(), m_pxPlateauBrush^.GetHeight(), false );
+			var int i,iC= avPos.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var vec3 vClone= avPos[i];
+				CLevelEditorWrap.GetScapeMgr().SetHeightBrush( 01b, vClone.GetX(), vClone.GetY(), m_pxPlateauBrush^);
+			endfor;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool PickPlateau();
+		var vec3 vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		m_pxViewScapeEdit^.SetPlateauHight(vPPoint.GetZ());
+		return(true);
+	endproc;
+
+	export proc bool SetCViewScapeEdit ( ^CViewScapeEdit p_pxCViewScapeEdit)
+		m_pxViewScapeEdit = p_pxCViewScapeEdit;
+		return(true);
+	endproc;
+
+	proc bool USLGetBlockCoords( vec3 p_vPoint, ref point p_rxPoint );
+		p_rxPoint.SetX((p_vPoint.GetX()/32.0).ToInt());
+		p_rxPoint.SetY((p_vPoint.GetY()/32.0).ToInt());
+		return(true);
+	endproc;
+
+	export proc void OnRender()
+		if(CWindowMgr.Get().GetHoveredWindow()!=m_pxDesktop)then return; endif;
+		if(m_iState == -1)then return; endif;
+		var vec3 vPickPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		if(m_iState==0 || m_iState==1 || m_iState==3 || m_iState==9 || m_iState==11 || m_iState==12)then
+			var real fX = m_pxHeightUpBrush^.GetWidth().ToReal() * 0.5 - 1.0;
+			var real fY = m_pxHeightUpBrush^.GetHeight().ToReal() * 0.5 - 1.0;
+			vPickPoint.SetX(vPickPoint.GetX()-fX);
+			vPickPoint.SetY(vPickPoint.GetY()-fY);
+			if(IsInScape(vPickPoint))then
+				CLevelEditorWrap.GetScapeMgr().DrawHeightBrush(vPickPoint,m_pxHeightUpBrush,{{90,80,60,128}});
+			endif;
+		elseif(m_iState==4)then
+			if(IsInScape(vPickPoint))then
+				CLevelEditorWrap.GetScapeMgr().DrawMaterialBrush(vPickPoint,m_pxMatBrush,192);
+			endif;
+		endif;
+	endproc;
+
+	export proc bool SetFullForest()
+		//Set forest on block
+		var vec3 vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		if(IsInScape(vPPoint))then
+			var array vec3 avPos;
+			avPos= GetPoints(vPPoint, 0.01f, 0.01f, false);
+			var int i,iC= avPos.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var vec3 vClone= avPos[i];
+				var int iBX=(vClone.GetX()/32.0).ToInt();
+				var int iBY=(vClone.GetY()/32.0).ToInt();
+				CEvt_ForestBlock.Send(iBX,iBY,true,0);
+	//			CLevelEditorWrap.LogSpam("Controller.Terrain","Set Full Forest ---->"+(vClone.GetX()/32.0).ToInt().ToString()+" , "+(vClone.GetY()/32.0).ToInt().ToString());
+			endfor;
+		endif;
+		return(true);
+	endproc;
+
+	export proc bool DelForrest()
+		//del Forrest on Block
+		var vec3 vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		if(IsInScape(vPPoint))then
+			var array vec3 avPos;
+			avPos= GetPoints(vPPoint, 0.01f, 0.01f, false);
+			var int i,iC= avPos.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var vec3 vClone= avPos[i];
+				var int iBX=(vClone.GetX()/32.0).ToInt();
+				var int iBY=(vClone.GetY()/32.0).ToInt();
+				CEvt_ForestBlock.Send(iBX,iBY,false,0);
+//				CLevelEditorWrap.LogSpam("Controller.Terrain","Delete Forrest ---->"+(vClone.GetX()/32.0).ToInt().ToString()+" , "+(vClone.GetY()/32.0).ToInt().ToString());
+			endfor;
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool PaintBlockWithMaterial(vec3 p_vPP);
+		var ^CScapeMgrLE pxSMLE = ^(CLevelEditorWrap.GetScapeMgr());
+		if(pxSMLE==null)then return false; endif;
+		var int iBlockX, iBlockY;
+		CScapeMgrLE.GetBlockCoords(p_vPP, iBlockX, iBlockY);
+		var real fXStart=(iBlockX*32).ToReal();
+		var real fYStart=(iBlockY*32).ToReal();
+		var int k, iK=(32)+1, i, iC=(32)+1;
+		for(k=0)cond(k<iK)iter(k++)do
+			var real fY=0.0, fX=(k*m_iX).ToReal()+fXStart;
+			for(i=0)cond(i<iC)iter(i++)do
+				fY=(i*m_iY).ToReal()+fYStart;
+				if(m_iSwitch==1&&pxSMLE^.IsFreePointFixLand(fX.ToInt(),fY.ToInt()))then continue; endif;
+				if(m_iSwitch==2&&!pxSMLE^.IsFreePointFixLand(fX.ToInt(),fY.ToInt()))then continue; endif;
+				var real fH=pxSMLE^.GetHeight(fX,fY);
+				if(fH>=m_fMin&&fH<=m_fMax)then
+					pxSMLE^.SetMaterialBrush(fX+3.5, fY+3.5, m_pxMatBrush^);
+				endif;
+			endfor;
+		endfor;
+		return(true);
+	endproc;
+	
+	export proc bool PaintScapeWithMaterial(real p_fMin, real p_fMax, int p_iX, int p_iY);
+		var ^CScapeMgrLE pxSMLE = ^(CLevelEditorWrap.GetScapeMgr());
+		if(pxSMLE==null)then return false; endif;
+		var vec3 vPick=pxSMLE^.GetPickPoint();
+		var int iBlockX, iBlockY;
+//		var real fMin, fMax;
+		CScapeMgrLE.GetBlockCoords(vPick, iBlockX, iBlockY);
+//		pxSMLE^.GetBlockBounds(iBlockX, iBlockY, fMin, fMax);
+//		var int iHeight=pxSMLE^.GetMapHeight(), iWidth=pxSMLE^.GetMapWidth();
+		var real fXStart=(iBlockX*32).ToReal();
+		var real fYStart=(iBlockY*32).ToReal();
+//		var int k, iK=(iWidth/p_iX)+1, i, iC=(iHeight/p_iY)+1;
+		var int k, iK=(32)+1, i, iC=(32)+1;
+		for(k=0)cond(k<iK)iter(k++)do
+			var real fY=0.0, fX=(k*p_iX).ToReal()+fXStart;
+			for(i=0)cond(i<iC)iter(i++)do
+				fY=(i*p_iY).ToReal()+fYStart;
+				var real fH=pxSMLE^.GetHeight(fX,fY);
+				if(fH>=p_fMin&&fH<=p_fMax)then
+					pxSMLE^.SetMaterialBrush(fX+3.5, fY+3.5, m_pxMatBrush^);
+				endif;
+			endfor;
+		endfor;
+		return(true);
+	endproc;
+	
+	export proc bool PaintScapeWithMaterial(real p_fMin, real p_fMax, int p_iX, int p_iY, int p_iStartX, int p_iStartY, int p_iCountX, int p_iCountY);
+		var ^CScapeMgrLE pxSMLE = ^(CLevelEditorWrap.GetScapeMgr());
+		if(pxSMLE==null)then return false; endif;
+		var vec3 vPick=pxSMLE^.GetPickPoint();
+		var int iHeight=pxSMLE^.GetHeightInBlocks(), iWidth=pxSMLE^.GetWidthInBlocks();
+		var real fXStart=(p_iStartX*32).ToReal();
+		var real fYStart=(p_iStartY*32).ToReal();
+		var int k, iK=(32*p_iCountX)+1, i, iC=(32*p_iCountY)+1;
+		for(k=0)cond(k<iK)iter(k++)do
+			var real fY=0.0, fX=(k*p_iX).ToReal()+fXStart;
+			for(i=0)cond(i<iC)iter(i++)do
+				fY=(i*p_iY).ToReal()+fYStart;
+				var real fH=pxSMLE^.GetHeight(fX,fY);
+				if(fH>=p_fMin&&fH<=p_fMax)then
+					pxSMLE^.SetMaterialBrush(fX+3.5, fY+3.5, m_pxMatBrush^);
+				endif;
+			endfor;
+		endfor;
+		return(true);
+	endproc;
+	
+	export proc bool EnableBlockPainting(bool p_bEnable);
+		m_bBlockPainting=p_bEnable;
+		return(true);
+	endproc;
+	
+	export proc bool EnableBlockPainting(bool p_bEnable, real p_fMin, real p_fMax, int p_iX, int p_iY, int p_iSwitch);
+		m_bBlockPainting=p_bEnable;
+		m_fMin=p_fMin;
+		m_fMax=p_fMax;
+		m_iX=p_iX;
+		m_iY=p_iY;
+		m_iSwitch=p_iSwitch;
+		return(true);
+	endproc;
+	
+endclass;

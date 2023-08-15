@@ -1,0 +1,319 @@
+class CViewObjInsert inherit CEnhancedFrameWindow
+
+	var string					m_sSetting;
+	var int							m_iTreeAddIndex;
+	var bool						m_bRandom;
+	var bool						m_bTerrain;
+	var bool						m_bBuildUp;
+	var ^CTreeCtrl			m_pxObjClassTree;
+	var ^CDesktop				m_pxDesktop;
+
+	export constructor()
+		m_iTreeAddIndex=0;
+		if(!InitFromResource("objects/ViewObjInsert","ObjInsert")) then
+			CLevelEditorWrap.LogError("UI.ViewObjInsert","InitFromResource failed");
+			return;
+		endif;
+
+		var ^CGroupBox pxGBOwner = cast<CGroupBox>(GetControl("GB_Owner"));
+		pxGBOwner^.SetText(CLocalizer.Get().Translate("_ViewObjInsert_GB_Owner"));
+
+		var ^CGroupBox pxGBMid = cast<CGroupBox>(GetControl("CGroupBoxMid"));
+		pxGBMid^.SetText(CLocalizer.Get().Translate("_ViewObjInsert_CGroupBoxMid"));
+
+		var ^CButton pxBtnUpdate = cast<CButton>(GetControl("CGroupBoxMid/Btn_UpdateTree"));
+		pxBtnUpdate^.SetText(CLocalizer.Get().Translate("_ViewObjInsert_CGroupBoxMid/Btn_UpdateTree"));
+		pxBtnUpdate^.m_xOnClick=OnUpdateObjClassTree;
+
+		var ^CButton pxBtnTake = cast<CButton>(GetControl("CGroupBoxMid/Btn_TakeObj"));
+		pxBtnTake^.SetText(CLocalizer.Get().Translate("_ViewObjInsert_CGroupBoxMid/Btn_TakeObj"));
+		pxBtnTake^.m_xOnClick=OnClassTreeDoubleClick;
+
+		//Initalize Options on first start
+		if(CSettings.NumSubs("Editor/Misc")==0)then
+			CSettings.Set("Editor/Misc/RandomRotation","false");
+		endif;
+		var string	sRandomRotation;
+		CSettings.Get("Editor/Misc/RandomRotation",sRandomRotation);
+
+		var ^CCheckBox pxRandom = cast<CCheckBox>(GetControl("CGroupBoxMid/BackgroundPane/CheckBoxRandom"));
+		var ^CCheckBox pxTerrain = cast<CCheckBox>(GetControl("CGroupBoxMid/BackgroundPane2/CheckBoxTerrain"));
+		var ^CCheckBox pxBuildUp = cast<CCheckBox>(GetControl("CGroupBoxMid/BackgroundPane3/CheckBoxBuildUp"));
+		pxTerrain^.SetChecked(0);
+		pxBuildUp^.SetChecked(0);
+
+		if(sRandomRotation=="true")then
+			m_bRandom=true;
+			pxRandom^.SetChecked(1);
+		else
+			m_bRandom=false;
+			pxRandom^.SetChecked(0);
+		endif;
+
+		pxRandom^.m_xOnClick=OnRandomRotation;
+		pxTerrain^.m_xOnClick=OnAdaptTerrain;
+		pxBuildUp^.m_xOnClick=OnBuildUp;
+		
+		var ^CButton pxBtn= cast<CButton>(GetControl("CGroupBoxMid/GameObj2IdiObj"));
+		pxBtn^.m_xOnClick=GameObj2IdiObj;
+		pxBtn = cast<CButton>(GetControl("CGroupBoxMid/IdiObj2GameObj"));
+		pxBtn^.m_xOnClick=IdiObj2GameObj;
+
+		m_pxObjClassTree= cast<CTreeCtrl>(GetControl("CGroupBoxMid/ObjClassTree"));
+		m_pxObjClassTree^.m_xOnLBtnDblClick=OnClassTreeDoubleClick;
+		m_pxObjClassTree^.m_xOnSelect=OnClassSelect;
+
+		var ^CDropList pxDLOwner = cast<CDropList>(GetControl("GB_Owner/DropL_Owner"));
+		pxDLOwner^.AddItem(CLocalizer.Get().Translate("_ObjInsert_DL_WorldObject"));
+		pxDLOwner^.AddItem(CLocalizer.Get().Translate("_ObjInsert_DL_Player0"));
+		pxDLOwner^.AddItem(CLocalizer.Get().Translate("_ObjInsert_DL_Player1"));
+		pxDLOwner^.AddItem(CLocalizer.Get().Translate("_ObjInsert_DL_Player2"));
+		pxDLOwner^.AddItem(CLocalizer.Get().Translate("_ObjInsert_DL_Player3"));
+		pxDLOwner^.AddItem(CLocalizer.Get().Translate("_ObjInsert_DL_Player4"));
+		pxDLOwner^.AddItem(CLocalizer.Get().Translate("_ObjInsert_DL_Player5"));
+		pxDLOwner^.AddItem(CLocalizer.Get().Translate("_ObjInsert_DL_Player6"));
+		pxDLOwner^.AddItem(CLocalizer.Get().Translate("_ObjInsert_DL_Player7"));
+		pxDLOwner^.m_xOnChange = OnOwnerChange;
+
+		LoadPosition("ObjInsert");
+
+		OnUpdateObjClassTree();
+		m_pxDesktop=CClientWrap.GetDesktop();
+
+		//Disable controls on construction
+		EnableControls(false);
+
+		//CheckGfx();
+	endconstructor;
+
+	export proc bool SetMainController ( ^CMainController p_pxMController)
+		return(true);
+	endproc;
+
+	// set setting and checks, if setting has changed, load appropriate graphicsets
+	export proc void SetSetting(string p_sSetting);
+		var ^CEdit pxEdit = cast<CEdit>(GetControl("CGroupBoxMid/Edit_Setting"));
+		CLevelEditorWrap.LogInfo("UI.ViewObjInsert",p_sSetting);
+		if(m_sSetting!=p_sSetting)then
+			m_sSetting = p_sSetting;
+			CLevelEditorWrap.GetForestMgr().LoadForestConfig(CLevelEditorWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/Classes/Vegetation/Forest_"+m_sSetting+".txt");
+		endif;
+		//if nothing has changed, nothing is to do ^^
+		pxEdit^.SetText(m_sSetting);
+		//UpdateClassTree
+		OnUpdateObjClassTree();
+	endproc;
+
+	export proc bool EnableControls(bool p_bEnable);
+		var ^CGroupBox pxGBOwner = cast<CGroupBox>(GetControl("GB_Owner"));
+		pxGBOwner^.SetDisabled(!p_bEnable);
+		var ^CGroupBox pxGBMid = cast<CGroupBox>(GetControl("CGroupBoxMid"));
+		pxGBMid^.SetDisabled(!p_bEnable);
+		return(true);
+	endproc;
+
+	export proc bool OnUpdateObjClassTree()
+
+		var ^CObjClassMgrBase pxObjClassMgr=^(CLevelEditorWrap.GetObjClassMgr());
+		//treectrl cleared
+		m_pxObjClassTree^.Clear();
+
+		var ^CClassNode pxRoot=pxObjClassMgr^.GetRoot();
+		if(pxRoot!=null)then
+			var int i,iC=pxRoot^.m_axSubs.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CClassNode pxWalk=pxRoot^.m_axSubs[i];
+				FillTreeRec(pxWalk,0);
+			endfor;
+		endif;
+		return true;
+	endproc;
+
+	proc void FillTreeRec(^CClassNode p_pxWalk, int p_iItem)
+		if(p_pxWalk!=null) then
+			var int iItem=m_pxObjClassTree^.AddItem(p_iItem,p_pxWalk^.m_sName);
+			var int i,iC=p_pxWalk^.m_axSubs.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CClassNode pxWalk=p_pxWalk^.m_axSubs[i];
+				FillTreeRec(p_pxWalk^.m_axSubs[i],iItem);
+			endfor;
+		endif;
+	endproc;
+
+	proc bool OnRandomRotation()
+		var ^CCheckBox pxRandom = cast<CCheckBox>(GetControl("CGroupBoxMid/BackgroundPane/CheckBoxRandom"));
+		m_bRandom=pxRandom^.GetCheckMark();
+		if(!pxRandom^.GetCheckMark())then
+			m_bRandom=true;
+			pxRandom^.SetChecked(1);
+		else
+			m_bRandom=false;
+			pxRandom^.SetChecked(0);
+		endif;
+		CSettings.Set("Editor/Misc/RandomRotation",m_bRandom.ToString());
+		return(true);
+	endproc;
+	
+	proc bool OnAdaptTerrain()
+		var ^CCheckBox pxTerrain = cast<CCheckBox>(GetControl("CGroupBoxMid/BackgroundPane2/CheckBoxTerrain"));
+		m_bTerrain=pxTerrain^.GetCheckMark();
+		if(!pxTerrain^.GetCheckMark())then
+			m_bTerrain=true;
+			pxTerrain^.SetChecked(1);
+		else
+			m_bTerrain=false;
+			pxTerrain^.SetChecked(0);
+		endif;
+		return(true);
+	endproc;
+	
+	export proc bool GetRandomRotateGhost()
+		return(m_bRandom);
+	endproc;
+	
+	export proc bool GetAdaptTerrain()
+		return(m_bTerrain);
+	endproc;
+	
+	proc bool OnBuildUp()
+		var ^CCheckBox pxBuildUp = cast<CCheckBox>(GetControl("CGroupBoxMid/BackgroundPane3/CheckBoxBuildUp"));
+		m_bBuildUp=pxBuildUp^.GetCheckMark();
+		if(!pxBuildUp^.GetCheckMark())then
+			m_bBuildUp=true;
+			pxBuildUp^.SetChecked(1);
+		else
+			m_bBuildUp=false;
+			pxBuildUp^.SetChecked(0);
+		endif;
+		return(true);
+	endproc;
+	
+	export proc bool GetBuildUp()
+		return(m_bBuildUp);
+	endproc;
+	
+	export proc string GetSelectedClass()
+		var ^CTreeCtrl pxObjClassTree = cast<CTreeCtrl>(GetControl("CGroupBoxMid/ObjClassTree"));
+		if(pxObjClassTree^.GetSelectedItem()!=0)then
+			var string sItem=pxObjClassTree^.GetSelectedItemAsString();
+			if(pxObjClassTree^.ItemNumChildren(pxObjClassTree^.FindItem(0,sItem))<1)then
+				return sItem;
+			endif;
+		endif;
+		return "";
+	endproc;
+
+	proc bool OnClassTreeDoubleClick()
+		var ^CTreeCtrl pxObjClassTree = cast<CTreeCtrl>(GetControl("CGroupBoxMid/ObjClassTree"));
+		CMainController.Get().DeselectAllToggleButton();
+		if(pxObjClassTree^.GetSelectedItem()!=0)then
+			var string sItem=pxObjClassTree^.GetSelectedItemAsString();
+			if(pxObjClassTree^.ItemNumChildren(pxObjClassTree^.FindItem(0,sItem))<1)then
+				CLevelEditorWrap.LogSpam("UI.ViewObjInsert","DBLClick: "+sItem);
+				if(CLevelEditorWrap.GetScapeMgr().HasMap())then
+					//Hack until TT and Player are available in Editor
+					if(	(sItem=="hu_palisade"||sItem=="hu_small_wall"||sItem=="hu_re_enforced_wall"||
+							sItem=="hu_palisade_gate"||sItem=="hu_small_wall_gate"||sItem=="hu_re_enforced_wall_gate"||
+							sItem=="hu_small_tower"||sItem=="hu_bunker"||sItem=="hu_large_tower")||
+						(sItem=="aje_bone_palisade" || sItem=="aje_clay_wall" /*||sItem=="aje_re_enforced_clay_wall"*/||
+							sItem=="aje_bone_palisade_gate"||sItem=="aje_clay_wall_gate" /*||sItem=="aje_re_enforced_clay_wall_gate"*/||
+							sItem=="aje_small_tower"||sItem=="aje_medium_tower"||sItem=="aje_tesla_tower")||
+						(sItem=="ninigi_defense_skewer" || sItem=="ninigi_palisade"||sItem=="ninigi_telescope_tower"||
+							sItem=="ninigi_defense_skewer_gate"||sItem=="ninigi_palisade_gate"||
+							sItem=="ninigi_small_tower"||sItem=="ninigi_smoke_tower"||sItem=="ninigi_pitfall"||
+							sItem=="ninigi_snare_trap"||sItem=="ninigi_resin_field"||sItem=="ninigi_minefield"||sItem=="ninigi_poison_trap")||
+						(sItem=="seas_fence" || sItem=="seas_gate" || sItem=="seas_turret_tower" || sItem=="seas_wall" || sItem=="seas_wall_gate"))then
+						CMainController.Get().GetWallCtrl().SetClass(sItem);
+						return(false);
+					else
+//						KLog.LogError("Walls","ObjCreator.CreateGhost()");
+						CMainController.Get().GetWallCtrl().SetActive(false);
+						CMainController.Get().GetObjCreator()^.CreateGhost(sItem);
+						if(m_bRandom)then
+							CMainController.Get().GetObjCreator()^.RandomRotateGhost();
+						endif;
+					endif;
+				else
+					CMessageBox.MsgBox(CLocalizer.Get().Translate("_ObjInsert_Warning"),CLocalizer.Get().Translate("_ObjInsert_NoMap"));
+				endif;
+				CClientWrap.GetDesktop()^.SetStandardCursor();
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnClassSelect()
+		OnClassTreeDoubleClick();
+		CMainController.Get().GetObjCreator()^.UpdateGhost();
+		return true;
+	endproc;
+
+	export proc bool QuickCopy()
+		var string sObjName;
+		CMainController.Get().DeselectAllToggleButton();
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		if(pxSel^.NumEntries()==1)then
+			var ^CObj pxObj=(pxSel^)[0].GetObj();
+			sObjName=pxObj^.GetClassName();
+		else
+			return(false);
+		endif
+		if(CLevelEditorWrap.GetScapeMgr().HasMap())then
+			if(pxSel^[0].GetObj()^.GetAttribs()!=null) then
+				CMainController.Get().GetObjCreator()^.CreateGhost(sObjName, pxSel^[0]);
+			else
+				CMainController.Get().GetObjCreator()^.CreateGhost(sObjName);
+			endif;
+			CClientWrap.GetDesktop()^.SetStandardCursor();
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnOwnerChange()
+		var ^CDropList pxDLOwner = cast<CDropList>(GetControl("GB_Owner/DropL_Owner"));
+		var int iOwner = (pxDLOwner^.GetSelectedItem())-1;
+		CMainController.Get().GetWallCtrl().SetOwner(iOwner);
+		CMainController.Get().GetObjCreator()^.SetOwner(iOwner);
+		return(true);
+	endproc;
+	
+	proc bool IdiObj2GameObj()
+		var int iNum=CLevelEditorWrap.GetNumIdiObjects();
+		if(iNum>0)then
+			CMessageBox.MsgBox_YESNO("Converting idiobjects to gameobjects", "The number of idiobjects is: "+iNum.ToString()+" Would you really like to convert them all?", CMessageBox.SMB_ICONQUESTION, OnMsgBoxQuestionIdiObj2GameObj);
+		endif;
+//		CLevelEditorWrap.IdiObj2GameObj();
+		return true;
+	endproc;
+	
+	proc bool OnMsgBoxQuestionIdiObj2GameObj(int p_iResult)
+		var bitset dwResult = Math.IntToBitset(p_iResult);
+		if(dwResult==CMessageBox.SID_YES)then
+			CLevelEditorWrap.IdiObj2GameObj();
+		else
+			return false;
+		endif;
+		return true;
+	endproc;
+	
+	proc bool GameObj2IdiObj()
+		var int iNum=CLevelEditorWrap.GetNumIdiObjects();
+		if(iNum>0)then
+			CMessageBox.MsgBox_YESNO("Converting gameobjects to idiobjects", "There are already idiobjects on the map ("+iNum.ToString()+") This conversion may delete some (or worst case scenario all) of them. Do you want to continue?", CMessageBox.SMB_ICONQUESTION, OnMsgBoxQuestionGameObj2IdiObj);
+		else
+			CLevelEditorWrap.GameObj2IdiObj();
+		endif;
+		return true;
+	endproc;
+	
+	proc bool OnMsgBoxQuestionGameObj2IdiObj(int p_iResult)
+		var bitset dwResult = Math.IntToBitset(p_iResult);
+		if(dwResult==CMessageBox.SID_YES)then
+			CLevelEditorWrap.GameObj2IdiObj();
+		else
+			return false;
+		endif;
+		return true;
+	endproc;
+	
+endclass;

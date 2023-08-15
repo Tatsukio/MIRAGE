@@ -1,0 +1,1008 @@
+///class CAiGoalBuildMineBelts
+class CAiGoalBuildMineBelts inherit CAiGoal
+
+	var ^CAiBrain 						m_pxBrain;
+	var ^CAiSensor						m_pxSensor;
+	var int										m_iPlayerID;
+	var bool									m_bInitialized;
+	var int										m_iNumMinesToPlace;
+	var CAiManagedTaMArray		m_xMineArray;
+	var CAiTaskBuildSquad			m_xAllocatorResources;
+	var CAiTaskBuildSquad			m_xAllocatorShip;
+	var ^CAiSolution					m_pxSolutionResources;
+	var ^CAiSolution					m_pxSolutionShip;
+	var CAiTurretandMineMgr		m_xMineMgr;
+	var string								m_sState;
+	var string								m_sFailedInfo;
+	
+	const string							m_ksSTART = "start";
+	const string							m_ksNEW_MINEBELT = "new_minebelt";
+	const string							m_ksALLOCATING_SHIP = "allocating_ship";
+	const string							m_ksSHIP_ALLOCATED = "ship_allocated";
+	const string							m_ksALLOCATING_RESOURCES = "allocating_resources";
+	const string							m_ksRESOURCES_ALLOCATED = "resources_allocated";
+	const string							m_ksPLACING_MINES = "placing_mines";
+	const string							m_ksMINES_PLACED = "mines_placed";
+	const string							m_ksFAILED = "failed";
+	const string							m_ksCLEANUP = "cleanup";
+	const string							m_ksEND = "end";
+	const int									m_kiMINECOST_WOOD = 50;
+	const int									m_kiMINECOST_STONE = 50;
+	const int									m_kiNUM_MINE_IN_A_ROW = 5;
+	
+	export constructor()
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+
+	export proc bool Init(^CAiBrain p_pxBrain)
+		super.Init(p_pxBrain);
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null)then return false; endif;
+		var int iThinkwait = 100;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		if(pxCM!=null)then
+			var string sBehaviour = pxCM^.GetBehaviorType();
+			if(sBehaviour=="Dodo")then
+				iThinkwait = 200;
+			elseif(sBehaviour=="Giraffe")then
+				iThinkwait = 100;
+			elseif(sBehaviour=="Schnecke")then
+				iThinkwait = 50;
+			endif;
+			iThinkwait += pxCM^.GetDifficultyInt();
+		endif;
+		SetThinkWait(iThinkwait);
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_bInitialized=false;
+		m_sState=m_ksSTART;
+		m_iNumMinesToPlace=0;
+		m_pxSolutionShip=null;
+		m_pxSolutionResources=null;
+		SetPermanent(true);
+		m_xAllocatorResources.Init(this,false);
+		m_xAllocatorResources.SetPriority(10.0f);
+		RemoveTask(^m_xAllocatorResources);
+		AddTask(^m_xAllocatorResources);
+		m_xAllocatorShip.Init(this,false);
+		m_xAllocatorShip.SetPriority(90.0f);
+		RemoveTask(^m_xAllocatorShip);
+		AddTask(^m_xAllocatorShip);
+		return true;
+	endproc;
+	
+	
+	export proc void Shut()
+		super.Shut();
+		m_xAllocatorResources.Shut();
+		m_xAllocatorResources.SetSolution(null);
+		RemoveTask(^m_xAllocatorResources);
+		m_xAllocatorShip.Shut();
+		m_xAllocatorShip.SetSolution(null);
+		RemoveTask(^m_xAllocatorShip);
+	endproc;
+	
+	proc void Think()
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null) then return; endif;
+		if(!m_bInitialized)then
+			if(!m_xMineMgr.Init(m_pxBrain))then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="mine manager initialization failed";
+				return;
+			else
+				m_bInitialized=true;
+			endif;
+		endif;
+		if(m_sState==m_ksSTART)then
+			m_sState=m_ksNEW_MINEBELT;
+			return;
+		elseif(m_sState==m_ksNEW_MINEBELT)then
+			var ^CAiTechTree pxTechTree = ^(m_pxSensor^.GetTechTree());
+			if(pxTechTree==null)then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="can't get techtree instance";
+				return;
+			endif;
+			
+			if(IsMineLayerAllocated())then
+				m_sState=m_ksSHIP_ALLOCATED;
+				return;
+			endif;
+
+			if(m_pxSolutionShip==null)then
+				m_pxSolutionShip = pxTechTree^.MakeDefinedSolution("SeaMineLayer", 1.0, 1.0);
+				if(m_pxSolutionShip==null)then
+					m_sState=m_ksFAILED;
+					m_sFailedInfo="can't create solution forship";
+					return;
+				endif;
+			endif;
+
+			m_xAllocatorShip.SetSolution(null);
+			m_xAllocatorShip.Shut();
+			m_xAllocatorShip.Init(this,false,false);
+			m_xAllocatorShip.SetSolution(m_pxSolutionShip);
+
+			//ship is available
+			if(m_xAllocatorShip.Start(false))then
+				m_sState=m_ksSHIP_ALLOCATED;
+				return;
+			endif;
+
+			//ship not available yet
+			m_xAllocatorShip.Start(true);
+			m_sState=m_ksALLOCATING_SHIP;
+			return;
+		elseif(m_sState==m_ksALLOCATING_SHIP)then
+			if(m_xAllocatorShip.IsRunning())then
+				if(m_xAllocatorShip.GetUnits().NumEntries()>0)then
+					if(m_xAllocatorShip.GetUnits()[0].IsValid())then
+						//ship is allocated
+						m_sState=m_ksSHIP_ALLOCATED;
+						return;
+					endif;
+				else
+					m_sState=m_ksFAILED;
+					m_sFailedInfo="running but no mine layer???";
+				endif;
+			elseif(m_xAllocatorShip.IsNotPossible())then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="could not allocate ship; IMPOSSIBLE";
+				//terminate goal
+				m_xAllocatorShip.Shut();
+				m_xAllocatorResources.Shut();
+				Deactivate();
+				return;
+			elseif(m_xAllocatorShip.IsAborted())then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="ship allocation aborted";
+			endif;
+			return;
+		elseif(m_sState==m_ksSHIP_ALLOCATED)then
+			//ship is still allocated?
+			if(m_xAllocatorShip.IsRunning())then
+				if(m_xAllocatorShip.GetUnits().NumEntries()>0)then
+					if(!m_xAllocatorShip.GetUnits()[0].IsValid())then
+						//ship is not available anymore
+						m_sState=m_ksFAILED;
+						m_sFailedInfo="ship is not valid";
+						return;
+					endif;
+				else
+					m_sState=m_ksFAILED;
+					m_sFailedInfo="running but no mine layer???";
+				endif;
+			endif;
+
+			var ^CAiTechTree pxTechTree = ^(m_pxSensor^.GetTechTree());
+			if(pxTechTree==null)then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="can't get techtree instance";
+				return;
+			endif;
+			m_xMineMgr.UpdateTargetPositions("ninigi_mineship_mine");
+			m_xMineArray.Clear();
+			m_xMineMgr.GetNextMineTargets(m_xMineArray,m_kiNUM_MINE_IN_A_ROW);
+			m_iNumMinesToPlace=m_xMineArray.NumEntries();
+			if(m_iNumMinesToPlace<=0)then
+				if(IsMineLayerAllocated())then
+					var vec3 vHome=CAiUtilityMgr.Get()^.FindHarbourPos(m_pxBrain);
+					if(vHome=={0.0,0.0,0.0})then
+						vHome=m_xMineMgr.GetReturnPos();
+					endif;
+					m_pxSensor^.ExecuteGamePlayCommand(m_xAllocatorShip.GetUnits(), "Action", -1, vHome, "/Walk");
+				endif;
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="no free mine positions to place mines";
+				return;
+			endif;
+			if(m_pxSolutionResources!=null)then
+				delete m_pxSolutionResources;
+				m_pxSolutionResources=null;
+			endif;
+			
+			m_xAllocatorResources.SetSolution(null);
+			m_pxSolutionResources = new CAiSolution();
+			var CAiNeedPtr pxNeedWood = CAiNeed.Create(true, m_kiMINECOST_WOOD*m_iNumMinesToPlace);
+			var CAiNeedPtr pxNeedStone = CAiNeed.Create(true, m_kiMINECOST_STONE*m_iNumMinesToPlace);
+			
+			pxNeedWood.GetNeed()^.AddEntry(pxTechTree^.GetNodeInstanceFromPartialName("wood"));
+			pxNeedStone.GetNeed()^.AddEntry(pxTechTree^.GetNodeInstanceFromPartialName("stone"));
+			m_pxSolutionResources^.SetSubject(0);
+			m_pxSolutionResources^.AddRequired(pxNeedWood);
+			m_pxSolutionResources^.AddRequired(pxNeedStone);
+		
+			m_xAllocatorResources.Shut();
+			m_xAllocatorResources.Init(this,false,true);
+			m_xAllocatorResources.m_bOnlyResources = true;
+			m_xAllocatorResources.SetSolution(m_pxSolutionResources);
+			
+			if(m_xAllocatorResources.Start(false))then
+				m_sState=m_ksRESOURCES_ALLOCATED;
+				return;
+			endif;
+			
+			m_xAllocatorResources.Start(true);
+			m_sState=m_ksALLOCATING_RESOURCES;
+			return;
+		elseif(m_sState==m_ksALLOCATING_RESOURCES)then
+			//ship is still allocated?
+			if(m_xAllocatorShip.IsRunning())then
+				if(m_xAllocatorShip.GetUnits().NumEntries()>0)then
+					if(!m_xAllocatorShip.GetUnits()[0].IsValid())then
+						//ship is not available anymore
+						m_sState=m_ksFAILED;
+						m_sFailedInfo="ship is not valid";
+						return;
+					endif;
+				else
+					m_sState=m_ksFAILED;
+					m_sFailedInfo="running but no mine layer???";
+				endif;
+			endif;
+			
+			if(m_xAllocatorResources.IsRunning())then
+				m_sState=m_ksRESOURCES_ALLOCATED;
+			endif;
+			return;
+		elseif(m_sState==m_ksRESOURCES_ALLOCATED)then
+			//ship is still allocated?
+			if(m_xAllocatorShip.IsRunning())then
+				if(m_xAllocatorShip.GetUnits().NumEntries()>0)then
+					if(!m_xAllocatorShip.GetUnits()[0].IsValid())then
+						//ship is not available anymore
+						m_sState=m_ksFAILED;
+						m_sFailedInfo="ship is not valid";
+						return;
+					endif;
+				else
+					m_sState=m_ksFAILED;
+					m_sFailedInfo="running but no mine layer???";
+				endif;
+			endif;
+
+			// resources allocated?
+			if(!m_xAllocatorResources.IsRunning())then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="resources are not allocated";
+				return;
+			endif;
+			
+			var int i;
+			for(i=0)cond(i<m_xMineArray.NumEntries())iter(i++)do
+				m_pxSensor^.ExecuteGamePlayCommand(m_xAllocatorShip.GetUnits(), "Action", -1, m_xMineArray.GetPos(i), "Actions/Ninigi/Build/SHIP/ninigi_mineship_mine"+" /AI_Help");
+			endfor;
+
+			m_sState=m_ksPLACING_MINES;
+			return;
+		elseif(m_sState==m_ksPLACING_MINES)then
+			//ship is still allocated?
+			if(m_xAllocatorShip.IsRunning())then
+				if(m_xAllocatorShip.GetUnits().NumEntries()>0)then
+					if(!m_xAllocatorShip.GetUnits()[0].IsValid())then
+						//ship is not available anymore
+						m_sState=m_ksFAILED;
+						m_sFailedInfo="ship is not valid";
+						return;
+					endif;
+				else
+					m_sState=m_ksFAILED;
+					m_sFailedInfo="running but no mine layer???";
+				endif;
+			endif;
+
+			// resources allocated?
+			if(!m_xAllocatorResources.IsRunning())then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="resources are not allocated";
+				return;
+			endif;
+			
+			var bool bIdle=true;
+			var int i;
+			for(i=0)cond(i<m_xAllocatorShip.GetUnits().NumEntries())iter(i++)do
+				bIdle=bIdle&&((m_xAllocatorShip.GetUnits())[i].GetCurrentTask()=="Idle");
+			endfor;
+			
+			if(bIdle)then
+				m_sState=m_ksMINES_PLACED;
+			endif;
+		elseif(m_sState==m_ksMINES_PLACED)then
+			m_sState=m_ksCLEANUP;
+		elseif(m_sState==m_ksFAILED)then
+			//clean up and unlock resources
+			m_xAllocatorResources.Shut();
+			m_sFailedInfo="";
+			m_sState=m_ksCLEANUP;
+			return;
+		elseif(m_sState==m_ksCLEANUP)then
+			m_xAllocatorResources.Shut();
+			m_sState=m_ksNEW_MINEBELT;
+			return;
+		else
+			KLog.LogWarn("AiGoalBuildMineBelts","unknown state: '"+m_sState+"'");
+			m_sState=m_ksFAILED;
+		endif;
+	endproc;
+	
+	proc bool IsMineLayerAllocated()
+		if(m_xAllocatorShip.IsRunning()&&m_xAllocatorShip.GetUnits().NumEntries()>0&&m_xAllocatorShip.GetUnits()[0].IsValid()&&m_xAllocatorShip.GetUnits()[0].GetClassName()=="ninigi_minelayer")then
+			return true;
+		endif;
+		return false;
+	endproc;
+
+endclass;
+
+///class CAiGoalBuildTurretBelts
+class CAiGoalBuildTurretBelts inherit CAiGoal
+
+	var ^CAiBrain 					m_pxBrain;
+	var ^CAiSensor					m_pxSensor;
+	var int									m_iPlayerID;
+	var bool								m_bInitialized;
+	var int									m_iNumTurretsToPlace;
+	var CAiManagedTaMArray	m_xTurretArray;
+	var CAiTaskBuildSquad		m_xAllocatorResources;
+	var CAiTaskBuildSquad		m_xAllocatorShip;
+	var ^CAiSolution				m_pxSolutionResources;
+	var ^CAiSolution				m_pxSolutionShip;
+	var CAiTurretandMineMgr	m_xTurretMgr;
+	var CAiObjWrapList			m_xNPCs;
+	
+	var string							m_sState;
+	var string							m_sFailedInfo;
+	const string						m_ksSTART = "start";
+	const string						m_ksNEW_TURRETBELT = "new_turretbelt";
+	const string						m_ksALLOCATING_HERO = "allocating_hero";
+	const string						m_ksALLOCATING_SHIP = "allocating_ship";
+	const string						m_ksHERO_ALLOCATED = "hero_allocated";
+	const string						m_ksHERO_CHECK = "hero_checking";
+	const string						m_ksSHIP_ALLOCATED = "ship_allocated";
+	const string						m_ksALLOCATING_RESOURCES = "allocating_resources";
+	const string						m_ksRESOURCES_ALLOCATED = "resources_allocated";
+	const string						m_ksPLACING_TURRETS = "placing_turrets";
+	const string						m_ksTURRETS_PLACED = "turrets_placed";
+	const string						m_ksFAILED = "failed";
+	const string						m_ksCLEANUP = "cleanup";
+	const string						m_ksEND = "end";
+	const int								m_kiTURRETCOST_WOOD = 250;
+//	const int								m_kiTURRETCOST_STONE = 0;
+	const int								m_kiNUM_TURRET_IN_A_ROW = 5;
+	const string						m_ksHERO_CLASS = "Miyagi_s0";
+	
+	export constructor()
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+
+	export proc bool Init(^CAiBrain p_pxBrain)
+		super.Init(p_pxBrain);
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null)then return false; endif;
+		var int iThinkwait = 100;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		if(pxCM!=null)then
+			var string sBehaviour = pxCM^.GetBehaviorType();
+			if(sBehaviour=="Dodo")then
+				iThinkwait = 200;
+			elseif(sBehaviour=="Giraffe")then
+				iThinkwait = 100;
+			elseif(sBehaviour=="Schnecke")then
+				iThinkwait = 50;
+			endif;
+			iThinkwait += pxCM^.GetDifficultyInt();
+		endif;
+		SetThinkWait(iThinkwait);
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_bInitialized=false;
+		m_sState=m_ksSTART;
+		m_iNumTurretsToPlace=0;
+		m_pxSolutionShip=null;
+		m_pxSolutionResources=null;
+		SetPermanent(true);
+		m_xAllocatorResources.Init(this,false);
+		m_xAllocatorResources.SetPriority(15.0f);
+		RemoveTask(^m_xAllocatorResources);
+		AddTask(^m_xAllocatorResources);
+		m_xAllocatorShip.Init(this,false);
+		m_xAllocatorShip.SetPriority(90.0f);
+		RemoveTask(^m_xAllocatorShip);
+		AddTask(^m_xAllocatorShip);
+		return true;
+	endproc;
+	
+	export proc void Shut()
+		super.Shut();
+		m_xAllocatorResources.Shut();
+		m_xAllocatorResources.SetSolution(null);
+		RemoveTask(^m_xAllocatorResources);
+		m_xAllocatorShip.Shut();
+		m_xAllocatorShip.SetSolution(null);
+		RemoveTask(^m_xAllocatorShip);
+	endproc;
+	
+	proc void Think()
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null) then return; endif;
+//		CMirageAIMgr.Debug("m_sState is: "+m_sState);
+//		if(m_sState==m_ksFAILED)then
+//			CMirageAIMgr.Debug("reason: "+m_sFailedInfo);
+//		endif;
+		if(!m_bInitialized)then
+			if(!m_xTurretMgr.Init(m_pxBrain))then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="turret manager initialization failed";
+				return;
+			else
+				m_bInitialized=true;
+			endif;
+		endif;
+		if(m_sState==m_ksSTART)then
+			m_sState=m_ksNEW_TURRETBELT;
+			return;
+		elseif(m_sState==m_ksNEW_TURRETBELT)then
+			var ^CAiTechTree pxTechTree = ^(m_pxSensor^.GetTechTree());
+			if(pxTechTree==null)then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="can't get techtree instance";
+				return;
+			endif;
+			if(IsTurretLayerAllocated())then
+				m_sState=m_ksSHIP_ALLOCATED;
+				return;
+			endif;
+			UpdateNPCs();
+			if(!HasNPC(m_ksHERO_CLASS,3)&&!HasNPC(m_ksHERO_CLASS,4))then
+				if(HasNPC(m_ksHERO_CLASS,-1))then
+					m_sState=m_ksHERO_ALLOCATED;
+					return;
+				else
+					m_sState=m_ksALLOCATING_HERO;
+					return;
+				endif;
+			endif;
+			if(m_pxSolutionShip==null)then
+				m_pxSolutionShip = pxTechTree^.MakeDefinedSolution("SeaTurretLayer", 1.0, 1.0);
+				if(m_pxSolutionShip==null)then
+					m_sState=m_ksFAILED;
+					m_sFailedInfo="can't create solution forship";
+					return;
+				endif;
+			endif;
+			m_xAllocatorShip.SetSolution(null);
+			m_xAllocatorShip.Shut();
+			m_xAllocatorShip.Init(this,false,false);
+			m_xAllocatorShip.SetSolution(m_pxSolutionShip);
+			//ship is available
+			if(m_xAllocatorShip.Start(false))then
+				m_sState=m_ksSHIP_ALLOCATED;
+				return;
+			endif;
+			//ship not available yet
+			m_xAllocatorShip.Start(true);
+			m_sState=m_ksALLOCATING_SHIP;
+			return;
+		elseif(m_sState==m_ksALLOCATING_HERO)then
+			var ^CAiModuleEconomyDefault pxEMod=cast<CAiModuleEconomyDefault>(m_pxBrain^.GetEconomyModule());
+			if(pxEMod==null)then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="no access to Economy module";
+				return;
+			endif;
+			var ^CAiGoal pxG=pxEMod^.GetGoalByName("AiGoalBuildVillage");
+			if(pxG==null)then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="goal is a null pointer";
+				return;
+			endif;
+			var ^CAiGoalBuildVillage pxBVGoal=cast<CAiGoalBuildVillage>(pxG);
+			if(pxBVGoal==null)then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="no access to CAiGoalBuildVillage";
+				return;
+			endif;
+			if(!pxBVGoal^.IsActive())then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="CAiGoalBuildVillage is inactive";
+				return;
+			endif;
+			pxBVGoal^.AddHeroRequestExternal(m_ksHERO_CLASS,false);
+			m_sState=m_ksHERO_CHECK;
+			return;
+		elseif(m_sState==m_ksHERO_ALLOCATED||m_sState==m_ksHERO_CHECK)then
+			//is hero already available?
+			if(m_sState==m_ksHERO_CHECK)then
+				UpdateNPCs();
+				if(HasNPC(m_ksHERO_CLASS,3)||HasNPC(m_ksHERO_CLASS,4))then
+					m_sState=m_ksNEW_TURRETBELT;
+					return;
+				endif;
+			endif;
+			var CAiObjWrap xHero=GetNPC(m_ksHERO_CLASS);
+			if(!xHero.IsValid())then
+				UpdateNPCs();
+				xHero=GetNPC(m_ksHERO_CLASS);
+			endif;
+			if(!xHero.IsValid())then
+//				m_sState=m_ksFAILED;
+				m_sFailedInfo="no hero yet???";
+				return;
+			endif;
+			//check pyramids
+			var ^CAiPyramid pxPyr=m_pxSensor^.GetPyramid();
+			if(pxPyr==null)then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="main pyramid not available???";
+				return;
+			endif;
+			var ^CAIPyramid pxAIPyr=cast<CAIPyramid>(pxPyr);
+			if(pxAIPyr==null)then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="ai pyramid not available???";
+				return;
+			endif;
+			if(xHero.IsValid()&&xHero.GetAttribValueInt("level")<3)then
+				if(pxAIPyr^.Check4Level(3))then
+//					CMirageAIMgr.Debug("ai has free slot on level 4");
+					m_pxSensor^.ExecuteGamePlayCommand(m_xNPCs, "setlevel", -1, {0.0,0.0,0.0}, "3");
+					m_sState=m_ksHERO_CHECK;
+					return;
+				elseif(pxAIPyr^.Check4Level(4))then
+//					CMirageAIMgr.Debug("ai has free slot on level 5");
+					m_pxSensor^.ExecuteGamePlayCommand(m_xNPCs, "setlevel", -1, {0.0,0.0,0.0}, "4");
+					m_sState=m_ksHERO_CHECK;
+					return;
+				else
+//					CMirageAIMgr.Debug("ai has no free slots yet");
+					return;
+					//check upleveling next time
+				endif;
+			endif;
+			m_sState=m_ksNEW_TURRETBELT;
+			return;
+		elseif(m_sState==m_ksALLOCATING_SHIP)then
+			if(m_xAllocatorShip.IsRunning())then
+				if(m_xAllocatorShip.GetUnits().NumEntries()>0)then
+					if(m_xAllocatorShip.GetUnits()[0].IsValid())then
+						//ship is allocated
+						m_sState=m_ksSHIP_ALLOCATED;
+						return;
+					endif;
+				else
+					m_sState=m_ksFAILED;
+					m_sFailedInfo="running but no turret layer???";
+				endif;
+			elseif(m_xAllocatorShip.IsNotPossible())then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="could not allocate ship; IMPOSSIBLE";
+				//terminate goal
+				m_xAllocatorShip.Shut();
+				m_xAllocatorResources.Shut();
+				Deactivate();
+				return;
+			elseif(m_xAllocatorShip.IsAborted())then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="ship allocation aborted";
+			endif;
+			return;
+		elseif(m_sState==m_ksSHIP_ALLOCATED)then
+			//ship is still allocated?
+			if(m_xAllocatorShip.IsRunning())then
+				if(m_xAllocatorShip.GetUnits().NumEntries()>0)then
+					if(!m_xAllocatorShip.GetUnits()[0].IsValid())then
+						//ship is not available anymore
+						m_sState=m_ksFAILED;
+						m_sFailedInfo="ship is not valid";
+						return;
+					endif;
+				else
+					m_sState=m_ksFAILED;
+					m_sFailedInfo="running but no turret layer???";
+				endif;
+			endif;
+			var ^CAiTechTree pxTechTree = ^(m_pxSensor^.GetTechTree());
+			if(pxTechTree==null)then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="can't get techtree instance";
+				return;
+			endif;
+			m_xTurretMgr.UpdateTargetPositions("ninigi_water_turret");
+			m_xTurretArray.Clear();
+			m_xTurretMgr.GetNextTurretTargets(m_xTurretArray,m_kiNUM_TURRET_IN_A_ROW);
+			m_iNumTurretsToPlace=m_xTurretArray.NumEntries();
+			if(m_iNumTurretsToPlace<=0)then
+				if(IsTurretLayerAllocated())then
+					var vec3 vHome=CAiUtilityMgr.Get()^.FindHarbourPos(m_pxBrain);
+					if(vHome=={0.0,0.0,0.0})then
+						vHome=m_xTurretMgr.GetReturnPos();
+					endif;
+					m_pxSensor^.ExecuteGamePlayCommand(m_xAllocatorShip.GetUnits(), "Action", -1, vHome, "/Walk");
+				endif;
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="no free turret positions to place turrets";
+				return;
+			endif;
+			if(m_pxSolutionResources!=null)then
+				delete m_pxSolutionResources;
+				m_pxSolutionResources=null;
+			endif;
+			m_xAllocatorResources.SetSolution(null);
+			m_pxSolutionResources = new CAiSolution();
+			var CAiNeedPtr pxNeedWood = CAiNeed.Create(true, m_kiTURRETCOST_WOOD*m_iNumTurretsToPlace);
+//			var CAiNeedPtr pxNeedStone = CAiNeed.Create(true, m_kiTURRETCOST_STONE*m_iNumTurretsToPlace);
+			pxNeedWood.GetNeed()^.AddEntry(pxTechTree^.GetNodeInstanceFromPartialName("wood"));
+//			pxNeedStone.GetNeed()^.AddEntry(pxTechTree^.GetNodeInstanceFromPartialName("stone"));
+			m_pxSolutionResources^.SetSubject(0);
+			m_pxSolutionResources^.AddRequired(pxNeedWood);
+//			m_pxSolutionResources^.AddRequired(pxNeedStone);
+			m_xAllocatorResources.Shut();
+			m_xAllocatorResources.Init(this,false,true);
+			m_xAllocatorResources.m_bOnlyResources = true;
+			m_xAllocatorResources.SetSolution(m_pxSolutionResources);
+			if(m_xAllocatorResources.Start(false))then
+				m_sState=m_ksRESOURCES_ALLOCATED;
+				return;
+			endif;
+			m_xAllocatorResources.Start(true);
+			m_sState=m_ksALLOCATING_RESOURCES;
+			return;
+		elseif(m_sState==m_ksALLOCATING_RESOURCES)then
+			//ship is still allocated?
+			if(m_xAllocatorShip.IsRunning())then
+				if(m_xAllocatorShip.GetUnits().NumEntries()>0)then
+					if(!m_xAllocatorShip.GetUnits()[0].IsValid())then
+						//ship is not available anymore
+						m_sState=m_ksFAILED;
+						m_sFailedInfo="ship is not valid";
+						return;
+					endif;
+				else
+					m_sState=m_ksFAILED;
+					m_sFailedInfo="running but no turret layer???";
+				endif;
+			endif;
+			if(m_xAllocatorResources.IsRunning())then
+				m_sState=m_ksRESOURCES_ALLOCATED;
+			endif;
+			return;
+		elseif(m_sState==m_ksRESOURCES_ALLOCATED)then
+			//ship is still allocated?
+			if(m_xAllocatorShip.IsRunning())then
+				if(m_xAllocatorShip.GetUnits().NumEntries()>0)then
+					if(!m_xAllocatorShip.GetUnits()[0].IsValid())then
+						//ship is not available anymore
+						m_sState=m_ksFAILED;
+						m_sFailedInfo="ship is not valid";
+						return;
+					endif;
+				else
+					m_sState=m_ksFAILED;
+					m_sFailedInfo="running but no turret layer???";
+				endif;
+			endif;
+			// resources allocated?
+			if(!m_xAllocatorResources.IsRunning())then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="resources are not allocated";
+				return;
+			endif;
+			var int i;
+			for(i=0)cond(i<m_xTurretArray.NumEntries())iter(i++)do
+				m_pxSensor^.ExecuteGamePlayCommand(m_xAllocatorShip.GetUnits(), "Action", -1, m_xTurretArray.GetPos(i), "Actions/Ninigi/Build/SHIP/ninigi_water_turret"+" /AI_Help");
+			endfor;
+			m_sState=m_ksPLACING_TURRETS;
+			return;
+		elseif(m_sState==m_ksPLACING_TURRETS)then
+			//ship is still allocated?
+			if(m_xAllocatorShip.IsRunning())then
+				if(m_xAllocatorShip.GetUnits().NumEntries()>0)then
+					if(!m_xAllocatorShip.GetUnits()[0].IsValid())then
+						//ship is not available anymore
+						m_sState=m_ksFAILED;
+						m_sFailedInfo="ship is not valid";
+						return;
+					endif;
+				else
+					m_sState=m_ksFAILED;
+					m_sFailedInfo="running but no turret layer???";
+				endif;
+			endif;
+			// resources allocated?
+			if(!m_xAllocatorResources.IsRunning())then
+				m_sState=m_ksFAILED;
+				m_sFailedInfo="resources are not allocated";
+				return;
+			endif;
+			var bool bIdle=true;
+			var int i;
+			for(i=0)cond(i<m_xAllocatorShip.GetUnits().NumEntries())iter(i++)do
+				bIdle=bIdle&&((m_xAllocatorShip.GetUnits())[i].GetCurrentTask()=="Idle");
+			endfor;
+			if(bIdle)then
+				m_sState=m_ksTURRETS_PLACED;
+			endif;
+		elseif(m_sState==m_ksTURRETS_PLACED)then
+			m_sState=m_ksCLEANUP;
+		elseif(m_sState==m_ksFAILED)then
+			//clean up and unlock resources
+			m_xAllocatorResources.Shut();
+			m_sFailedInfo="";
+			m_sState=m_ksCLEANUP;
+			return;
+		elseif(m_sState==m_ksCLEANUP)then
+			m_xAllocatorResources.Shut();
+			m_sState=m_ksNEW_TURRETBELT;
+			return;
+		else
+			m_sState=m_ksFAILED;
+		endif;
+	endproc;
+	
+	proc bool IsTurretLayerAllocated()
+		if(m_xAllocatorShip.IsRunning()&&m_xAllocatorShip.GetUnits().NumEntries()>0&&m_xAllocatorShip.GetUnits()[0].IsValid()&&m_xAllocatorShip.GetUnits()[0].GetClassName()=="ninigi_corsair")then
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	export proc CAiObjWrap GetNPC(string p_sClass)
+		var CAiObjWrap xNPC;
+		var int i, iC = m_xNPCs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CAiObjWrap xObj = m_xNPCs[i];
+			if(!xObj.IsValid())then return xNPC; endif;
+			if(xObj.GetClassName()==p_sClass)then
+				return xObj;
+			endif;
+		endfor;
+		return xNPC;
+	endproc;
+	
+	export proc bool HasNPC(string p_sClass, int p_iLevel)
+		if(CMirageAIMgr.Get().FreeSpecials())then return true; endif;
+		var int i, iC = m_xNPCs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CAiObjWrap xObj = m_xNPCs[i];
+			if(!xObj.IsValid())then return false; endif;
+			if(xObj.GetClassName()==p_sClass)then
+				if(p_iLevel==-1)then
+					return true;
+				elseif(p_iLevel==xObj.GetAttribValueInt("level"))then
+					return true;
+				endif;
+			endif;
+		endfor;
+		return false;
+	endproc;
+	
+	export proc void UpdateNPCs()
+		m_xNPCs.Clear();
+		var string sNPCs = m_pxBrain^.GetPlayerAttrib("NPCList");
+		var array string asHandles;
+		sNPCs.Split(asHandles,";",true);
+		var int i, iC = asHandles.NumEntries();
+		if(iC<=0)then return; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			var CAiObjWrap xObj;
+			xObj.FromInt(asHandles[i].ToInt());
+			if(xObj.IsValid()&&xObj.GetClassName()==m_ksHERO_CLASS)then
+				m_xNPCs.Include(xObj);
+			endif;
+		endfor;
+	endproc;
+	
+endclass;
+	
+class CAiManagedTaMArray
+	
+	var int m_iTargets;
+	var array vec3 m_avTargets;
+	
+	export constructor()
+		m_iTargets=0;
+		m_avTargets=0;
+	endconstructor;
+	
+	export proc void Clear()
+		m_iTargets=0;
+		m_avTargets=0;
+	endproc;
+	
+	export proc void AddPos(vec3 p_vPos)
+		m_avTargets.AddEntry(p_vPos);
+		m_iTargets=m_avTargets.NumEntries();
+	endproc;
+	
+	export proc vec3 GetPos(int p_iIdx)
+		if(p_iIdx<0||p_iIdx>m_iTargets)then return {0.0,0.0,0.0}; endif;
+		return m_avTargets[p_iIdx];
+	endproc;
+	
+	export proc int NumEntries()
+		return m_iTargets;
+	endproc;
+	
+endclass;
+	
+class CAiManagedTaM
+	
+	export var vec3 m_vTMPos;
+	export var bool m_bValidTurret;
+	export var bool m_bValidMine;
+	
+	export proc bool op_Equal(vec3 p_vOther)
+		return (m_vTMPos==p_vOther);
+	endproc;
+	
+	export proc bool op_Equal(ref CAiManagedTaM p_rxOther)
+		return (m_vTMPos==p_rxOther.m_vTMPos);
+	endproc;
+	
+	export proc void SetPos(vec3 p_vPos)
+		m_vTMPos=p_vPos;
+	endproc;
+	
+	export proc void SetTurret(bool p_bValid)
+		m_bValidTurret=p_bValid;
+	endproc;
+	
+	export proc void SetMine(bool p_bValid)
+		m_bValidMine=p_bValid;
+	endproc;
+	
+endclass;
+	
+class CAiTurretandMineMgr
+	
+	export const real fMINDISTANCE = 8.0f;
+	var ^CAiBrain m_pxBrain;
+	var ^CAiSensor m_pxSensor;
+	var ^CAiPlayerShoreInfo m_pxPlayerShoreInfo;
+	var array CAiManagedTaM m_axAiManagedTaMs;
+	var vec3 m_vReturn;
+	
+	export constructor()
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	export proc bool Init(^CAiBrain p_pxBrain)
+		var array CAiTurretandMineMgr.CPositionSorter axShores;
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null)then return false; endif;
+		m_pxPlayerShoreInfo = ^(m_pxSensor^.GetPlayerShoreInfo(m_pxBrain^.GetPlayerId()));
+		if(m_pxPlayerShoreInfo==null)then return false; endif;
+		var int i,iTotal=0,iC=m_pxPlayerShoreInfo^.NumEntries();
+		if(iC<1)then return false; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiShoreInfo pxAISI;
+			pxAISI = ^(m_pxPlayerShoreInfo^.GetShoreInfo(i));
+			if(pxAISI==null)then continue; endif;
+			var ^CAiTurretandMineMgr.CPositionSorter pxShore=^(axShores.NewEntryRef());
+//			m_vLandingPos
+//			m_vShorePos
+			pxShore^.Initialize(pxAISI,m_pxSensor^.GetStartLocation());
+		endfor;
+		axShores.QSort();
+		iC=axShores.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(i==0)then
+				m_vReturn=axShores[i].m_pxAISI^.m_vLandingPos;
+			endif;
+			var array CAiTurretandMineMgr.CPositionSorter axTargets;
+			var int j,iJ=axShores[i].m_pxAISI^.NumMinePos();
+			for(j=0)cond(j<iJ)iter(j++)do
+				var ^CAiMinePos pxMinePos=axShores[i].m_pxAISI^.GetMinePos(j);
+				if(pxMinePos!=null)then
+					var ^CAiTurretandMineMgr.CPositionSorter pxTarget=^(axTargets.NewEntryRef());
+					var vec3 vNew;
+					vNew.SetX(pxMinePos^.GetX().ToReal());
+					vNew.SetY(pxMinePos^.GetY().ToReal());
+					vNew.SetZ(16.0f); // Henry: default water level
+					pxTarget^.Initialize(vNew,axShores[i].m_pxAISI^.m_vLandingPos);
+				endif;
+			endfor;
+			axTargets.QSort();
+			iJ=axTargets.NumEntries();
+			for(j=0)cond(j<iJ)iter(j++)do
+				var CAiManagedTaM xTurret;
+				xTurret.SetPos(axTargets[j].m_vPos);
+				var int iIdx=m_axAiManagedTaMs.FindEntry(xTurret);
+				if(iIdx==-1)then
+					var ^CAiManagedTaM pxTurret=^(m_axAiManagedTaMs.NewEntryRef());
+					pxTurret^.SetPos(axTargets[j].m_vPos);
+					iTotal++;
+				endif;
+			endfor;
+		endfor;
+		if(iTotal<1)then return false; endif;
+		UpdateTargetPositions("ninigi_water_turret");
+		UpdateTargetPositions("ninigi_mineship_mine");
+		return true;
+	endproc;
+	
+	export proc void UpdateTargetPositions(string p_sClass)
+		if(p_sClass=="")then return; endif;
+		var int i,iC=m_axAiManagedTaMs.NumEntries();
+		if(iC<1)then return; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			var CAiObjWrapList xList;
+			var CAiObjQuery xQuery;
+			xQuery.RegionCircle(m_axAiManagedTaMs[i].m_vTMPos,fMINDISTANCE);
+			xQuery.SetOwner(m_pxBrain^.GetPlayerId());
+			xQuery.SetClass(p_sClass,false);
+			xQuery.Execute(xList);
+			var bool bValid=xList.NumEntries()>0;
+			if(p_sClass=="ninigi_water_turret")then
+				m_axAiManagedTaMs[i].SetTurret(bValid);
+			elseif(p_sClass=="ninigi_mineship_mine")then
+				m_axAiManagedTaMs[i].SetMine(bValid);
+			endif;
+		endfor;
+	endproc;
+	
+	export proc bool GetNextTurretTargets(ref CAiManagedTaMArray p_rxTargets, int p_iMaxTargets)
+		if(p_iMaxTargets<1)then return false; endif;
+		var int i,iCounter=0,iC=m_axAiManagedTaMs.NumEntries();
+		if(iC<1)then return false; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_axAiManagedTaMs[i].m_vTMPos=={0.0,0.0,0.0}||m_axAiManagedTaMs[i].m_bValidTurret)then continue; endif;
+			p_rxTargets.AddPos(m_axAiManagedTaMs[i].m_vTMPos);
+			iCounter++;
+			if(iCounter>=p_iMaxTargets)then break; endif;
+		endfor;
+		return iCounter>0;
+	endproc;
+	
+	export proc bool GetNextMineTargets(ref CAiManagedTaMArray p_rxTargets, int p_iMaxTargets)
+		if(p_iMaxTargets<1)then return false; endif;
+		var int i,iCounter=0,iC=m_axAiManagedTaMs.NumEntries();
+		if(iC<1)then return false; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_axAiManagedTaMs[i].m_vTMPos=={0.0,0.0,0.0}||m_axAiManagedTaMs[i].m_bValidMine)then continue; endif;
+			p_rxTargets.AddPos(m_axAiManagedTaMs[i].m_vTMPos);
+			iCounter++;
+			if(iCounter>=p_iMaxTargets)then break; endif;
+		endfor;
+		return iCounter>0;
+	endproc;
+	
+	export proc vec3 GetReturnPos()
+		return m_vReturn;
+	endproc;
+	
+	class CPositionSorter
+	
+		export var vec3 m_vPos;
+		export var real m_fDistance;
+		export var ^CAiShoreInfo m_pxAISI;
+		
+		export proc void Initialize(^CAiShoreInfo p_pxAISI, vec3 p_vCenter)
+			m_pxAISI=p_pxAISI;
+			m_vPos=p_pxAISI^.m_vShorePos;
+			m_fDistance=(p_vCenter-m_vPos).Abs2();
+		endproc;
+		
+		export proc void Initialize(vec3 p_vTarget, vec3 p_vCenter)
+			m_vPos=p_vTarget;
+			m_fDistance=(p_vCenter-m_vPos).Abs2();
+		endproc;
+		
+		export proc bool op_Greater(ref CAiTurretandMineMgr.CPositionSorter p_rxOther)
+			return m_fDistance>p_rxOther.m_fDistance;
+		endproc;
+		
+	endclass;
+	
+endclass;

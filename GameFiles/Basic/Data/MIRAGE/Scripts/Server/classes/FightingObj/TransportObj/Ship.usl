@@ -1,0 +1,2797 @@
+class CShip inherit CTransportObj
+
+	var real				m_fResInvCaps;			// ship Resource inventory
+
+	var string				m_sSinkAnim;
+	var string				m_sDestructionObjName;
+
+	const int				TIMER_NIGHT=196;
+	var bool				m_bNight;
+	
+	//Henry: new member values
+	var bool				m_bHerbivore;
+	var bool				m_bCarnivore;
+	var real				m_fAdaption;
+	
+	export constructor()
+		m_fResInv=0.0f;
+		m_fResInvCaps=0.0f;
+		m_bHerbivore=false;
+		m_bCarnivore=false;
+		m_fAdaption=4.0;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		if(!CMirageSrvMgr.SDK())then
+			var CFourCC xBase="ship"; //Ship base
+			var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,1);
+			var ^CArc pxArc=^(pxWalk^.GetArc());
+			(pxArc^) << m_bHerbivore;
+			(pxArc^) << m_bCarnivore;
+			(pxArc^) << m_fAdaption;
+			pxWalk^.Close();
+		endif;
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="ship")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			if(iVersion>=1)then
+				(pxArc^) << m_bHerbivore;
+				(pxArc^) << m_bCarnivore;
+				(pxArc^) << m_fAdaption;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc real GetWaterHeight()
+		return CSrvWrap.GetScapeMgr().GetSeaLevel();
+	endproc;
+
+	export proc bool ResInvIsFull(string p_sType)
+		if(p_sType!="food")then
+			return false;
+		endif;
+		if(m_fResInv<m_fResInvCaps)then
+			return false;
+		else
+			return true;
+		endif;
+	endproc;
+
+	export proc bool ResInvIsEmpty(string p_sType)
+		if(p_sType!="food")then
+			return true;
+		endif;
+		if(m_fResInv==0.0f)then
+			return true;
+		else
+			return false;
+		endif;
+	endproc;
+
+	export proc real GetResourceInventorySize()
+		return m_fResInvCaps;
+	endproc;
+
+	export proc real GetResInvSpace(string p_sType)
+		if(p_sType!="food")then
+			//KLog.LogSpam("Ship","GetResInvSpace not food"+p_sType);
+			return 0.0f;
+		endif;
+		return (m_fResInvCaps - m_fResInv);
+	endproc;
+
+	export proc bool ResInvAdd(string p_sType, real p_fCount)
+		if(p_sType!="food")then
+			return false;
+		endif;
+		if(!ResInvIsFull(p_sType))then
+			//KLog.LogSpam("Ship","Adding Resource!"+ p_sType+":"+p_fCount.ToString() );
+			m_fResInv += p_fCount;
+			return(true);
+		else
+			//KLog.LogWarn("Ship","Resource inventory full!");
+			return(false);
+		endif;
+	endproc;
+
+	export proc bool CheckInResInv(string p_sType)
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CBasePlayer pxPlayer=cast<CBasePlayer>(pxLevel^.GetPlayer(GetOwner()));
+		if(pxPlayer==null)then return false; endif;
+		if(m_fResInv==0.0)then return false; endif;
+		if(p_sType!="food")then return false; endif;
+		var real fOriginalValue=m_fResInv;
+		var real fReturnValue=pxPlayer^.AddResource(p_sType,m_fResInv);
+		var real fStatisticValue=fOriginalValue;
+		if(fReturnValue!=0.0)then fStatisticValue-=fReturnValue; endif;
+		m_fResInv=fReturnValue;
+		// collect checked in ressource for statistics
+//		var ^CStatisticMgr pxStatisticMgr=^(pxLevel^.GetStatisticMgr());
+//		var CGameTime xTime=CTimeMgr.Get().GetTime();
+//		pxStatisticMgr^.AddSample( CStatisticSample.Collected_Food.ToInt(), GetOwner(), fStatisticValue.ToInt() );
+		return fReturnValue!=fOriginalValue;
+	endproc;
+
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			if(p_rxEvtPtr.GetInt(0)==TIMER_NIGHT)then
+				var bool bNight=!CTimeMgr.Get().IsVirtualDay();
+				if(m_bNight!=bNight)then
+					m_bNight=bNight;
+					SetRndInvMaskSingleFlagInv(VIS_FLAG_BLDG_NIGHTMODE,m_bNight);
+					SetRndInvMaskSingleFlagInv(VIS_FLAG_BLDG_INIGHTMODE,!m_bNight);
+				endif;
+				return;
+			endif;
+		elseif(p_rxEvtPtr.GetClass()=="CTheLite")then
+			var CObjHndl xHndl=p_rxEvtPtr.GetObjHandle(0);
+			if(xHndl.IsValid())then
+				var ^CHarbour pxHarbour=cast<CHarbour>(xHndl.GetObj());
+				if(pxHarbour!=null)then
+					pxHarbour^.ShipBuildFinished();
+					var vec3 vDockPos;
+					var Quat qDockRot;
+					if(!pxHarbour^.GetDockPos(vDockPos, qDockRot))then
+						vDockPos=pxHarbour^.GetPos();
+						qDockRot=pxHarbour^.GetRot();
+					endif;
+					SetPos(vDockPos);
+					SetRot(qDockRot);
+					var vec3 vRallyPoint=pxHarbour^.GetRallyPosition(0);
+					var CObjHndl xTarget=pxHarbour^.GetRallyTarget();
+					var CObjList xInvalid;
+					if(xTarget.IsValid() && NextJob(xTarget, xInvalid))then
+					else
+						if(vRallyPoint.Abs2S()<=1.0f)then
+							vRallyPoint=pxHarbour^.GetPos();
+						endif;
+						var CFourCC xLink=pxHarbour^.GetDockLink();
+						CSrvWrap.GetObjMgr()^.GetFreePos(vDockPos,this,vDockPos);
+						GoTo(vRallyPoint, true, GetDefaultSpeed(), true, true);
+					endif;
+				endif;
+			endif;
+			return;
+		endif;
+		super.HandleEvent(p_rxEvtPtr);
+	endproc;
+
+	///////
+	//	AttackEnemy()
+	///////
+	export proc bool AttackEnemy(^CFightingObj p_pxEnemy, vec3 p_vTarget, ref bool p_rbRotated)
+		//auskommentiert zum probieren, das alles hier sollte eigentlich nicht nötig sein und verändert anbei das verhalten des hu_steam_boats
+
+/*		if(p_pxEnemy!=null)then
+			var real fAngle=GetAngleToR(p_pxEnemy);
+			//normal rotate
+			if(fAngle>Math.Pi()/4.0)then
+				RotateToEnemy(p_pxEnemy, p_vTarget);
+				p_rbRotated=true;
+				return false;
+			endif;
+			var ^CGameObj pxO=null;
+			if(GetProjectile()!="")then
+				var CFourCC xL="Proj";
+				var vec3 vPos;
+				GetLinkPosWorld(xL, vPos);
+				if(vPos=={0.0,0.0,0.0})then
+					vPos=GetPos();
+				endif;
+				// set arrow to appr. 2/3 height
+				var ^CArrow pxArrow=cast<CArrow>(CSrvWrap.GetObjMgr()^.CreateObj(GetProjectile(),GetOwner(),vPos));
+				pxArrow^.Set(this, p_pxEnemy);
+				// set anim for ship
+				var string sA=GetFightAnim();
+				if(pxO!=null && pxO^.HasAnim(sA))then
+					pxO^.SetAnim(sA, 1);
+				endif;
+
+				if(GetClassName()=="ninigi_muraeno_submarine")then
+					if(HasAnim(sA))then
+						SetAnim(sA,1);
+					endif;
+				endif;
+
+				return false;
+			else
+*/				return super.AttackEnemy(p_pxEnemy, p_vTarget, p_rbRotated);
+/*			endif;
+		endif;
+		return true;
+*/	endproc;
+	
+	export proc void OnInit(bool p_bLoad)
+		//KLog.LogSpam("Ship", "Enter OnInit()");
+		SetSwimming(true);
+		super.OnInit(p_bLoad);
+		SetCanWalk(false);
+		SetCanSwim(true);
+		m_iSizeClass=3; //ships are big
+		if(!p_bLoad)then
+			SetType("SHIP");
+			InitAttribs();
+		endif;
+		var ^CAttribs pxAttr=GetAttribs();
+		UpdateAttribs(p_bLoad);
+		AddUnit();
+		//item inventory -> all levels can now have one item
+		if(GetInventory()==null)then
+			InitInventory(1);
+		endif;
+		SetAnim("standanim", 3);
+		OnTechTreeChange();
+		m_fResInvCaps=GetTechTreeResourceInvCap();
+		if(!p_bLoad)then
+			StartTT();
+			SetCanFightAttrib(true);
+		endif;
+		if(!p_bLoad)then
+			CreateTimer(TIMER_NIGHT,CGameTimeSpan.OneSecond()*20.0f,true);
+		endif;
+		m_sSinkAnim="destroy";
+		m_sDestructionObjName=GetGfxName()+"_dest";
+		SetEatingType();
+	endproc;
+	
+	export proc void SetEatingType()
+		var int iHerb, iCarn;
+		var real fAdapt=0.0f;
+		m_bHerbivore=m_xTechTree.GetValueI(GetObjPath()+"/herbivore", 0)>0;
+		m_bCarnivore=m_xTechTree.GetValueI(GetObjPath()+"/carnivore", 0)>0;
+		m_fAdaption=m_xTechTree.GetValueR(GetObjPath()+"/adaption", 4.0f);
+		var ^CAttribs pxAttr=GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("Herbivore", m_bHerbivore);
+			pxAttr^.SetValue("Carnivore", m_bCarnivore);
+		endif;
+	endproc;
+	
+	export proc void SetSpraySize(int p_iSize)
+		if(p_iSize>=1 && p_iSize<=3)then
+			var CFourCC xLink="SpBa";
+			if(HasLink(xLink))then
+				SetLinkGFX(xLink,"spray_back_"+p_iSize.ToString());
+			endif;
+			xLink="SpFr";
+			if(HasLink(xLink))then
+				SetLinkGFX(xLink,"spray_front_"+p_iSize.ToString());
+			endif;
+		else
+			var CFourCC xLink="SpBa";
+			RemLinkGFX(xLink);
+			xLink="SpFr";
+			RemLinkGFX(xLink);
+		endif;
+	endproc;
+	
+	export proc void Die()
+		AllGotDrowned();
+/*
+		SetReleaseWhileDying();
+
+		DismountAll();
+		if(m_xPassengers.NumEntries()>0)then
+			CFeedback.Print(GetOwner(), CFeedback.ATTACK, "_NT_TransportUnitsDiedInShip");
+		endif;
+
+		while(m_xPassengers.NumEntries()>0)do
+			var ^CFightingObj pxPassenger=cast<CFightingObj>(m_xPassengers[0].GetObj());
+			m_xPassengers.DeleteEntry(0);
+			if(pxPassenger!=null)then
+				pxPassenger^.TerminateAction();
+				pxPassenger^.SetVisible(false);
+				pxPassenger^.DieFastAndSilent();
+			endif;
+		endwhile;
+*/
+		if(!IsDead())then
+			CreateShipCorpse();
+		endif;
+		super.Die();
+	endproc;
+	
+	export proc ^CGameObj CreateShipCorpse()
+		var bool bBiological=m_xTechTree.GetValueR(GetObjPath()+"/spirit_life",0.0f)>0.0f;
+		if(bBiological)then
+			var ^CGameObj pxGameObj=CSrvWrap.GetObjMgr()^.CreateObj(GetClassName()+"_food",GetOwner(),GetPos(),GetRotation());
+			if(pxGameObj!=null)then
+				pxGameObj^.SetGFX(GetGfxName());
+				pxGameObj^.SetName(GetName());
+				var ^CFood pxFood=cast<CFood>(pxGameObj);
+				if(pxFood!=null)then
+					pxFood^.SetRndInvMask(GetRndInvMask());
+				endif;
+				var ^CDino_Food pxDinoFood=cast<CDino_Food>(pxGameObj);
+				if(pxDinoFood!=null)then
+					pxDinoFood^.Initialize(this, m_iSizeClass, false);
+					pxDinoFood^.SetAggressive(GetTechTreeAggressiv());
+					if(HasBuildUp())then
+//						pxDinoFood^.SetBuildUp(CBuildUpBase.TYPE_FAKE);
+//						GetBuildUp()^.TransferLinkedObjs(pxDinoFood^.GetBuildUp());
+						GetBuildUp()^.TransferLinkedObjs(pxDinoFood);
+						var int j, jC=NumAdditionalBuildUps();
+						for(j=0)cond(j<jC)iter(j++)do
+							if(HasAdditionalBuildUp(j))then
+//								GetAdditionalBuildUp(j)^.TransferLinkedObjsAdd(pxDinoFood^.GetBuildUp());
+								GetAdditionalBuildUp(j)^.TransferLinkedObjsAdd(pxDinoFood);
+							endif;
+						endfor;
+						pxDinoFood^.UpdateLinkedObjs();
+					endif;
+				endif;
+				var real fRadius=GetRadius();
+				pxGameObj^.SetOwner(GetOwner());
+				if(fRadius<=3.5)then
+					pxGameObj^.InvokeGenericSCEvent(16,4.0f);
+				elseif(fRadius<=5.0)then
+					pxGameObj^.InvokeGenericSCEvent(10,4.0f);
+				else
+					pxGameObj^.InvokeGenericSCEvent(17,4.0f);
+				endif;
+				pxGameObj^.SetAnim("sink",1);
+			endif;
+			return pxGameObj;
+		else
+			var ^CShipCorpse pxGameObj=cast<CShipCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("ShipCorpse",GetOwner(),GetPos(),GetRotation()));
+			if(pxGameObj!=null)then
+				pxGameObj^.SetSource(this);
+				pxGameObj^.Init(m_sDestructionObjName,m_sSinkAnim,GetName(), 10.0);
+				pxGameObj^.SetDestructLevel(2);
+			endif;
+			return pxGameObj;
+		endif;
+	endproc;
+	
+	proc bool SetDestructionType(string p_sDestructionObjName, string p_sSinkAnim)
+		m_sDestructionObjName=p_sDestructionObjName;
+		m_sSinkAnim=p_sSinkAnim;
+		return(true);
+	endproc;
+	
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		if(p_sCommand=="Fishing")then
+			Fishing(p_pxObject, p_bQ);
+		elseif(p_sCommand=="Action")then
+			if(p_sMiscParams.Find("/FishSomewhere")>=0)then
+				Fishing(GetPos(),p_bQ,false);
+			elseif(p_sMiscParams.Find("/reveal")>=0)then
+				var ^CFightingObj.CSpecialAbility pxA=m_xAbilities.GetAbility("find_traces", true);
+				if(pxA!=null)then
+					var real fSearchRadius=pxA^.GetValueF("radius");
+					FindTracesAndTraps(p_sMiscParams, GetPos(), fSearchRadius, p_bQ);
+//					if(CRequirementsMgr.Get().CheckInvention(this, GetOwner(), "scanner_sweep", GetTribeName()))then
+//						RemoveSmoke(GetPos(), fSearchRadius, 7.0);
+//					endif;
+				endif;
+			elseif(p_sMiscParams.Find("/EatSomethingFast")>=0)then
+				EatPlantsOrMeat(null, GetPos(), true, p_bQ);
+			else
+				super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+			endif;
+		elseif(p_sCommand=="EatThatThing")then
+			EatPlantsOrMeat(p_pxObject, p_vPos, false, p_bQ);
+		else
+			super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+		endif;
+	endproc;
+	
+	proc void EatPlantsOrMeat(^CGameObj p_pxObject, vec3 p_vPos, bool p_bFastFood, bool p_bQ)
+		if(HasFullHP())then return; endif;
+		var ^CEating pxTask=cast<CEating>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(), "Eating"));
+		if(pxTask==null)then return; endif;
+		var bool bInit=false;
+		if(p_pxObject!=null)then
+			bInit=pxTask^.Init(GetHandle(),p_pxObject^.GetHandle());
+		else
+			bInit=pxTask^.Init(GetHandle(),p_vPos, p_bFastFood);
+		endif;
+		if(!bInit)then return; endif;
+		if(bInit)then
+			pxTask^.SetUserCommand(true);
+			NewTaskFO(pxTask,p_bQ);
+		else
+			pxTask^.GetFactory()^.FreeState(pxTask);
+		endif;
+		//pxTask^.SetUserCommand(p_iUserCmd==1);
+	endproc;
+	
+	export proc real GetAdaption()
+		return m_fAdaption;
+	endproc;
+	
+	export proc void DoChopAnim()
+		AnimAction("attack_front");
+	endproc;
+	
+	export proc string EatAnim()
+		return "attack_front";
+	endproc;
+	
+	export proc bool IsBugged()
+		return true;
+	endproc;
+	
+	export proc bool IsCarnivore()
+		return m_bCarnivore;
+	endproc;
+	
+	export proc bool IsHerbivore()
+		return m_bHerbivore;
+	endproc;
+	
+	export proc void RemoveSmoke(vec3 p_vPos, real p_fRange, real p_fTimer)
+		var CObjQuery xSearch;
+		xSearch.Clear();
+		xSearch.SetType("CHTR");
+		xSearch.SetType("ANML",true);
+		xSearch.SetType("BLDG",true);
+		xSearch.SetType("SHIP",true);
+		xSearch.SetType("VHCL",true);
+		xSearch.RegionCircle(p_vPos, p_fRange);
+		CSrvWrap.GetDiplomacyMgr().AddMyEnemiesToSearch(GetOwner(), xSearch, false);
+		//CSrvWrap.GetDiplomacyMgr().AddMyFriendsToSearch(GetOwner(), xSearch); //Henry: for testing...
+		var CObjList xList;
+		if(!xSearch.Execute(xList))then return; endif;
+		var int i,iC=xList.NumEntries();
+		for(i=0)cond(i<xList.NumEntries())iter(++i)do
+			var ^CFightingObj pxObj=cast<CFightingObj>(xList[i].GetObj());
+			if(pxObj==null)then continue; endif;
+			pxObj^.SetFireworkEffect(true,p_fTimer);
+		endfor;
+	endproc;
+	
+	export proc void Fishing(^CGameObj p_pxObject, bool p_bQ)
+		var ^CFishing pxTask=cast<CFishing>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(),"Fishing"));
+//		if(pxTask==null)then return; endif;
+//		pxTask^.Init(GetHandle(),p_pxObject^.GetHandle());
+		if(pxTask==null)then return; endif;
+		if(!pxTask^.Init(GetHandle(),p_pxObject^.GetHandle()))then
+			pxTask^.GetFactory()^.FreeState(pxTask);
+			return;
+		endif;
+		AddTask(pxTask, p_bQ);
+	endproc;
+
+	export proc void Fishing(vec3 p_vPos, bool p_bQ, bool p_bNext)
+		if(p_bQ)then
+			StartCustomTask(GetHandle(),"Fishing","Ship");
+			return;
+		endif;
+		var ^CFishing pxTask=cast<CFishing>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(),"Fishing"));
+//		if(pxTask==null)then return; endif;
+//		pxTask^.Init(GetHandle(),p_vPos);
+		if(pxTask==null)then return; endif;
+		if(!pxTask^.Init(GetHandle(),p_vPos))then
+			pxTask^.GetFactory()^.FreeState(pxTask);
+			return;
+		endif;
+		if(p_bNext)then
+			AddNextTask(pxTask);
+		else
+			AddTask(pxTask, false);
+		endif;
+	endproc;
+
+	export proc real GetTechTreeResourceInvCap()
+		return(m_xTechTree.GetValueR(GetObjPath()+"/ResInvCaps/food",0.0f));
+	endproc;
+
+	export proc void BoardTransport(^CGameObj p_pxTransport, vec3 p_vPos,  bool p_bUserCommand, string p_sParams)
+		var string sTaskName=GetCurTaskName();
+		if(sTaskName!="BoardTra")then
+			GoTo(p_vPos, true, GetDefaultSpeed(), true, true, GetOnWall(), false, true);
+		endif;
+	endproc;
+	
+	export proc void FindTracesAndTraps(string p_sPath, vec3 p_vPos, real p_fRadius, bool p_bQ)
+		if(m_xAbilities.GetAbility("find_traces", true)==null)then return; endif;
+		if(p_bQ)then
+			StartCustomTask("FindTracesAndTraps",p_sPath,p_fRadius,0.0,1);
+			return;
+		endif;
+		if(!CheckSpecialActionTimer(p_sPath))then return; endif;
+		AddSpecialActionTimer(p_sPath);
+		var CObjQuery xSearch;
+		xSearch.Clear();
+		xSearch.SetType("CHTR");
+		xSearch.SetType("ANML",true);
+		xSearch.SetType("BLDG",true);
+		xSearch.SetType("SHIP",true);
+		xSearch.SetType("VHCL",true);
+		xSearch.RegionCircle(p_vPos, p_fRadius);
+		CSrvWrap.GetDiplomacyMgr().AddMyEnemiesToSearch(GetOwner(), xSearch, false);
+		var CObjList xList;
+		if(!xSearch.Execute(xList))then return; endif;
+		var int i,iC=xList.NumEntries();
+		for(i=0)cond(i<xList.NumEntries())iter(++i)do
+			var ^CFightingObj pxObj=cast<CFightingObj>(xList[i].GetObj());
+			if(pxObj==null)then continue; endif;
+//			if(pxObj^.GetCamouflage()||pxObj^.IsFeignDeath())then
+				pxObj^.Reveal();
+//			endif;
+			if(pxObj^.GetEffectFlag(CFightingObj.EFFECT_AJE_CAMOUFLAGE))then
+				pxObj^.SetEffectFlag(CFightingObj.EFFECT_AJE_CAMOUFLAGE, false);
+			endif;
+			var ^CTrap pxTrap=cast<CTrap>(pxObj);
+			if(pxTrap!=null)then
+				pxTrap^.TrapFound(GetOwner());
+				pxTrap^.StartHiddenTimer(20.0f);
+			endif;
+		endfor;
+	endproc;
+	
+	export proc string GetReportCode()
+		return "unit";
+	endproc;
+	
+endclass;
+
+class CFishingBoat inherit CTradeTransporter
+
+	var CObjHndl			m_xFishnet;
+	var string				m_sSinkAnim;
+	var string				m_sDestructionObjName;
+	var array real		m_afResInv;
+	var array string	m_asResTable;
+	var array real		m_afResInvSpace;
+	var bool					m_bTradeUpgrade;
+
+	const int					TIMER_NIGHT=196;
+	var bool					m_bNight;
+
+	export proc real GetWaterHeight()
+		return CSrvWrap.GetScapeMgr().GetSeaLevel();
+	endproc;
+
+	export constructor()
+		m_bTradeUpgrade=false;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc void OnInit(bool p_bLoad)
+		SetSwimming(true);
+		super.OnInit(p_bLoad);
+		m_iSizeClass=3; //ships are big
+		var ^CAttribs pxAttr=GetAttribs();
+		if(!p_bLoad)then
+			SetType("SHIP");
+			InitAttribs();
+			StartTT();
+			SetCanFightAttrib(false);
+			var ^CAttribs pxAttr=GetAttribs();
+			if(pxAttr!=null)then
+				pxAttr^.SetValue("fishingBoat",1);
+			endif;
+			m_afResInv=7;
+		endif;
+		UpdateAttribs(p_bLoad);
+		AddUnit();
+		SetCanWalk(false);
+		SetCanSwim(true);
+		if(GetInventory()==null)then
+			InitInventory(1);
+		endif;
+		SetAnim("standanim", 3);
+		OnTechTreeChange();
+		if(!p_bLoad)then
+			CreateTimer(TIMER_NIGHT,CGameTimeSpan.OneSecond()*20.0f,true);
+		endif;
+		m_sSinkAnim="destroy";
+		m_sDestructionObjName=GetGfxName()+"_dest";
+		var ^CObjMgrHost pxObjMgr=CSrvWrap.GetObjMgr();
+		if(!m_xFishnet.IsValid())then
+			var ^CFishnet pxNet=cast<CFishnet>(pxObjMgr^.CreateObj( "Hu_Fishnet", GetOwner(), GetPos())) ;
+			if(pxNet!=null)then
+				pxNet^.Hide();
+				m_xFishnet=pxNet^.GetHandle();
+			else
+				m_xFishnet=CObjHndl.Invalid();
+			endif;
+		endif;
+		SetSpraySize(1);
+		if(!p_bLoad)then
+			SetCanFightAttrib(false);
+			DropAllInResInv();
+		endif;
+		SetTransportClass(2);
+	endproc;
+	
+	export proc bool CanTrade()
+		return m_bTradeUpgrade;
+	endproc;
+	
+	export proc void SetTrade()
+		if(!m_bTradeUpgrade)then
+			var ^CAttribs pxAttr=GetAttribs();
+			if(pxAttr!=null)then
+				if(CRequirementsMgr.Get().CheckInvention(this, GetOwner(), "trade_ship", GetTribeName()))then
+					pxAttr^.SetValue("trade",1);
+					m_bTradeUpgrade=true;
+					DeleteVPU();
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xBase="FshB"; //TransportObj base
+		var int iVersion=2;
+		if(CMirageSrvMgr.SDK())then
+			iVersion=1;
+		endif;
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,iVersion);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xFishnet.DoKArc(pxArc^);
+		if(iVersion>=2)then
+			var int i, iC=m_afResInv.NumEntries();
+			pxArc^ << iC;
+			for(i=0)cond(i<iC)iter(i++)do
+				pxArc^ << m_afResInv[i];
+			endfor;
+			pxArc^ << m_bTradeUpgrade;
+		endif;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="FshB")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xFishnet.DoKArc(pxArc^);
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			if(iVersion>=2)then
+				var int i,iC;
+				pxArc^ << iC;
+				m_afResInv=iC;
+				for(i=0)cond(i<iC)iter(i++)do
+					pxArc^ << m_afResInv[i];
+				endfor;
+				pxArc^ << m_bTradeUpgrade;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool IsAbleToFight()
+		return false;
+	endproc;
+	
+	export proc void SetOwner(int p_iOwner)
+		super.SetOwner(p_iOwner);
+		var ^CGameObj pxNet=m_xFishnet.GetObj();
+		if(pxNet!=null)then pxNet^.SetOwner(GetOwner()); endif;
+	endproc;
+	
+	export proc void SetSpraySize(int p_iSize)
+		if(p_iSize>=1 && p_iSize<=3)then
+			var CFourCC xLink="SpBa";
+			if(HasLink(xLink))then
+				SetLinkGFX(xLink,"spray_back_"+p_iSize.ToString());
+			endif;
+			xLink="SpFr";
+			if(HasLink(xLink))then
+				SetLinkGFX(xLink,"spray_front_"+p_iSize.ToString());
+			endif;
+		else
+			var CFourCC xLink="SpBa";
+			RemLinkGFX(xLink);
+			xLink="SpFr";
+			RemLinkGFX(xLink);
+		endif;
+	endproc;
+	
+	proc bool SetDestructionType(string p_sDestructionObjName, string p_sSinkAnim)
+		m_sDestructionObjName=p_sDestructionObjName;
+		m_sSinkAnim=p_sSinkAnim;
+		return(true);
+	endproc;
+	
+	export proc void Die()
+		AllGotDrowned();
+		//SetReleaseWhileDying();
+		if(!IsDead())then
+			CreateShipCorpse();
+		endif;
+		super.Die();
+	endproc;
+	
+	export proc void Delete()
+		if(m_xFishnet.IsValid())then
+			m_xFishnet.GetObj()^.Delete();
+		endif;
+		super.Delete();
+	endproc;
+	
+	export proc ^CGameObj CreateShipCorpse()
+		var ^CShipCorpse pxGameObj=cast<CShipCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("ShipCorpse",GetOwner(),GetPos(),GetRotation()));
+		if(pxGameObj!=null)then
+			pxGameObj^.SetSource(this);
+			pxGameObj^.Init(m_sDestructionObjName,m_sSinkAnim,GetName(), 10.0);
+			pxGameObj^.SetDestructLevel(2);
+		endif;
+		return pxGameObj;
+	endproc;
+	
+	//========================================================================================
+	//=== Events and commands... =============================================================
+	//========================================================================================
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			if(p_rxEvtPtr.GetInt(0)==TIMER_NIGHT)then
+				var bool bNight=!CTimeMgr.Get().IsVirtualDay();
+				if(m_bNight!=bNight)then
+					m_bNight=bNight;
+					SetRndInvMaskSingleFlagInv(VIS_FLAG_BLDG_NIGHTMODE,m_bNight);
+					SetRndInvMaskSingleFlagInv(VIS_FLAG_BLDG_INIGHTMODE,!m_bNight);
+				endif;
+				return;
+			endif;
+		elseif(p_rxEvtPtr.GetClass()=="CTheLite")then
+			m_xHome=p_rxEvtPtr.GetObjHandle(0);
+			var ^CAttribs pxAttribs=GetAttribs();
+			if(pxAttribs!=null && m_xHome.GetObj()!=null)then
+				pxAttribs^.SetValue("trade_home", m_xHome.GetObj()^.GetGuid().ToString());
+			endif;
+			var CObjHndl xHndl=p_rxEvtPtr.GetObjHandle(0);
+			if(xHndl.IsValid())then
+				var ^CHarbour pxHarbour=cast<CHarbour>(xHndl.GetObj());
+				if(pxHarbour!=null)then
+					pxHarbour^.ShipBuildFinished();
+					var vec3 vDockPos;
+					var Quat qDockRot;
+					if(!pxHarbour^.GetDockPos(vDockPos, qDockRot))then
+						vDockPos=pxHarbour^.GetPos();
+						qDockRot=pxHarbour^.GetRot();
+					endif;
+					SetPos(vDockPos);
+					SetRot(qDockRot);
+					var vec3 vRallyPoint=pxHarbour^.GetRallyPosition(0);
+					var CObjHndl xTarget=pxHarbour^.GetRallyTarget();
+					var CObjList xInvalid;
+					if(xTarget.IsValid() && NextJob(xTarget, xInvalid))then
+					else
+						if(vRallyPoint.Abs2S()<=1.0f)then
+							vRallyPoint=pxHarbour^.GetPos();
+						endif;
+						var CFourCC xLink=pxHarbour^.GetDockLink();
+						CSrvWrap.GetObjMgr()^.GetFreePos(vDockPos,this,vDockPos);
+						GoTo(vRallyPoint, true, GetDefaultSpeed(), true, true);
+					endif;
+				endif;
+			endif;
+			return;
+		endif;
+		super.HandleEvent(p_rxEvtPtr);
+	endproc;
+	
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		if(p_sCommand=="Fishing")then
+			Fishing(p_pxObject, p_bQ);
+		elseif(p_sCommand=="Action")then
+			if(p_sMiscParams.Find("/Hu/Upgrades/hu_fishing_boat/")!=-1||p_sMiscParams.Find("/Ninigi/Upgrades/ninigi_fishing_boat/")!=-1)then
+				Action(p_sMiscParams);
+				return;
+			endif;
+			if(p_sMiscParams.Find("/FishSomewhere")>=0)then
+				Fishing(GetPos(),p_bQ,false);
+			else
+				super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+			endif;
+		elseif(p_sCommand=="Cancel")then
+			CancelAction(p_sMiscParams);
+		elseif(p_sCommand=="Dock")then
+			if(p_pxObject!=null)then
+				if(!m_bTradeUpgrade)then
+					GoTo(p_pxObject^.GetPos(), true, GetMaxSpeed(), true, true);
+					return;
+				endif;
+			endif;
+			super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+		elseif(p_sCommand=="LookForTarget")then
+			if(!m_bTradeUpgrade)then
+				return;
+			endif;
+			super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+		else
+			super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+		endif;
+	endproc;
+	
+	export proc void Action(string p_sTTPath)
+		if(p_sTTPath.Find("/Upgrades/"+GetClassName())!=-1&&!m_xProduceUnit.IsValid())then
+			CreatePersonalProduceUnit(true);
+		endif;
+		var ^CVirtualProduceUnit pxProduceUnit=cast<CVirtualProduceUnit>(GetProduceUnit().GetObj());
+		if(pxProduceUnit==null)then
+			return;
+		elseif(!pxProduceUnit^.ActionTowerVPU(p_sTTPath))then
+			DeleteVPU();
+		endif;
+	endproc;
+	
+	export proc void CancelAction(string p_sTTPath)
+		var ^CVirtualProduceUnit pxProduceUnit=cast<CVirtualProduceUnit>(GetProduceUnit().GetObj());
+		if(pxProduceUnit==null||!pxProduceUnit^.HasCanceledAction(p_sTTPath))then
+			if(m_pxTaskMgr!=null)then
+				m_pxTaskMgr^.RemoveAction(p_sTTPath);
+			endif;
+		endif;
+		DeleteVPU();
+	endproc;
+	
+	export proc bool StornoLast()
+		var bool bReturn=super.StornoLast();
+		DeleteVPU();
+		return bReturn;
+	endproc;
+	
+	export proc void StornoAll()
+		super.StornoAll();
+		DeleteVPU();
+	endproc;
+	
+	//========================================================================================
+	//=== Task procedures ====================================================================
+	//========================================================================================
+
+	export proc void GoTo(vec3 p_vPos, bool p_bUserCommand, int p_iSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption)
+		GoTo(p_vPos,p_bUserCommand,p_iSpeed,p_bUsePathfinder,p_bHeightAdaption,false);
+	endproc;
+
+	export proc void GoTo(vec3 p_vPos, bool p_bUserCommand, int p_iSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, bool p_bOnWall)
+		GoTo(p_vPos,p_bUserCommand,p_iSpeed,p_bUsePathfinder,p_bHeightAdaption,p_bOnWall, false);
+	endproc;
+
+	export proc void GoTo(vec3 p_vPos, bool p_bUserCommand, int p_iSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, bool p_bOnWall, bool p_bQueued)
+		GoTo(p_vPos,p_bUserCommand,p_iSpeed,p_bUsePathfinder,p_bHeightAdaption,p_bOnWall, p_bQueued, true);
+	endproc;
+
+	export proc void GoTo(vec3 p_vPos, bool p_bUserCommand, int p_iSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, bool p_bOnWall, bool p_bQueued, bool p_bUseMaterial)
+		PickUpNet();
+		super.GoTo(p_vPos, p_bUserCommand, p_iSpeed, p_bUsePathfinder, p_bHeightAdaption, p_bOnWall, p_bQueued, p_bUseMaterial);
+	endproc;
+
+	export proc void Fishing(^CGameObj p_pxObject, bool p_bQ)
+		var ^CFishing pxTask=cast<CFishing>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(),"Fishing"));
+//		if(pxTask==null)then return; endif;
+//		pxTask^.Init(GetHandle(),p_pxObject^.GetHandle());
+		if(pxTask==null)then return; endif;
+		if(!pxTask^.Init(GetHandle(),p_pxObject^.GetHandle()))then
+			pxTask^.GetFactory()^.FreeState(pxTask);
+			return;
+		endif;
+		AddTask(pxTask, p_bQ);
+	endproc;
+
+	export proc void Fishing(vec3 p_vPos, bool p_bQ, bool p_bNext)
+		if(p_bQ)then
+			StartCustomTask(GetHandle(),"Fishing","Boat");
+			return;
+		endif;
+		var ^CFishing pxTask=cast<CFishing>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(),"Fishing"));
+		if(pxTask==null)then return; endif;
+		if(!pxTask^.Init(GetHandle(),p_vPos))then
+			pxTask^.GetFactory()^.FreeState(pxTask);
+			return;
+		endif;
+		if(p_bNext)then
+			AddNextTask(pxTask);
+		else
+			AddTask(pxTask, false);
+		endif;
+	endproc;
+
+	export proc void BoardTransport(^CGameObj p_pxTransport, vec3 p_vPos,  bool p_bUserCommand, string p_sParams)
+		var string sTaskName=GetCurTaskName();
+		if(sTaskName!="BoardTra")then
+			GoTo(p_vPos, true, GetDefaultSpeed(), true, true, GetOnWall(), false, true);
+		endif;
+	endproc;
+
+	export proc void ThrowNet(vec3 p_vFishPos)
+		//m_xCaptain.GetObj()^.SetSLEAnim("fishing", 5 ,true, true);
+		if(m_xFishnet.IsValid())then
+			var ^CFishnet pxNet=cast<CFishnet>(m_xFishnet.GetObj());
+			if(pxNet!=null)then
+				pxNet^.UnHide();
+				var CFourCC xLink="Dri1";
+				var vec3 vPos; var Quat qRot;
+				GetLinkPosRotWorld(xLink,vPos,qRot);
+				//vPos.SetZ(vPos.GetZ()+CSrvWrap.GetScapeMgr().GetSeaLevel());
+				pxNet^.SetPos(vPos);
+				pxNet^.SetRot(qRot);
+				pxNet^.AnimAction("fishnet_anim", 5, true, true);
+			endif;
+		endif;
+	endproc;
+
+	export proc void PickUpNet()
+		if(m_xFishnet.IsValid())then
+			var ^CFishnet pxNet=cast<CFishnet>(m_xFishnet.GetObj());
+			if(pxNet!=null)then
+				pxNet^.Hide();
+			endif;
+		endif;
+	endproc;
+
+	export proc bool NextJob(CObjHndl p_xTarget, CObjList p_xIgnoreBuildUps)
+		if(m_pxTaskMgr==null)then return false; endif;
+		if(!p_xTarget.IsValid())then return false; endif;
+		var ^CResource pxResource=cast<CResource>(p_xTarget.GetObj());
+		if(pxResource!=null)then
+			if(pxResource^.GetType()=="FRUI")then
+				Fishing(pxResource, false);
+			else
+				return false;
+			endif;
+			return true;
+		endif;
+		if(!m_bTradeUpgrade)then return super.NextJob(p_xTarget,p_xIgnoreBuildUps); endif;
+		var ^CBuilding pxBuilding=cast<CBuilding>(p_xTarget.GetObj());
+		if(pxBuilding!=null && CSrvWrap.GetDiplomacyMgr().GetIsFriend(GetOwner(), pxBuilding^.GetOwner()))then
+			if(pxBuilding^.IsReady())then
+				var string sClassName=pxBuilding^.GetClassName();
+				if((sClassName=="aje_floating_harbour"||sClassName=="hu_harbour"||sClassName=="ninigi_harbour"||sClassName=="seas_carrier") && !(p_xTarget==GetHome()))then
+					Trade(pxBuilding, true, false);
+					return true;
+				else
+					GoTo(pxBuilding^.GetPos(), true, GetDefaultSpeed(), true, true);
+					return false;
+				endif;
+			else
+				return super.NextJob(p_xTarget,p_xIgnoreBuildUps);
+			endif;
+		endif;
+		return super.NextJob(p_xTarget,p_xIgnoreBuildUps);
+	endproc;
+
+	//========================================================================================
+	//=== Procedures about Resource handling... ==============================================
+	//========================================================================================
+
+	proc void InitResourceInventory()
+		m_asResTable=0;
+		var string sTribe=GetPlayerTribeName();
+		if(sTribe.IsEmpty())then return; endif;
+		var int i,iC=m_xTechTree.NumSubs("Resources/"+sTribe);
+		for(i=0)cond(i<iC)iter(i++)do
+			m_asResTable.AddEntry(m_xTechTree.GetValueS("Resources/"+sTribe+"/"+i.ToString(),""));
+		endfor;
+	endproc;
+
+	export proc real GetResourceInventorySize(string p_sResource)
+		var int iIdx=m_asResTable.FindEntry(p_sResource);
+		if(iIdx<0||iIdx>=m_afResInvSpace.NumEntries())then return 0.0; endif;
+		return m_afResInvSpace[iIdx]+GetBonusSum(CFightingObj.BONUS_MAXRESINV);
+	endproc;
+
+	export proc real GetResourceInventorySize(int p_iIdx)
+		if(p_iIdx<0||p_iIdx>=m_afResInvSpace.NumEntries())then return 0.0; endif;
+		return m_afResInvSpace[p_iIdx]+GetBonusSum(CFightingObj.BONUS_MAXRESINV);
+	endproc;
+
+	export proc real GetResInvSpace(int p_iType)
+		if(m_afResInv.NumEntries()>p_iType)then
+			return (GetResourceInventorySize(p_iType) - m_afResInv[p_iType]);
+		endif;
+		return 0.0;
+	endproc;
+
+	export proc real GetResInvSpace(string p_sType)
+		var int iIndex=m_asResTable.FindEntry(p_sType);
+		if(iIndex!=-1&&m_afResInv.NumEntries()>iIndex)then
+			return (GetResourceInventorySize(iIndex) - m_afResInv[iIndex]);
+		endif;
+		return 0.0;
+	endproc;
+
+	export proc void UpdateResourceInventoryCaps()
+		var ^CTechTree.CNode pxResNode=m_xTechTree.FindNode(GetObjPath()+"/ResInvCaps");
+		if(pxResNode==null)then return; endif;
+		m_afResInvSpace=0;
+		var int i, iC=m_asResTable.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var real fValue=pxResNode^.GetSubValueF(m_asResTable[i],5.0);
+			m_afResInvSpace.AddEntry( ( fValue * GetTechTreeModifier("ResInv",true) )+GetTechTreeModifier("ResInv",false) );
+		endfor;
+	endproc;
+
+	export proc real ResInvCount(int p_iType)
+		if(m_afResInv.NumEntries()<=p_iType)then return 0.0; endif;
+		return m_afResInv[p_iType];
+	endproc;
+
+	export proc void ResInvEmpty(int p_iType)
+		if(m_afResInv.NumEntries()>p_iType)then
+			m_afResInv[p_iType]=0.0;
+		endif;
+	endproc;
+
+	export proc bool ResInvIsFull(int p_iType)
+		if(ResInvCount(p_iType)<GetResourceInventorySize(p_iType))then
+			return false;
+		else
+			return true;
+		endif;
+	endproc;
+
+	export proc bool ResInvIsFull(string p_sType)
+		var int iIndex=m_asResTable.FindEntry(p_sType);
+		if(iIndex!=-1)then
+			if(ResInvCount(iIndex)<GetResourceInventorySize(iIndex))then
+				return false;
+			else
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+
+	export proc bool ResInvIsEmpty(int p_iType)
+		if(ResInvCount(p_iType)==0.0)then
+			return true;
+		else
+			return false;
+		endif;
+	endproc;
+
+	export proc bool ResInvIsEmpty(string p_sType)
+		var int iIndex=m_asResTable.FindEntry(p_sType);
+		if(iIndex!=-1)then
+			if(ResInvCount(iIndex)==0.0)then
+				return true;
+			else
+				return false;
+			endif;
+		endif;
+		return false;
+	endproc;
+
+	export proc bool ResInvAdd(int p_iType, real p_fCount)
+		if(!ResInvIsFull(p_iType)&&m_afResInv.NumEntries()>p_iType)then
+			m_afResInv[p_iType]+=p_fCount;
+			return(true);
+		else
+			return(false);
+		endif;
+	endproc;
+
+	export proc bool ResInvAdd(string p_sType, real p_fCount)
+		var int iIndex=m_asResTable.FindEntry(p_sType);
+		if(iIndex!=-1)then
+			if(!ResInvIsFull(iIndex)&&m_afResInv.NumEntries()>iIndex)then
+				m_afResInv[iIndex]+=p_fCount;
+				return(true);
+			else
+				return(false);
+			endif;
+		endif;
+		return false;
+	endproc;
+
+	export proc void DropAllInResInv()
+		var int i;
+		for(i=0)cond(i<m_afResInv.NumEntries())iter(i++)do
+			m_afResInv[i]=0.0;
+		endfor;
+	endproc;
+
+	export proc bool CheckInResInvAllPossible(^CGameObj p_pxDelivery)
+		if(p_pxDelivery==null)then return false; endif;
+		var bool bCheckedIn=false;
+		var ^CAttribs pxAttribs=p_pxDelivery^.GetAttribs();
+		if(pxAttribs!=null)then
+			var int i;
+			for(i=0)cond(i<m_afResInv.NumEntries())iter(i++)do
+				if(m_afResInv[i]>0.0)then
+					var string sResAttrib=m_asResTable[i]+"Delivery";
+					if(pxAttribs^.GetValueBool(sResAttrib))then
+						if(CheckInResInv(m_asResTable[i]))then
+							bCheckedIn=true;
+						endif;
+					endif;
+				endif;
+			endfor;
+		endif;
+		return bCheckedIn;
+	endproc;
+
+	export proc bool CheckInResInv(string p_sType)
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CBasePlayer pxPlayer=cast<CBasePlayer>(pxLevel^.GetPlayer(GetOwner()));
+		var int iIndex=m_asResTable.FindEntry(p_sType);
+		if(m_afResInv.NumEntries()>iIndex)then
+			var real fOriginalValue=m_afResInv[iIndex];
+			var real fReturnValue=pxPlayer^.AddResource(p_sType,m_afResInv[iIndex]);
+			m_afResInv[iIndex]=fReturnValue;
+			return fReturnValue!=fOriginalValue;
+		endif;
+		return false;
+	endproc;
+
+	export proc void OnTechTreeChange()
+		super.OnTechTreeChange();
+	endproc;
+
+	export proc void OnTechTreeChange(ref CStringArray p_rasChanges)
+		super.OnTechTreeChange(p_rasChanges);
+		var int i;
+		var string sObjPath="/"+GetObjPath();
+		for(i=0) cond(i<p_rasChanges.NumEntries()) iter(i++)do
+			var string sVal=p_rasChanges[i];
+		endfor;
+		InitResourceInventory();
+		UpdateResourceInventoryCaps();
+	endproc;
+	
+	export proc real GetTechTreeResourceInvCap()
+		return(m_xTechTree.GetValueR(GetObjPath()+"/ResInvCaps/food",0.0f));
+	endproc;
+	
+	export proc void HandleAction(string p_sAction)
+		if(p_sAction.Find("_water_trading")>=0&&!m_bTradeUpgrade)then
+			var ^CAttribs pxAttr=GetAttribs();
+			if(pxAttr!=null)then
+				m_bTradeUpgrade=true;
+				pxAttr^.SetValue("trade",1);
+			endif;
+		endif;
+	endproc;
+	
+endclass;
+
+class CFishnet inherit CGameObj
+	
+	export constructor()
+	endconstructor;
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		SetSelectable(false);
+		SetHitable(false);
+		SetFOW(1.0f);
+	endproc;
+	
+	export proc void Hide()
+		SetVisible(false);
+	endproc;
+	
+	export proc void UnHide()
+		SetVisible(true);
+	endproc;
+	
+endclass;
+
+class CBigSizeShip inherit CShip
+	
+	var string m_sAirWeapon;
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		SetSpraySize(3);
+	endproc;
+	
+	export proc void SetCurEnemy(CObjHndl p_xHndl)
+		super.SetCurEnemy(p_xHndl);
+		if(GetClassName()=="ninigi_fire_boat")then
+			var bool bAir=false;
+			var ^CFightingObj pxF=cast<CFightingObj>(p_xHndl.GetObj());
+			if(pxF!=null)then
+				bAir=pxF^.IsFlyingUnit();
+			endif;
+			UpdateEquipment(GetClassName(),bAir);
+		endif;
+	endproc;
+	
+	export proc string GetRightHandWeapon()
+		if(GetClassName()=="ninigi_fire_boat"&&m_xCurEnemy.IsValid())then
+			var bool bAir=false;
+			var ^CFightingObj pxF=cast<CFightingObj>(m_xCurEnemy.GetObj());
+			if(pxF!=null)then
+				bAir=pxF^.IsFlyingUnit();
+			endif;
+			if(bAir)then
+				if(m_sAirWeapon.IsEmpty())then
+					UpdateEquipment(GetClassName(),bAir);
+				endif;
+				return m_sAirWeapon;
+			endif;
+		endif;
+		return m_pxWeaponMgr^.GetRightHandWeapon();
+	endproc;
+	
+	export proc void UpdateEquipment(string p_sClass, bool p_bAir)
+		if(p_sClass=="ninigi_fire_boat")then
+			if(p_bAir)then
+				m_sAirWeapon="/Objects/Ninigi/Weapons/ninigi_fire_boat_arrow_";
+				if(GetLevel()==0)then
+					m_sAirWeapon+="a";
+				elseif(GetLevel()==1)then
+					m_sAirWeapon+="b";
+				elseif(GetLevel()==2)then
+					m_sAirWeapon+="c";
+				elseif(GetLevel()==3)then
+					m_sAirWeapon+="d";
+				elseif(GetLevel()==4)then
+					m_sAirWeapon+="e";
+				endif;
+				if(GetCurrentWeapon()!=m_sAirWeapon)then
+					ClearWeaponCache();
+					UpdateWeapons(m_sAirWeapon);
+					var ^CAttribs pxAttr=GetAttribs();
+					if(pxAttr!=null && pxAttr^.GetValue("Equip_Slot_0")!=m_sAirWeapon)then
+						pxAttr^.SetValue("Equip_Slot_0",m_sAirWeapon);
+					endif;
+					m_bWeaponHasChanged=true;
+					m_bOwnWeaponHasChanged=true;
+				endif;
+				return;
+			endif;
+		endif;
+		if(!m_sAirWeapon.IsEmpty())then
+			ClearWeaponCache();
+			m_sAirWeapon="";
+		endif;
+		super.UpdateEquipment();
+	endproc;
+	
+	export proc CFourCC GetProjectileLink()	
+		var CFourCC xL="Proj";
+		if(GetClassName()=="ninigi_fire_boat")then
+			xL="SpFr";
+		endif;
+		return xL;
+	endproc;
+
+endclass;
+
+class CMediumSizeShip inherit CShip
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		SetSpraySize(2);
+	endproc;
+
+endclass;
+
+class CPirateBoss inherit CBigSizeShip
+
+	const int TIMEOUT=835;
+	const int TIMER=834;
+
+	var CObjHndl m_xHeck;
+	var CObjHndl m_xSegel;
+	var CObjHndl m_xBug;
+	var CObjHndl m_xKanone;
+	var CObjList m_xDummies;
+	var bool m_bDeadBoat;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		var vec3 vPos=GetPos();
+		vPos.SetZ(CSrvWrap.GetScapeMgr().GetSeaLevel());
+		SetPos(vPos);
+		if(!p_bLoad)then
+			var ^CPirateBossBuildUp pxBuildUp;
+			pxBuildUp=cast<CPirateBossBuildUp>(CSrvWrap.GetObjMgr()^.CreateObj("pirate_boss_tail", GetOwner()));
+			pxBuildUp^.SetParent(GetHandle(),"psh1");
+			m_xHeck=pxBuildUp^.GetHandle();
+			pxBuildUp=cast<CPirateBossBuildUp>(CSrvWrap.GetObjMgr()^.CreateObj("pirate_boss_sail", GetOwner()));
+			pxBuildUp^.SetParent(GetHandle(),"psh2");
+			m_xSegel=pxBuildUp^.GetHandle();
+			pxBuildUp=cast<CPirateBossBuildUp>(CSrvWrap.GetObjMgr()^.CreateObj("pirate_boss_row", GetOwner()));
+			pxBuildUp^.SetParent(GetHandle(),"psh3");
+			m_xBug=pxBuildUp^.GetHandle();
+			var ^CGameObj pxCannons=CSrvWrap.GetObjMgr()^.CreateObj("pirate_boss_cannons", GetOwner());
+			var CFourCC xLink="psh2";
+			pxCannons^.LinkAction(GetHandle(),xLink);
+			pxCannons^.SetHitable(false);
+			pxCannons^.SetSelectable(false);
+			m_xKanone=pxCannons^.GetHandle();
+			m_bDeadBoat=false;
+		endif;
+		SetDestructionType("pirate_boss_dest","destroy");
+		DeleteTimer(TIMER);
+		CreateTimer(TIMER,CGameTimeSpan.OneSecond()*2.5,true);
+		SetAttackDirection(Math.Pi()*0.5);
+	endproc;
+
+	export proc bool FollowEnemy(^CFightingObj p_pxEnemy, bool p_bAttackScape)
+		return false;
+	endproc;
+
+	export proc ^CGameObj CreateShipCorpse()
+		var ^CShipCorpse pxGameObj=cast<CShipCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("pirate_boss_dest",GetOwner(),GetPos(),GetRotation()));
+		if(pxGameObj!=null)then
+			pxGameObj^.Init("pirate_boss_dest",m_sSinkAnim,GetName(), 10.0);
+			pxGameObj^.SetDestructLevel(2);
+		endif;
+		return pxGameObj;
+	endproc;
+
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xBase="PiBo"; //Pirate Boss
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,4);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xHeck.DoKArc(pxArc^);
+		m_xSegel.DoKArc(pxArc^);
+		m_xBug.DoKArc(pxArc^);
+		m_xDummies.DoKArc(pxArc^);
+		m_xKanone.DoKArc(pxArc^);
+		pxArc^ << m_bDeadBoat;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void SetOwner(int p_iOwner)
+		super.SetOwner(p_iOwner);
+		if(m_xHeck.IsValid())then
+			m_xHeck.GetObj()^.SetOwner(p_iOwner);
+		endif;
+		if(m_xSegel.IsValid())then
+			m_xSegel.GetObj()^.SetOwner(p_iOwner);
+		endif;
+		if(m_xBug.IsValid())then
+			m_xBug.GetObj()^.SetOwner(p_iOwner);
+		endif;
+	endproc;
+
+	export proc bool AttackEnemy(^CFightingObj p_pxEnemy, vec3 p_vTarget, ref bool p_rbRotated)
+		if(m_bDeadBoat)then return false; endif;
+		if(p_pxEnemy!=null)then
+			if(p_pxEnemy^.IsFlyingUnit() && !CanShootAir())then return false; endif;
+			var real fAngle=GetAngleToR(p_pxEnemy);
+			if(GetProjectile()!="")then
+				var ^CGameObj pxObj=m_xKanone.GetObj();
+				if(pxObj!=null)then
+					pxObj^.SetAnim("attack_front",1);
+					var int i,iC=15;
+					var int iStart=1;
+					if(!m_xHeck.IsValid())then
+						iStart=7;
+					endif;
+
+					var Quat qRot=GetRot();
+					for(i=iStart)cond(i<iC)iter(i++)do
+						var CFourCC xL="D_"+i.ToReal().ToString("02.0");
+						var vec3 vPos;
+						pxObj^.GetLinkPosObj(xL, vPos);
+						vPos.SetZ(0.0);
+						var real fRandom=((Random.GetInt()%1000).ToReal()*0.01)-5.0;
+						vPos.SetX(fRandom);
+						qRot.VecRotateU(vPos);
+						var ^CPirateBossArrow pxArrow=cast<CPirateBossArrow>(CSrvWrap.GetObjMgr()^.CreateObj(GetProjectile(),GetOwner()));
+						pxArrow^.SetAttackScape(this, p_pxEnemy^.GetPos()+vPos);
+						pxArrow^.SetIndex(i);
+					endfor;
+				endif;
+				DeleteTimer(TIMEOUT);
+				CreateTimer(TIMEOUT,CGameTimeSpan.OneSecond()*5.0,false);
+				return false;
+			else
+				return super.AttackEnemy(p_pxEnemy, p_vTarget, p_rbRotated);
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	export proc vec3 GetProjectileStartPos()
+		return super.GetProjectileStartPos();
+	endproc;
+
+	export proc CObjHndl GetHeck()
+		return m_xHeck;
+	endproc;
+
+	export proc CObjHndl GetSegel()
+		return m_xSegel;
+	endproc;
+
+	export proc CObjHndl GetBug()
+		return m_xBug;
+	endproc;
+
+	export proc real GetProjectileDelay()
+		var real fRandom=((Random.GetInt()%20).ToReal()*0.01)-0.1;
+		return super.GetProjectileDelay()+fRandom;
+	endproc;
+
+	export proc vec3 GetProjectileStartPos(int p_iIdx)
+		var ^CGameObj pxObj=m_xKanone.GetObj();
+		var vec3 vPos=GetPos();
+		if(pxObj!=null)then
+			var CFourCC xL="D_"+p_iIdx.ToReal().ToString("02.0");
+			if(!pxObj^.GetLinkPosWorld(xL, vPos))then
+				var vec3 vSize=GetSize();
+				vPos=GetPos();
+				vPos.SetZ(vPos.GetZ()+vSize.GetZ()*0.7);
+			endif;
+		endif;
+		return vPos;
+	endproc;
+
+	export proc void LogData()
+		if(HasTimer(TIMEOUT))then return; endif;
+		if(m_bDeadBoat)then return; endif;
+		if(m_xCurEnemy.IsValid())then
+			var ^CFightingObj pxObj=cast<CFightingObj>(m_xCurEnemy.GetObj());
+			if(pxObj!=null)then
+				var Quat qRot=GetAngleToQ(pxObj);
+				RotateActionSpeed(qRot,0.07);
+			endif;
+		endif;
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="PiBo")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			if(iVersion>=1)then
+				m_xHeck.DoKArc(pxArc^);
+				m_xSegel.DoKArc(pxArc^);
+				m_xBug.DoKArc(pxArc^);
+			endif;
+			if(iVersion>=2)then
+				m_xDummies.DoKArc(pxArc^);
+			endif;
+			if(iVersion>=3)then
+				m_xKanone.DoKArc(pxArc^);
+			endif;
+			if(iVersion>=4)then
+				pxArc^ << m_bDeadBoat;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc void Damage(real p_fDamage)
+		return;
+	endproc;
+
+	export proc void PoisonDamage(real p_fDamage, CObjHndl p_xEnemy, int p_iEnemy)
+		return;
+	endproc;
+	
+	export proc void BurnDamage(real p_fDamage, CObjHndl p_xEnemy, int p_iEnemy)
+		return;
+	endproc;
+	
+	export proc void ChainDamage(real p_fDamage, int p_iLast, CObjHndl p_xLast)
+		return;
+	endproc;
+	
+	export proc void WoundDamage(real p_fDamage, CObjHndl p_xLE, int p_iLE)
+		return;
+	endproc;
+	
+	export proc void ReplacePart(string p_sClass, CFourCC p_xLink)
+		TerminateAction();
+		var ^CGameObj pxGameObj=CSrvWrap.GetObjMgr()^.CreateObj(p_sClass, GetOwner());
+		pxGameObj^.LinkAction(GetHandle(), p_xLink);
+		pxGameObj^.SetAnim("destroy",1);
+		var real fDuration=pxGameObj^.GetCurrentAnimLength();
+
+		if(p_sClass.Find("_tail")!=-1)then
+			var ^CGameObj pxKanone=m_xKanone.GetObj();
+			if(pxKanone!=null)then
+				pxKanone^.Delete();
+			endif;
+			var ^CGameObj pxCannons=CSrvWrap.GetObjMgr()^.CreateObj("pirate_boss_cannons_reduced", GetOwner());
+			var CFourCC xLink="psh2";
+			pxCannons^.LinkAction(GetHandle(),xLink);
+			pxCannons^.SetHitable(false);
+			pxCannons^.SetSelectable(false);
+			m_xKanone=pxCannons^.GetHandle();
+		endif;
+
+		if(!m_xHeck.IsValid() && !m_xSegel.IsValid() && !m_xBug.IsValid())then
+			m_bDeadBoat=true;
+		endif;
+
+		DeleteTimer(TIMEOUT);
+		CreateTimer(TIMEOUT,CGameTimeSpan.OneSecond()*fDuration,false);
+		m_xDummies.Include(pxGameObj^.GetHandle());
+	endproc;
+
+	export proc void CheckDeath()
+		if(HasTimer(TIMEOUT))then return; endif;
+		if(!m_xHeck.IsValid() && !m_xSegel.IsValid() && !m_xBug.IsValid())then
+			var int i,iC=m_xDummies.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(m_xDummies[i].IsValid())then
+					m_xDummies[i].GetObj()^.Delete();
+				endif;
+			endfor;
+			if(m_xKanone.IsValid())then
+				m_xKanone.GetObj()^.Delete();
+			endif;
+			Die();
+		endif;
+	endproc;
+
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			if(p_rxEvtPtr.GetInt(0)==TIMEOUT)then
+				DeleteTimer(TIMEOUT);
+				CheckDeath();
+			elseif(p_rxEvtPtr.GetInt(0)==TIMER)then
+				LogData();
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		else
+			super.HandleEvent(p_rxEvtPtr);
+		endif;
+	endproc;
+
+endclass;
+
+class CPirateBossBuildUp inherit CBuilding
+
+	var CObjHndl m_xParent;
+	var CFourCC m_xLink;
+	var ^CGameObj m_pxTest;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+	endproc;
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xBase="PiBU"; //Pirate Boss Build Up
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xParent.DoKArc(pxArc^);
+		var string sLink=m_xLink.AsString();
+		pxArc^ << sLink;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="PiBU")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			if(iVersion>=1)then
+				m_xParent.DoKArc(pxArc^);
+				var string sLink;
+				pxArc^ << sLink;
+				m_xLink=sLink;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc void OnPostLoad()
+		super.OnPostLoad();
+		LinkAction(m_xParent,m_xLink);
+	endproc;
+
+	export proc void SetParent(CObjHndl p_xParent, string p_sLink)
+		m_xParent=p_xParent;
+		m_xLink=p_sLink;
+		LinkAction(m_xParent,m_xLink);
+	endproc;
+
+	export proc void Die()
+		if(!IsDead())then
+			TerminateAction();
+			var ^CPirateBoss pxBoss=cast<CPirateBoss>(m_xParent.GetObj());
+			if(pxBoss!=null)then
+				pxBoss^.ReplacePart(GetClassName()+"_dest",m_xLink);
+			endif;
+			m_bBuildingReady=false;
+		endif;
+		super.Die();
+	endproc;
+
+endclass;
+
+class CPirateBossRow inherit CPirateBossBuildUp
+endclass;
+
+class CPirateBossSail inherit CPirateBossBuildUp
+endclass;
+
+class CPirateBossTail inherit CPirateBossBuildUp
+endclass;
+
+class CPirateBossCannons inherit CPirateBossBuildUp
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		SetSelectable(false);
+		SetHitable(false);
+	endproc;
+	
+	export proc void Damage(real p_fDamage)
+		return;
+	endproc;
+	
+	export proc void PoisonDamage(real p_fDamage, CObjHndl p_xEnemy, int p_iEnemy)
+		return;
+	endproc;
+	
+	export proc void BurnDamage(real p_fDamage, CObjHndl p_xEnemy, int p_iEnemy)
+		return;
+	endproc;
+	
+	export proc void ChainDamage(real p_fDamage, int p_iLast, CObjHndl p_xLast)
+		return;
+	endproc;
+	
+	export proc void WoundDamage(real p_fDamage, CObjHndl p_xLE, int p_iLE)
+		return;
+	endproc;
+	
+endclass;
+	
+class CTransportShip inherit CBigSizeShip
+	
+	export proc bool IsAbleToFight()
+		return false;
+	endproc;
+	
+	export proc void Evacuate()
+		var real fScapeZ=CSrvWrap.GetScapeMgr().GetHeight(GetPos().GetX(), GetPos().GetY());
+		var real fSea=CSrvWrap.GetScapeMgr().GetSeaLevel();
+		if(fScapeZ+5.0f>=fSea)then
+			DismountAll();
+		endif;
+	endproc;
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		if(!p_bLoad)then
+			SetCanFightAttrib(false);
+			SetTransportClass(2);
+			SetBuildUp(CBuildUpBase.TYPE_TRANSPORTER);
+		endif;
+	endproc;
+	
+endclass;
+	
+class CSteamShip inherit CBigSizeShip
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		if(!p_bLoad)then
+			SetBuildUp(CBuildUpBase.TYPE_WEAPON);
+			var ^CGameObj pxO=CSrvWrap.GetObjMgr()^.CreateObj("hu_steam_boat_cannon", GetOwner());
+			if(pxO!=null)then
+				GetBuildUp()^.AddObj(pxO^.GetHandle(), "we");
+			endif;
+//			cast<CBuildUpWeapon>(GetBuildUp())^.SetWeaponClass(GetClassName());
+//			cast<CBuildUpWeapon>(GetBuildUp())^.SetAutoAttack(true);
+			cast<CBuildUpWeapon>(GetBuildUp())^.SetCanRotate(true);
+			SetAttackType(1);
+		endif;
+	endproc;
+
+endclass;
+
+//	======================= Aje Ships =======================;
+
+class CCatamaran inherit CBigSizeShip
+
+	export destructor()
+	enddestructor;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		if(!p_bLoad)then
+			SetAttackType(1);
+		endif;
+	endproc;
+
+endclass;
+
+class CAmphibian inherit CShip
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		SetCanWalk(true);
+		SetCanSwim(true);
+		if(!p_bLoad)then
+			CheckWaterLand();
+		endif;
+	endproc;
+
+	export proc void OnPostLoad()
+		super.OnPostLoad();
+		CheckWaterLand();
+	endproc;
+
+	export proc void OnActionEnd(bool p_bBroken)
+		super.OnActionEnd(p_bBroken);
+		CheckWaterLand();	//fallback
+	endproc;
+
+	export proc void SetPos(vec3 p_vPos)
+		//somebody beams me around -> I must check my pos for land/water
+		super.SetPos(p_vPos);
+		CheckWaterLand();
+	endproc;
+
+	export proc void CheckWaterLand()
+		OnAmphibianWaterLandTransition(!IsInWater());
+	endproc;
+
+	//this function will be called from inside the walk action
+	proc void OnAmphibianWaterLandTransition(bool p_bWaterToLand)
+		//KLog.LogWarn("CHP","OnAmphibianWaterLandTransition("+p_bWaterToLand.ToString()+") "+CTimeMgr.Get().GetTime().ToString());
+		if(p_bWaterToLand)then
+			WaterToLand();
+		else
+			LandToWater();
+		endif;
+		if(HasBuildUp())then
+			GetBuildUp()^.UpdateLinkedObjs();
+		endif;
+	endproc;
+
+	export proc void WaterToLand()
+	endproc;
+
+	export proc void LandToWater()
+	endproc;
+
+endclass;
+
+class CTransportTurtle inherit CAmphibian
+
+	export proc void WaterToLand()
+		SetGFX("Macrolemys_Land");
+		SetSpraySize(0);
+		SetDestructionType(GetGfxName(),"dying_land");
+	endproc;
+
+	export proc void LandToWater()
+		SetSpraySize(2);
+		SetGFX("Macrolemys_Water");
+		SetDestructionType(GetGfxName(),"dying");
+	endproc;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		if(!p_bLoad)then
+			SetTransportClass(2);
+			SetBuildUp(CBuildUpBase.TYPE_TRANSPORTER);
+			var ^CGameObj pxO=CSrvWrap.GetObjMgr()^.CreateObj("aje_transport_turtle_shell", GetOwner());
+			if(pxO!=null)then
+				GetBuildUp()^.AddObj(pxO^.GetHandle(), "con");
+			endif;
+		endif;
+		SetRndInvMaskSingleFlagInv(VIS_FLAG_ANML_ARMOR,false); //200 polygone gespart
+		SetDestructionType(GetGfxName(),"dying");
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="TrTu")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var CObjHndl xInvalid;
+			xInvalid.DoKArc(pxArc^);
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		if(p_sCommand=="WaterOnly")then
+			SetCanWalk(false);
+		elseif(p_sCommand=="UnWaterOnly")then
+			SetCanWalk(true);
+		else
+			super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+		endif;
+	endproc;
+
+	proc bool UpdateGfx()
+		//Dummy Function: Don't change GFX on techtree changes, because GFX is determined by Land/Water
+		return false;
+	endproc;
+
+	proc bool UpdateDestructionFlags()
+		if(HasBuildUp())then
+			var ^CGameObj pxShell=GetBuildUp()^.GetPrimaryLinkedObj().GetObj();
+			if(pxShell==null)then return false; endif;
+			if(pxShell^.GetConstructLevel()<4)then return false; endif;
+			if(((GetHitpoints()!=0.0f)&&(GetMaxHitpoints()!=0.0f)))then
+				var real fPercentage=GetHitpoints()/(GetMaxHitpoints()/100.0f);
+				if(fPercentage<=25.0f)then
+					if(pxShell^.GetDestructLevel()!=2)then
+						InvokeGenericSCEvent(14,4.0f);
+						pxShell^.SetDestructLevel(2);
+						//L KLog.LogSpam("MaZi", "2");
+					endif;
+					return true;
+				elseif(fPercentage<=50.0f)then
+					if(pxShell^.GetDestructLevel()!=1)then
+						InvokeGenericSCEvent(14,4.0f);
+						pxShell^.SetDestructLevel(1);
+						//L KLog.LogSpam("MaZi", "1");
+					endif;
+					return true;
+				else
+					pxShell^.SetDestructLevel(0);
+					//L KLog.LogSpam("MaZi", "0");
+					return true;
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	export proc ^CGameObj CreateShipCorpse()
+		var ^CGameObj pxGameObj=super.CreateShipCorpse();
+		if(pxGameObj!=null)then
+			var CFourCC xLink="con";
+			pxGameObj^.SetLinkGFX(xLink, "aje_transport_turtle");
+		endif;
+		return pxGameObj;
+	endproc;
+	
+	export proc void Evacuate()
+		var real fScapeZ=CSrvWrap.GetScapeMgr().GetHeight(GetPos().GetX(), GetPos().GetY());
+		var real fSea=CSrvWrap.GetScapeMgr().GetSeaLevel();
+		if(fScapeZ+5.0f>=fSea)then
+			DismountAll();
+		endif;
+	endproc;
+	
+	export proc string EatAnim()
+		if(IsInWater())then
+			return "feeding";
+		else
+			return "feeding_land";
+		endif;
+	endproc;
+	
+endclass;
+
+class CMuraenoSubmarine inherit CShip
+
+	var CObjHndl	m_xBuildUp;
+	var bool		m_bIntendedDive;
+
+	export constructor()
+		m_bIntendedDive=false;
+	endconstructor;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		if(!p_bLoad)then
+			if(GetClassName()=="ninigi_muraeno_submarine")then
+				SetBuildUp(CBuildUpBase.TYPE_FAKE);
+				var ^CGameObj pxO=CSrvWrap.GetObjMgr()^.CreateObj("Aje_Muraeno_Submarine_Bell", GetOwner());
+				if(pxO!=null)then
+					GetBuildUp()^.AddObj(pxO^.GetHandle(), "con");
+				endif;
+			endif;
+			AddCamouflageEffect("disg");
+			SetAggressionState(1);
+		endif;
+		SetSpraySize(2);
+		SetDestructionType(GetGfxName(),"dying");
+	endproc;
+
+	export proc void SetCamouflage(bool p_bValue)
+		super.SetCamouflage(p_bValue);
+		if(HasBuildUp())then
+			var ^CGameObj pxObj=GetBuildUp()^.GetPrimaryLinkedObj().GetObj();
+			if(pxObj!=null)then
+				pxObj^.SetCamouflage(GetCamouflage());
+			endif;
+		endif;
+	endproc;
+
+	export proc bool AttackEnemy(^CFightingObj p_pxEnemy, vec3 p_vTarget, ref bool p_rbRotated)
+		RemoveCamouflageEffect("disg");
+		return super.AttackEnemy(p_pxEnemy,p_vTarget,p_rbRotated);
+	endproc;
+
+	export proc ^CArrow CreateProjectileAndShoot(^CFightingObj p_pxEnemy, vec3 p_vPos)
+		return super.CreateProjectileAndShoot(p_pxEnemy, p_vPos);
+	endproc;
+
+	export proc ^CArrow CreateProjectileAndShoot(^CFightingObj p_pxEnemy, vec3 p_vPos, string p_sProjectileType)
+		var ^CArrow pxArrow=super.CreateProjectileAndShoot(p_pxEnemy,p_vPos,p_sProjectileType);
+		if(pxArrow!=null)then pxArrow^.SetVisible(false);endif;
+		return pxArrow;
+	endproc;
+	
+	export proc string EatAnim()
+		return "swim_2";
+	endproc;
+	
+	export proc real GetAdaption()
+		return 5.0f;
+	endproc;
+	
+endclass;
+
+class CAjeCronosaurus inherit CShip
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		SetDestructionType(GetGfxName(),"dying");
+	endproc;
+	
+	export proc bool GetCaptainLink(ref CFourCC po_rxLink, ref bool po_rbIsBuildUpLink)
+		po_rxLink="Ride";
+		SetCaptainAnim("ride_idle_0");
+		SetCaptainAttackAnim("ride_attack_front");
+		return true;
+	endproc;
+	
+endclass
+
+//	======================= Ninigi Ships =======================;
+
+class CRocketBoat inherit CBigSizeShip
+
+	var int m_iLinkCnt;
+	var array CFourCC m_axLink;
+
+	var bool m_bRelink;
+
+	export constructor()
+		m_axLink=3;
+		m_axLink[0]="psh1";
+		m_axLink[1]="psh2";
+		m_axLink[2]="psh3";
+		m_iLinkCnt=0;
+		m_bRelink=false;
+	endconstructor;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		if(!p_bLoad)then
+			SetAttackType(1);
+		endif;
+		//SetDestructionType(GetGfxName(),"sink");
+	endproc;
+
+	///////
+	//	AttackEnemy()
+	///////
+	export proc bool AttackEnemy(^CFightingObj p_pxEnemy, vec3 p_vTarget, ref bool p_rbRotated)
+		if(p_pxEnemy!=null)then
+			if(p_pxEnemy^.IsFlyingUnit() && !CanShootAir())then return false; endif;
+		endif;
+		var real fAngle=0.0;
+		if(p_pxEnemy!=null)then
+			fAngle=GetAngleToR(p_pxEnemy);
+			//normal rotate
+			if(fAngle>Math.Pi()/4.0)then
+				RotateToEnemy(p_pxEnemy, p_vTarget);
+				p_rbRotated=true;
+				return false;
+			endif;
+		elseif(p_vTarget!={0.0,0.0,0.0})then
+			fAngle=GetAngleToR(p_vTarget);
+			if(fAngle>Math.Pi()/4.0)then
+				RotateToEnemy(p_pxEnemy, p_vTarget);
+				p_rbRotated=true;
+				return false;
+			endif;
+		else
+			return false;
+		endif;
+		if(GetProjectile()!="")then
+			var int i, iC=3;
+			for (i=0) cond(i<iC) iter(++i)do
+				var CFourCC xL="psh"+(i+1).ToString();
+				var vec3 vPos;
+				GetLinkPosWorld(xL, vPos);
+				if(vPos=={0.0,0.0,0.0})then
+					vPos=GetPos();
+				endif;
+				var ^CArrow pxArrow=cast<CArrow>(CSrvWrap.GetObjMgr()^.CreateObj(GetProjectile(),GetOwner(),vPos));
+				if(p_pxEnemy!=null)then
+					pxArrow^.SetXtraDelay(this, p_pxEnemy, 1.0f +0.1f * i.ToReal());
+				elseif(p_vTarget!={0.0,0.0,0.0})then
+					pxArrow^.SetAttackScape(this, p_vTarget, 1.0f +0.1f * i.ToReal());
+				endif;
+			endfor;
+			// set arrow to appr. 2/3 height
+			var string sA=GetFightAnim();
+			if(sA.IsEmpty())then sA="attack_front"; endif;
+			if(HasAnim(sA))then
+				SetAnim(sA,1);
+				//m_bRelink=true;
+			endif;
+			return false;
+		else
+			super.AttackEnemy(p_pxEnemy, p_vTarget, p_rbRotated);
+		endif;
+		return true;
+	endproc;
+	
+	export proc void OnActionEnd(bool p_bBroken)
+		if(m_bRelink)then
+			m_bRelink=false;
+			var int i,iC=3;
+			for(i=0) cond(i<iC) iter(++i)do
+				SetLinkGFX(m_axLink[i], GetProjectile());
+			endfor;
+		endif;
+		super.OnActionEnd(p_bBroken);
+	endproc;
+
+	export proc CFourCC GetProjectileLink()
+		var CFourCC xL=m_axLink[m_iLinkCnt++];
+		if(m_iLinkCnt >= 3)then m_iLinkCnt=0; endif;
+		return xL;
+	endproc;
+
+endclass;
+
+class CMineLayer inherit CBigSizeShip
+
+	const int TIMER_REPAIR_MINES=40166;
+	const real TIMERID_MINELAYER_FREQUENCY=2.0f;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="NMLy")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var CObjHndl xInvalid;
+			xInvalid.DoKArc(pxArc^);
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		if(!p_bLoad)then
+			CreatePersonalProduceUnit();
+		endif;
+		if(!p_bLoad)then
+			SetCanFightAttrib(false);
+		endif;
+		var ^CAttribs pxAttr=GetAttribs();
+		var ^CFightingObj.CSpecialAbility pxAb=m_xAbilities.GetAbility("repair_mines", true);
+		if(pxAb!=null)then
+			DeleteTimer(TIMER_REPAIR_MINES);
+			m_xLastFunctionTime=CTimeMgr.Get().GetTime();
+			CreateTimer(TIMER_REPAIR_MINES, CGameTimeSpan.OneSecond() * TIMERID_MINELAYER_FREQUENCY, true);
+			m_xFunctionUnits.SetClass("ninigi_mineship_mine");
+			if(pxAttr!=null)then
+				pxAttr^.SetValue("HealingMarker",pxAb^.GetValueF("radius"));
+			endif;
+		else
+			if(pxAttr!=null)then
+				pxAttr^.SetValue("HealingMarker",0.0f);
+			endif;
+		endif;
+	endproc;
+	
+	export proc void OnTechTreeChange(ref CStringArray p_rasChanges)
+		super.OnTechTreeChange(p_rasChanges);
+		var bool bMineRepair=false;
+		var int i,iC;
+		for(i=0)cond(i<p_rasChanges.NumEntries())iter(i++)do
+			var string sVal=p_rasChanges[i];
+			if(sVal.Find("special_abilities")>=0)then
+				bMineRepair=true;
+			endif;
+		endfor;
+		if(bMineRepair)then
+			var ^CFightingObj.CSpecialAbility pxAb=m_xAbilities.GetAbility("repair_mines", true);
+			var ^CAttribs pxAttr=GetAttribs();
+			if(pxAb!=null)then
+				AddRangedBuff("owner_healing");
+				DeleteTimer(TIMER_REPAIR_MINES);
+				m_xLastFunctionTime=CTimeMgr.Get().GetTime();
+				CreateTimer(TIMER_REPAIR_MINES, CGameTimeSpan.OneSecond() * TIMERID_MINELAYER_FREQUENCY, true);
+				m_xFunctionUnits.SetClass("ninigi_mineship_mine");
+				if(pxAttr!=null)then
+					pxAttr^.SetValue("HealingMarker",pxAb^.GetValueF("radius"));
+				endif;
+			else
+				RemoveRangedBuff("owner_healing");
+				DeleteTimer(TIMER_REPAIR_MINES);
+				if(pxAttr!=null)then
+					pxAttr^.SetValue("HealingMarker",0.0f);
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			var int iTimerID=p_rxEvtPtr.GetInt(0);
+			if(iTimerID==TIMER_REPAIR_MINES)then
+				DoMineRepair();
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		else
+			super.HandleEvent(p_rxEvtPtr);
+		endif;
+	endproc;
+	
+	proc void DoMineRepair()
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		var CGameTimeSpan xDT=xNow-m_xLastFunctionTime;
+		var real fTime=xDT.GetSecondsF();
+		if(fTime==0.0)then return; endif;
+		m_xLastFunctionTime=xNow;
+		if(fTime>TIMERID_MINELAYER_FREQUENCY+1.0f)then return; endif;
+		var CObjList xUnits;
+		var vec3 vPos=GetPos();
+		CSrvWrap.GetDiplomacyMgr().AddMyFriendsToSearch(GetOwner(), m_xFunctionUnits);
+		m_xFunctionUnits.RegionCircle(vPos,GetRepairRadius());
+		if(!m_xFunctionUnits.Execute(xUnits))then return; endif;
+		xUnits.Validate();
+		var int i,iC=xUnits.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+//			if(xUnits[i]==GetHandle())then continue; endif;
+			var ^CFightingObj pxFWalk=cast<CFightingObj>(xUnits[i].GetObj());
+			if(pxFWalk!=null)then
+				var real fValue=fTime*GetRepairAmount(pxFWalk);
+				pxFWalk^.HealMe(fValue,false);
+			endif;
+		endfor;
+	endproc;
+	
+	export proc real GetRepairAmount(^CFightingObj p_pxTarget)
+		var ^CFightingObj.CSpecialAbility pxA=m_xAbilities.GetAbility("repair_mines", true);
+		if(pxA==null)then return -1.0; endif;
+		var real fMod=p_pxTarget^.GetMaxHitpoints() * pxA^.GetValueF("mod") * 0.01;
+		var real fAmount=(pxA^.GetValueF("amount") * GetTechTreeModifier("Healing",true))+GetTechTreeModifier("Healing",false);
+		return fAmount+fMod;
+	endproc;
+	
+	export proc real GetRepairRadius()
+		var ^CFightingObj.CSpecialAbility pxA=m_xAbilities.GetAbility("repair_mines", true);
+		if(pxA!=null)then
+			return pxA^.GetValueF("radius");
+		endif;
+		return -1.0f;
+	endproc;
+	
+	export proc bool IsAbleToFight()
+		return false;
+	endproc;
+
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		var ^CVirtualProduceUnit pxUnit=cast<CVirtualProduceUnit>(GetProduceUnit().GetObj());
+		if(pxUnit==null)then
+			super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+		endif;
+		if(p_sCommand=="Action")then
+			if(p_sMiscParams.Find("/Build/SHIP/ninigi_mineship_mine")!=-1)then
+				var bool bAIHelp=false;
+				if(p_sMiscParams.Find(" /AI_Help")!=-1)then
+					var ^CBasePlayer pxPlayer=CBasePlayer.GetPlayer(GetOwner());
+					if(pxPlayer!=null)then
+						bAIHelp=(cast<CAiPlayer>(pxPlayer))!=null;
+					endif;
+				endif;
+				var ^CPlaceWaterMine pxTask=cast<CPlaceWaterMine>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(),"WateMine"));
+				if(pxTask!=null)then
+					if(pxTask^.Init(GetHandle(),p_vPos,bAIHelp))then
+						AddTask(pxTask, p_bQ);
+					else
+						pxTask^.GetFactory()^.FreeState(pxTask);
+					endif;
+				endif;
+				//pxUnit^.ReactToGamePlayCommand(p_sCommand, p_pxObject, p_vPos, p_sMiscParams, p_bQ, p_bS, p_bA);
+				return;
+			else
+				super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+			endif;
+		elseif(p_sCommand=="Cancel")then
+			pxUnit^.ReactToGamePlayCommand(p_sCommand, p_pxObject, p_vPos, p_sMiscParams, p_bQ, p_bS, p_bA);
+		else
+			super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+		endif;
+	endproc;
+	
+//	export proc void StopEverything()
+//		if(m_xReactor.IsValid())then
+//			var ^CVirtualProduceUnit pxUnit=cast<CVirtualProduceUnit>(m_xReactor.GetObj());
+//			if(pxUnit!=null)then
+//				pxUnit^.BreakTasks();
+//			endif;
+//		endif;
+//		if(m_xProduceUnit.IsValid())then
+//			var ^CVirtualProduceUnit pxUnit=cast<CVirtualProduceUnit>(m_xProduceUnit.GetObj());
+//			if(pxUnit!=null)then
+//				pxUnit^.BreakTasks();
+//			endif;
+//		endif;
+//		if(m_pxTaskMgr!=null)then
+//			m_pxTaskMgr^.BreakAll();
+//			if(HasWalkAction())then
+//				TerminateAction();
+//			endif;
+//			if(m_pxPatrolInfo!=null)then
+//				delete m_pxPatrolInfo;
+//				m_pxPatrolInfo=null;
+//			endif;
+//		endif;
+//		m_bFreeHunting=false;
+//		UpdateAggressionPos(GetPos());
+//		return;
+//	endproc;
+	
+endclass;
+
+class CCorsair inherit CBigSizeShip
+
+	const int TIMER_REPAIR_TURRETS=40165;
+	const real TIMERID_TURRETLAYER_FREQUENCY=2.0f;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="NMLy")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var CObjHndl xInvalid;
+			xInvalid.DoKArc(pxArc^);
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		if(!p_bLoad)then
+			CreatePersonalProduceUnit();
+		endif;
+		var ^CAttribs pxAttr=GetAttribs();
+		var ^CFightingObj.CSpecialAbility pxAb=m_xAbilities.GetAbility("repair_turrets", true);
+		if(pxAb!=null)then
+			DeleteTimer(TIMER_REPAIR_TURRETS);
+			m_xLastFunctionTime=CTimeMgr.Get().GetTime();
+			CreateTimer(TIMER_REPAIR_TURRETS, CGameTimeSpan.OneSecond() * TIMERID_TURRETLAYER_FREQUENCY, true);
+			m_xFunctionUnits.SetClass("ninigi_water_turret");
+			if(pxAttr!=null)then
+				pxAttr^.SetValue("HealingMarker",pxAb^.GetValueF("radius"));
+			endif;
+		else
+			if(pxAttr!=null)then
+				pxAttr^.SetValue("HealingMarker",0.0f);
+			endif;
+		endif;
+	endproc;
+	
+	export proc void OnTechTreeChange(ref CStringArray p_rasChanges)
+		super.OnTechTreeChange(p_rasChanges);
+		var bool bTurretRepair=false;
+		var int i,iC;
+		for(i=0)cond(i<p_rasChanges.NumEntries())iter(i++)do
+			var string sVal=p_rasChanges[i];
+			if(sVal.Find("special_abilities")>=0)then
+				bTurretRepair=true;
+			endif;
+		endfor;
+		if(bTurretRepair)then
+			var ^CFightingObj.CSpecialAbility pxAb=m_xAbilities.GetAbility("repair_turrets", true);
+			var ^CAttribs pxAttr=GetAttribs();
+			if(pxAb!=null)then
+				AddRangedBuff("owner_healing");
+				DeleteTimer(TIMER_REPAIR_TURRETS);
+				m_xLastFunctionTime=CTimeMgr.Get().GetTime();
+				CreateTimer(TIMER_REPAIR_TURRETS, CGameTimeSpan.OneSecond() * TIMERID_TURRETLAYER_FREQUENCY, true);
+				m_xFunctionUnits.SetClass("ninigi_water_turret");
+				if(pxAttr!=null)then
+					pxAttr^.SetValue("HealingMarker",pxAb^.GetValueF("radius"));
+				endif;
+			else
+				RemoveRangedBuff("owner_healing");
+				DeleteTimer(TIMER_REPAIR_TURRETS);
+				if(pxAttr!=null)then
+					pxAttr^.SetValue("HealingMarker",0.0f);
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			var int iTimerID=p_rxEvtPtr.GetInt(0);
+			if(iTimerID==TIMER_REPAIR_TURRETS)then
+				DoTurretRepair();
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		else
+			super.HandleEvent(p_rxEvtPtr);
+		endif;
+	endproc;
+	
+	proc void DoTurretRepair()
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		var CGameTimeSpan xDT=xNow-m_xLastFunctionTime;
+		var real fTime=xDT.GetSecondsF();
+		if(fTime==0.0)then return; endif;
+		m_xLastFunctionTime=xNow;
+		if(fTime>TIMERID_TURRETLAYER_FREQUENCY+1.0f)then return; endif;
+		var CObjList xUnits;
+		var vec3 vPos=GetPos();
+		CSrvWrap.GetDiplomacyMgr().AddMyFriendsToSearch(GetOwner(), m_xFunctionUnits);
+		m_xFunctionUnits.RegionCircle(vPos,GetRepairRadius());
+		if(!m_xFunctionUnits.Execute(xUnits))then return; endif;
+		xUnits.Validate();
+		var int i,iC=xUnits.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+//			if(xUnits[i]==GetHandle())then continue; endif;
+			var ^CFightingObj pxFWalk=cast<CFightingObj>(xUnits[i].GetObj());
+			if(pxFWalk!=null)then
+				var real fValue=fTime*GetRepairAmount(pxFWalk);
+				pxFWalk^.HealMe(fValue,false);
+			endif;
+		endfor;
+	endproc;
+	
+	export proc real GetRepairAmount(^CFightingObj p_pxTarget)
+		var ^CFightingObj.CSpecialAbility pxA=m_xAbilities.GetAbility("repair_turrets", true);
+		if(pxA==null)then return -1.0; endif;
+		var real fMod=p_pxTarget^.GetMaxHitpoints() * pxA^.GetValueF("mod") * 0.01;
+		var real fAmount=(pxA^.GetValueF("amount") * GetTechTreeModifier("Healing",true))+GetTechTreeModifier("Healing",false);
+		return fAmount+fMod;
+	endproc;
+	
+	export proc real GetRepairRadius()
+		var ^CFightingObj.CSpecialAbility pxA=m_xAbilities.GetAbility("repair_turrets", true);
+		if(pxA!=null)then
+			return pxA^.GetValueF("radius");
+		endif;
+		return -1.0f;
+	endproc;
+	
+	export proc bool IsAbleToFight()
+		return false;
+	endproc;
+
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		var ^CVirtualProduceUnit pxUnit=cast<CVirtualProduceUnit>(GetProduceUnit().GetObj());
+		if(pxUnit==null)then
+			super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+		endif;
+		if(p_sCommand=="Action")then
+			if(p_sMiscParams.Find("/Build/SHIP/ninigi_water_turret")!=-1)then
+				var bool bAIHelp=false;
+				if(p_sMiscParams.Find(" /AI_Help")!=-1)then
+					var ^CBasePlayer pxPlayer=CBasePlayer.GetPlayer(GetOwner());
+					if(pxPlayer!=null)then
+						bAIHelp=(cast<CAiPlayer>(pxPlayer))!=null;
+					endif;
+				endif;
+				var ^CPlaceWaterTurret pxTask=cast<CPlaceWaterTurret>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(),"WateTurr"));
+				if(pxTask!=null)then
+					if(pxTask^.Init(GetHandle(),p_vPos,bAIHelp))then
+						AddTask(pxTask, p_bQ);
+					else
+						pxTask^.GetFactory()^.FreeState(pxTask);
+					endif;
+				endif;
+				return;
+			else
+				super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+			endif;
+		elseif(p_sCommand=="Cancel")then
+			pxUnit^.ReactToGamePlayCommand(p_sCommand, p_pxObject, p_vPos, p_sMiscParams, p_bQ, p_bS, p_bA);
+		else
+			super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+		endif;
+	endproc;
+
+endclass;
+
+class CWaterTurret inherit CShip
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		if(!p_bLoad)then
+			SetBuildUp(CBuildUpBase.TYPE_WEAPON);
+			var ^CGameObj pxO=CSrvWrap.GetObjMgr()^.CreateObj("ninigi_water_turret_cannon", GetOwner());
+			if(pxO!=null)then
+				GetBuildUp()^.AddObj(pxO^.GetHandle(), "we");
+			endif;
+			cast<CBuildUpWeapon>(GetBuildUp())^.SetWeaponClass(GetClassName());
+			cast<CBuildUpWeapon>(GetBuildUp())^.SetCanRotate(true);
+			cast<CBuildUpWeapon>(GetBuildUp())^.SetAutoAttack(true);
+			cast<CBuildUpWeapon>(GetBuildUp())^.SetRotAnim("turn");
+			AnimAction("attack_front");
+		endif;
+	endproc;
+
+	export proc bool IsAbleToWalk()
+		return false;
+	endproc;
+
+	export proc bool DoesCountInUnitLimit()
+		return false;
+	endproc;
+
+	export proc string GetReportCode()
+		return "defence";
+	endproc;
+	
+endclass;
+
+class CTorpedoTurtle inherit CShip
+
+	const real LIFTIME										= 60.0f;
+	const real ALARM_RANGE_CHECK_INTERVAL	= 2.0f;
+	const real NEW_DEST_INTERVAL					= 3.0f;
+
+	const int	LIFETIME_TIMER_ID=666;
+	const int	CHECK_ALARM_RANGE=667;
+
+	var bool m_bBooooomed;
+
+	export constructor()
+		m_bBooooomed=false;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		if(!p_bLoad)then
+			CreateTimer(LIFETIME_TIMER_ID, CGameTimeSpan.OneSecond() * LIFTIME, false);
+			CreateTimer(CHECK_ALARM_RANGE, CGameTimeSpan.OneSecond() * ALARM_RANGE_CHECK_INTERVAL, true);
+		else
+		endif;
+		SetSpraySize(1);
+		OnActionEnd(false);
+		SetDestructionType(GetGfxName(),"dying");
+//		SetDestructionType(GetGfxName(),"sink");
+	endproc;
+	
+	export proc bool IsAbleToWalk()
+		return true;
+	endproc;
+	
+	proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			if(p_rxEvtPtr.GetInt(0)==LIFETIME_TIMER_ID)then
+				Die();
+				//Explode();
+			elseif(p_rxEvtPtr.GetInt(0)==CHECK_ALARM_RANGE)then
+				if(!m_xCurEnemy.IsValid())then
+//					CheckForNearbyEnemies();
+					if(!CheckForNearbyEnemies()&&!HasWalkAction())then
+						var vec3 vP=ChooseRandomDestination(25.0f, 2.0f);
+						GoTo(vP, true, GetDefaultSpeed(), true, true, false, false, true);
+					endif;
+				endif;
+			endif;
+		elseif(p_rxEvtPtr.GetClass()=="CTheLite")then
+			var ^CTheLite pxTask=cast<CTheLite>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(),"CTheLite"));
+			if(pxTask!=null)then
+				if(pxTask^.Init(GetHandle(), p_rxEvtPtr.GetObjHandle(0), true))then
+					AddTask(pxTask,true);
+				else
+					pxTask^.GetFactory()^.FreeState(pxTask);
+				endif;
+				return;
+			endif;
+		endif;
+		super.HandleEvent(p_rxEvtPtr);
+	endproc;
+	
+	proc vec3 ChooseRandomDestination(real p_fRadius, real p_fAng)
+		var real fAng=(Random.GetInt()%(p_fAng*2.0f).ToInt() - (p_fAng.ToInt())).ToReal() * 0.3f;
+		var vec3 vCurPos=GetPos();
+		var vec3 vCurDir={0.0, 1.0, 0.0};
+		var vec3 vRotVec;
+		vRotVec.SetZ(fAng);
+		var Quat qRot;
+		qRot.FromVec3(vRotVec);
+		qRot=GetRot() * qRot;
+		qRot.VecRotateU(vCurDir);
+		vCurDir*=p_fRadius;
+		return vCurPos+vCurDir;
+	endproc;
+	
+	proc bool CheckForNearbyEnemies()
+		var CObjQuery xQ;
+		xQ.RegionCircle(GetPos(), 120.0f);
+		xQ.SetType("SHIP", false);
+		xQ.SetType("ANML", true);
+		xQ.SetType("BLDG", true);
+		xQ.SetType("VHCL", true);
+		var int i, iC=8;
+		var int iMyOwner=GetOwner();
+		var bool bApp=false;
+		for (i=0) cond(i<iC) iter(++i)do
+			if(i!=iMyOwner && CSrvWrap.GetDiplomacyMgr().GetIsEnemy(iMyOwner, i))then
+				xQ.SetOwner(i, bApp);
+				if(!bApp)then bApp=true; endif;
+			endif;
+		endfor;
+		var ^CGameObj pxEnemy=null;
+		var ^CObjList pxList=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(GetOwner());
+		var CObjList xL, xT;
+		if(pxList!=null)then
+			pxList^.CopySorted(xT, GetPos(), 120.0f);
+			xQ.Execute(xT,xL);
+		endif;
+		if(xL.NumEntries() > 0)then
+			var int i, iC=xL.NumEntries();
+			for(i=0) cond(i<iC) iter(++i)do
+				if(xL[i].IsValid())then
+					var ^CGameObj pxO=xL[i].GetObj();
+					if(pxO!=null)then
+						if(pxO^.GetType()=="ANML"||pxO^.GetType()=="VHCL")then
+							if(!(pxO^.IsInWater() && pxO^.CanSwim()))then
+								continue;
+							endif;
+						elseif(pxO^.GetType()=="BLDG")then
+							if(pxO^.GetClassName()=="pirate_boss_tail"
+								||pxO^.GetClassName()=="pirate_boss_sail"
+								||pxO^.GetClassName()=="pirate_boss_row")then
+								pxEnemy=pxO;
+								break;
+							elseif(pxO^.GetClassName().Find("harbour")>=0)then
+								pxEnemy=pxO;
+								break;
+							elseif(pxO^.GetClassName()=="seas_carrier")then
+								pxEnemy=pxO;
+								break;
+							elseif(pxO^.GetClassName()=="PT_Citywall_Gate")then
+								pxEnemy=pxO;
+								break;
+							else
+								continue;
+							endif;
+						endif;
+						if(pxO^.GetClassName()=="pirate_boss")then
+							var CObjQuery xQuery;
+							xQuery.RegionCircle(GetPos(), 100.0f);
+							xQuery.SetClass("pirate_boss_tail", false);
+							xQuery.SetClass("pirate_boss_sail", true);
+							xQuery.SetClass("pirate_boss_row", true);
+							var CObjList xList;
+							xQuery.Execute(xList);
+							if(xList.NumEntries()>0)then
+								pxEnemy=xList[0].GetObj();
+								break;
+							endif;
+							continue;
+//						elseif(pxO^.GetClassName()=="ninigi_pirate_boss_ship")then
+//							var CObjQuery xQuery;
+//							xQuery.RegionCircle(GetPos(), 100.0f);
+//							xQuery.SetClass("ninigi_pirate_ship_tail", false);
+//							xQuery.SetClass("ninigi_pirate_ship_sail", true);
+//							xQuery.SetClass("ninigi_pirate_ship_row", true);
+//							var CObjList xList;
+//							xQuery.Execute(xList);
+//							if(xList.NumEntries()>0)then
+//								pxEnemy=xList[0].GetObj();
+//								break;
+//							endif;
+//							continue;
+						endif;
+//						if(pxO^.GetIsVanished())then continue; endif;
+						pxEnemy=pxO;
+						break;
+					endif;
+				endif;
+			endfor;
+		endif;
+		if(pxEnemy!=null)then
+			var vec3 vEPos=pxEnemy^.GetPos();
+			if( (vEPos-GetPos()).Abs2()<(pxEnemy^.GetRadius()+GetRadius()) )then
+				Explode(pxEnemy^.GetPos());
+			elseif(!(m_xCurEnemy==pxEnemy^.GetHandle()))then
+				OnDefend(pxEnemy);
+//				var bool bRot;
+//				AttackEnemy(pxEnemy, vEPos, bRot);
+//				GoTo(vEPos, true, GetDefaultSpeed(), true, true, false, false, true);
+				m_xCurEnemy=pxEnemy^.GetHandle();
+			endif;
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+//	export proc void OnDefend(^CGameObj p_pxEnemy)
+//		if(!GetCurEnemy().IsValid())then
+//			OnDefend(pxEnemy);
+//		endif;
+//		return;
+//	endproc;
+	
+	export proc bool AttackEnemy(^CFightingObj p_pxEnemy, vec3 p_vTarget, ref bool p_rbRotated)
+		if(p_pxEnemy==null)then return false; endif;
+		if(p_pxEnemy^.IsFlyingUnit() && !CanShootAir())then return false; endif;
+//		if(p_pxEnemy^.GetIsVanished())then return false; endif;
+		if(IsInCombatRange(p_pxEnemy))then
+			Explode(p_pxEnemy^.GetPos());
+			return false;
+		endif;
+		return super.AttackEnemy(p_pxEnemy, p_vTarget, p_rbRotated);
+	endproc;
+	
+	export proc void OnActionEnd(bool p_bBroken)
+		super.OnActionEnd(p_bBroken);
+		if(p_bBroken)then
+			SetCurEnemy(CObjHndl.Invalid());
+		endif;
+		if(m_bBooooomed)then
+			Delete();
+			return;
+		endif;
+		if(!p_bBroken&&!CheckForNearbyEnemies())then
+			var vec3 vP=ChooseRandomDestination(25.0f, 2.0f);
+			GoTo(vP, true, GetDefaultSpeed(), true, true, false, false, true);
+		endif;
+	endproc;
+
+	export proc void OnActionPreEnd(bool p_bBroken)
+		if(p_bBroken)then
+			SetCurEnemy(CObjHndl.Invalid());
+		endif;
+	endproc;
+	
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		if(p_sMiscParams.Find("/Kill")!=-1||p_sMiscParams.Find("/AttackSrv")!=-1)then
+			super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+		endif;
+		return;
+	endproc;
+
+	export proc void Explode(vec3 p_vPos)
+		if(m_bBooooomed)then return; endif;
+		AnimAction("boom");
+		InvokeGenericSCEvent(15,3.0f);
+		var ^CAreaDamage pxDmg=new CAreaDamage(this, GetSpawningPool(), "/Objects/Aje/Weapons/aje_torpedo_turtle_ammo", p_vPos);
+		m_bBooooomed=true;
+	endproc;
+
+	export proc bool DoesCountInUnitLimit()
+		return false;
+	endproc;
+
+	export proc CObjHndl GetEnemyHandle()
+		return m_xSpawningPool;
+	endproc;
+	
+endclass;
+
+
+class CWaterMine inherit CShip
+
+	const real MINE_BOOM_RADIUS=10.0f;
+	const int DIE_TIMER=23;
+	var bool m_bHaraKiri;
+
+	export constructor()
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		SetDynamicBBox(true);
+		SetDestructionType(GetGfxName(),"standanim");
+		if(!p_bLoad)then
+			var vec3 vP;
+			vP.SetXYZ(MINE_BOOM_RADIUS, MINE_BOOM_RADIUS, 0.0f);
+			CreatePersonalRegion("WaterMineRegion_"+GetName()+"_"+Random.GetInt().ToString(), vP, 2.ToBitset());
+			InvokeGenericSCEvent(33,4.5f);
+			AnimAction("attack_front");
+		endif;
+		SetCanSwim(false);
+		SetCanWalk(false);
+		SetCanFly(false);
+		m_xSink.m_xOnObjAdd=OnExplode;
+	endproc;
+
+	export proc void OnDefend(^CGameObj p_pxEnemy)
+		//drop this, mines don't walk around, see RT#15353
+	endproc;
+
+	export proc bool DoesCountInUnitLimit()
+		return false;
+	endproc;
+
+	export proc bool OnExplode(CObjHndl p_xObj)
+		if(HasTimer(DIE_TIMER))then return false; endif;
+//		var ^CGameObj pxO=p_xObj.GetObj();
+		var ^CFightingObj pxO=cast<CFightingObj>(p_xObj.GetObj());
+		if(pxO!=null)then
+			if(!pxO^.IsFlyingUnit() && !pxO^.GetIsVanished() && pxO^.GetClassName().Find("_zeppelin")==-1 && !pxO^.GetTransportObj().IsValid() && (pxO^.GetType()=="ANML"||pxO^.GetType()=="BLDG"||pxO^.GetType()=="CHTR"||pxO^.GetType()=="SHIP"||pxO^.GetType()=="VHCL") && CSrvWrap.GetDiplomacyMgr().GetIsEnemy(GetOwner(), pxO^.GetOwner()))then
+				InvokeGenericSCEvent(34,2.0f);
+				CreateTimer(DIE_TIMER, CGameTimeSpan.OneSecond() * 0.5f, false);
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			if(p_rxEvtPtr.GetInt(0)==DIE_TIMER)then
+				DeleteTimer(DIE_TIMER);
+				DeletePersonalRegion();
+				Delete();
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		else
+			super.HandleEvent(p_rxEvtPtr);
+		endif;
+	endproc;
+
+	export proc void Die()
+		if(HasTimer(DIE_TIMER))then return();endif;
+		if(!m_bHaraKiri)then
+			InvokeGenericSCEvent(34,2.0f);
+		endif;
+		CreateTimer(DIE_TIMER,CGameTimeSpan.OneSecond()*0.5f,false);
+		return;
+	endproc;
+
+	export proc void Delete()
+//		new CAreaDamage(this, GetPos());
+		if(!m_bHaraKiri)then
+			var ^CAreaDamage pxDmg=new CAreaDamage(this, GetSpawningPool(), "/Objects/Ninigi/Weapons/ninigi_watermine_weapon", GetPos());
+		endif;
+		super.Delete();
+	endproc;
+
+	export proc CObjHndl GetEnemyHandle()
+		return m_xSpawningPool;
+	endproc;
+	
+	export proc string GetReportCode()
+		return "defence";
+	endproc;
+	
+	export proc void DiePerHarakiri()
+		if(IsDestructible())then return; endif;
+		m_bHaraKiri=true;
+		return super.DiePerHarakiri();
+	endproc;
+	
+endclass;
+
+class CShipCorpse inherit CUniversalCorpse
+
+	var string		m_sSinkAnim;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+	endproc;
+
+	export proc bool Init(string p_sGfxName,string p_sSinkAnim, string p_sName, real p_fDuration)
+		m_sSinkAnim=p_sSinkAnim;
+		super.Init(p_sGfxName,p_sName,p_fDuration);
+		return(true);
+	endproc;
+
+	export proc void Init(string p_sGfxName, string p_sName, real p_fDuration)
+		super.Init(p_sGfxName,p_sName,p_fDuration);
+		return();
+	endproc;
+
+	proc void PlayAnim(int p_iPlayMode)
+		SetAnim(m_sSinkAnim,1);
+	endproc;
+
+endclass;

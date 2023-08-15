@@ -1,0 +1,462 @@
+class CFreeCameraModule inherit CCameraControllerModule
+	
+	var bitset m_dwMoveKeys;
+	var real m_fSpeedScale;
+	var bool m_bRotateAroundSelection;
+	var ^CObjSelection m_pxSelection;
+	var array int m_aiDir;
+	var bool m_bLevelEd;
+	
+	var real m_fSlopePos;
+	export var bitset m_dwScreenBorders;
+	export var bitset m_dwCursorKeys;
+	var real m_fScrollAccel;
+	var real m_fKeySpeedScale;
+	var real m_fMouseSpeedScale;
+	var bool m_bAllowTurn;
+	var bool m_bAllowZoom;
+
+	export var procref<void,vec3,bool,bool,bool> m_xOnMiniMapRightClick;
+
+	export constructor()
+		m_sModuleName="FreeCamera";
+		var CConfig xConf;
+		m_bLevelEd=CVersionInfo.GetCompatibleVersionsString().Find(" LevelEd ")!=-1;
+		var int iWASD=Math.Clamp(xConf.GetSetI("Client/GameplayOptions/WASDSwitch",0),0,3);
+		m_aiDir=4;
+		var bool bWASD=(m_bLevelEd&&(iWASD==2||iWASD==3))||(!m_bLevelEd&&(iWASD==1||iWASD==3));
+		if(bWASD)then
+			m_aiDir[0]=65;
+			m_aiDir[1]=68;
+			m_aiDir[2]=87;
+			m_aiDir[3]=83;
+		else
+			m_aiDir[0]=37;
+			m_aiDir[1]=39;
+			m_aiDir[2]=38;
+			m_aiDir[3]=40;
+		endif;
+		m_dwMoveKeys=00b;
+		m_dwCursorKeys=00b;
+		m_fSpeedScale=4.0;
+		m_bRotateAroundSelection=false;
+		m_fSlopePos=80.0;
+		m_fScrollAccel=1.0;
+		m_fMouseSpeedScale=4.0;
+		var real fTmp=4.0f;
+		if(!CSettings.Get("Client/ScrollSpeed",fTmp))then
+			CSettings.Set("Client/ScrollSpeed",fTmp);
+		endif;
+		m_fKeySpeedScale=fTmp;
+		var string sTemp;
+		if(CSettings.Get("Game/ControllerOptions/AllowTurn",sTemp)==false)then
+			sTemp="false";
+			CSettings.Set("Game/ControllerOptions/AllowTurn",sTemp);
+		endif;
+		m_bAllowTurn=(sTemp=="true");
+		if(CSettings.Get("Game/ControllerOptions/AllowZoom",sTemp)==false)then
+			sTemp="false";
+			CSettings.Set("Game/ControllerOptions/AllowZoom",sTemp);
+		endif;
+		m_bAllowZoom=(sTemp=="true");
+		m_pxSelection=null;
+		// mini map handling
+		//CClientWrap.GetUIMgr().GetMiniMap().m_xOnDblClick=OnMiniMapDblClick;
+		CClientWrap.GetUIMgr().GetMiniMap().m_xOnMouseEvent=OnMiniMapMouseEvent;
+	endconstructor;
+	
+	export proc void SetRotateAroundSelection(bool p_bEnable)
+		m_bRotateAroundSelection=p_bEnable;
+	endproc;
+
+	export proc bool GetRotateAroundSelection()
+		return m_bRotateAroundSelection;
+	endproc;
+
+	export proc void OnSetCamera(^CCamera p_pxCamera)
+		UpdateFromCamera(p_pxCamera);
+		Up()={0.0,0.0,1.0};
+		m_pxParent^.SetGroundSnapping(false);
+	endproc;
+
+	export proc void OnActivate(^CCamera p_pxCamera)
+		UpdateFromCamera(p_pxCamera);
+		Up()={0.0,0.0,1.0};
+		m_pxParent^.SetGroundSnapping(false);
+	endproc;
+
+	export proc void PreActivate(^CCamera p_pxCamera)
+		UpdateFromCamera(p_pxCamera);
+		Up()={0.0,0.0,1.0};
+		m_pxParent^.SetGroundSnapping(false);
+	endproc;
+
+	export proc bool OnKeyDown(bitset p_dwFlags, int p_iKey)
+		switch(p_iKey)
+//			case(37)do m_dwMoveKeys|=0000001b; endcase; // crsr_lf => left
+//			case(39)do m_dwMoveKeys|=0000010b; endcase; // crsr_rt => right
+//			case(38)do m_dwMoveKeys|=0000100b; endcase; // crsr_up => up
+//			case(40)do m_dwMoveKeys|=0001000b; endcase; // crsr_dn => down
+			case(33)do m_dwMoveKeys|=0010000b; endcase; // pg_up => rise
+			case(34)do m_dwMoveKeys|=0100000b; endcase; // pg_dn => fall
+			case default do endcase;
+		endswitch;
+		if(p_iKey==m_aiDir[0])then // left
+			m_dwMoveKeys|=00001b;
+			m_dwCursorKeys|=00001b;
+		elseif(p_iKey==m_aiDir[1])then // right
+			m_dwMoveKeys|=00010b;
+			m_dwCursorKeys|=00010b;
+		elseif(p_iKey==m_aiDir[2])then // up
+			m_dwMoveKeys|=00100b;
+			m_dwCursorKeys|=00100b;
+		elseif(p_iKey==m_aiDir[3])then // down
+			m_dwMoveKeys|=01000b;
+			m_dwCursorKeys|=01000b;
+		endif;
+		return false;
+	endproc;
+
+	export proc bool OnKeyUp(bitset p_dwFlags, int p_iKey)
+		switch(p_iKey)
+//			case(37)do m_dwMoveKeys&=0111110b; endcase; // crsr_lf => left
+//			case(39)do m_dwMoveKeys&=0111101b; endcase; // crsr_rt => right
+//			case(38)do m_dwMoveKeys&=0111011b; endcase; // crsr_up => up
+//			case(40)do m_dwMoveKeys&=0110111b; endcase; // crsr_dn => down
+			case(33)do m_dwMoveKeys&=0101111b; endcase; // pg_up => rise
+			case(34)do m_dwMoveKeys&=0011111b; endcase; // pg_dn => fall
+			case default do endcase;
+		endswitch;
+		if(p_iKey==m_aiDir[0])then // left
+			m_dwMoveKeys&=01110b;
+			m_dwCursorKeys&=01110b;
+		elseif(p_iKey==m_aiDir[1])then // right
+			m_dwMoveKeys&=01101b;
+			m_dwCursorKeys&=01101b;
+		elseif(p_iKey==m_aiDir[2])then // up
+			m_dwMoveKeys&=01011b;
+			m_dwCursorKeys&=01011b;
+		elseif(p_iKey==m_aiDir[3])then // down
+			m_dwMoveKeys&=00111b;
+			m_dwCursorKeys&=00111b;
+		endif;
+		return false;
+	endproc;
+
+	export proc bool OnTick()
+		if(m_bLevelEd)then
+			if((m_dwMoveKeys&0111111b)!=00b)then
+				UpdateDirections();
+				var vec3 vDir;
+				if((m_dwMoveKeys&0000001b)!=00b)then vDir+=(m_vDirX*m_fSpeedScale); endif;
+				if((m_dwMoveKeys&0000010b)!=00b)then vDir-=(m_vDirX*m_fSpeedScale); endif;
+				if((m_dwMoveKeys&0000100b)!=00b)then vDir+=(m_vDirY*m_fSpeedScale); endif;
+				if((m_dwMoveKeys&0001000b)!=00b)then vDir-=(m_vDirY*m_fSpeedScale); endif;
+				if((m_dwMoveKeys&0010000b)!=00b)then vDir+=({0.0,0.0,1.0}*m_fSpeedScale); endif;
+				if((m_dwMoveKeys&0100000b)!=00b)then vDir-=({0.0,0.0,1.0}*m_fSpeedScale); endif;
+				var real fZPos=(m_vEye+vDir).GetZ();
+				if((fZPos>=0.0f)&&(fZPos<=2048.0f))then
+					m_vEye+=vDir;
+					m_vLookAt+=vDir;
+				endif;
+				return true;
+			endif;
+		else
+			if(CWindowMgr.Get().GetModalWindow()!=null) then
+				m_dwScreenBorders=0d;
+				ResetKeyboardScrolling();
+				return false;
+			endif;
+			if((m_dwMoveKeys&0111111b)!=00b)then
+				UpdateDirections();
+				var real fWheelDelta;
+				if((CMainController.Get().GetKeyFlags()&Msg.KM_SHIFT)!=0d)then
+					m_fSpeedScale=16.0f;
+				else
+					m_fSpeedScale=4.0f;
+				endif;
+				var vec3 vDir;
+				if((m_dwMoveKeys&0010000b)!=00b)then vDir+=({0.0,0.0,1.0}*m_fSpeedScale); endif;
+				if((m_dwMoveKeys&0100000b)!=00b)then vDir-=({0.0,0.0,1.0}*m_fSpeedScale); endif;
+				var real fZPos=(m_vEye+vDir).GetZ();
+				if((fZPos>=0.0f)&&(fZPos<=2048.0f))then
+					m_vEye+=vDir;
+					m_vLookAt+=vDir;
+				endif;
+				var point xMouse=CWindowMgr.Get().GetMousePos();
+				var real fFactor=m_pxParent^.CheckScreenBordersLoose(xMouse.GetX(), xMouse.GetY() ,m_dwScreenBorders);
+				var bitset dwMove=m_dwCursorKeys|m_dwScreenBorders;
+				if((dwMove&01111b)!=00b)then
+					UpdateDirections();
+					dwMove=m_dwScreenBorders;
+					if(dwMove!=00b)then
+						var vec3 vDir;
+						fFactor=m_fScrollAccel*fFactor*0.2;
+						if((dwMove&00001b)!=00b)then vDir+=(m_vDirX*m_fKeySpeedScale*fFactor*1.5f); endif;
+						if((dwMove&00010b)!=00b)then vDir-=(m_vDirX*m_fKeySpeedScale*fFactor*1.5f); endif;
+						if((dwMove&00100b)!=00b)then vDir+=(m_vDirY*m_fKeySpeedScale*fFactor*1.5f); endif;
+						if((dwMove&01000b)!=00b)then vDir-=(m_vDirY*m_fKeySpeedScale*fFactor*1.5f); endif;
+						m_vEye+=vDir;
+						m_vLookAt+=vDir;
+						m_fScrollAccel=Math.Min(m_fScrollAccel+0.05,5.0);
+						var ^CUTCmdSender pxUTCmdSender=CClientWrap.GetUTCmdSender();
+						if(pxUTCmdSender!=null)then
+							pxUTCmdSender^.CameraScroll(vDir);
+						endif;
+					endif;
+					dwMove=m_dwCursorKeys;
+					if(dwMove!=00b)then
+						var vec3 vDir;
+						if((dwMove&00001b)!=00b)then vDir+=(m_vDirX*m_fKeySpeedScale); endif;
+						if((dwMove&00010b)!=00b)then vDir-=(m_vDirX*m_fKeySpeedScale); endif;
+						if((dwMove&00100b)!=00b)then vDir+=(m_vDirY*m_fKeySpeedScale); endif;
+						if((dwMove&01000b)!=00b)then vDir-=(m_vDirY*m_fKeySpeedScale); endif;
+						m_vEye+=vDir;
+						m_vLookAt+=vDir;
+						var ^CUTCmdSender pxUTCmdSender=CClientWrap.GetUTCmdSender();
+						if(pxUTCmdSender!=null)then
+							pxUTCmdSender^.CameraScroll(vDir);
+						endif;
+					endif;
+				endif;
+				return true;
+			endif;
+			m_fScrollAccel=1.0;
+		endif;
+		return false;
+	endproc;
+	
+	export proc bool OnBtnDown(bitset p_dwFlags, int p_iBtn)
+		var bool bAlt = ((p_dwFlags&0100b)==0100b);
+		super.OnBtnDown(p_dwFlags,p_iBtn);
+		return bAlt;
+	endproc;
+
+	export proc bool OnMouseMove(bitset p_dwFlags, int p_iX, int p_iY)
+		var bool bAlt = ((p_dwFlags&0100b)==0100b);
+//		if(m_bLevelEd)then
+			if(bAlt)then
+				if(GetLMB())then
+					if((Math.Abs(GetDiffX())<200)&&(Math.Abs(GetDiffY())<200))then
+						// -- turn view
+						var real fXDrehScale=0.01;
+						var real fYDrehScale=0.01;
+						var real fXDrehChange=0.0;
+						var real fYDrehChange=0.0;
+						fXDrehChange=GetDiffX().ToReal()*fXDrehScale;
+						m_fAngle+=fXDrehChange;
+						fYDrehChange=GetDiffY().ToReal()*fYDrehScale;
+						m_fElevation+=fYDrehChange;
+						m_fElevation=Math.Max(m_fElevation,0.1);
+						if(m_bRotateAroundSelection==true)then
+							LookAtSelection(false);
+						endif;
+						EyeFromAngles();
+					endif;
+					return true;
+				elseif(GetRMB())then
+					if((Math.Abs(GetDiffX())<200)&&(Math.Abs(GetDiffY())<200))then
+						UpdateDirections();
+						// -- pan view
+						var real fXScale=0.025*m_fSpeedScale;
+						var real fYScale=0.025*m_fSpeedScale;
+						var vec3 vMoveX = m_vDirX*GetDiffX().ToReal()*fXScale;
+						var vec3 vMoveY = m_vDirY*GetDiffY().ToReal()*fYScale;
+						m_vLookAt+=vMoveX;
+						m_vLookAt+=vMoveY;
+						m_vEye+=vMoveX;
+						m_vEye+=vMoveY;
+					endif;
+					return true;
+				endif;
+			endif;
+		/*
+		else
+			m_dwScreenBorders=00b;
+			var bool bPan=false;
+			var bool bTurn=false;
+			var real fDiffX=GetDiffX().ToReal();
+			var real fDiffY=GetDiffY().ToReal();
+			if((bAlt)&&(GetRMB()))then bPan=true; endif;
+			if((bAlt)&&(GetLMB()))then bTurn=true; endif;
+			if(GetMMB())then
+				if(GetRMB())then
+					bPan=false;
+					bTurn=true;
+				else
+					bPan=true;
+					bTurn=false;
+				endif;
+			endif;
+			if(bPan)then
+				if((Math.Abs(fDiffX)<200.0)&&(Math.Abs(fDiffY)<200.0))then
+					var real fMouseSpeed=m_fMouseSpeedScale*CCameraControllerBase.GetMousePanSpeed();
+					UpdateDirections();
+					m_pxParent^.EnableMouseWrapAutoReset();
+					// -- pan view
+					var real fXScale=0.025*fMouseSpeed;
+					var real fYScale=0.025*fMouseSpeed;
+					var vec3 vMoveX = m_vDirX*fDiffX*fXScale;
+					var vec3 vMoveY = m_vDirY*fDiffY*fYScale;
+					m_vLookAt+=vMoveX;
+					m_vLookAt+=vMoveY;
+					m_vEye+=vMoveX;
+					m_vEye+=vMoveY;
+					var ^CUTCmdSender pxUTCmdSender=CClientWrap.GetUTCmdSender();
+					if(pxUTCmdSender!=null)then
+						pxUTCmdSender^.CameraPan();
+					endif;
+					return true;
+				endif;
+			endif;
+			if(bTurn)then
+				if((Math.Abs(fDiffX)<200.0)&&(Math.Abs(fDiffY)<200.0))then
+					m_pxParent^.EnableMouseWrapAutoReset();
+					// -- turn view
+					if(m_bAllowTurn)then
+						var real fXDrehScale=0.01;
+						var real fXDrehChange=0.0;
+						fXDrehChange=fDiffX*fXDrehScale;
+						m_fAngle+=fXDrehChange;
+					endif;
+					EyeFromAngles();
+					if(m_bAllowZoom)then
+						var real fYDrehScale=0.01*6.0*m_fMouseSpeedScale;
+						var real fYDrehChange=0.0;
+						fYDrehChange=fDiffY*fYDrehScale;
+						m_fSlopePos+=fYDrehChange;
+					endif;
+					var ^CUTCmdSender pxUTCmdSender=CClientWrap.GetUTCmdSender();
+					if(pxUTCmdSender!=null)then
+						pxUTCmdSender^.CameraTurn();
+					endif;
+					return true;
+				endif;
+			endif;
+			m_pxParent^.CheckScreenBorders(p_iX,p_iY,m_dwScreenBorders);
+		endif;
+		*/
+		return false;
+	endproc;
+	
+	export proc bool OnMouseWheel(bitset p_dwFlags, int p_iDelta)
+		var real fWheelDelta;
+		var real fMulti = 150.0f;
+		if(!m_bLevelEd&&(p_dwFlags & Msg.KM_SHIFT)!=0d)then
+			fMulti = 50.0f;
+		endif;
+		fWheelDelta = (p_iDelta.ToReal()/fMulti);
+		m_fDistance -= fWheelDelta*m_fSpeedScale;
+		m_fDistance = Math.Max(m_fDistance,0.01);
+		EyeFromAngles();
+		return true;
+	endproc;
+	
+	proc bool OnMiniMapDblClick(vec3 p_vPos)
+		m_pxParent^.SetCameraTarget(p_vPos,true);
+		return true;
+	endproc;
+	
+	proc bool OnMiniMapMouseEvent(vec3 p_vPos, bitset p_dwMouseButtons, bitset p_dwKeyModifiers)
+		var bool bStrg = (p_dwKeyModifiers & Msg.KM_CONTROL) !=0d;
+		var bool bAlt = (p_dwKeyModifiers & Msg.KM_ALT) !=0d;
+		var bool bShift = (p_dwKeyModifiers & Msg.KM_SHIFT) !=0d;
+
+		var bool bLMB = (p_dwMouseButtons & CMiniMap.MB_Left) != 0d;
+		var bool bRMB = (p_dwMouseButtons & CMiniMap.MB_Right) != 0d;
+		var bool bMMB = (p_dwMouseButtons & CMiniMap.MB_Middle) != 0d;
+		var bool bRMBUp = (p_dwMouseButtons & CMiniMap.MB_RightUp) != 0d;
+
+		if(bLMB)then
+			m_pxParent^.SetCameraTarget(p_vPos,true);
+		endif;
+
+		if(bRMBUp)then
+			// [PaHa] initiate walk action
+			if(!(m_xOnMiniMapRightClick.IsNull()))then
+				m_xOnMiniMapRightClick.Call(p_vPos,bShift,bStrg,bAlt);
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	export proc void ResetCamera()
+		if(m_bLevelEd)then
+			m_fAngle=0.0;
+			m_fElevation=Math.Pi()/4.0;
+			m_fDistance=30.0;
+			EyeFromAngles();
+		else
+			m_fSlopePos=100.0;
+			ResetKeyboardScrolling();
+			m_dwScreenBorders = 00b;
+			UpdateSlope();
+		endif;
+		m_pxParent^.UpdateCamera();
+	endproc;
+
+	proc void LookAtSelection(bool p_bUpdate)
+		var bool bHasSelection=true;
+		m_pxSelection=^(CClientWrap.GetSelection());
+		if((m_pxSelection==null)||(m_pxSelection^.NumEntries()<1))then
+			bHasSelection=false;
+		endif;
+		if(bHasSelection)then
+			UpdateDirections();
+			// make camera look at the selection
+			m_vLookAt = m_pxSelection^.GetPos();
+			if(p_bUpdate==true)then
+				EyeFromAngles();
+			endif;
+		endif;
+	endproc;
+	
+	export proc void SetMovementKeys(int p_iSwitch)
+		if(m_aiDir.NumEntries()!=4)then
+			m_aiDir=4;
+		endif;
+		var bool bWASD=(m_bLevelEd&&(p_iSwitch==2||p_iSwitch==3))||(!m_bLevelEd&&(p_iSwitch==1||p_iSwitch==3));
+		if(bWASD)then
+			m_aiDir[0]=65;
+			m_aiDir[1]=68;
+			m_aiDir[2]=87;
+			m_aiDir[3]=83;
+		else
+			m_aiDir[0]=37;
+			m_aiDir[1]=39;
+			m_aiDir[2]=38;
+			m_aiDir[3]=40;
+		endif;
+	endproc;
+	
+	export proc void UpdateSlope()
+		m_fSlopePos=Math.Clamp(m_fSlopePos,10.0,100.0);
+		m_fDistance=GetCurveValue(0,m_fSlopePos);
+		m_fElevation=GetCurveValue(1,m_fSlopePos);
+		m_fFOV=GetCurveValue(3,m_fSlopePos);
+		EyeFromAngles();
+		var vec3 vOfs={0.0,0.0,0.0};
+		vOfs.SetZ(GetCurveValue(2,m_fSlopePos));
+		m_pxParent^.SetSnapOffset(vOfs);
+		m_pxParent^.SnapOnGround(m_vEye,m_vLookAt);
+	endproc;
+	
+	export proc void ResetKeyboardScrolling()
+		m_dwMoveKeys = 00b;
+		m_dwCursorKeys = 00b;
+	endproc;
+	
+	export proc void SetKeySpeedScale(real p_fKeySpeedScale)
+		if(m_fKeySpeedScale==p_fKeySpeedScale) then return; endif;
+		m_fKeySpeedScale=p_fKeySpeedScale;
+	endproc;
+	
+	export proc void ChangeAllowTurn(bool p_bTurn)
+		m_bAllowTurn=p_bTurn;
+	endproc;
+	
+	export proc void ChangeAllowZoom(bool p_bZoom)
+		m_bAllowZoom=p_bZoom;
+	endproc;
+	
+endclass;

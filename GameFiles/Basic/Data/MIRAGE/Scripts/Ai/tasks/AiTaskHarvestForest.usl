@@ -1,0 +1,177 @@
+class CAiTaskHarvestForest inherit CAiTaskGetResource
+
+	var int m_iMaxWood;
+	var vec3 m_vWoodPos;
+
+
+	///CalculateStartCost
+	export proc real CalculateStartCost()
+		var real fCost = 0.0;
+		m_pxBrain = GetGoal()^.GetAiBrain(); 
+		if(m_pxBrain==null)then return 1.0; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return 1.0; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();	
+		
+		m_iMaxWood=0;
+		m_vWoodPos={0.0,0.0,0.0};
+		
+		SetThinkWait(10);
+		
+		var ^CAiMaps pxGlobalMaps= ^(m_pxSensor^.GetGlobalAiMaps());
+		var ^CAiMaps pxMaps= ^(m_pxSensor^.GetAiMaps());
+		
+		var ^CAiMap pxCostMap= ^(pxMaps^.GetAiMap("WOOD",m_iPlayerID));
+		var ^CAiMap pxInflBuildMap= ^(pxMaps^.GetAiMap("InflBuild", m_iPlayerID));
+		var CAiMap xGenInflMap;
+		var CAiMap xRangeMap;
+
+		xRangeMap.Init(pxMaps^.GetMapWidth(), pxMaps^.GetMapHeight(), m_iPlayerID);
+		xRangeMap.ClearToFast(0.0);
+
+		var vec3 vOPPos=m_pxSensor^.GetOutpost(m_iOutpostId).GetWorldPos();
+		var int	 iOPX;
+		var int	 iOPY;
+
+		CAiArea.Vec3ToArea(vOPPos, iOPX, iOPY);
+		xRangeMap.AddInfluenceFast(iOPX, iOPY, 60.0, 0.0, 1.0);
+
+		var CAiArea	xMaxInflBuildArea=pxInflBuildMap^.FindMaxArea();
+		
+        if(pxInflBuildMap^.GetValue(xMaxInflBuildArea)>0.0) then
+			xGenInflMap.CopyFrom(pxInflBuildMap^);
+		else
+			xGenInflMap.CopyFrom(pxMaps^.GetAiMap("Infl", m_iPlayerID));
+		endif;
+		
+		xGenInflMap.OpAdd(0.5);
+		
+		pxCostMap^.CopyFromFast(pxGlobalMaps^.GetAiMap("WOOD",m_iPlayerID));
+		pxCostMap^.AddFast(pxGlobalMaps^.GetAiMap("Forest",m_iPlayerID));
+		pxCostMap^.MultiplyFast(xGenInflMap);
+		pxCostMap^.MultiplyFast(xRangeMap);
+		pxCostMap^.MultiplyFast(m_xInvalidMap);
+		pxCostMap^.MultMosaicFast(vOPPos);
+		
+		if((pxCostMap^.IsDirty())||(m_xInvalidMap.IsDirty()))then
+			pxCostMap^.UpdateBitmap();
+			pxCostMap^.SetDirty(false);
+			m_xInvalidMap.SetDirty(false);
+		endif;
+
+		m_xMaxArea = pxCostMap^.FindMaxArea();
+
+		if (pxCostMap^.GetValue(m_xMaxArea)==0.0)then
+			var ^CAiModuleControlDefault pxCM = cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+			if(pxCM!=null)then
+				pxCM^.GetCheatMgr().SpawnResources("wood", 10);
+			endif;
+			
+			SetImpossible();
+			fCost = 99999999.0f;
+		endif;
+			
+		return fCost;
+	endproc;
+
+
+	// Start
+	export proc bool Start()
+		m_pxBrain = GetGoal()^.GetAiBrain(); 
+		if(m_pxBrain==null)then return false; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();	
+		
+		if(!CAiUtilityMgr.Get()^.CheckForEnemy(m_pxBrain,m_xMaxArea.GetWorldCenterPos()))then return false; endif;
+
+		SetStarted();
+				
+		var bool bSuccess = TryAllocate(GetSolution(), m_iOutpostId, 10);
+		if(!bSuccess)then return false; endif;
+		GetAllocation()^.SetTarget(m_xMaxArea.GetWorldCenterPos());
+		return bSuccess;
+	endproc;
+
+
+	///ExecuteSolution
+	export proc void ExecuteSolution(int p_iObject, vec3 p_vPos)
+		if(m_pxSensor==null) then return; endif;
+		
+		var int iSubjectHandle=m_xSubjects[0].GetHandle();
+		var int iObjectHandle=-1;
+		if(p_iObject>=0)then
+			iObjectHandle=m_xObjects[p_iObject].GetHandle();
+		endif;
+		
+		m_pxSensor^.AddCheckpoint(this,0,"atto:"+iSubjectHandle.ToString()+",CurTask,==,Idle",0.0);
+		m_pxSensor^.AddCheckpoint(this,100,"atto:"+iSubjectHandle.ToString()+",CurTask,==,Harvest",0.0);
+		
+		m_pxSensor^.ExecuteGamePlayCommand(m_xLockedObjs, GetSolution()^.GetGPCmd(), iObjectHandle, m_xMaxArea.GetWorldCenterPos(), GetSolution()^.GetAdditionalAttribs());
+	endproc;
+	
+	
+	///EvtRequestAccepted
+	export proc void EvtRequestAccepted(^CAiRequestInfo p_pxInfo)
+		if(p_pxInfo^.GetType()=="ATCK")then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+		endif;
+	endproc;
+
+
+	///EvtRequestRejected
+	export proc void EvtRequestRejected(^CAiRequestInfo p_pxInfo)
+		if(p_pxInfo^.GetType()=="ATCK")then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+		endif;
+	endproc;
+
+
+	///EvtRequestFailed
+	export proc void EvtRequestFailed(^CAiRequestInfo p_pxInfo)
+		if(p_pxInfo^.GetType()=="ATCK")then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+		endif;
+	endproc;
+	
+	
+	///EvtRequestSucceeded
+	export proc void EvtRequestSucceeded(^CAiRequestInfo p_pxInfo)
+		var CAiObjWrapList xUnits;
+		if(p_pxInfo^.GetType()=="ATCK")then
+			var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+		endif;
+	endproc;
+	
+	
+	///Think
+	proc void Think()
+		MaxInstanceCount();
+	endproc;
+	
+	
+	///CheckMaxInstanceCount
+	proc void MaxInstanceCount();
+		var ^CAiTechTree pxTT=^(m_pxSensor^.GetTechTree());
+		var ^CAiNodeInstance pxNI;
+		pxNI = pxTT^.GetNodeInstanceFromPartialName("wood");
+		if(pxNI!=null)then
+			if(pxNI^.GetInstanceCount() >= pxNI^.GetMaxInstanceCount())then
+				if(m_xLockedObjs.NumEntries()>0)then
+					m_pxSensor^.ExecuteGamePlayCommand(m_xLockedObjs, "Action", -1 , {0.0,0.0,0.0}, "/Stop");
+					CAiUtilityMgr.Get()^.LockExternal(this, m_xLockedObjs);
+					CAiUtilityMgr.Get()^.UnlockExternal(this, m_xLockedObjs);
+					Abort();
+					Shut();
+				endif;
+			endif;
+		endif;			
+	endproc;
+	
+endclass;

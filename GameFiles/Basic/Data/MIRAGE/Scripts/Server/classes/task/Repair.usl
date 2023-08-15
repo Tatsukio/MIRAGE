@@ -1,0 +1,469 @@
+class CRepair inherit CTargetTask
+
+	const real SEAS_IMPROVED_REPAIR	= 2.0;
+	var CObjHndl			m_xWorker;				///< character raising
+	var CObjHndl			m_xBuilding;			///< this building
+	var CGameTime			m_xLastTick;
+	var CFourCC				m_xLink;
+	var vec3					m_vCurTarget;
+	var string				m_sState;
+	var bool					m_bNoLink;
+	var bool					m_bFirstHit;
+	var bool					m_bLastHit;
+	var real					m_fStep;
+	var real					m_fTimeFactor;
+	var array string	m_asResources;
+	var array int			m_aiCosts;
+
+	var CObjList			m_xIgnoreBuildUps;
+	var CObjList			m_xWallsDone;
+
+	var CFourCC				m_xFCCRightHandLink;
+	var string				m_sWeapon;
+	var bool					m_bFreeRepair;
+	var bool					m_bBFPWRepair;
+
+	export constructor()
+		SetName("Repair");
+		m_fTimeFactor=-1.0;
+		m_xFCCRightHandLink="HndR";
+		m_bFreeRepair=false;
+		m_bBFPWRepair=false;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Repa";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xWorker.DoKArc(pxArc^);
+		m_xBuilding.DoKArc(pxArc^);
+		m_xLastTick.DoKArc(pxArc^);
+		(pxArc^) << m_xLink;
+		(pxArc^) << m_vCurTarget;
+		(pxArc^) << m_sState;
+		(pxArc^) << m_bNoLink;
+		(pxArc^) << m_bFirstHit;
+		(pxArc^) << m_bLastHit;
+		(pxArc^) << m_fStep;
+		(pxArc^) << m_fTimeFactor;
+		var int i,iC=m_asResources.NumEntries();
+		(pxArc^) << iC;
+		for(i=0) cond(i<iC) iter(i++) do
+			(pxArc^) << m_asResources[i];
+		endfor;
+		iC=m_aiCosts.NumEntries();
+		(pxArc^) << iC;
+		for(i=0) cond(i<iC) iter(i++) do
+			(pxArc^) << m_aiCosts[i];
+		endfor;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Repa")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xWorker.DoKArc(pxArc^);
+			m_xBuilding.DoKArc(pxArc^);
+			m_xLastTick.DoKArc(pxArc^);
+			(pxArc^) << m_xLink;
+			(pxArc^) << m_vCurTarget;
+			(pxArc^) << m_sState;
+			(pxArc^) << m_bNoLink;
+			(pxArc^) << m_bFirstHit;
+			(pxArc^) << m_bLastHit;
+			(pxArc^) << m_fStep;
+			(pxArc^) << m_fTimeFactor;
+			var int i,iC;
+			(pxArc^) << iC;
+			m_asResources=iC;
+			for(i=0) cond(i<iC) iter(i++) do
+				(pxArc^) << m_asResources[i];
+			endfor;
+			(pxArc^) << iC;
+			m_aiCosts=iC;
+			for(i=0) cond(i<iC) iter(i++) do
+				(pxArc^) << m_aiCosts[i];
+			endfor;
+			var ^CGameObj pxWorker=m_xWorker.GetObj();
+			if(pxWorker!=null)then
+				var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xWorker.GetObj());
+				if(pxFightingObj!=null && pxFightingObj^.CanBuild())then
+					m_sWeapon=pxFightingObj^.GetPlayerTribeName()+"_hammer";
+				endif;
+				CheckBfPW(pxWorker^.GetClassName());
+				//m_sWeapon=pxWorker^.GetClassName().Left(pxWorker^.GetClassName().Find("_"))+"_hammer";
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	/// return value specifies if idleanim should be set
+	export proc bool OnActionEnd(bool p_bBroken)
+		return false;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xWorker,CObjHndl p_xBuilding,CObjList p_xIgnoreTargets)
+		if(!p_xWorker.IsValid()||!p_xBuilding.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		//L KLog.LogSpam("JaNe","Repair INIT()");
+		m_xWorker=p_xWorker;
+		m_xBuilding=p_xBuilding;
+		var ^CBuilding pxBuilding=cast<CBuilding>(m_xBuilding.GetObj());
+		var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+		if(pxBuilding==null)then return false; endif;
+		if(pxWorker==null)then return false; endif;
+		if(!pxWorker^.CanBuild())then return false; endif;
+		if(pxBuilding^.GetConstructLevel()<4 && !CMirageSrvMgr.Get().AllyBuildup() && !(pxBuilding^.GetOwner()!=pxWorker^.GetOwner()))then return false; endif;
+		CheckBfPW(pxWorker^.GetClassName());
+		pxWorker^.AnnounceState("repair");
+		if(pxWorker!=null)then
+			var ^CFightingObj pxFightingObj=cast<CFightingObj>(m_xWorker.GetObj());
+			if(pxFightingObj!=null)then
+				m_sWeapon=pxFightingObj^.GetPlayerTribeName()+"_hammer";
+			endif;
+		endif;
+		//m_sWeapon=pxWorker^.GetClassName().Left(pxWorker^.GetClassName().Find("_"))+"_hammer";
+		//Check if unit may repair
+		var ^CAttribs pxAttr=pxWorker^.GetAttribs();
+		if(pxAttr!=null)then
+			pxAttr^.SetValue("CurTask",GetName());
+		endif;
+		m_xIgnoreBuildUps=p_xIgnoreTargets;
+		m_sState="goto_building";
+		return true;
+	endproc;
+	
+	proc bool UpdateResourceCosts(real p_fTimeFactor, ^CAttribs p_pxPlayerAttribs, bool p_bNoCosts)
+		var bool bCheckResources=true;
+		if(p_fTimeFactor!=m_fTimeFactor)then
+			m_fTimeFactor=p_fTimeFactor;
+			var ^CBuilding pxBuilding=cast<CBuilding>(m_xBuilding.GetObj());
+			if(pxBuilding==null)then return false; endif;
+			m_aiCosts=0;
+			m_asResources=0;
+			var CTechTree xTechTree=pxBuilding^.GetTechTree();
+			var ^CTechTree.CNode pxNode=xTechTree.FindNode(pxBuilding^.GetBuildAction()+"/conditions/rescosts");
+			var real fDuration=xTechTree.GetValueR(pxBuilding^.GetBuildAction()+"/duration",10.0) * m_fTimeFactor;
+			fDuration*=pxBuilding^.GetTechTreeActionModifier(pxBuilding^.GetBuildAction(), "duration");
+			if(fDuration==0.0)then
+				fDuration=1.0;
+			endif;
+			m_fStep=40.0f;
+			var ^CWall pxWall=cast<CWall>(pxBuilding);
+			var ^CGate pxGate=cast<CGate>(pxBuilding);
+			if(pxWall!=null||pxGate!=null)then
+				m_fStep=120.0f;
+			endif;
+			var real fLevelFactor=5.0f;
+			if(m_bBFPWRepair)then
+				m_fStep=20.0f;
+//				fLevelFactor=4.25f;
+			endif;
+			var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+			if(pxWorker!=null)then
+				m_fStep+=(fLevelFactor*pxWorker^.GetLevel().ToReal());
+			endif;
+			begin CheckSEASBonus;
+				var bool bSeasBetterToolsInvented=CRequirementsMgr.Get().CheckInvention(pxBuilding, pxBuilding^.GetOwner(), "seas_better_tools", pxBuilding^.GetTribeName());
+				if(pxWorker^.GetClassName()=="seas_worker")then
+					if(bSeasBetterToolsInvented)then
+						m_fStep*=SEAS_IMPROVED_REPAIR;
+					endif;
+				endif;
+			end CheckSEASBonus;
+			if(pxNode!=null)then
+				var int i, iC=pxNode^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					var int iValue=pxNode^.GetSub(i)^.GetValue().ToInt();
+					if(iValue>0)then
+						var string sRes=pxNode^.GetSub(i)^.GetName();
+						if(p_pxPlayerAttribs^.GetValueInt(sRes)<=0 && !p_bNoCosts)then
+							var string sName=sRes;
+							sName.MakeUpper();
+							if(sName=="STONE")then
+								sName="STON";
+							endif;
+							sName="_NT_AI_RESSOURCE_"+sName;
+							CFeedback.Print(pxBuilding^.GetOwner(), CFeedback.ECONOMY, "_NT_ActionFailRsc\t"+sName);
+							bCheckResources=false;
+						endif;
+						m_asResources.AddEntry(pxNode^.GetSub(i)^.GetName());
+						m_aiCosts.AddEntry( Math.Max(((iValue.ToReal()/(fDuration*1.1))+0.5).ToInt(),1));
+					endif;
+				endfor;
+			endif;
+		endif;
+		return bCheckResources;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		//L KLog.LogSpam("JaNe","Repair ENTER()");
+		if(!m_xBuilding.IsValid())then EndTask();return();endif;
+		if(!m_xWorker.IsValid())then EndTask();return();endif;
+		var ^CBuilding pxBuilding=cast<CBuilding>(m_xBuilding.GetObj());
+		var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+		if(pxBuilding==null)then EndTask(); return; endif;
+		if(pxWorker==null)then EndTask(); return; endif;
+		var ^CAttribs pxBuildingAttribs=pxBuilding^.GetAttribs();
+		if(pxBuildingAttribs==null)then return; endif;
+		if(pxBuildingAttribs^.GetValue("CurTask")=="BuildUpB"||pxBuildingAttribs^.GetValueInt("ReadyForWork")==0)then
+			var CObjList xEmpty;
+			pxWorker^.Build(m_xBuilding,true,xEmpty);
+			EndTask();
+		endif;
+		pxWorker^.SetTaskDescription("repair");
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		if(!m_xBuilding.IsValid())then EndTask();return();endif;
+		if(!m_xWorker.IsValid())then EndTask();return();endif;
+		var ^CBuilding pxBuilding=cast<CBuilding>(m_xBuilding.GetObj());
+		var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+		if(pxBuilding==null)then return; endif;
+		if(pxWorker==null)then return; endif;
+		var string sAnim="hammer";
+		if(pxBuilding^.GetIsTrap())then sAnim="disembowel"; endif;
+		if(!CSrvWrap.GetDiplomacyMgr().GetIsFriend(pxWorker^.GetOwner(), pxBuilding^.GetOwner()))then EndTask(); return; endif;
+		if(m_sState=="goto_building")then
+			var ^CFightingObj pxTemp=cast<CFightingObj>(m_xWorker.GetObj());
+			if(pxTemp==null)then EndTask();return;endif;
+			pxTemp^.HideWeapons();
+			if(sAnim!="disembowel")then
+				pxWorker^.SetLinkGFX(m_xFCCRightHandLink,m_sWeapon);
+			endif;
+			var real fRadius=pxBuilding^.GetRadius();
+			m_xLink=pxBuilding^.OccupyLink(pxWorker^.GetPos());
+			m_vCurTarget=pxBuilding^.GetPos();
+			var bool bValidTarget=true;
+			if(pxBuilding^.GetWallMapObj())then
+				CSrvWrap.GetPathfinder().GetWallAccessPos(pxWorker^.GetOwner(),pxWorker^.GetPos(),m_vCurTarget,m_vCurTarget);
+			else
+				var bool bOtherPosFound=false;
+				var bool bBigBuilding=CMirageSrvMgr.IsBigBuildingAgain(pxBuilding^.GetClassName(), pxBuilding^.GetGfxName());
+				var bool bSwimming=pxBuilding^.IsInWater()&&(pxBuilding^.GetClassName()=="aje_floating_harbour"||pxBuilding^.GetClassName()=="seas_carrier");
+				if(bSwimming||!pxBuilding^.GetLinkPosWorld(m_xLink,m_vCurTarget))then
+					var vec3 vOutPos=pxWorker^.GetPos() - pxBuilding^.GetPos();
+					vOutPos.Normalize();
+					vOutPos*= 5.0;
+					m_vCurTarget=pxBuilding^.GetPos()+vOutPos;
+					if(!CSrvWrap.GetObjMgr()^.GetFreePos(m_vCurTarget, pxWorker, m_vCurTarget, null, true, false, false, 1.0, 010b, pxBuilding^.GetRadius()*1.5))then
+						if(bBigBuilding)then
+							bOtherPosFound=true;
+						else
+							bValidTarget=false;
+						endif;
+					else
+						bOtherPosFound=true;
+					endif;
+				endif;
+				if(!bOtherPosFound && bValidTarget && !CSrvWrap.GetObjMgr()^.GetFreePos(m_vCurTarget, pxWorker, m_vCurTarget, null, true, false, false, 1.0, 010b, fRadius+4.0))then
+					bValidTarget=false;
+				endif;
+			endif;
+			if(pxWorker^.GetOnWall())then
+				pxWorker^.WallWalkAction(m_vCurTarget,true,pxWorker^.GetDefaultSpeed(),false);
+			else
+				pxWorker^.WalkAction(m_vCurTarget,pxWorker^.GetDefaultSpeed(),true);
+			endif;
+			if(!bValidTarget)then
+				pxWorker^.TerminateAction(); //stop worker
+				EndTask();
+				return;
+			endif;
+			SetCurrentTarget(m_vCurTarget);
+			SetMaxCounter(2);
+			m_sState="rotate_to_building";
+		elseif(m_sState=="rotate_to_building")then
+			//var real fMinDis=4.0f;
+			var real fMinDis=CMirageSrvMgr.IsBigBuilding(pxBuilding^.GetClassName(), pxBuilding^.GetGfxName());
+			if(!HasArrivedTarget(pxWorker^.GetPos(),fMinDis))then
+				if(CanFollow())then
+					m_sState="goto_building";
+				else
+					if(IsUserCommand())then
+						pxWorker^.UpdateAggressionPos(pxWorker^.GetPos());
+					endif;
+					m_xIgnoreBuildUps.Include(m_xBuilding);
+					EndTask();
+				endif;
+				return;
+			else
+				var Quat qTRot;
+				var vec3 vDir=(pxBuilding^.GetPos()-pxWorker^.GetPos()).GetNormalized();
+				qTRot.FromXYDir(vDir.GetX(), vDir.GetY());
+				pxWorker^.RotateAction(qTRot);
+				m_bFirstHit=true;
+				m_bLastHit=false;
+				m_sState="do_anim";
+			endif;
+			m_xLastTick=CTimeMgr.Get().GetTime();
+		elseif(m_sState=="do_anim")then
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			var ^CPlayer pxPlayer=pxLevel^.GetPlayer(pxWorker^.GetOwner());
+			if(pxPlayer==null)then EndTask();return();endif;
+			var ^CAttribs pxAttr=pxPlayer^.GetAttribs();
+			if(pxAttr==null)then EndTask();return();endif;
+			//if(!UpdateResourceCosts(pxWorker^.GetSelfTimeFactor(),pxAttr, (pxWorker^.GetRepairNoCost()-2)==pxWorker^.GetOwner()))then
+			if(!UpdateResourceCosts(pxWorker^.GetSelfTimeFactor(),pxAttr, (CMirageSrvMgr.Get().GetRepairNoCost(pxWorker^.GetOwner())||m_bFreeRepair)))then
+				EndTask();
+				return;
+			endif;
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			pxBuilding^.EnableRepairProtection();
+			if(!m_bFirstHit)then
+				if(pxWorker^.GetCurrentAnimName()!=sAnim && !m_bLastHit)then
+					m_bFirstHit=true;
+					var ^CFightingObj pxTemp=cast<CFightingObj>(m_xWorker.GetObj());
+					if(pxTemp==null)then EndTask();return;endif;
+					pxTemp^.HideWeapons();
+					if(sAnim!="disembowel")then
+						m_sWeapon=pxTemp^.GetPlayerTribeName()+"_hammer";
+						pxWorker^.SetLinkGFX(m_xFCCRightHandLink,m_sWeapon);
+					endif;
+				endif;
+			endif;
+			if(m_bFirstHit)then
+				pxWorker^.SetSLEAnim(sAnim,9999,true,true);
+			endif;
+			if(m_bFirstHit)then
+				m_bFirstHit=false;
+			else
+				if(!(pxBuilding^.Repair(m_fStep * (xNow - m_xLastTick).GetSecondsF(), m_bFreeRepair, pxWorker^.GetOwner())))then
+					pxWorker^.AnimActionStopLoop();
+					m_sState="exit";
+					return;
+				endif;
+			endif;
+			m_xLastTick=xNow;
+		elseif(m_sState=="wait")then
+//			if(pxBuilding^.GetHitpoints()<pxBuilding^.GetMaxHitpoints())then
+//				m_sState="goto_building";
+//				return;
+//			endif;
+			if(pxWorker^.SearchBuildingToRepair(null, m_xIgnoreBuildUps))then
+				m_sState="exit_for_sure";
+				EndTask();
+			else
+				pxWorker^.WaitAction(5.0f); // Henry: wait before next checking
+			endif;
+			return;
+		elseif(m_sState=="goto_exit")then
+			m_sState="exit";
+		elseif(m_sState=="exit"||m_sState=="exit_for_sure")then
+			if(pxWorker!=null)then
+				pxWorker^.RemLinkGFX(m_xFCCRightHandLink);
+				var ^CFightingObj pxTemp=cast<CFightingObj>(m_xWorker.GetObj());
+				if(pxTemp==null)then EndTask();return; endif;
+				pxTemp^.ShowWeapons();
+				if(IsUserCommand())then
+					pxTemp^.UpdateAggressionPos(pxTemp^.GetPos());
+				endif;
+				m_xWallsDone.Include(m_xBuilding);
+			endif;
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		//L KLog.LogSpam("Repair","USLOnLeave");
+		var ^CCharacter pxChar=cast<CCharacter>(m_xWorker.GetObj());
+		if(pxChar!=null)then 
+			pxChar^.SetTaskDescription("");
+			pxChar^.ShowWeapons();
+		endif;
+	endproc;
+
+	export proc bool Break()
+		var ^CGameObj pxBldg=m_xBuilding.GetObj();
+		if(pxBldg!=null)then
+			var ^CBuilding pxBuilding=cast<CBuilding>(pxBldg);
+			if(pxBuilding!=null)then
+				pxBuilding^.FreeLink(m_xLink);
+			endif;
+		endif;
+		var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+		if(pxWorker!=null)then
+			pxWorker^.TerminateAction();
+		endif;
+		m_sState="exit_for_sure";
+		return true;
+	endproc;
+	
+	export proc void EndTask()
+		var ^CGameObj pxBldg=m_xBuilding.GetObj();
+		if(pxBldg!=null)then
+			var ^CBuilding pxBuilding=cast<CBuilding>(pxBldg);
+			if(pxBuilding!=null)then
+				pxBuilding^.FreeLink(m_xLink);
+			endif;
+		endif;
+		if(IsUserCommand())then
+			UpdateAggressionPos(m_xWorker);
+		endif;
+		var bool bContinue=false;
+		var ^CCharacter pxWorker=cast<CCharacter>(m_xWorker.GetObj());
+		if(pxWorker!=null)then
+			bContinue=CMirageSrvMgr.Get().GetContinueRepair(pxWorker^.GetOwner())&&pxBldg!=null;
+			var ^CBuilding pxBuilding=cast<CBuilding>(pxBldg);
+			var int iPlayer=pxWorker^.GetOwner();
+			var ^CBasePlayer pxBPl=CBasePlayer.GetPlayer(iPlayer);
+			if(pxBPl!=null&&pxBuilding!=null&&pxBuilding^.GetHitpoints()>=pxBuilding^.GetMaxHitpoints()&&pxBuilding^.PlayRepairDoneSFX())then
+				CSrvWrap.SendGenericEvtToPlayer(iPlayer,"RepairDone");
+			endif;
+		endif;
+		if((cast<CWall>(pxBldg))!=null)then
+			if(pxWorker!=null)then
+				var ^CTaskMgr pxTM=pxWorker^.GetTaskMgr();
+				if(pxTM!=null)then
+					if(pxTM^.NumSubs()<=1)then
+						var ^CWallMapSrv pxWM=CSrvWrap.GetObjMgr()^.GetObjPlaceChecker()^.GetWallMap();
+						if(pxWM==null)then return; endif;
+						var CObjList xWalls,xGates;
+						pxWM^.GetNextWalls(pxWorker^.GetPos(),50.0f,xWalls);
+						pxWM^.GetNextGates(pxWorker^.GetPos(),50.0f,xGates);
+						xWalls.Include(xGates);
+						xWalls.SortDistance(pxWorker^.GetPos());
+						var int i,iC=xWalls.NumEntries();
+						for(i=0)cond(i<iC)iter(i++)do
+							var ^CBuilding pxW=cast<CBuilding>(xWalls[i].GetObj());
+							if(pxW^.GetHitpoints()<pxW^.GetMaxHitpoints() && pxW^.IsReady() && pxW^.GetOwner()==pxWorker^.GetOwner())then
+								if(m_xWallsDone.FindEntry(xWalls[i])==-1)then
+									m_xBuilding=xWalls[i];
+									m_sState="goto_building";
+									return;
+								endif;
+							endif;
+						endfor;
+					endif;
+				endif;
+			endif;
+		endif;
+		//Check for other workplaces
+		if(pxWorker!=null)then
+			var bool bFound;
+			var ^CBuilding pxBuilding=cast<CBuilding>(pxBldg);
+			if(pxBuilding!=null)then
+				bFound=pxWorker^.SearchBuildingToRepair(pxBuilding, m_xIgnoreBuildUps);
+			endif;
+			if(!bFound&&bContinue&&m_sState!="exit_for_sure")then
+				m_sState="wait";
+				m_xIgnoreBuildUps.Clear();
+				return;
+			endif;
+		endif;
+		super.EndTask();
+	endproc;
+	
+	proc void CheckBfPW(string p_sClass)
+		if(CMirageSrvMgr.Get().GetMapNameSimple()=="_CU_MP_6_BFPW_HIGHLAND"&&p_sClass=="tesla_s0")then
+			m_bBFPWRepair=true;
+		endif;
+	endproc;
+	
+endclass;

@@ -1,0 +1,234 @@
+class CFlagControl1 inherit CWizardStepWnd
+
+	var ^CEdit		m_pxFlag;
+	var CFlagControlCreator m_xCreator;
+	
+	export constructor()
+		if (!InitFromResource("Trigger/WizardFlagControl", "FlagControl_Step1")) then
+			KLog.LogError("UI.TriggerWizard", "InitFromResource failed");
+			return;
+		endif;
+		
+		m_pxFlag = cast<CEdit>(GetControl("Flag"));
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	proc void StoreData()
+		var ^CPropDB.CNode pxNode = ^(m_pxParentWnd^.GetData().GetRoot());
+		if(pxNode!=null) then
+			pxNode^.SetValue("Flagname",m_pxFlag^.GetText());
+		endif;
+	endproc;
+	
+	export proc void OnNext()
+		StoreData();
+	endproc;
+	
+	export proc void OnBack()
+		StoreData();
+	endproc;
+	
+	export proc bool IsLast()
+		return true;
+	endproc;
+
+	export proc ^CWizardTriggerCreater GetTriggerCreater()
+		StoreData();
+		return ^m_xCreator;
+	endproc;
+endclass;
+
+class CFlagControlCreator inherit CWizardTriggerCreater
+
+	export constructor()
+	endconstructor;
+
+	export proc bool CreateTrigger(^CTriggerWizard p_pxWizard)
+		if(p_pxWizard==null) then return false; endif;
+		var ^CPropDB.CNode pxRoot = ^(p_pxWizard^.GetData().GetRoot());
+		var ^CTriggerDescMgr pxTM = ^(CLevelEditorWrap.GetTriggerDescMgr());
+		var string sFlagname = pxRoot^.GetValueS("Flagname");
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxNodeVars = pxLevelInfo^.GetGenericData().FindNode("Variables", true);
+
+		var CTriggerDescMgr.CNode xRoot = pxTM^.GetHierarchyRoot();
+		var CTriggerDescMgr.CNode xMakroNode = xRoot.FindChild("FlagControl");
+		if(!xMakroNode.IsValid()) then
+			xMakroNode = pxTM^.CreateNewNode(xRoot, "FlagControl");
+		endif;
+		xMakroNode = xMakroNode.FindChild("control "+sFlagname);
+		if(!xMakroNode.IsValid()) then
+			xMakroNode = pxTM^.CreateNewNode(xRoot.FindChild("FlagControl"),"control "+sFlagname);
+		endif;
+
+		// Get the region Guid
+		var string sRegionGuid;
+		var ^CRegionBase pxRgn=CLevelEditorWrap.GetRegionMgr()^.GetRegion("flagregion_"+sFlagname);
+		if(pxRgn!=null)then
+			sRegionGuid=pxRgn^.GetGUID().ToString();
+		else
+			CMessageBox.MsgBox("Wizard error","Region flagregion_"+sFlagname+" was not found! Wizard aborted");
+			return true;
+		endif;
+		// Get the flag object Guid
+		var string sFlagGuid;
+		var ^CObj pxObj=CClientWrap.GetObjMgr().FindObjByName("flag_"+sFlagname);
+		if(pxObj!=null)then
+			sFlagGuid=pxObj^.GetGuid().ToString();
+			else
+			CMessageBox.MsgBox("Wizard error","Object flag_"+sFlagname+" was not found! Wizard aborted");
+			return true;	
+		endif;
+
+		// Create INBA flag var
+		var string sVarName = "flag_"+sFlagname;
+		pxNodeVars^.AddValue(sVarName, "");
+		var ^CPropDB.CNode pxVarNode = pxNodeVars^.Get(sVarName);
+		if(pxVarNode!=null) then
+			pxVarNode^.SetValue("type","int");
+			pxVarNode^.SetValue("value","0");
+		endif;
+
+		var int i;
+		// i=8 is LOOSE CONTROL!!!
+		for(i=-1) cond(i<8) iter(++i) do
+			// Add variables
+			/*var string sPlVarName = sFlagname+"_pl"+i.ToString();
+			pxNodeVars^.AddValue(sPlVarName, "");
+			var ^CPropDB.CNode pxVarNode = pxNodeVars^.Get(sPlVarName);
+			if(pxVarNode!=null) then
+				pxVarNode^.SetValue("type","int");
+				pxVarNode^.SetValue("value","0");
+			endif;*/
+			// First create triggers and store guid
+			var ^CTriggerDesc pxTrigger=null;
+			var string sTriggerName = "capture "+sFlagname+" pl"+i.ToString();
+			if(i==-1)then sTriggerName = "loose control"; endif;
+			var CGuid xGuid = pxTM^.CreateTrigger(sTriggerName);
+			var int iTriggerIdx = pxTM^.FindTrigger(xGuid);
+			if(iTriggerIdx>=0) then
+				pxTrigger = pxTM^.GetTrigger(iTriggerIdx);
+			else
+				return true;
+			endif;
+			pxTM^.MoveTrigger(pxTrigger, xRoot, xMakroNode);
+			var string sTriggerGuid = pxTrigger^.GetGuid().ToString();
+
+			// There we also set expression, conditions and capture actions:
+			// Change flag var, Occupy flag to player, Reactivate self
+			// Gameplay: If flag is not captured and Player has > 0 units in area => capture
+			pxTrigger^.SetExpression("1 && 2 && 3 && 4 && 5 && 6 && 7 && 8 && 9");
+			var int i2 = 0;
+			var CFourCC xT = "CVAR";
+			var int iCondIdx = pxTrigger^.AddCondition(xT);
+			var ^CTriggerDesc.CCondition pxCond = pxTrigger^.GetCondition(iCondIdx);
+			pxCond^.SetName("flag not owned by pl"+i.ToString());
+			if(pxCond!=null) then
+				var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("local",1);
+					pxAttr^.SetValue("varname","flag_"+sFlagname);
+					pxAttr^.SetValue("value",(i+1).ToString());
+					pxAttr^.SetValue("operation","!=");
+				endif;
+			endif;
+			xT="OCPY";
+			var int iActIdx = pxTrigger^.AddAction(xT);
+			var ^CTriggerDesc.CAction pxAct = pxTrigger^.GetAction(iActIdx);
+			pxAct^.SetName("give flag obj to pl"+i.ToString());
+			if(pxAct!=null) then
+				var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("rgn_guid","UniqueWorldRegion");
+					pxAttr^.SetValue("obj_type","All|");
+					pxAttr^.SetValue("obj_owner",-2);
+					pxAttr^.SetValue("obj_guid",sFlagGuid);
+					pxAttr^.SetValue("obj_name","flag_"+sFlagname);
+					pxAttr^.SetValue("obj_class","NA");
+					pxAttr^.SetValue("exclude_class","NA");
+					pxAttr^.SetValue("char_tribe","All");
+					pxAttr^.SetValue("char_caste","All");
+					pxAttr^.SetValue("char_level",-1);
+					pxAttr^.SetValue("from_condition",-1);
+					pxAttr^.SetValue("new_owner",i);
+					pxAttr^.SetValue("highlight_time",3);
+					pxAttr^.SetValue("chk_highlight",1);
+					pxAttr^.SetValue("difficulty",1);
+				endif;
+			endif;
+			/*xT="VARS";
+			iActIdx = pxTrigger^.AddAction(xT);
+			pxAct = pxTrigger^.GetAction(iActIdx);
+			pxAct^.SetName("change flag var for INBA");
+			if(pxAct!=null) then
+				var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("difficulty",1);
+					pxAttr^.SetValue("local",1);
+					pxAttr^.SetValue("varname","flag_"+sFlagname);
+					pxAttr^.SetValue("value","Player "+(i+1).ToString());
+					pxAttr^.SetValue("operation","set");
+				endif;
+			endif;*/
+			xT = "REGN";
+			for(i2=0) cond(i2<8) iter(++i2) do
+				iCondIdx = pxTrigger^.AddCondition(xT);
+				pxCond = pxTrigger^.GetCondition(iCondIdx);
+				var string sOperator;
+				if(i==i2)then
+					sOperator = ">";
+				else
+					sOperator = "==";
+				endif;
+				pxCond^.SetName("pl"+i2.ToString()+" "+sOperator+" 0");
+				if(pxCond!=null) then
+					var ^CAttribs pxAttr = ^(pxCond^.GetParams());
+					if (pxAttr!=null) then
+						pxAttr^.SetValue("rgn_guid",sRegionGuid);
+						pxAttr^.SetValue("obj_type","CHTR|ANML|VHCL|");
+						pxAttr^.SetValue("obj_owner",i2);
+						pxAttr^.SetValue("obj_guid","NA");
+						pxAttr^.SetValue("obj_name","NA");
+						pxAttr^.SetValue("obj_class","NA");
+						pxAttr^.SetValue("exclude_class","NA");
+						pxAttr^.SetValue("char_tribe","All");
+						pxAttr^.SetValue("char_caste","All");
+						pxAttr^.SetValue("char_level",-1);
+						pxAttr^.SetValue("obj_count",sOperator+"0");
+					endif;
+				endif;
+			endfor;
+			xT="VARS";
+			iActIdx = pxTrigger^.AddAction(xT);
+			pxAct = pxTrigger^.GetAction(iActIdx);
+			pxAct^.SetName("change flag var to "+(i+1).ToString());
+			if(pxAct!=null) then
+				var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("difficulty",1);
+					pxAttr^.SetValue("local",1);
+					pxAttr^.SetValue("varname","flag_"+sFlagname);
+					pxAttr^.SetValue("value",(i+1).ToString());
+					pxAttr^.SetValue("operation","set");
+				endif;
+			endif;
+			xT="TRIG";
+			iActIdx = pxTrigger^.AddAction(xT);
+			pxAct = pxTrigger^.GetAction(iActIdx);
+			pxAct^.SetName("reactivate self");
+			if(pxAct!=null) then
+				var ^CAttribs pxAttr = ^(pxAct^.GetParams());
+				if (pxAttr!=null) then
+					pxAttr^.SetValue("guid",sTriggerGuid);
+					pxAttr^.SetValue("state",1);
+					pxAttr^.SetValue("difficulty",1);
+				endif;
+			endif;
+		endfor;
+		return true;
+	endproc;
+
+
+endclass;

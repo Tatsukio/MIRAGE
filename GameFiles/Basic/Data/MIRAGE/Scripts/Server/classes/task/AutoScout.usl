@@ -1,0 +1,161 @@
+class CAutoScout inherit CTask
+	
+	class CScoutPoint
+		
+		export var vec3			m_vPos;
+		export var point		m_xCoords;
+		export var real			m_fValue;
+		export var int			m_iFOWState;
+		var real						m_fHomeDist;
+		export var int			m_iCounter;
+		
+		export proc void Evaluate(vec3 p_vStartPos)
+			m_fHomeDist=(p_vStartPos-m_vPos).Abs();
+		endproc;
+		
+		export proc void Update(vec3 p_vScoutPos, int p_iState)
+			m_fValue=m_fHomeDist+(p_vScoutPos-m_vPos).Abs();
+			m_iFOWState=p_iState;
+		endproc;
+		
+		export proc bool op_Greater(ref CAutoScout.CScoutPoint p_rxOther)
+			if(m_iCounter!=p_rxOther.m_iCounter)then
+				return m_iCounter>p_rxOther.m_iCounter;
+			elseif(m_iFOWState!=p_rxOther.m_iFOWState)then
+				return m_iFOWState>p_rxOther.m_iFOWState;
+			else
+				return (m_fValue>p_rxOther.m_fValue);
+			endif;
+		endproc;
+		
+	endclass;
+	
+	var CObjHndl 											m_xScout;
+	var string 												m_sState;
+	var int														m_iCurIndex;
+	var vec3													m_vStartPos;
+	var int														m_iStepWidth;
+	var array CAutoScout.CScoutPoint	m_axPoints;
+	
+	export constructor()
+		SetName("AutoScou");
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="AuSc";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xScout.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_iCurIndex;
+		(pxArc^) << m_vStartPos;
+		(pxArc^) << m_iStepWidth;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="AuSc")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xScout.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_iCurIndex;
+			(pxArc^) << m_vStartPos;
+			(pxArc^) << m_iStepWidth;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool OnActionEnd(bool p_bBroken)
+		if(!p_bBroken)then
+			m_sState="evaluate_pos";
+		endif;
+		return false;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xScout, vec3 p_vStartPos)
+		m_sState="EndTask";
+		if(!p_xScout.IsValid())then
+			return false;
+		endif;
+		var ^CFightingObj pxScout=cast<CFightingObj>(p_xScout.GetObj());
+		if(pxScout==null)then
+			return false;
+		endif;
+		m_xScout=p_xScout;
+		m_vStartPos=p_vStartPos;
+		m_sState="evaluate_pos";
+		var int iIsland=CSrvWrap.ComputeIslandId(m_vStartPos);
+//		m_iStepWidth=pxScout^.GetFOWRange().ToInt();
+		m_iStepWidth=(Math.Sqrt((Math.Pow(pxScout^.GetFOWRange(),2.0))/2.0)).ToInt();
+		var real fRange=pxScout^.GetFOWRange()*0.5;
+		var ^CObjMgrHost pxObjMgr=CSrvWrap.GetObjMgr();
+		var int i,iX=(CSrvWrap.GetScapeMgr().GetMapWidth()/m_iStepWidth);
+		for(i=1)cond(i<iX)iter(i++)do
+			var int j,iY=(CSrvWrap.GetScapeMgr().GetMapHeight()/m_iStepWidth);
+			for(j=1)cond(j<iY)iter(j++)do
+				var vec3 vPos;
+				vPos.SetX((i*m_iStepWidth).ToReal());
+				vPos.SetY((j*m_iStepWidth).ToReal());
+				if(!pxObjMgr^.GetFreePos(vPos, pxScout, vPos, null, true, false, false, 1.0, 010b, fRange))then
+					continue;
+				endif;
+				if(CSrvWrap.ComputeIslandId(vPos)!=iIsland)then
+					continue;
+				endif;
+				var ^CAutoScout.CScoutPoint pxPoint = ^(m_axPoints.NewEntryRef());
+				pxPoint^.m_vPos=vPos;
+				pxPoint^.m_xCoords.SetX(i);
+				pxPoint^.m_xCoords.SetY(j);
+				pxPoint^.m_iCounter=0;
+				pxPoint^.Evaluate(m_vStartPos);
+			endfor;
+		endfor;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		var ^CFightingObj pxScout=cast<CFightingObj>(m_xScout.GetObj());
+		if(pxScout==null)then
+			EndTask();
+			return;
+		endif;
+		if(m_sState=="evaluate_pos")then
+			var ^CObjMgrHost pxObjMgr=CSrvWrap.GetObjMgr();
+			var int iOwner=pxScout^.GetOwner();
+			var vec3 vPos=pxScout^.GetPos();
+			var int i,iC=m_axPoints.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var int iState=pxObjMgr^.GetFOWState(m_axPoints[i].m_vPos, iOwner);
+				if(iState==2)then
+					m_axPoints.DeleteEntry(i); i--; iC--;
+				else
+					m_axPoints[i].Update(vPos, iState);
+				endif;
+			endfor;
+			m_axPoints.QSort();
+			m_sState="goto_pos";
+		endif;
+		if(m_axPoints.NumEntries()<=0)then
+			EndTask();
+			return;
+		endif;
+		if(m_sState=="goto_pos")then
+			pxScout^.SetAggressionWalk(true);
+			m_axPoints[0].m_iCounter++;
+			pxScout^.WalkAction(m_axPoints[0].m_vPos,pxScout^.GetMaxSpeed());
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+	
+endclass;

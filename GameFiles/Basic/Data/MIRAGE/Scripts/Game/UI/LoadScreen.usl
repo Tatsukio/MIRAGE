@@ -1,0 +1,722 @@
+class CLoadScreen inherit CDialogWindow
+	
+	var ^CDesktop		m_pxDesktop;
+	var int				m_iServerTimer;
+	var int				m_iShutTimer;
+	var int				m_iGameStartTimer;
+	var int				m_iWaitForReadyTimer;
+	var int				m_iJournalSoundTimer;
+	var int 			m_iReturnState;
+	var int				m_iQuoteTimer;
+	var int				m_iServerAndGameStartTimer;
+	var procref<bool>	m_xCallBack;
+	var bool			m_bAudioAlreadyStarted;
+	var int				m_iQuoteCounter;
+	
+	const int			REFRESHTIME_QUOTES = 10000;
+	const int			REFRESHTIME_SERVERSHUT = 3000;
+	const int			REFRESHTIME_SERVERSTART = 200;
+	const int			REFRESHTIME_GAMESTART = 200;
+	const int			REFRESHTIME_WAITFORREADY = 200;
+	const int			REFRESHTIME_SERVERSTARTANDGAMESTART = 200;
+	const int			REFRESHTIME_JOURNALSOUND = 200;
+	const int			LENGTH = 150;
+	
+	var CBitmapPtr		m_pxBG;
+	var CBitmapPtr		m_pxFG;
+	var CBitmapPtr		m_pxPicReadyButton;
+
+	var ^CStaticCtrl		m_pxBackgroundImage;
+	var ^CProgressBar		m_pxProgressBar;
+	var ^CStaticCtrlEx		m_pxLoadingDescription;
+	var ^CStaticCtrlEx		m_pxQuote;
+	var ^CStaticCtrlEx		m_pxQuoteAutor;
+	var ^CStaticCtrl		m_pxReadyButtonBackground;
+	var ^CButton			m_pxReadyButton;
+	var ^CLoadInfoWindow	m_pxLevelInfoWindow;
+	
+	var CSoundEventMgrClient.CSoundHandle	m_hSoundHandle;
+	
+	
+	var string			m_sLevelName;
+	
+	var bool			m_bShowQuotes, m_bShowLoadingDescription;
+	var int				m_iQuotes;
+	
+	export constructor()
+		if(!InitFromResource("UI/LoadScreen","LoadScreen")) then
+			return;
+		endif;
+		m_iQuoteCounter = 0;
+		m_pxDesktop=CClientWrap.GetDesktop();
+		
+		//bitmaps for loading progress bar
+		m_pxBG = CBitmapPtr.Create(CClientWrap.GetUrsRelPath()+"/data/base/ui/menue/decoration/loading_display_off.tga");
+		m_pxFG = CBitmapPtr.Create(CClientWrap.GetUrsRelPath()+"/data/base/ui/menue/decoration/loading_display_on.tga");
+		m_pxPicReadyButton = CBitmapPtr.Create(CClientWrap.GetUrsRelPath()+"/data/base/ui/menue/decoration/loading_display_startbutton.tga");
+
+		m_pxBackgroundImage = cast<CStaticCtrl>(GetControl("BackGroundPic"));
+		m_pxProgressBar = cast<CProgressBar>(GetControl("BackGroundPic/ProgressBar"));
+		m_pxLoadingDescription = cast<CStaticCtrlEx>(GetControl("BackGroundPic/LoadingDescription"));
+		m_pxQuote  = cast<CStaticCtrlEx>(GetControl("BackGroundPic/Quotes"));
+		m_pxQuoteAutor = cast<CStaticCtrlEx>(GetControl("BackGroundPic/Author"));
+		m_pxReadyButtonBackground = cast<CStaticCtrl>(GetControl("BackGroundPic/ProgressBar/ButtonBackground"));
+		m_pxReadyButton = cast<CButton>(GetControl("BackGroundPic/ProgressBar/ButtonBackground/ReadyButton"));
+		m_pxLoadingDescription^.SetTextOutline(true);
+		
+		m_pxLevelInfoWindow = new CLoadInfoWindow;
+		m_pxLevelInfoWindow^.SetVisible(false);
+		m_pxBackgroundImage^.AddChild(m_pxLevelInfoWindow);
+		m_pxLevelInfoWindow^.SetSize(340 * CGameInst.ms_iUIScaleFactor,680 * CGameInst.ms_iUIScaleFactor);
+		var int iOffset = (m_pxDesktop^.GetWidth().ToReal()*0.05).ToInt();
+		m_pxLevelInfoWindow^.SetPos(m_pxDesktop^.GetWidth()-(340 * CGameInst.ms_iUIScaleFactor)-iOffset,(m_pxDesktop^.GetHeight()/2)-((680 * CGameInst.ms_iUIScaleFactor)/2));
+		m_pxLevelInfoWindow^.SetStyle(CFrameWindow.WS_FixedPos | CFrameWindow.WS_Caption);
+
+		m_pxQuote^.SetTextOutline(true);
+		m_pxQuoteAutor^.SetTextOutline(true);
+
+		m_pxReadyButtonBackground^.SetBitmap(m_pxPicReadyButton);
+		m_pxReadyButtonBackground^.SetVisible(false);
+		m_pxReadyButton^.m_xOnClick = OnContinue;
+
+		m_pxProgressBar^.SetRange(1.0);
+		m_pxProgressBar^.SetBitmaps(m_pxBG, m_pxFG);
+		m_pxProgressBar^.SetProgress(0.0);
+		m_pxProgressBar^.SetVisible(false);
+
+		SetSize(m_pxDesktop^.GetWidth(),m_pxDesktop^.GetHeight());
+		SetPos(0,0);
+		
+		var CConfig xConf;
+		m_iQuotes = xConf.GetSetI("Game/QuotesSetting",3);
+		if(m_iQuotes>3)then m_iQuotes = 3; endif;
+		m_bShowQuotes = m_iQuotes > 0;
+		m_bShowLoadingDescription = xConf.GetSetB("Game/ShowLoadDescription", false);
+		
+		m_bAudioAlreadyStarted = false;
+	endconstructor;
+
+	export destructor()
+		CUIStateMgr.Get().LooseLoadScreen(this);
+		UnsetTimer(m_iServerTimer);
+		UnsetTimer(m_iShutTimer);
+		UnsetTimer(m_iGameStartTimer);
+		UnsetTimer(m_iWaitForReadyTimer);
+		UnsetTimer(m_iJournalSoundTimer);
+		UnsetTimer(m_iQuoteTimer);
+		UnsetTimer(m_iServerAndGameStartTimer);
+		DeactivateJournalSound();
+	enddestructor;
+	
+	proc string RandomLoadImage()
+		// not random anymore
+
+		var int iWidth = m_pxDesktop^.GetWidth();
+		var int iHeight = m_pxDesktop^.GetHeight();
+		var string sLoadBD =  "menue/decoration/loadbg_static.jpg";
+		var string sLoadBDFullHD =  "menue/decoration/loadbg_static_fullhd.jpg";
+
+		if(iWidth == 1024 && iHeight == 768)then
+			return sLoadBD;
+		elseif(iWidth == 1152 && iHeight == 864)then
+			return sLoadBD;
+		elseif(iWidth == 1280 && iHeight == 1024)then
+			return sLoadBD;
+		elseif(iWidth == 1400 && iHeight == 1050)then
+			return sLoadBD;
+		elseif(iWidth == 1600 && iHeight == 1200)then
+			return sLoadBD;
+		else
+			return sLoadBDFullHD;
+		endif;
+	endproc;
+
+	proc bool GetLoadingScreenDataFromDB(ref string p_rsImage, ref string p_rsTitle, ref string p_rsText, ref string p_rsAudio)
+		var ^CUIStateMgr.CLoadScreenInfo pxLoadScreenInfo = ^(CUIStateMgr.Get().GetLoadScreenInfo());
+		
+		if(pxLoadScreenInfo^.m_iGameType==CUIStateMgr.CLoadScreenInfo.LOADSCR_INVALID)then
+			p_rsImage = RandomLoadImage();
+			return false;
+		endif;
+
+		var CPropDB xLoadingScreenDB;
+		xLoadingScreenDB.Load(CClientWrap.GetUrsRelPath()+"/data/base/scripts/game/misc/LoadingScreens.txt");
+		var string sImage,sTitle,sText,sAudio,sLabelLoading;
+		sLabelLoading = CLocalizer.Get().Translate("_LoadScreen_LoadingGame");
+
+		var ^CPropDB.CNode pxLevelsNode = xLoadingScreenDB.GetRoot().Get("Levels");
+		if(pxLevelsNode!=null)then
+			var ^CPropDB.CNode pxLevelNode = pxLevelsNode^.Get(pxLoadScreenInfo^.m_sLevelName);
+			if(pxLevelNode!=null)then
+				pxLevelNode^.GetValue("image",sImage);
+				pxLevelNode^.GetValue("title",sTitle);
+				pxLevelNode^.GetValue("text",sText);
+				pxLevelNode^.GetValue("audio",sAudio);
+			endif;
+		endif;
+		if(sImage.IsEmpty())then
+			sImage = RandomLoadImage();
+		endif;
+		p_rsImage = sImage;
+		p_rsTitle = CLocalizer.Get().Translate(sTitle);
+		if(sTitle.IsEmpty())then p_rsTitle = CLocalizer.Get().Translate("_LoadScreen_LoadingGame"); endif;
+		if(!sText.IsEmpty())then
+			p_rsText = "\\{cogiw_1}"+CLocalizer.Get().Translate(sText)+"\\{cp}\\{br}";
+		else
+			p_rsText = "";
+		endif;
+		p_rsAudio = sAudio;
+		return true;
+	endproc;
+	
+	proc string GetBackgroundImageForSettingFromDB(string p_sSetting)
+		var string sResult;
+	
+		var CPropDB xLoadingScreenDB;
+		xLoadingScreenDB.Load(CClientWrap.GetUrsRelPath()+"/data/base/scripts/game/misc/LoadingScreens.txt");
+
+		var ^CPropDB.CNode pxSettingsNode = xLoadingScreenDB.GetRoot().Get("Settings");
+		if(pxSettingsNode!=null)then
+			var ^CPropDB.CNode pxSettingNode = pxSettingsNode^.Get(p_sSetting);
+			if(pxSettingNode!=null)then
+				pxSettingNode^.GetValue("image",sResult);
+			endif;
+		endif;
+		if(sResult.IsEmpty())then
+			sResult = RandomLoadImage();
+		endif;
+		
+		return sResult;
+	endproc;
+	
+	proc void PrepareMultiplayerData(^CLevelInfo p_pxLevelInfo, ^CMapInfoList.CMapInfo p_pxMapInfo, ref string p_rsImage, ref string p_rsTitle, ref string p_rsText, ref CBitmapPtr p_rpPreviewPic)
+			if(p_pxMapInfo!=null)then
+				p_rpPreviewPic = p_pxMapInfo^.GetPreviewBitmap();
+			endif;
+			
+			if(p_pxLevelInfo!=null)then
+				var ^CPropDB pxDB = ^(p_pxLevelInfo^.GetGenericData());
+				
+				var string sLevelName,sMapType,sDescription;
+				var int iNumPlayers = p_pxLevelInfo^.GetNumPlayers();
+				var ^CPropDB.CNode pxBaseNode=^((p_pxLevelInfo^.GetGenericData())["Base"]);
+				if(pxBaseNode!=null)then
+					sLevelName = pxBaseNode^.GetValueS("LevelName");
+					sMapType = pxBaseNode^.GetValueS("MapType");
+					sDescription = pxBaseNode^.GetValueS("Description");
+				endif;
+				
+				var string sResultText="";
+				
+				// description
+				sResultText+="\\{cogiw_1} "+CLocalizer.Get().Translate(sLevelName)+"\\{cp}\\{br}\\{cogiw_2}"+CLocalizer.Get().Translate(sDescription)+"\\{cp}\\{p}\\{p}";
+				
+				// player list
+				if(iNumPlayers>0)then
+					sResultText+="\\{ps10}";
+				endif;
+				var CPlayerSlotID xSlotID;
+				for(xSlotID=CPlayerSlotID.First())cond(xSlotID<=CPlayerSlotID.Last())iter(xSlotID.Incr())do
+					var ^CLevelInfo.CPlayerSlot pxSlot=^(p_pxLevelInfo^.GetPlayerSlot(xSlotID));
+					if(pxSlot==null)then continue; endif;
+					if(pxSlot^.IsFree())then continue; endif;
+					var string sType = pxSlot^.GetType();
+					if(sType=="invalid")then continue; endif;
+					var int iStartLocation = pxSlot^.GetHeadQuater();
+					var int iTeam = pxSlot^.GetTeam();
+					var int iColor = pxSlot^.GetColor();
+					var string sTribe = pxSlot^.GetTribe();
+					var string sName = pxSlot^.GetName();
+					if(pxSlot^.IsAIPlayer())then sName = CLocalizer.Get().Translate(sName); endif;
+					var string sPlayer=sName;
+					var ^CGame pxGame = ^(CGameWrap.GetGame());
+					if(pxGame^.GetAttribInt("RandomColor")==0)then
+						sPlayer="\\{codc"+iColor.ToString()+"}"+sName+"\\{/cp}";
+					endif;
+					sResultText+="\\{io5}\\{il-1;layer tribeicon_"+sTribe+"}"+sPlayer+"\\{/cp}\\{p}";
+				endfor;
+
+				// write back results
+				//p_rsImage = RandomLoadImage();
+				p_rsImage = GetBackgroundImageForSettingFromDB(p_pxLevelInfo^.GetLevelSetting());
+				p_rsTitle = CLocalizer.Get().Translate("_LoadScreen_LoadingGame");
+				p_rsText = sResultText;
+			endif;
+	endproc;
+	
+	proc void PrepareSingleplayerData(ref string p_rsImage, ref string p_rsTitle, ref string p_rsText,ref string p_rsAudio)
+		GetLoadingScreenDataFromDB(p_rsImage,p_rsTitle,p_rsText,p_rsAudio);
+	endproc;
+
+	proc bool PrepareInfoData(ref bool p_rbIsMultiplayer, ref string p_rsImage, ref string p_rsTitle, ref string p_rsText,ref string p_rsAudio, ref CBitmapPtr p_rpPreviewPic)
+
+		var string sResultText = "";
+
+		var string sFilePath;
+		var CMapInfoList xMapInfoList;
+		var ^CMapInfoList.CMapInfo pxMapInfo;
+		var ^CLevelInfo pxLevelInfo;
+
+		var string sLevelName,sMapType,sDescription;
+		var bool bIsMultiplayer,bIsSaveGame;
+		var int iNumPlayers;
+
+		var ^CUIStateMgr.CLoadScreenInfo pxLoadScreenInfo = ^(CUIStateMgr.Get().GetLoadScreenInfo());
+		//L KLog.LogSpam("UI.LoadScreen",""+pxLoadScreenInfo^.ToString());
+		if(pxLoadScreenInfo^.m_iGameType==CUIStateMgr.CLoadScreenInfo.LOADSCR_SINGLEPLAYER)then
+			//L KLog.LogSpam("UI.LoadScreen","SINGLEPLAYERGAME");
+			PrepareSingleplayerData(p_rsImage,p_rsTitle,p_rsText,p_rsAudio);
+			p_rbIsMultiplayer = false;
+		elseif(pxLoadScreenInfo^.m_iGameType==CUIStateMgr.CLoadScreenInfo.LOADSCR_MULTIPLAYER)then
+			//L KLog.LogSpam("UI.LoadScreen","MULTIPLAYERGAME");
+			sFilePath = CClientWrap.GetUrsRelPath()+"/Data/Base/Maps/Multiplayer/";
+			CGameWrap.GetMapInfoList(sFilePath,xMapInfoList,200,200);
+			pxMapInfo = xMapInfoList.GetMapInfo_CheckSumme(pxLoadScreenInfo^.m_sLevelCheckSumme);
+			pxLevelInfo=^(CGameWrap.GetClient().GetLevelPreview());
+			PrepareMultiplayerData(pxLevelInfo,pxMapInfo,p_rsImage,p_rsTitle,p_rsText,p_rpPreviewPic);
+			p_rbIsMultiplayer = true;
+		elseif(pxLoadScreenInfo^.m_iGameType==CUIStateMgr.CLoadScreenInfo.LOADSCR_SAVEGAME)then
+			//L KLog.LogSpam("UI.LoadScreen","SAVEGAME");
+			var ^CUserProfileList pxList = ^(CClientWrap.GetUserProfileList());
+			sFilePath = pxList^.GetSaveGamePath();
+			CGameWrap.GetMapInfoList(sFilePath,xMapInfoList,200,200);
+			pxMapInfo = xMapInfoList.GetMapInfo_CheckSumme(pxLoadScreenInfo^.m_sLevelCheckSumme);
+			if(pxMapInfo!=null)then
+				pxLevelInfo = ^(pxMapInfo^.GetLevelInfo());
+				if(pxLevelInfo!=null)then
+					if(!pxLevelInfo^.IsMultiplayer())then // singleplayer savegame
+						//L KLog.LogSpam("UI.LoadScreen","SINGLEPLAYER SAVEGAME");
+						PrepareSingleplayerData(p_rsImage,p_rsTitle,p_rsText,p_rsAudio);
+						p_rbIsMultiplayer = false;
+					else // multiplayer savegame
+						//L KLog.LogSpam("UI.LoadScreen","MULTIPLAYER SAVEGAME");
+						p_rbIsMultiplayer = true;
+						PrepareMultiplayerData(pxLevelInfo,pxMapInfo,p_rsImage,p_rsTitle,p_rsText,p_rpPreviewPic);
+					endif;
+				endif;
+			endif;
+			
+			// suppress audio on loading game because there is no continue button
+			p_rsAudio = "";
+		else // LOADSCR_INVALID or LOADSCR_EMPTY
+			//L KLog.LogSpam("UI.LoadScreen","IVALID OR EMPTY");
+		endif;
+		
+		if(p_rsImage.IsEmpty())then
+			p_rsImage = RandomLoadImage();
+		endif;
+		
+		return true;
+
+	endproc;
+
+	export proc bool Init(string p_sTask, int p_iReturnState)
+		var procref<bool> xInvalid;
+		return Init(p_sTask,p_iReturnState,xInvalid);
+	endproc;
+	
+	export proc bool Init(string p_sTask, int p_iReturnState, procref<bool> p_xCallBack)
+		//L KLog.LogSpam("UI.LoadScreen","p_sTask="+p_sTask+" p_iReturnState="+p_iReturnState.ToString());
+
+		var ^CUIStateMgr.CLoadScreenInfo pxLoadScreenInfo = ^(CUIStateMgr.Get().GetLoadScreenInfo());
+
+		m_xCallBack=p_xCallBack;
+		m_sLevelName = pxLoadScreenInfo^.m_sLevelName;
+		m_iReturnState=p_iReturnState;
+		if(p_sTask=="ShuttingServer")then
+			CWindowMgr.Get().BringWindowToTop(this,true);
+			m_iShutTimer=SetTimer(REFRESHTIME_SERVERSHUT,true);
+			m_pxLevelInfoWindow^.SetVisible(false);
+			m_pxLevelInfoWindow^.SetCaption("TODO ShutDown Server");
+		elseif(p_sTask=="StartingServer")then
+			CClientWrap.StartLocalServer();
+			CWindowMgr.Get().BringWindowToTop(this,true);
+
+			var string sImage,sTitle,sText,sAudio;
+			GetLoadingScreenDataFromDB(sImage,sTitle,sText,sAudio);
+
+			m_pxLevelInfoWindow^.SetVisible(false);
+			m_pxLevelInfoWindow^.SetCaption("TODO StartUp Server");
+			m_pxBackgroundImage^.SetBitmap(sImage);
+
+			var array string asQuote;
+			if(GetRandomQuote(asQuote))then
+				m_pxQuoteAutor^.SetText(asQuote[0]);
+				m_pxQuote^.SetText(asQuote[1]);
+			endif;
+
+			m_iServerTimer=SetTimer(REFRESHTIME_SERVERSTART,true);
+			m_iQuoteTimer=SetTimer(REFRESHTIME_QUOTES,true);
+			
+		elseif(p_sTask=="StartingNetworkServer")then
+			var ^CUIStateMgr.CLoadScreenInfo pxLoadScreenInfo = ^(CUIStateMgr.Get().GetLoadScreenInfo());
+			
+			var int iPort = 1905;
+			if(!CGameWrap.IsGameSpyGame() && m_iReturnState==CUIStateMgr.STATE_NEWMULTIPLAYERLOBBY)then
+				var int iTmp = CClientWrap.GetUserProfileValueI("Multiplayer/Port",-1);
+				if(iTmp>=1024 && iTmp<=65535)then
+					iPort = iTmp;
+				endif;
+			endif;
+			CGameWrap.StartNetworkServer(iPort);
+			CWindowMgr.Get().BringWindowToTop(this,true);
+
+			m_pxLevelInfoWindow^.SetVisible(false);
+			m_pxLevelInfoWindow^.SetCaption("TODO StartUp Server");
+			m_pxBackgroundImage^.SetBitmap(RandomLoadImage());
+
+			var array string asQuote;
+			if(GetRandomQuote(asQuote))then
+				m_pxQuoteAutor^.SetText(asQuote[0]);
+				m_pxQuote^.SetText(asQuote[1]);
+			endif;
+
+			m_iServerTimer=SetTimer(REFRESHTIME_SERVERSTART,true);			
+			m_iQuoteTimer=SetTimer(REFRESHTIME_QUOTES,true);
+			
+		elseif(p_sTask=="StartingServerAndStartingGame")then
+			CClientWrap.StartLocalServer();
+			CWindowMgr.Get().BringWindowToTop(this,true);
+
+			var string sImage,sTitle,sText,sAudio;
+			var CBitmapPtr pxPreviewPic;
+			var bool bIsMultiplayer;
+			PrepareInfoData(bIsMultiplayer,sImage,sTitle,sText,sAudio,pxPreviewPic);
+
+			m_pxLevelInfoWindow^.SetVisible(!sText.IsEmpty());
+			m_pxLevelInfoWindow^.SetCaption(sTitle);
+			m_pxLevelInfoWindow^.SetText(sText);
+			if(pxPreviewPic.IsNotNull())then
+				m_pxLevelInfoWindow^.SetForegroundPic(pxPreviewPic);
+			endif;
+			m_pxLevelInfoWindow^.SetMPLayout(bIsMultiplayer);
+			
+			m_pxBackgroundImage^.SetBitmap(sImage);
+			if(!m_bAudioAlreadyStarted && !sAudio.IsEmpty())then
+				ActivateJournalSound(sAudio);
+				m_iJournalSoundTimer=SetTimer(REFRESHTIME_JOURNALSOUND,true);
+			endif;
+
+			m_pxProgressBar^.SetProgress(0.0);
+			m_pxProgressBar^.SetVisible(true);
+
+			var array string asQuote;
+			if(GetRandomQuote(asQuote))then
+				m_pxQuoteAutor^.SetText(asQuote[0]);
+				m_pxQuote^.SetText(asQuote[1]);
+			endif;
+
+			m_iServerAndGameStartTimer=SetTimer(REFRESHTIME_SERVERSTARTANDGAMESTART,true);
+			m_iQuoteTimer=SetTimer(REFRESHTIME_QUOTES,true);
+
+		elseif(p_sTask=="StartingGame")then
+			CWindowMgr.Get().BringWindowToTop(this,true);
+
+			var string sImage,sTitle,sText,sAudio;
+			var CBitmapPtr pxPreviewPic;
+			var bool bIsMultiplayer;
+			PrepareInfoData(bIsMultiplayer,sImage,sTitle,sText,sAudio,pxPreviewPic);
+
+			m_pxLevelInfoWindow^.SetVisible(!sText.IsEmpty());
+			m_pxLevelInfoWindow^.SetCaption(sTitle);
+			m_pxLevelInfoWindow^.SetText(sText);
+			if(pxPreviewPic.IsNotNull())then
+				m_pxLevelInfoWindow^.SetForegroundPic(pxPreviewPic);
+			endif;
+			m_pxLevelInfoWindow^.SetMPLayout(bIsMultiplayer);
+			
+			m_pxBackgroundImage^.SetBitmap(sImage);
+			if(!m_bAudioAlreadyStarted && !sAudio.IsEmpty())then
+				ActivateJournalSound(sAudio);
+				m_iJournalSoundTimer=SetTimer(REFRESHTIME_JOURNALSOUND,true);
+			endif;
+
+			m_pxProgressBar^.SetProgress(0.0);
+			m_pxProgressBar^.SetVisible(true);
+			
+			var array string asQuote;
+			if(GetRandomQuote(asQuote))then
+				m_pxQuoteAutor^.SetText(asQuote[0]);
+				m_pxQuote^.SetText(asQuote[1]);
+			endif;
+
+			m_iGameStartTimer=SetTimer(REFRESHTIME_GAMESTART,true);
+			m_iQuoteTimer=SetTimer(REFRESHTIME_QUOTES,true);
+			
+		endif;
+		return(true);
+	endproc;
+
+	proc bool OnTimer(int p_iTimerID)
+		if(p_iTimerID==m_iServerTimer || p_iTimerID==m_iServerAndGameStartTimer)then
+			//L KLog.LogSpam("UI.LoadScreen","timer m_iServerTimer m_iServerAndGameStartTimer");
+			if(CGameWrap.GetClient().GetPlayerSlotID().IsValid())then
+				UnsetTimer(p_iTimerID);
+				if(false)then
+					m_pxReadyButtonBackground^.SetVisible(true);
+				else //
+					if(p_iTimerID!=m_iServerAndGameStartTimer)then
+						Destroy();
+					endif;
+					if(!m_xCallBack.IsNull())then
+						m_xCallBack.Call();
+					else
+						if(m_iReturnState==CUIStateMgr.STATE_STARTCAMPAIGN || m_iReturnState==CUIStateMgr.STATE_LOADCAMPAIGNLEVEL || m_iReturnState==CUIStateMgr.STATE_RELOADGAME)then
+							//CUIStateMgr.Get().StartNextCampaignLevel();
+							CUIStateMgr.Get().SetState(m_iReturnState);
+						elseif(m_iReturnState==CUIStateMgr.STATE_LOADGAMEMENU)then
+							CUIStateMgr.Get().StartLoadGame();
+						elseif(m_iReturnState==CUIStateMgr.STATE_MULTIPLAYERHOSTIP)then
+							CUIStateMgr.Get().HostIPGame();	
+						elseif(m_iReturnState==CUIStateMgr.STATE_NEWMULTIPLAYERLOBBY)then
+							CUIStateMgr.Get().HostLobbyGame();
+						elseif(m_iReturnState==CUIStateMgr.STATE_SKIRMISH)then
+							CUIStateMgr.Get().HostSkirmish();
+						elseif(m_iReturnState==CUIStateMgr.STATE_MAINMENU)then
+							//CUIStateMgr.Get().HostSkirmish();
+						elseif(m_iReturnState==CUIStateMgr.STATE_STARTSKIRMISHGAME)then
+							CUIStateMgr.Get().SetState(m_iReturnState);
+						endif;
+					endif;
+				endif;
+			elseif(CGameWrap.GameSpyInitFailed())then
+				UnsetTimer(p_iTimerID);
+				Destroy();				
+			endif;
+		//client is ready for starting game		
+		elseif(p_iTimerID==m_iGameStartTimer)then
+			//L KLog.LogSpam("UI.LoadScreen","timer m_iGameStartTimer");
+
+			var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+			if((pxIngameScreen!=null && pxIngameScreen^.GetGameActive()) || (m_pxProgressBar!=null && m_pxProgressBar^.GetProgress()>=1.0f))then	
+				//L KLog.LogSpam("UI.LoadScreen","Loading Done");
+				UnsetTimer(p_iTimerID);
+				
+				var string sLevelName,sMapType;
+				var bool bIsMultiplayer, bIsSaveGame;
+				var int iNumPlayers;
+				var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+				if(pxLevelInfo!=null)then
+					bIsMultiplayer = pxLevelInfo^.IsMultiplayer();
+					bIsSaveGame = pxLevelInfo^.IsSaveGame();
+					iNumPlayers = pxLevelInfo^.GetNumPlayers();
+					var ^CPropDB pxDB = ^(pxLevelInfo^.GetGenericData());
+					var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+					if(pxBaseNode!=null)then
+						sLevelName = pxBaseNode^.GetValueS("LevelName");
+						sLevelName.MakeLower();
+						sLevelName.Replace(" ","_");
+						sMapType = pxBaseNode^.GetValueS("MapType");
+					endif;
+				endif;
+
+				if(!sLevelName.IsEmpty() && !bIsMultiplayer && !bIsSaveGame)then
+					m_pxReadyButtonBackground^.SetDisabled(false);
+					m_pxReadyButtonBackground^.SetVisible(true);
+					SetDefButtonOk(m_pxReadyButton);
+					if(CUIMgr.MakroRunning())then
+						OnContinue();
+					endif;
+				else
+					m_pxReadyButtonBackground^.SetVisible(false);
+					m_iWaitForReadyTimer=SetTimer(REFRESHTIME_WAITFORREADY,true);
+					CGameWrap.ClientReadyForGame(true);
+				endif;
+			endif;
+		//Waiting for the other clients to synchron start the game 
+		elseif(p_iTimerID==m_iWaitForReadyTimer) then
+			//L KLog.LogSpam("UI.LoadScreen","timer m_iWaitForReadyTimer");
+			if(CGameWrap.LetTheGamesBegin())then
+				//L KLog.LogSpam("UI.LoadScreen","LetTheGamesBegin");
+				UnsetTimer(p_iTimerID);
+				Destroy();
+				if(!m_xCallBack.IsNull())then
+					m_xCallBack.Call();
+				else
+					UnsetTimer(p_iTimerID);
+					CUIStateMgr.Get().SetState(m_iReturnState);
+					CGameWrap.SetLetTheGamesBegin(false);
+				endif;
+			endif;
+		elseif(p_iTimerID==m_iShutTimer)then
+			//L KLog.LogSpam("UI.LoadScreen","timer m_iShutTimer");
+			UnsetTimer(p_iTimerID);
+			Destroy();
+			if(!m_xCallBack.IsNull())then
+				m_xCallBack.Call();
+			else
+				CUIStateMgr.Get().SetState(m_iReturnState);
+			endif;
+		elseif(p_iTimerID==m_iQuoteTimer)then
+			if((m_pxQuote^.GetText().GetLength()/LENGTH)>m_iQuoteCounter)then
+				m_iQuoteCounter++;
+				return true;
+			else
+				m_iQuoteCounter = 0;
+			endif;
+			var array string asQuote;
+			if(GetRandomQuote(asQuote))then
+				m_pxQuoteAutor^.SetText(asQuote[0]);
+				m_pxQuote^.SetText(asQuote[1]);
+			endif;
+		elseif(p_iTimerID==m_iJournalSoundTimer)then
+			if(m_bAudioAlreadyStarted && !CGameWrap.GetSoundEventMgrClient().IsPlaying(m_hSoundHandle))then
+				//deactivate journal sound
+				DeactivateJournalSound();
+				UnsetTimer(p_iTimerID);
+			endif;
+		endif;
+		return(true);
+	endproc;
+	
+	export proc void SetProgress(real p_fProgress, string p_sDescription)
+		//L KLog.LogSpam("UI.LoadScreen","SetProgress("+p_fProgress.ToString()+", "+p_sDescription+")");
+		if(m_pxProgressBar==null)then endif;
+		if(m_pxLoadingDescription==null)then endif;
+		if(m_pxProgressBar==null || m_pxLoadingDescription==null)then return; endif;
+		m_pxProgressBar^.SetProgress(p_fProgress);
+		if(p_sDescription=="")then return; endif;
+		var string sText = p_sDescription;
+		if(m_bShowLoadingDescription)then
+			m_pxLoadingDescription^.SetText(sText);
+		endif;
+	endproc;
+	
+	export proc bool GetRandomQuote(ref array string p_rasQuote)
+		if(!m_bShowQuotes)then return false; endif;
+		var string sQuoteFile;
+		if(m_iQuotes == 1)then
+			sQuoteFile = CClientWrap.GetUrsRelPath() + "/Data/Base/Scripts/Game/misc/quotes_community.txt";
+		elseif(m_iQuotes == 2)then
+			sQuoteFile = CClientWrap.GetUrsRelPath() + "/Data/Base/Scripts/Game/misc/quotes.txt";
+		else
+			if((Random.GetInt()%2)==1) then
+				sQuoteFile = CClientWrap.GetUrsRelPath() + "/Data/Base/Scripts/Game/misc/quotes.txt";
+			else
+				sQuoteFile = CClientWrap.GetUrsRelPath() + "/Data/Base/Scripts/Game/misc/quotes_community.txt";
+			endif;
+		endif;
+		if(!Filesystem.FileExists(sQuoteFile))then return false; endif;
+		var Filesystem.CFile xFile;
+		xFile.OpenRead(sQuoteFile);
+		var array string asLines;
+		while(!xFile.EndOfFile())do
+			asLines.AddEntry(xFile.GetLn());
+		endwhile;
+		xFile.Close();
+		if(asLines.NumEntries()<=0)then return false; endif;
+		var int iRandom = Random.GetInt()%asLines.NumEntries();
+		var string sLine = asLines[iRandom];
+		sLine.Split(p_rasQuote,"\t",true);
+		if(p_rasQuote.NumEntries()!=3)then return false; endif;
+		p_rasQuote.DeleteEntry(0);
+		p_rasQuote[1].Delete(p_rasQuote[1].GetLength()-2,2);
+		return true;
+	endproc;
+	
+	export proc bool OnContinue()
+		//L KLog.LogSpam("UI.LoadScreen","OnContinue");
+		m_pxReadyButtonBackground^.SetDisabled(true);
+		SetDefButtonOk(null);
+		
+		DeactivateJournalSound();
+		
+		CGameWrap.ClientReadyForGame(true);
+		m_iWaitForReadyTimer=SetTimer(REFRESHTIME_WAITFORREADY,true);
+		return true;
+	endproc;
+	
+	proc void ActivateJournalSound(string p_sSound)
+		CMusicMgr.OnStartJournalSound();
+		m_hSoundHandle = CGameWrap.GetSoundEventMgrClient().PlayGlobalSound(p_sSound,CSoundMgrCln.SOUND_VOLTRACK_GLOBAL,0);
+		m_bAudioAlreadyStarted = true;
+	endproc;
+	
+	proc void DeactivateJournalSound()
+		if(m_bAudioAlreadyStarted)then
+			CGameWrap.GetSoundEventMgrClient().StopSound(m_hSoundHandle);
+			CMusicMgr.OnEndJournalSound();
+		endif;
+	endproc;
+
+endclass;
+
+class CLoadInfoWindow inherit CFrameWindow
+
+	var ^CUIFloatBox	m_pxTextbox;
+	var ^CStaticCtrlEx	m_pxPicForeground;
+	var ^CStaticCtrlEx	m_pxPicBackground;
+	var bool			m_bIsMPLayout;
+	
+	export constructor()
+		m_pxPicBackground = new CStaticCtrlEx;
+		m_pxPicBackground^.SetSize(232 * CGameInst.ms_iUIScaleFactor,232 * CGameInst.ms_iUIScaleFactor);
+		AddChild(m_pxPicBackground);
+
+		m_pxPicForeground = new CStaticCtrlEx;
+		m_pxPicForeground^.SetSize(232 * CGameInst.ms_iUIScaleFactor,232 * CGameInst.ms_iUIScaleFactor);
+		AddChild(m_pxPicForeground);
+
+		m_pxTextbox = new CUIFloatBox;
+		m_pxTextbox^.SetTransparent(true);
+		m_pxTextbox^.SetBackground(false);
+		AddChild(m_pxTextbox);
+		
+		SetMPLayout(true);
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	export proc bool OnResize()
+		var int iWidth = GetFrameWidth();
+		var int iHeight = GetFrameHeight();
+		
+		if(m_bIsMPLayout)then
+			var int iOffset = ((iWidth-232 * CGameInst.ms_iUIScaleFactor)/2);		
+			m_pxPicBackground^.SetPos(iOffset,0);
+			m_pxPicForeground^.SetPos(iOffset,0);
+			
+			m_pxTextbox^.SetPos(0,252 * CGameInst.ms_iUIScaleFactor);
+			m_pxTextbox^.SetSize(iWidth,iHeight-252 * CGameInst.ms_iUIScaleFactor);
+		else
+			m_pxTextbox^.SetPos(0,0);
+			m_pxTextbox^.SetSize(iWidth,iHeight-20 * CGameInst.ms_iUIScaleFactor);
+		endif;
+		
+		return true;
+	endproc;
+	
+	proc void SetBackgroundPic(string p_sImage)
+		m_pxPicBackground^.SetBitmap(p_sImage);
+	endproc;
+	
+	export proc void SetForegroundPic(string p_sImage)
+		m_pxPicForeground^.SetBitmap(p_sImage);
+	endproc;
+	
+	export proc void SetForegroundPic(CBitmapPtr p_pxBitmap)
+		m_pxPicForeground^.SetBitmap(p_pxBitmap);
+	endproc;
+	
+	export proc void SetMPLayout(bool p_bValue)
+		m_bIsMPLayout = p_bValue;
+
+		if(m_bIsMPLayout)then
+			SetBackgroundPic(CClientWrap.GetUrsRelPath()+"/Data/Base/UI/menue/decoration/levelimage_background_mp.tga");
+			m_pxPicBackground^.SetVisible(true);
+			m_pxPicForeground^.SetVisible(true);
+		else
+			SetBackgroundPic(CClientWrap.GetUrsRelPath()+"/Data/Base/UI/menue/decoration/levelimage_background.tga");
+			m_pxPicBackground^.SetVisible(false);
+			m_pxPicForeground^.SetVisible(false);
+		endif;
+
+		OnResize();
+	endproc;
+	
+	export proc void SetText(string p_sText)
+		m_pxTextbox^.SetText(p_sText);
+	endproc;
+
+endclass;

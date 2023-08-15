@@ -1,0 +1,194 @@
+///CAiGoalRepairBuildings
+class CAiGoalRepairBuildings inherit CAiGoal
+
+	var array ^CAiTaskRepairBuilding m_apxRepairTasks;
+	var CAiObjQuery 	m_xRepairQuery;
+	var CAiObjWrapList 	m_xDamagedObjs;
+	var CAiObjWrapList 	m_xUnbuiltObjs;
+	var int 			m_iMaxRepairTasks;
+	var ^CAiBrain 		m_pxBrain;
+	var ^CAiSensor		m_pxSensor;
+	var string			m_sPlayerID;
+	var int				m_iPlayerID;
+	var ^CAiNodeInstance m_pxWorkerNI;
+		
+	
+	///constructor
+	export constructor()
+		m_apxRepairTasks=0;
+		m_iMaxRepairTasks=4;
+	endconstructor;
+	
+	
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	
+	///Init
+	export proc bool Init(^CAiBrain p_pxBrain)	
+		if(super.Init(p_pxBrain)==false)then return false; endif;
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		
+		SetThinkWait(5+iType);
+				
+		m_xRepairQuery.SetOwner(m_iPlayerID);
+		m_xRepairQuery.SetType("BLDG");
+
+		return true;
+	endproc;
+	
+	export proc void SetWorkerNI(^CAiNodeInstance p_pxWorkerNI)
+		m_pxWorkerNI=p_pxWorkerNI;
+	endproc;
+	
+	///Shut
+	export proc void Shut()
+		var int i,iC=m_apxRepairTasks.NumEntries();
+		if(iC>0)then
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CAiTaskRepairBuilding pxRepairTask=m_apxRepairTasks[i];
+				pxRepairTask^.Shut();
+				RemoveTask(pxRepairTask);
+				delete pxRepairTask;
+			endfor;
+		endif;
+		m_apxRepairTasks=0;
+	endproc;
+	
+	
+	///Think
+	export proc void Think()
+		var int i,iC=m_apxRepairTasks.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiTaskRepairBuilding pxRepairTask=m_apxRepairTasks[i];			
+			if(pxRepairTask == null)then
+				m_apxRepairTasks.DeleteEntryUS(i);
+				i--;
+				iC--;
+			else
+				if((pxRepairTask^.IsAborted()==true) || (pxRepairTask^.IsCompleted()==true) || (pxRepairTask^.IsNotPossible()==true))then
+					pxRepairTask^.Shut();
+					RemoveTask(pxRepairTask);
+					delete pxRepairTask;
+					m_apxRepairTasks.DeleteEntryUS(i);
+					i--;
+					iC--;
+				endif;
+			endif;
+		endfor;
+
+		UpdateDamagedBldgList();
+		if((m_xDamagedObjs.NumEntries()+m_xUnbuiltObjs.NumEntries())>0)then
+			iC=Math.Min(m_xDamagedObjs.NumEntries(),m_iMaxRepairTasks-m_apxRepairTasks.NumEntries());
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CAiTaskRepairBuilding pxRepairTask=new CAiTaskRepairBuilding(m_xDamagedObjs[i],true,m_pxWorkerNI);
+				pxRepairTask^.Init(this);
+				pxRepairTask^.CalculateStartCost();
+				if(pxRepairTask^.Start()==false)then
+					pxRepairTask^.Shut();
+					delete pxRepairTask;
+					break;
+				endif;
+				m_apxRepairTasks.AddEntry(pxRepairTask);
+				AddTask(pxRepairTask);
+			endfor;
+
+			iC=Math.Min(m_xUnbuiltObjs.NumEntries(),m_iMaxRepairTasks-m_apxRepairTasks.NumEntries());
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CAiTaskRepairBuilding pxBuildUpTask=new CAiTaskRepairBuilding(m_xUnbuiltObjs[i],false,m_pxWorkerNI);
+				pxBuildUpTask^.Init(this);
+				pxBuildUpTask^.SetPriority(GetPriority()*2.0f);
+				pxBuildUpTask^.CalculateStartCost();
+				if(pxBuildUpTask^.Start()==false)then
+					pxBuildUpTask^.Shut();
+					delete pxBuildUpTask;
+					break;
+				endif;
+				m_apxRepairTasks.AddEntry(pxBuildUpTask);
+				AddTask(pxBuildUpTask);
+			endfor;
+		endif;
+	endproc;
+	
+	
+	///update list of damaged buildings
+	proc void UpdateDamagedBldgList()
+		var int iT,iTC=m_apxRepairTasks.NumEntries();
+		m_xDamagedObjs.Clear();
+		m_xUnbuiltObjs.Clear();
+		m_xRepairQuery.Execute(m_xDamagedObjs);
+		var int iOW,iOWC=m_xDamagedObjs.NumEntries();
+		for(iOW=0)cond(iOW<iOWC)iter(iOW++)do
+			var CAiObjWrap xOW=m_xDamagedObjs[iOW];
+			begin IfInvalid;
+				if(xOW.IsValid()==false)then
+					m_xDamagedObjs.RemEntry(xOW);
+					iOW--;
+					iOWC--;
+					continue;
+				endif;
+			end IfInvalid;
+			
+			begin IfUndamaged;
+				var int iMaxHP=xOW.GetAttribValueInt("maxhitpoints");
+				var int iCurHP=xOW.GetAttribValueInt("hitpoints");
+				var string sCurTask=xOW.GetAttribValue("CurTask");
+				if((sCurTask!="BuildUpB" && iCurHP>=(iMaxHP)) || iCurHP>=iMaxHP)then
+					m_xDamagedObjs.RemEntry(xOW);
+					iOW--;
+					iOWC--;
+					continue;
+				endif;
+			end IfUndamaged;
+			
+			begin IfBeingRepaired;
+				var bool bRemoved=false;
+				for(iT=0)cond(iT<iTC)iter(iT++)do
+					var ^CAiTaskRepairBuilding pxRepairTask=m_apxRepairTasks[iT];
+					if(pxRepairTask!=null)then
+						if(pxRepairTask^.GetTarget().IsSameAs(xOW)==true)then
+							m_xDamagedObjs.RemEntry(xOW);
+							iOW--;
+							iOWC--;
+							bRemoved=true;
+							break;
+						endif;
+					endif;
+				endfor;
+				if(bRemoved==true)then
+					continue;
+				endif;
+			end IfBeingRepaired;
+			begin IfBuildUp;
+				if(xOW.GetAttribValue("CurTask")=="BuildUpB")then
+					var int iWorkers=xOW.GetAttribValueInt("CurWorkers");
+					if(iWorkers>0)then
+						m_xDamagedObjs.RemEntry(xOW);
+						iOW--;
+						iOWC--;
+						continue;
+					else
+						m_xDamagedObjs.RemEntry(xOW);
+						m_xUnbuiltObjs.AddEntry(xOW);
+						iOW--;
+						iOWC--;
+						continue;
+					endif;
+				endif;
+			end IfBuildUp;
+		endfor;
+	endproc;
+	
+endclass;

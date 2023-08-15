@@ -1,0 +1,266 @@
+
+class CLacerate inherit CActionTask
+//used by CHarvester
+
+	var CObjHndl		m_xHandle;
+	var string			m_sState;
+	var real				m_fAnimLength;
+	var vec3				m_vPos;
+	var real				m_fLacering;
+
+	export constructor()
+		m_fLacering=8.0f;
+		SetName("Lacerate");
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Lace";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xHandle.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_fAnimLength;
+		(pxArc^) << m_vPos;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Lace")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xHandle.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_fAnimLength;
+			(pxArc^) << m_vPos;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xHandle, CObjHndl p_xEnemy, string p_sPath)
+		m_sState="start_anim";
+		if(!p_xHandle.IsValid() || !p_xEnemy.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xHandle=p_xHandle;
+		m_vPos=p_xEnemy.GetObj()^.GetPos();
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(p_xHandle, p_sPath, true);
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+	endproc;
+
+	export proc bool OnActionEnd(bool p_bBroken)
+		return false;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CFightingObj pxHandle = cast<CFightingObj>(m_xHandle.GetObj());
+		if(pxHandle==null)then EndTask(); return; endif;
+		if(m_sState == "start_anim")then
+			if(!StartSpecialActionTimer(pxHandle))then
+				m_sState=="EndTask";
+				EndTask();
+				return;
+			endif;
+			pxHandle^.MemorizeCurrentFightState(CObjHndl.Invalid(),false,false);
+			//calc
+			pxHandle^.SetSLEAnim("harvest",2,true,true,m_fAnimLength);
+			pxHandle^.WaitAction(0.6);
+			var int iOwner = pxHandle^.GetOwner();
+			m_sState = "do_damage";
+		elseif(m_sState == "do_damage")then
+			var real fRange = pxHandle^.GetCollisionRadius()+4.0; // must NOT be 0.0;
+			var real fDmg;
+			var int iLevel=pxHandle^.GetLevel();
+			switch(iLevel)
+				case (0)do fDmg=200.0; endcase;
+				case (1)do fDmg=250.0; endcase;
+				case (2)do fDmg=300.0; endcase;
+				case (3)do fDmg=350.0; endcase;
+				case (4)do fDmg=400.0; endcase;
+				case default do fDmg=200.0; endcase;
+			endswitch;
+			var CObjList xList;
+//			pxHandle^.GetPenetratedObjs(m_vPos, fRange, xList, 120.0);
+			pxHandle^.GetPenetratedObjs(m_vPos, fRange, xList, 150.0);
+			var int i,iC=xList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CFightingObj pxObj=cast<CFightingObj>(xList[i].GetObj());
+				if(pxObj==null)then continue; endif;
+				pxObj^.TakeDirectMeleeDmg(fDmg,100.0f,m_xHandle);
+				pxObj^.SetLacerated(true,m_fLacering);
+			endfor;
+			if(m_fAnimLength>0.6)then
+				pxHandle^.WaitAction(m_fAnimLength-0.6);
+			endif;
+			m_sState = "finished";
+		elseif(m_sState == "finished")then
+			m_sState="EndTask";
+			pxHandle^.ReturnToFight();
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc bool Break()
+		return false;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+	export proc void EndTask()
+		SetPrepareActionPath(m_xHandle, GetSpecialActionPath(), false);
+		UpdateAggressionPos(m_xHandle);
+		super.EndTask();
+	endproc;
+
+endclass;
+
+/*
+
+class CLacerate inherit CSpecialActionTask
+//used by CHarvester
+
+	var CObjHndl		m_xHandle;
+	var CObjHndl		m_xTarget;
+	var string			m_sState;
+	var real				m_fAnimLength;
+	var vec3				m_vPos;
+	var real				m_fLacering;
+	
+	export constructor()
+		m_fLacering=8.0f;
+		SetName("Lacerate");
+		SetCivil(false);
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="Lace";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xTarget.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_fAnimLength;
+		(pxArc^) << m_vPos;
+		m_xHandle.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="Lace")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xHandle.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_fAnimLength;
+			(pxArc^) << m_vPos;
+			if(p_pxReaderNode^.GetVersion()>=2)then
+				m_xTarget.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xHandle, CObjHndl p_xEnemy, string p_sPath)
+		m_sState="start_anim";
+		if(!p_xHandle.IsValid() || !p_xEnemy.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xHandle=p_xHandle;
+		m_xTarget = p_xEnemy;
+		m_vPos=p_xEnemy.GetObj()^.GetPos();
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(p_xHandle, p_sPath, true);
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+		var ^CFightingObj pxFighter=cast<CFightingObj>(m_xHandle.GetObj());
+		if(pxFighter==null || !pxFighter^.CheckSpecialActionTimer(GetSpecialActionPath()))then
+			EndTask();
+			return;
+		endif;
+		var ^CFightingObj pxTarget=cast<CFightingObj>(m_xTarget.GetObj());
+		if(pxTarget==null)then
+			EndTask();
+			return;
+		endif;
+		var bool bInvalid;
+		var CObjHndl xInvalid;
+		if(!pxFighter^.IsInCombatRange(pxTarget,false))then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	export proc bool OnActionEnd(bool p_bBroken)
+		return false;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CHarvester pxActor = cast<CHarvester>(m_xHandle.GetObj());
+		if(pxActor==null)then EndTask(); return; endif;
+		var ^CFightingObj pxFight = cast<CFightingObj>(m_xTarget.GetObj());
+		if(m_sState == "start_anim")then
+			if(pxFight==null)then EndTask(); return; endif;
+			if(pxFight^.GetOnWall())then EndTask(); return; endif;
+			if(!StartSpecialActionTimer(pxActor))then EndTask();return;endif;
+			SetUnStoppable(true);
+			pxActor^.MemorizeCurrentFightState(pxActor^.GetCurEnemy(),false,false);
+			pxActor^.AnimAction("attack_front");
+			pxFight^.TakeDmg(pxActor, false, 3.0, 1.0, 100.0);
+			pxFight^.ClearDamageCache();
+			m_sState = "hole";
+		elseif(m_sState == "hole")then
+//			var int iOwner = pxActor^.GetOwner();
+//			if(iOwner>=0)then
+			if(pxFight!=null)then
+				pxFight^.SetLacerated(true,m_fLacering);
+			endif;
+			m_sState = "finished";
+		elseif(m_sState == "finished")then
+			m_sState="EndTask";
+			SetUnStoppable(false);
+			pxActor^.ReturnToFight();
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+	endproc;
+
+	export proc bool Break()
+		return false;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+	export proc void EndTask()
+		SetPrepareActionPath(m_xHandle, GetSpecialActionPath(), false);
+		UpdateAggressionPos(m_xHandle);
+		super.EndTask();
+	endproc;
+
+endclass;
+*/

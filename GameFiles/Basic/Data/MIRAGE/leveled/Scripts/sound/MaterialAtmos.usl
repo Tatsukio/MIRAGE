@@ -1,0 +1,223 @@
+class CMaterialAtmos inherit CEnhancedFrameWindow
+
+	var ^CEdit 				m_pxAtmoSoundEdit;
+	var ^CButton			m_pxAtmoSoundChange;
+
+	var ^CGroupBox 			m_pxPropsGroup;
+	var ^CAtmoProperties	m_pxAtmoProps;
+	var ^CDropList			m_pxMaterialList;
+	var ^CDropList			m_pxHeightList;
+	var ^CDropList			m_pxTimeList;
+	var ^CButton			m_pxLoadBtn;
+	var ^CButton			m_pxSaveBtn;
+	var ^CButton			m_pxSaveAsBtn;
+	var ^CButton			m_pxClearAllBtn;
+	var CPropDB				m_xData;
+	var string 				m_sTemplateFile;
+
+	export constructor()
+		//m_sTemplateFile="D:/Urs/UrsRel/Main/Data/Base/Audio/AtmoTemplates/Test.txt";
+		if(!InitFromResource("sound/MaterialAtmos","MaterialAtmos")) then
+			CLevelEditorWrap.LogError("UI.MaterialAtmos","InitFromResource failed");
+			return;
+		endif;
+
+		m_pxAtmoSoundEdit=cast<CEdit>(GetControl("AtmoSoundBox/Edit"));
+		m_pxAtmoSoundChange=cast<CButton>(GetControl("AtmoSoundBox/Change"));
+		m_pxAtmoSoundChange^.m_xOnClick=OnChangeAtmoSoundClick;
+
+		m_pxLoadBtn= cast<CButton>(GetControl("LoadSaveButtons/LoadTemplate"));
+		m_pxLoadBtn^.m_xOnClick=OnLoadTemplate;
+		m_pxSaveBtn= cast<CButton>(GetControl("LoadSaveButtons/SaveTemplate"));
+		m_pxSaveBtn^.m_xOnClick=OnSaveTemplate;
+		m_pxSaveAsBtn= cast<CButton>(GetControl("LoadSaveButtons/SaveAs"));
+		m_pxSaveAsBtn^.m_xOnClick=OnSaveAs;
+		m_pxClearAllBtn= cast<CButton>(GetControl("ClearAllBtn"));
+		m_pxClearAllBtn^.m_xOnClick=OnClearAll;
+
+		m_pxPropsGroup = cast<CGroupBox>(GetControl("Props_Group"));
+		m_pxAtmoProps = cast<CAtmoProperties>(GetControl("Props_Group/PropertiesDlg"));
+		m_pxAtmoProps^.AllowDirectionalSounds(false);
+		m_pxAtmoProps^.m_xOnChange = OnPropertiesChanged;
+
+		m_pxMaterialList = cast<CDropList>(GetControl("MaterialList"));
+		m_pxMaterialList^.AddItem(CLocalizer.Get().Translate("_AtmoMarker_ML_MudLavaSwamp"));
+		m_pxMaterialList^.AddItem(CLocalizer.Get().Translate("_AtmoMarker_ML_Water"));
+		m_pxMaterialList^.AddItem(CLocalizer.Get().Translate("_AtmoMarker_ML_GrassMoss"));
+		m_pxMaterialList^.AddItem(CLocalizer.Get().Translate("_AtmoMarker_ML_SoilSnow"));
+		m_pxMaterialList^.AddItem(CLocalizer.Get().Translate("_AtmoMarker_ML_Rock"));
+		m_pxMaterialList^.AddItem(CLocalizer.Get().Translate("_AtmoMarker_ML_Road"));
+		m_pxMaterialList^.AddItem(CLocalizer.Get().Translate("_AtmoMarker_ML_Sand"));
+		m_pxMaterialList^.AddItem(CLocalizer.Get().Translate("_AtmoMarker_ML_Ice"));
+		m_pxMaterialList^.AddItem(CLocalizer.Get().Translate("_AtmoMarker_ML_SpecialForest"));
+		m_pxMaterialList^.m_xOnChange = OnMaterialChanged;
+
+		m_pxHeightList = cast<CDropList>(GetControl("HeightList"));
+		m_pxHeightList^.AddItem(CLocalizer.Get().Translate("_AtmoMarker_HL_Ground"));
+		m_pxHeightList^.AddItem(CLocalizer.Get().Translate("_AtmoMarker_HL_Air"));
+		m_pxHeightList^.m_xOnChange = OnMaterialChanged;
+
+		m_pxTimeList = cast<CDropList>(GetControl("TimeList"));
+		m_pxTimeList^.AddItem(CLocalizer.Get().Translate("_AtmoMarker_TL_Night"));
+		m_pxTimeList^.AddItem(CLocalizer.Get().Translate("_AtmoMarker_TL_Day"));
+		m_pxTimeList^.m_xOnChange = OnMaterialChanged;
+
+		LoadPosition("MaterialAtmos");
+		OnMaterialChanged();
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	proc void OnUpdateContent()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+
+		m_pxAtmoSoundEdit^.m_xOnChange.Clear();
+		m_pxAtmoSoundEdit^.SetText(pxBaseNode^.GetValueS("material_atmos","No Atmos"));
+		m_pxAtmoSoundEdit^.m_xOnChange=OnChangeAtmoSound;
+	endproc;
+
+	proc bool OnChangeAtmoSound()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		pxBaseNode^.SetValue("material_atmos",m_pxAtmoSoundEdit^.GetText());
+		return true;
+	endproc;
+
+	proc bool OnChangeAtmoSoundClick()
+		var ^CEnhancedLoadSaveDialog pxTmp = new CEnhancedLoadSaveDialog(0,"custom");
+		pxTmp^.ClearFilters();
+		pxTmp^.AddFilter("AtmoSound Template Files","*.txt");
+		var string sBasePath=CClientWrap.GetUrsRelPath()+"/Data/Base/Audio/AtmoTemplates";
+		pxTmp^.SetBasePath(sBasePath);
+		pxTmp^.SetUniqueSettingName("MaterialAtmosLoadSaveDlg");
+		pxTmp^.m_xReturnFileString=OnReturnChangeString;
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp, true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return true;
+	endproc;
+
+	proc bool OnReturnChangeString(string p_sFileString)
+		p_sFileString.Replace("\\","/");
+		var int iIdx=p_sFileString.FindRev('/');
+		if(iIdx!=-1)then
+			p_sFileString.Delete(0,iIdx+1);
+		endif;
+		m_pxAtmoSoundEdit^.SetText(p_sFileString);
+		CLevelEditorWrap.GetAtmoSoundMgr()^.LoadAtmos(p_sFileString);
+		return(true);
+	endproc;
+
+	proc bool OnClearAll()
+		m_xData.Reset();
+		return true;
+	endproc;
+
+	proc bool OnLoadTemplate()
+		var ^CEnhancedLoadSaveDialog pxTmp = new CEnhancedLoadSaveDialog(0,"custom");
+		pxTmp^.ClearFilters();
+		pxTmp^.AddFilter("AtmoSound Template Files","*.txt");
+		var string sBasePath=CClientWrap.GetUrsRelPath()+"/Data/Base/Audio/AtmoTemplates";
+		pxTmp^.SetBasePath(sBasePath);
+		pxTmp^.SetUniqueSettingName("MaterialAtmosLoadSaveDlg");
+		pxTmp^.m_xReturnFileString=OnReturnLoadString;
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp, true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return true;
+	endproc;
+
+	proc bool OnReturnLoadString(string p_sFileString)
+		m_xData.Reset();
+		if(!m_xData.Load(p_sFileString))then
+			KLog.LogError("MaterialAtmos","load file: '"+p_sFileString+"' failed");
+		endif;
+		m_sTemplateFile=p_sFileString;
+
+		m_pxMaterialList^.Select(0);
+		m_pxHeightList^.Select(0);
+		m_pxTimeList^.Select(0);
+		return(true);
+	endproc;
+
+	proc bool OnSaveTemplate()
+		if(m_sTemplateFile=="")then
+			OnSaveAs();
+		else
+			OnReturnSaveString(m_sTemplateFile);
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnSaveAs()
+		var ^CEnhancedLoadSaveDialog pxTmp = new CEnhancedLoadSaveDialog(1,"custom");
+		pxTmp^.ClearFilters();
+		pxTmp^.AddFilter("AtmoSound Template Files","*.txt");
+		var string sBasePath=CClientWrap.GetUrsRelPath()+"/Data/Base/Audio/AtmoTemplates";
+		pxTmp^.SetBasePath(sBasePath);
+		pxTmp^.SetUniqueSettingName("MaterialAtmosLoadSaveDlg");
+		pxTmp^.m_xReturnFileString=OnReturnSaveString;
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp, true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return true;
+	endproc;
+
+	proc bool OnReturnSaveString(string p_sFileString)
+		m_xData.Save(p_sFileString);
+		m_sTemplateFile=p_sFileString;
+		return true;
+	endproc;
+
+
+	proc bool OnMaterialChanged()
+		m_pxAtmoProps^.m_xOnChange.Clear();
+
+		var int iMaterial = m_pxMaterialList^.GetSelectedItem();
+		var int iHeight = m_pxHeightList^.GetSelectedItem();
+		var int iTime = m_pxTimeList^.GetSelectedItem();
+
+
+		var ^CPropDB.CNode pxNode=^(m_xData["mat"+iMaterial.ToString()+":"+iHeight.ToString()+":"+iTime.ToString()]);
+
+		m_pxAtmoProps^.SetWav1(pxNode^.GetValueS("wav1",""));
+		m_pxAtmoProps^.SetWav2(pxNode^.GetValueS("wav2",""));
+		m_pxAtmoProps^.SetWav3(pxNode^.GetValueS("wav3",""));
+		m_pxAtmoProps^.SetPlaylist(pxNode^.GetValueS("playlist",""));
+		m_pxAtmoProps^.SetPriority(pxNode^.GetValueR("priority",1.0f));
+		m_pxAtmoProps^.SetVolume(pxNode^.GetValueI("volume",100));
+		m_pxAtmoProps^.SetPitch(pxNode^.GetValueR("pitch",1.0f));
+		m_pxAtmoProps^.SetMinFadeDist(pxNode^.GetValueR("minfadedist",1.0f));
+		m_pxAtmoProps^.SetMaxFadeDist(pxNode^.GetValueR("maxfadedist",1000000.0f));
+		m_pxAtmoProps^.SetMaxHearingDist(pxNode^.GetValueR("maxhearingdist",32.0f));
+
+		m_pxAtmoProps^.m_xOnChange = OnPropertiesChanged;
+		return true;
+	endproc;
+
+
+	proc bool OnPropertiesChanged()
+
+		var int iMaterial = m_pxMaterialList^.GetSelectedItem();
+		var int iHeight = m_pxHeightList^.GetSelectedItem();
+		var int iTime = m_pxTimeList^.GetSelectedItem();
+
+		var ^CPropDB.CNode pxNode=^(m_xData["mat"+iMaterial.ToString()+":"+iHeight.ToString()+":"+iTime.ToString()]);
+
+		pxNode^.SetValue("wav1",m_pxAtmoProps^.GetWav1());
+		pxNode^.SetValue("wav2",m_pxAtmoProps^.GetWav2());
+		pxNode^.SetValue("wav3",m_pxAtmoProps^.GetWav3());
+		pxNode^.SetValue("playlist",m_pxAtmoProps^.GetPlaylist());
+		pxNode^.SetValue("priority",m_pxAtmoProps^.GetPriority());
+		pxNode^.SetValue("volume",m_pxAtmoProps^.GetVolume());
+		pxNode^.SetValue("pitch",m_pxAtmoProps^.GetPitch());
+		pxNode^.SetValue("minfadedist",m_pxAtmoProps^.GetMinFadeDist());
+		pxNode^.SetValue("maxfadedist",m_pxAtmoProps^.GetMaxFadeDist());
+		pxNode^.SetValue("maxhearingdist",m_pxAtmoProps^.GetMaxHearingDist());
+		return true;
+	endproc;
+
+endclass;
+

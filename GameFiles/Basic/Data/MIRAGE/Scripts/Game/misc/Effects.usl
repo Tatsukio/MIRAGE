@@ -1,0 +1,2725 @@
+//Effects.usl
+
+class CMineFunken inherit CEffect
+	export constructor()
+		SetDieInterval(3.0);
+		SetPos(m_xOwner.GetObj()^.GetPos());
+		SetGFX("Fire");
+		//m_xAttribs;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+///////////////////////////////////// GORE Section //////////////////////////
+
+class CFXHelper
+	export static proc void GetLinkPosRotW(^CObj p_pxObj,string p_sLink,ref vec3 po_rvPos,ref Quat po_rqRot)
+		var CFourCC xFCC;
+		xFCC=p_sLink;
+		if(!p_pxObj^.GetLinkPosRotWorld(xFCC,po_rvPos,po_rqRot)) then
+			po_rvPos=p_pxObj^.GetPos();
+		endif;
+		//KLog.LogWarn("CHP","! "+po_rvPos.ToString()+" "+p_pxObj^.GetPos().ToString());
+	endproc;
+
+	export static proc void OnProjectileImpact(^CObj p_pxProjectile,^CObj p_pxTarget)
+	
+		var string sProj, sTarget = "null";
+		if(p_pxProjectile!=null)then
+			sProj = p_pxProjectile^.GetName();
+		endif;
+		if(p_pxTarget!=null)then
+			sTarget = p_pxTarget^.GetName();
+		endif;
+	
+		if(p_pxProjectile==null)then return;endif;
+		
+		var bool bFlash			= false;
+		var bool bFlesh			= false;
+		var bool bSmall			= false;
+		var bool bTribe			= false;
+		var bool bGatlingLand	= false;
+		//HACK bis Paule mal wieder da ist und die particle bastelt
+		var bool bWater			= false;
+		
+		var string sGfx = "hit_";
+		var string sSetting;
+		
+		var bitset dwSetting = CClientWrap.GetScapeMgr().GetTerrainSetting();
+		if(dwSetting==0000b)then
+			sSetting = "nor_";
+		elseif(dwSetting==0001b)then
+			sSetting = "sav_";
+		elseif(dwSetting==0010b)then
+			sSetting = "jng_";
+		elseif(dwSetting==0011b)then
+			sSetting = "ice_";
+		elseif(dwSetting==0100b)then
+			sSetting = "ash_";
+		else
+			sSetting = "sav_";
+		endif;
+
+		//projectile/size evaluation
+		var string sClass = p_pxProjectile^.GetClassName();
+		var string sName = p_pxProjectile^.GetGraphicSetEntryName();
+		var bool bBarrel = (sName == "gigantopithecus_barrel");
+		var string sProjectileType = CFXHelper.EvaluateProjectile(sName);
+		
+		var bool bGatling = sProjectileType.Find("gatling")!=-1;
+		var bool bBertha = false;
+		var Quat qRot;
+
+		//target evaluation
+		if(p_pxTarget!=null)then
+
+			qRot = p_pxProjectile^.GetRot();
+
+			var Quat qTmp;
+			qTmp.SetRotationX(-Math.Pi()*0.5);
+			qRot = qTmp * qRot;
+
+			//obj hit
+			var CFourCC xType = p_pxTarget^.GetType();
+			if(xType=="CHTR")then
+				sGfx += "creature_";
+				bFlash = true;
+				bFlesh = true;
+				bSmall = sProjectileType != "big_bertha";
+				//bGatlingLand = true;
+			elseif(xType=="ANML" || xType=="FGHT")then
+				bFlash = true;
+				bFlesh = true;
+				sGfx += "creature_";
+			elseif(xType=="VHCL")then
+				bFlash = true;
+				bTribe = true;
+				sGfx += "object_";
+			elseif(xType=="SHIP" || xType=="BLDG")then
+				bTribe = true;
+				sGfx += "object_";
+			elseif(xType=="NEST")then
+				sGfx += "land_"+sSetting;
+			else
+				sGfx += "creature_";
+			endif;
+			if(!CGameInst.FleshChar(p_pxTarget))then
+				bFlesh = false;
+			endif;
+		else
+
+			//scape hit
+			var real fX = p_pxProjectile^.GetPos().GetX();
+			var real fY = p_pxProjectile^.GetPos().GetY();
+			
+			/*
+			var Quat qScape;
+			qScape.SetRotationZ(Math.Pi());
+			qRot = qRot * qScape;
+			*/
+			
+			if(!bGatling && CClientWrap.GetScapeMgr().GetHeight(fX, fY) < CClientWrap.GetScapeMgr().GetSeaLevel())then
+				//water hit
+				sGfx += "water_";
+			else
+				//land hit
+				if(sProjectileType == "big_bertha")then
+					sGfx += "land_"+"ash_";
+					bBertha = true;
+				else
+					sGfx += "land_"+sSetting;
+				endif;
+			endif;
+		endif;
+
+		if(bTribe && !bGatling)then
+			var ^CAttribs pxAttr = p_pxTarget^.GetAttribs();
+			if(pxAttr!=null)then
+				var string sTribe = pxAttr^.GetValue("tribe");
+				if(sTribe=="Hu" || sTribe=="Aje" || sTribe=="Ninigi" || sTribe=="SEAS")then
+					sTribe.MakeLower();
+					sGfx += sTribe+"_";
+				endif;
+			endif;
+		endif;
+		
+		sGfx += sProjectileType;
+		if(bSmall && !bGatling)then
+			sGfx.Delete(sGfx.GetLength()-3, sGfx.GetLength());
+			sGfx += "sml";
+		endif;
+
+		if(bBarrel)then
+			sGfx = "hit_banana_barrel";
+		endif;
+
+//		KLog.LogWarn("OnProjectileImpact","sName: "+sName + ", sProjectileType: " + sProjectileType + ", sGfx: " + sGfx);
+//		CEffect.FXTriggerSound(sGfx,p_pxProjectile^.GetPos());
+		var CEffectInfo xFX;
+		xFX.m_sEffectClass="CProjectileHit";
+		CExplosionMgr.Get().AddProjectile(p_pxProjectile, sGfx, qRot);
+		CEffect.AddEffect(p_pxProjectile,xFX);
+
+		if(bFlash)then
+//			var CConfig xConf;
+			var CEffectInfo xFlash;
+			if(bFlesh && CMirageClnMgr.Get().MoreBlood())then
+				xFlash.m_sEffectClass="CBloodHit_01_01";
+			else
+				xFlash.m_sEffectClass="CProjectileFlash";
+			endif;
+			CEffect.AddEffect(p_pxProjectile,xFlash);
+		endif;
+		
+		if(bBertha)then
+			var CEffectInfo xCrater;
+			xCrater.m_sEffectClass="CBigScapeHitBig";
+			CEffect.AddEffect(p_pxProjectile,xCrater);
+		endif;
+		
+		if(bGatlingLand && sGfx.Find("gatling")!=-1)then
+			var CEffectInfo xGatlingLand;
+			xGatlingLand.m_sEffectClass="CGatlingScapeHit";
+			CEffect.AddEffect(p_pxTarget,xGatlingLand);
+		endif;
+	endproc;
+	
+	export static proc string EvaluateProjectile(ref string p_rsName)
+		if(p_rsName.Compare("ninigi_muraeno_submarine_arrow",30) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("seas_hq_big_cannon_projectile",29) == 0)then
+			return "big_bertha";
+		elseif(p_rsName.Compare("tesla_revolvercrossbow_arrow",28) == 0)then
+			return "sharp_sml";
+		elseif(p_rsName.Compare("schliemann_flintlock_arrow",26) == 0)then
+			return "sharp_sml";
+		elseif(p_rsName.Compare("tesla_crazy_machine_arrow",25) == 0)then
+			return "explo_sml";
+		elseif(p_rsName.Compare("bela_knickknackbow_arrow",24) == 0)then
+			return "sharp_sml";
+		elseif(p_rsName.Compare("ninigi_rocket_boat_arrow",24) == 0)then
+			return "explo_big";
+		elseif(p_rsName.Compare("ninigi_icespear_c_arrow",23) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("ninigi_icespear_d_arrow",23) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("ninigi_icespear_e_arrow",23) == 0)then
+			return "sharp_med";/*
+		elseif(p_rsName.Compare("Gigantopithecus_Barrel",22) == 0)then
+			return "explo_sml";*/
+		elseif(p_rsName.Compare("seas_wehrspinne_bullet",22) == 0)then
+			return "explo_big";
+		elseif(p_rsName.Compare("aje_ammo_dilo_spittle",21) == 0)then
+			return "poison_sml";
+		elseif(p_rsName.Compare("ninigi_shuriken_arrow",21) == 0)then
+			return "sharp_sml";
+		elseif(p_rsName.Compare("lovelace_musket_arrow",21) == 0)then
+			return "sharp_sml";
+		elseif(p_rsName.Compare("ninigi_spear_b_arrow",20) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("ninigi_spear_c_arrow",20) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("ninigi_spear_d_arrow",20) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("ninigi_spear_e_arrow",20) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("hu_dragon_boat_arrow",20) == 0)then
+			return "sharp_big";
+		elseif(p_rsName.Compare("babbage_pistol_arrow",20) == 0)then
+			return "sharp_sml";
+		elseif(p_rsName.Compare("ninigi_gatling_arrow",20) == 0)then
+			return "gatling";
+		elseif(p_rsName.Compare("seas_carrier_bullet",19) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("ninigi_rb_projektil",19) == 0)then
+			return "explo_big";
+		elseif(p_rsName.Compare("ninigi_mortar_arrow",19) == 0)then
+			return "explo_sml";
+		elseif(p_rsName.Compare("ninigi_small_rocket",19) == 0)then
+			return "explo_med";
+		elseif(p_rsName.Compare("aje_ammo_submarine",18) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("hu_slingshot_stone",18) == 0)then
+			return "blunt_sml";
+		elseif(p_rsName.Compare("seas_turret_bullet",18) == 0)then
+			return "gatling";
+		elseif(p_rsName.Compare("druid_staff_arrow",17) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("hu_ballista_arrow",17) == 0)then
+			return "sharp_big";
+		elseif(p_rsName.Compare("aje_spear_a_arrow",17) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("aje_spear_b_arrow",17) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("aje_spear_c_arrow",17) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("aje_spear_d_arrow",17) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("aje_spear_e_arrow",17) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("ninigi_cannonball",17) == 0)then
+			return "explo_big";
+		elseif(p_rsName.Compare("hu_spear_b_arrow",16) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("hu_spear_c_arrow",16) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("hu_spear_d_arrow",16) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("hu_spear_e_arrow",16) == 0)then
+			return "sharp_med";
+		elseif(p_rsName.Compare("aje_ammo_stone",14) == 0)then
+			return "poison_big";
+		elseif(p_rsName.Compare("hu_cannonball",13) == 0)then
+			return "blunt_big";
+		elseif(p_rsName.Compare("aje_ammo_dino",13) == 0)then
+			return "blunt_sml";
+		elseif(p_rsName.Compare("ninigi_bullet",13) == 0)then
+			return "gatling";
+		elseif(p_rsName.Compare("ninigi_rocket",13) == 0)then
+			return "explo_big";
+		elseif(p_rsName.Compare("ninigi_arrow",12) == 0)then
+			return "sharp_sml";
+		elseif(p_rsName.Compare("seas_torpedo",12) == 0)then
+			return "explo_big";
+//		elseif(p_rsName.Left(13)=="aje_molotov_2")then
+//			p_rsName = "aje_molotov";
+//			return "explo_med";
+		elseif(p_rsName.Compare("aje_molotov",11) == 0)then
+			return "poison_med";
+		elseif(p_rsName.Compare("seas_bullet",11) == 0)then
+			return "sharp_sml";
+		elseif(p_rsName.Compare("seas_rocket",11) == 0)then
+			return "explo_med";
+		elseif(p_rsName.Compare("aje_arrow",9) == 0)then
+			return "sharp_sml";
+		elseif(p_rsName.Compare("hu_arrow",8) == 0)then
+			return "sharp_sml";
+		elseif(p_rsName.Compare("hu_trunk",8) == 0)then
+			return "blunt_big";
+		elseif(p_rsName.Compare("hu_bolt",7) == 0)then
+			return "sharp_sml";
+		else
+			return "blunt_sml";
+		endif;
+	endproc;
+
+endclass;
+
+//character blood hit
+class CBloodHit_01_01 inherit CEffect
+	export constructor()
+		var int iBloodAmount = 0;
+		var real fBloodForce = 0.0;
+		if(CMirageClnMgr.Get().MoreBlood())then
+			iBloodAmount = 100;
+			fBloodForce = 10.0;
+		endif;
+		/*
+		if (!CSettings.Get("Game/Gore/BloodAmount",iBloodAmount)) then
+			CSettings.Set("Game/Gore/BloodAmount",iBloodAmount);
+		endif;
+		if (!CSettings.Get("Game/Gore/BloodForce",fBloodForce)) then
+			CSettings.Set("Game/Gore/BloodForce",fBloodForce);
+		endif;
+		*/
+		SetDieInterval(0.3);
+		//SetPos(m_xOwner.GetObj()^.GetPos());
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		var vec3 vP;var Quat qR;CFXHelper.GetLinkPosRotW(pxOwner,"Blfa",vP,qR);
+		SetPos(vP);
+		SetRot(qR);
+
+		//SetGFX("Blood_01");
+		SetGFX("hit_creature_sharp_big");
+
+		var CEffectInfo xFX;
+		xFX.m_sEffectClass="CBloodHit_01_02";
+		CEffect.AddEffect(pxOwner,xFX);
+
+		var vec3 vOfs=vP-pxOwner^.GetPos();
+		var vec3 vDir={0.0,1.0,0.0};
+		qR.VecRotateU(vDir);
+		xFX.m_sEffectClass="_dusttrail";
+		xFX.m_xAttribs.SetValue("bloodcount",iBloodAmount);
+		xFX.m_xAttribs.SetValue("force",fBloodForce);
+		xFX.m_xAttribs.SetValue("offset_x",vOfs.GetX());
+		xFX.m_xAttribs.SetValue("offset_y",vOfs.GetY());
+		xFX.m_xAttribs.SetValue("offset_z",vOfs.GetZ());
+		xFX.m_xAttribs.SetValue("direction_x",vDir.GetX());
+		xFX.m_xAttribs.SetValue("direction_y",vDir.GetY());
+		xFX.m_xAttribs.SetValue("direction_z",vDir.GetZ());
+		CEffect.AddEffect(pxOwner,xFX);
+	//m_xAttribs;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CBloodHit_01_02 inherit CEffect
+	export constructor()
+		SetDieInterval(0.8);
+		//SetPos(m_xOwner.GetObj()^.GetPos());
+		var ^CObj pxObj = m_xOwner.GetObj();
+
+		var vec3 vP;var Quat qR;CFXHelper.GetLinkPosRotW(pxObj,"Blfa",vP,qR);
+		SetPos(vP);
+		SetRot(qR*Quat.RotationZ(Math.Pi()));
+
+		var int iRnd=Random.MTRandI()%3;
+
+		if(iRnd==0) then
+			SetGFX("Blood_02");
+		elseif (iRnd==1) then
+			SetGFX("Blood_01");
+		else
+			SetGFX("Blood_04");
+		endif;
+		//m_xAttribs;
+
+		if(pxObj^.GetType()=="CHTR")then
+			var ^CAttribs pxAttr = pxObj^.GetAttribs();
+			if(pxAttr!=null)then
+				var int iLevel = pxAttr^.GetValueInt("level")+1;
+				var string sCaste = pxAttr^.GetValue("caste");
+				var string sTribe = pxAttr^.GetValue("tribe");
+				var string sSound = sTribe+"_"+sCaste;
+				if(pxAttr^.GetValueBool("unique"))then
+					sSound = pxObj^.GetClassName();
+					sSound = sSound.Left(sSound.FindRev('_'));
+				endif;
+				CGameWrap.GetSoundEventMgrClient().Play3DSound(sSound+"_"+iLevel.ToString()+"_14",vP);
+			endif;
+		endif;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CGatlingScapeHit inherit CEffect
+
+	export constructor()
+		SetDieInterval(2.5);
+		
+		//HACK bis Paule mal wieder da ist und die particle bastelt
+		var bool bWater;
+		
+		var string sSetting;
+
+		var bitset dwSetting = CClientWrap.GetScapeMgr().GetTerrainSetting();
+		if(dwSetting==0000b)then
+			sSetting = "nor_";
+		elseif(dwSetting==0001b)then
+			sSetting = "sav_";
+		elseif(dwSetting==0010b)then
+			sSetting = "jng_";
+		elseif(dwSetting==0011b)then
+			sSetting = "ice_";
+		elseif(dwSetting==0100b)then
+			sSetting = "ash_";
+		else
+			sSetting = "sav_";
+		endif;
+
+		var string sGfx = "hit_";
+
+		var real fX = GetPos().GetX();
+		var real fY = GetPos().GetY();
+
+		if(CClientWrap.GetScapeMgr().GetHeight(fX, fY) < CClientWrap.GetScapeMgr().GetSeaLevel())then
+			//water hit
+			bWater = true;
+			sGfx += "water_";
+		else
+			//land hit
+			sGfx += "land_"+sSetting;
+		endif;
+
+		
+		sGfx += "gatling";
+		
+		var ^CObj pxOwner = m_xOwner.GetObj();
+		
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		if(bWater)then
+			SetVisible(false);
+		else
+			SetGFX(sGfx);
+		endif;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+endclass;
+
+class CHitFlash inherit CEffect
+
+	export constructor()
+		SetDieInterval(2.5);
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		var vec3 vP;var Quat qR;
+		if(pxOwner^.GetType()=="CHTR")then
+			CFXHelper.GetLinkPosRotW(pxOwner,"Blfa",vP,qR);
+		else
+			var real fModifierY = Math.Cos(GetDirection()) * 0.3 * pxOwner^.GetSize().GetY();
+			var real fModifierX = Math.Sin(GetDirection()) * 0.5 * pxOwner^.GetSize().GetX();
+			var real fHeight = 3.0;
+
+			vP.SetX(-fModifierX);
+			vP.SetY(-fModifierY);
+			vP.SetZ(fHeight);
+			
+			var real fRandom = ((Random.GetInt()%39).ToReal() * 0.01) - Math.Pi()*0.0625 / vP.Abs2S();
+			var Quat qRandom;
+			qRandom.SetRotationZ(fRandom);
+			qR = pxOwner^.GetRot();
+			qR = qR*qRandom;
+			qR.VecRotateU(vP);
+			vP += pxOwner^.GetPos();
+		endif;
+
+		SetPos(vP);
+		SetRot(qR);
+
+		var int iRandom = (Random.GetInt()%6) + 1;
+		SetGFX("fx_impact_0"+iRandom.ToString());
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	proc real GetDirection()
+		return Math.Pi();
+	endproc;
+
+endclass;
+
+class CBloodHit inherit CEffect
+
+	export constructor()
+		
+		SetDieInterval(2.0);
+		//SetPos(m_xOwner.GetObj()^.GetPos());
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		var vec3 vP;
+		var Quat qR;
+		var string sGfx;
+
+		if(pxOwner^.GetType()=="CHTR")then
+			CFXHelper.GetLinkPosRotW(pxOwner,"Blfa",vP,qR);
+			//sGfx = "hit_creature_sharp_sml";
+			sGfx = "hit_creature_sharp_med";
+		else
+			var real fModifierY = Math.Cos(GetDirection()) * 0.3 * pxOwner^.GetSize().GetY();
+			var real fModifierX = Math.Sin(GetDirection()) * 0.5 * pxOwner^.GetSize().GetX();
+			var real fHeight = 3.0;
+
+			vP.SetX(-fModifierX);
+			vP.SetY(-fModifierY);
+			vP.SetZ(fHeight);
+			
+			var real fRandom = ((Random.GetInt()%39).ToReal() * 0.01) - Math.Pi()*0.0625 / vP.Abs2S();
+			var Quat qRandom;
+			qRandom.SetRotationZ(fRandom);
+			qR = pxOwner^.GetRot();
+			qR = qR*qRandom;
+			qR.VecRotateU(vP);
+			vP += pxOwner^.GetPos();
+			
+			var Quat qR1;
+			var Quat qR2;
+			
+			qR1.SetRotationZ(GetDirection());
+			qR2.SetRotationX(-Math.Pi()*0.5);
+			
+			qR = qR * qR1;
+			qR = qR2 * qR;
+			
+			//sGfx = "hit_creature_sharp_med";
+			sGfx = "hit_creature_sharp_big";
+		endif;
+
+		SetPos(vP);
+		SetRot(qR);
+
+		SetGFX(sGfx);
+
+		begin PlaySound;
+			if(pxOwner^.GetType()=="CHTR")then
+				var ^CAttribs pxAttr = pxOwner^.GetAttribs();
+				if(pxAttr!=null)then
+					var int iLevel = pxAttr^.GetValueInt("level")+1;
+					var string sCaste = pxAttr^.GetValue("caste");
+					var string sTribe = pxAttr^.GetValue("tribe");
+					var string sSound = sTribe+"_"+sCaste;
+					if(pxAttr^.GetValueBool("unique"))then
+						sSound = pxOwner^.GetClassName();
+						sSound = sSound.Left(sSound.FindRev('_'));
+					endif;
+					CGameWrap.GetSoundEventMgrClient().Play3DSound(sSound+"_"+iLevel.ToString()+"_14",vP);
+				endif;
+			endif;
+		end PlaySound;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	proc real GetDirection()
+		return Math.Pi();
+	endproc;
+
+endclass;
+
+class CBloodHit_F inherit CBloodHit
+
+	proc real GetDirection()
+		return 0.0;
+	endproc;
+
+endclass;
+
+class CBloodHit_B inherit CBloodHit
+
+	proc real GetDirection()
+		return Math.Pi();
+	endproc;
+
+endclass;
+
+class CBloodHit_L inherit CBloodHit
+
+	proc real GetDirection()
+		return Math.Pi()*0.5;
+	endproc;
+
+endclass;
+
+class CBloodHit_R inherit CBloodHit
+
+	proc real GetDirection()
+		return Math.Pi()*1.5;
+	endproc;
+
+endclass;
+
+class CBloodHit_BL inherit CBloodHit
+
+	proc real GetDirection()
+		return Math.Pi()*0.75;
+	endproc;
+
+endclass;
+
+class CBloodHit_BR inherit CBloodHit
+
+	proc real GetDirection()
+		return Math.Pi()*1.25;
+	endproc;
+
+endclass;
+
+class CBloodHit_FL inherit CBloodHit
+
+	proc real GetDirection()
+		return Math.Pi()*0.25;
+	endproc;
+
+endclass;
+
+class CBloodHit_FR inherit CBloodHit
+
+	proc real GetDirection()
+		return Math.Pi()*1.75;
+	endproc;
+
+endclass;
+
+class CHitFlash_F inherit CHitFlash
+
+	proc real GetDirection()
+		return 0.0;
+	endproc;
+
+endclass;
+
+class CHitFlash_B inherit CHitFlash
+
+	proc real GetDirection()
+		return Math.Pi();
+	endproc;
+
+endclass;
+
+class CHitFlash_L inherit CHitFlash
+
+	proc real GetDirection()
+		return Math.Pi()*0.5;
+	endproc;
+
+endclass;
+
+class CHitFlash_R inherit CHitFlash
+
+	proc real GetDirection()
+		return Math.Pi()*1.5;
+	endproc;
+
+endclass;
+
+class CHitFlash_BL inherit CHitFlash
+
+	proc real GetDirection()
+		return Math.Pi()*0.75;
+	endproc;
+
+endclass;
+
+class CHitFlash_BR inherit CHitFlash
+
+	proc real GetDirection()
+		return Math.Pi()*1.25;
+	endproc;
+
+endclass;
+
+class CHitFlash_FL inherit CHitFlash
+
+	proc real GetDirection()
+		return Math.Pi()*0.25;
+	endproc;
+
+endclass;
+
+class CHitFlash_FR inherit CHitFlash
+
+	proc real GetDirection()
+		return Math.Pi()*1.75;
+	endproc;
+
+endclass;
+
+//building hit
+class CBuildingHit_01_01 inherit CEffect
+	export constructor()
+		var real fForce = 0.0;
+		if (!CSettings.Get("Game/Gore/BuildingHitForce",fForce)) then
+			CSettings.Set("Game/Gore/BuildingHitForce",fForce);
+		endif;
+		SetDieInterval(0.3);
+
+		var ^CObj pxOwner=m_xOwner.GetObj();
+
+		if(pxOwner!=null) then
+			SetPos(pxOwner^.GetPos());
+		endif;
+
+		SetGFX("Blood_01");
+		SetVisible(false);
+
+		var CEffectInfo xFX;
+		var vec3 vOfs={0.0,0.0,0.0};
+		var vec3 vDir={0.0,0.0,1.0};
+		//qR.VecRotateU(vDir);
+		xFX.m_sEffectClass="_dusttrail";
+		xFX.m_xAttribs.SetValue("force",fForce);
+		xFX.m_xAttribs.SetValue("offset_x",vOfs.GetX());
+		xFX.m_xAttribs.SetValue("offset_y",vOfs.GetY());
+		xFX.m_xAttribs.SetValue("offset_z",vOfs.GetZ());
+		xFX.m_xAttribs.SetValue("direction_x",vDir.GetX());
+		xFX.m_xAttribs.SetValue("direction_y",vDir.GetY());
+		xFX.m_xAttribs.SetValue("direction_z",vDir.GetZ());
+		CEffect.AddEffect(pxOwner,xFX);
+	//m_xAttribs;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CLandScapeHit inherit CBuildingHit_01_01
+endclass;
+
+class CUSLEffect inherit CEffect
+	export constructor()
+	endconstructor;
+	
+	export proc void Init(string p_sGfx)
+		Init(p_sGfx, 2.5f);
+	endproc;
+	
+	export proc void Init(string p_sGfx, real p_fDieInterval)
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX(p_sGfx);
+		SetAnim("anim",1,0);
+		SetDieInterval(p_fDieInterval);
+	endproc;
+endclass;
+
+class CMedExplo01 inherit CUSLEffect
+	export constructor()
+		Init("Med_Explo_01");
+	endconstructor;
+endclass;
+
+class CMedExplo02 inherit CUSLEffect
+	export constructor()
+		Init("Med_Explo_02");
+	endconstructor;
+endclass;
+
+class CMedExploWater inherit CUSLEffect
+	export constructor()
+		Init("explo_water");
+	endconstructor;
+endclass;
+
+//Resource character spawning
+class CResCharacterSpawnFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos()+{0.0,0.0,0.0});
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Spawnping_Char_Res_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(1.2);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+//Nauture character spawning
+class CNatCharacterSpawnFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos()+{0.0,0.0,0.0});
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Spawnping_Char_Nat_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(1.2);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+//Technics character spawning
+class CTecCharacterSpawnFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos()+{0.0,0.0,0.0});
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Spawnping_Char_Tec_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(1.2);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+//All characters level up
+class CLevelUpFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetOwner(pxOwner^.GetOwner());
+		SetGFX("Levelup_Char_Fx");
+		SetAnim("anim",1,pxOwner^.GetCurrentAnimFrame());
+		SetDieInterval(pxOwner^.GetCurrentAnimLength()-0.5);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CLevelUpFX_Transport inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		var real fZ=pxOwner^.GetSize().GetZ();
+		var vec3 vOfs;vOfs.SetZ(fZ*0.75f);
+		SetPos(pxOwner^.GetPos()+vOfs);
+		SetRot(pxOwner^.GetRot());
+		SetOwner(pxOwner^.GetOwner());
+		SetGFX("Levelup_Char_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(GetCurrentAnimLength());
+	endconstructor;
+endclass;
+
+//All characters level down
+class CLevelDownFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		//SetGFX("Leveldown_Char_Fx");
+		//SetGFX("Deathping_Char_Vanish_Fx");
+		SetGFX("Downgrade_Animal_Fx");
+		SetDieInterval(pxOwner^.GetCurrentAnimLength()+1.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+//Building placement
+class CPlaceBuildingFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Placeping_Building_Fx");
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(1.0f,5,100.0f,GetPos());
+		SetDieInterval(1.55f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+//Building placement
+class CBuildingReadyFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Readyping_Building_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(1.8f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+//Big animal rotting
+class CBigAnimalRottingFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Deathping_Animal_Big_Vanish_Fx");
+		SetDieInterval(5.0);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+//Medium animal rotting
+class CMedAnimalRottingFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Deathping_Animal_Med_Vanish_Fx");
+		SetDieInterval(5.0);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+//Small animal rotting
+class CSmallAnimalRottingFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Deathping_Animal_Small_Vanish_Fx");
+		SetDieInterval(5.0);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CAnimalSleepingFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos()+{0.0,0.0,1.0});
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Sleepping_Animal_Fx");
+		//Erstmal hardcoded
+		SetDieInterval(15.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CAnimalSpawnFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Spawnping_Animal_Fx");
+		//Erstmal hardcoded
+		SetDieInterval(2.85f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CBuildingInventStartFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Confirmping_Invent_Fx");
+		SetDieInterval(1.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CAnimalUpgradePing inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		var vec3 vP;var Quat qR;CFXHelper.GetLinkPosRotW(pxOwner,"con",vP,qR);
+		SetPos(vP);
+		SetRot(qR);
+		if(pxOwner^.GetType()=="ANML")then
+			SetGFX("fx_aje_convert_sml");
+		else
+			SetGFX("fx_aje_convert_big");
+		endif;
+		SetOwner(pxOwner^.GetOwner());
+		SetDieInterval(1.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CBuildingInventEndFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetOwner(pxOwner^.GetOwner());
+		SetGFX("Readyping_Invent_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(7.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+//Big animal dying MARKY
+class CBigAnimalDeathPingFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetOwner(pxOwner^.GetOwner());
+		SetGFX("Deathping_Animal_Big_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(3.0);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+//Medium animal dying
+class CMedAnimalDeathPingFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetOwner(pxOwner^.GetOwner());
+		SetGFX("Deathping_Animal_Med_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(3.0);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+//Small animal dying
+class CSmallAnimalDeathPingFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetOwner(pxOwner^.GetOwner());
+		SetGFX("Deathping_Animal_Small_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(3.0);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CBigBuildingExplosion inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Big_Explo_01_Fx");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(1.0f,40,75.0f,GetPos());
+		SetDieInterval(5.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CBrachioDying inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Placeping_Building_Fx");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(1.0f,40,75.0f,GetPos());
+		SetDieInterval(1.55f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CAllosaurusDying inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Placeping_Building_Fx");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(1.0f,10,100.0f,GetPos());
+		SetDieInterval(1.55f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CAjeStoneImpact inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Big_Explo_01_Fx");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(1.0f,10,100.0f,GetPos());
+		SetDieInterval(5.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CBrachioWalking inherit CEffect
+	
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+//		SetVisible(false);
+//		SetDieInterval(0.1f);
+		SetDieInterval(1.55f);
+		SetVisible(true);
+//		SetGFX("Dust_001");
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,75.0f,GetPos(),30.0f);
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+endclass;
+
+class CAllosaurusWalking inherit CEffect
+	
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetVisible(false);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos());
+		SetDieInterval(0.1f);
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+endclass;
+
+class CMolotovFire inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		if(pxOwner!=null)then
+			SetPos(pxOwner^.GetPos());
+			SetRot(pxOwner^.GetRot());
+		endif;
+			SetGFX("Fire_Black");
+			SetAnim("anim",1,0);
+			SetDieInterval(10.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CMolotovImpact inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		if(pxOwner!=null)then
+			SetPos(pxOwner^.GetPos());
+			SetRot(pxOwner^.GetRot());
+		endif;
+			SetGFX("Explo_Molotov");
+			SetAnim("anim",1,0);
+			SetDieInterval(3.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+
+class CBBrachioHarvestFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Brachiosaurus_Stand_Up_Part_Fx");
+		SetAnim("anim",1,pxOwner^.GetCurrentAnimFrame());
+		SetDieInterval(pxOwner^.GetCurrentAnimLength()+0.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CVehicleExplosion inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Vehicle_Explosion");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos());
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CStina_Sm_0 inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Stina_Sm_0_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(3.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CSpecial_Matrix inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Special_Fx_0");
+		SetAnim("anim",1,0);
+		SetDieInterval(3.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CTec_Sm_Burst_Arrow inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Tec_Sm_Burst_Arrow_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(3.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CTec_Sm_Multishot_Fx inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Tec_Sm_Multishot_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(3.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CRes_Sm_Jump_Fx inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Res_Sm_Jump_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(3.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CRes_Sm_Kick_Fx inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Res_Sm_Kick_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(3.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CBallistaExploAnimal inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Ballista_Animal");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CBallistaExploBuilding inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Ballista_Building");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CDragonshipExploLand inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Dragonship_Land");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CDragonshipExploLandAnimal inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Dragonship_Land_Animal");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CDragonshipExploWater inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Dragonship_Water");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CLogcannonExploAnimal inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Logcannon_Animal");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CLogcannonExploBuilding inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Logcannon_Building");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CDestructionHit inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		var CFourCC xType=pxOwner^.GetType();
+		if(xType=="BLDG")then
+			SetGFX("Explo_Logcannon_Building");
+		else
+			var string sTribe;
+			var ^CAttribs pxAttr=pxOwner^.GetAttribs();
+			if(pxAttr!=null)then
+				sTribe=pxAttr^.GetValue("tribe");
+			else
+				sTribe="hu";
+			endif;
+			if(!sTribe.IsEmpty())then
+				sTribe.MakeLower();
+			else
+				sTribe="hu";
+			endif;
+			if(sTribe=="world" || sTribe=="special")then
+				sTribe="hu";
+			endif;
+			var string sGfx="hit_object_"+sTribe+"_blunt_big";
+			SetGFX(sGfx);
+		endif;
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CRamshipExploWater inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Ramship_Water");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CSmokebombExplo inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Smokebomb");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CSteamramExploAnimal inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Steamram_Animal");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CSteamramExploBuilding inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Steamram_Building");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CSteamramUpgradeExploAnimal inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Steamram_Up_Animal");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CSteamramUpgradeExploBuilding inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Steamram_Up_Building");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CSteamshipExploLand inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Steamship_Land");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CSteamshipExploLandAnimal inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Steamship_Land_Animal");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CSteamshipExploWater inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Steamship_Water");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CSteamtankExploAnimal inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Steamtank_Animal");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CSteamtankExploBuilding inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Steamtank_Building");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CAllosaurus_Sm_Scrunch_Fx inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Allosaurus_Sm_Scrunch_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(4.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CHu_Temple_Dem_Fx inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Hu_Temple_Dem_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(4.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CHu_Wall_Dem_Fx inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Hu_Wall_Dem_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(4.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CAje_Tent_Dem_Fx inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Aje_Tent_Dem_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(4.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CCamShakeHarvestTrees inherit CEffect
+/*
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		var string sName = pxOwner^.GetCurrentAnimName();
+		var vec3 vOffSet = {8.0,0.0,0.0};
+		
+		var real fAnim = sName.Right(1).ToInt().ToReal();
+		
+		var real fAngle = (Math.Pi()/4.0)*fAnim;
+		vOffSet.RotZ(-fAngle);
+
+		SetPos(pxOwner^.GetPos()+vOffSet);
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Leave_Blast");
+		//SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(1.0f,5,100.0f,GetPos(),20.0f);
+		SetDieInterval(2.4f);
+	endconstructor;
+*/
+	export constructor()
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+endclass;
+
+class CMammothRageFx inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Mammoth_Rage_2_Fx");
+		SetAnim("anim",1,0);
+		SetDieInterval(4.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CProjectileHit inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		var Quat qRot = pxOwner^.GetRot();
+		SetGFX(CExplosionMgr.Get().GetExplosion(pxOwner, qRot));
+		SetRot(qRot);
+		SetDieInterval(4.0f);
+	endconstructor;
+endclass;
+
+class CProjectileFlash inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		var int iRandom = (Random.GetInt()%2) + 1;
+		SetGFX("fx_impact_proj_0"+iRandom.ToString());
+		SetDieInterval(2.5f);
+	endconstructor;
+endclass;
+
+class CBigScapeHit inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Placeping_Building_Fx");
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(1.0f,5,100.0f,GetPos(),15.0f);
+		SetDieInterval(1.55f);
+		//creates a small_crater, 15 sec
+		var CEffectInfo xFX;
+		xFX.m_sEffectClass="CCrater_Small";
+		CEffect.AddEffect(pxOwner,xFX);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+//scape hit with crater_big
+class CBigScapeHitBig inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Placeping_Building_Fx");
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(1.0f,5,100.0f,GetPos(),15.0f);
+		SetDieInterval(1.55f);
+		//creates a small_crater, 15 sec
+		var CEffectInfo xFX;
+		xFX.m_sEffectClass="CCrater_Big";
+		CEffect.AddEffect(pxOwner,xFX);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CCrater_Small inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		AlignScape();
+		SetGFX("Crater_Small");
+		SetAnim("anim",1,0);
+		SetDieInterval(15.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CCrater_Big inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(Quat.RotationZ(Random.MTRandF(0.0f,Math.Pi()*2.0f)));
+		AlignScape();
+		SetGFX("Crater_Big");
+		SetAnim("anim",1,0);
+		SetDieInterval(15.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CFirepotExplo01 inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Firepot_01");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CFirepotExplo02 inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Firepot_02");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CFirepotExplo01Scape inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Firepot_01");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+		var CEffectInfo xFX;
+		xFX.m_sEffectClass="CBigScapeHit";
+		CEffect.AddEffect(pxOwner,xFX);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CFirepotExplo02Scape inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Firepot_02");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+		var CEffectInfo xFX;
+		xFX.m_sEffectClass="CBigScapeHitBig";
+		CEffect.AddEffect(pxOwner,xFX);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CFirepotExplo01Building inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Firepot_01");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+		var CEffectInfo xFX;
+		xFX.m_sEffectClass="CLogcannonExploBuilding";
+		CEffect.AddEffect(pxOwner,xFX);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CFirepotExplo02Building inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Firepot_02");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+		var CEffectInfo xFX;
+		xFX.m_sEffectClass="CLogcannonExploBuilding";
+		CEffect.AddEffect(pxOwner,xFX);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CFirepotExplo01Animal inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Firepot_01");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+		var CEffectInfo xFX;
+		xFX.m_sEffectClass="CLogcannonExploAnimal";
+		CEffect.AddEffect(pxOwner,xFX);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CFirepotExplo02Animal inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Firepot_02");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+		var CEffectInfo xFX;
+		xFX.m_sEffectClass="CLogcannonExploAnimal";
+		CEffect.AddEffect(pxOwner,xFX);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CFirepotExplo01Ship inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Firepot_01");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+		var CEffectInfo xFX;
+		xFX.m_sEffectClass="CSteamshipExploWater";
+		CEffect.AddEffect(pxOwner,xFX);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CFirepotExplo02Ship inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Firepot_02");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+		var CEffectInfo xFX;
+		xFX.m_sEffectClass="CSteamshipExploWater";
+		CEffect.AddEffect(pxOwner,xFX);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CFirepotExplo01Vehicle inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Firepot_01");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+		var CEffectInfo xFX;
+		xFX.m_sEffectClass="CSteamtankExploBuilding";
+		CEffect.AddEffect(pxOwner,xFX);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CRocketBoatExplo inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Firepot_02");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+		var CEffectInfo xFX;
+		xFX.m_sEffectClass="CSteamtankExploBuilding";
+		CEffect.AddEffect(pxOwner,xFX);
+	endconstructor;
+endclass;
+
+class CFirepotExplo02Vehicle inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Firepot_02");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.5f);
+		var CEffectInfo xFX;
+		xFX.m_sEffectClass="CSteamtankExploBuilding";
+		CEffect.AddEffect(pxOwner,xFX);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CExploDiloSpittle inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Explo_Dilo_Spittle");
+		SetAnim("anim",1,0);
+		SetDieInterval(2.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CExploWater inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("explo_water");
+		SetAnim("anim",1,0);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,100.0f,GetPos(),30.0f);
+		SetDieInterval(2.4f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CConcealStripBig inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("conceal_strip_big");
+		SetAnim("anim",1,0);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CConcealStripMed inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("conceal_strip_med");
+		SetAnim("anim",1,0);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CBuildingOpenDoors inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		var CObj.CBlendAnimDesc xD;
+		xD.m_sAnim="open_gate";
+		xD.m_iUniqueID=123;
+		xD.m_iStartFrame=0;
+		xD.m_iEndFrame=0;
+		xD.m_dwAnimMode=CObj.CBlendAnimDesc.AM_Still;
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		var CObj.CBlendAnimDesc.CKey xKey;
+		
+		xKey.m_xTime=xNow;
+		xKey.m_fWeight=0.0f;
+		xD.AddKey(xKey);
+
+		xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*0.5f);
+		xKey.m_fWeight=1.0f;
+		xD.AddKey(xKey);
+
+		xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*4.0f);
+		xKey.m_fWeight=1.0f;
+		xD.AddKey(xKey);
+
+		xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*4.5f);
+		xKey.m_fWeight=0.0f;
+		xD.AddKey(xKey);
+		
+		pxOwner^.SetBlendAnim(xD);
+		SetDieInterval(5.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CHealingWellState inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		var CObj.CBlendAnimDesc xD;
+		xD.m_sAnim="fill_anim";
+		xD.m_iUniqueID=124;
+		xD.m_iStartFrame=0;
+		xD.m_iEndFrame=0;
+		var real fCurFactor=0.0;
+		var real fTime=1.0;
+		var ^CAttribs pxAttr=pxOwner^.GetAttribs();
+		if(pxAttr!=null)then
+			var real fCur=pxAttr^.GetValueInt("hitpoints").ToReal();
+			var real fMax=Math.Max(pxAttr^.GetValueInt("maxhitpoints").ToReal(),1.0);
+			var real fDur=Math.Max(pxAttr^.GetValueInt("refill_dur").ToReal(),1.0);
+			fCurFactor=1.0-(fCur/fMax);
+			fTime=((fMax-fCur)/fMax)*fDur;
+		endif;
+		
+		xD.m_dwAnimMode=CObj.CBlendAnimDesc.AM_Still;
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		var CObj.CBlendAnimDesc.CKey xKey;
+		
+		xKey.m_xTime=xNow;
+		xKey.m_fWeight=fCurFactor;
+		xD.AddKey(xKey);
+
+		xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*fTime);
+		xKey.m_fWeight=0.0f;
+		xD.AddKey(xKey);
+		
+		pxOwner^.SetBlendAnim(xD);
+		SetDieInterval(fTime);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CTrappedScaleState inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		var CObj.CBlendAnimDesc xD;
+		xD.m_sAnim="grow";
+		xD.m_iUniqueID=122;
+		xD.m_iStartFrame=1;
+		xD.m_iEndFrame=1;
+		xD.m_dwAnimMode=CObj.CBlendAnimDesc.AM_Still;
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		var CObj.CBlendAnimDesc.CKey xKey;
+		
+		xKey.m_xTime=xNow;
+		xKey.m_fWeight=0.0;
+		xD.AddKey(xKey);
+
+		var real fWeight=Math.Clamp(pxOwner^.GetCollisionRadius()/20.0,0.0,1.0);
+
+		xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*0.5);
+		xKey.m_fWeight=fWeight;
+		xD.AddKey(xKey);
+
+		xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*20.0);
+		xKey.m_fWeight=fWeight;
+		xD.AddKey(xKey);
+		
+		pxOwner^.SetBlendAnim(xD);
+		SetDieInterval(20.0);
+
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CIcedEffect inherit CEffect
+	
+	export constructor()
+		SetGFX("fx_ice_freeze");
+		SetAnim("anim",0,0);
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		var CObj.CBlendAnimDesc xD;
+		xD.m_sAnim="anim";
+		xD.m_iUniqueID=122;
+		xD.m_iStartFrame=1;
+		xD.m_iEndFrame=1;
+		xD.m_dwAnimMode=CObj.CBlendAnimDesc.AM_Still;
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		var CObj.CBlendAnimDesc.CKey xKey;
+		xKey.m_xTime=xNow;
+		xKey.m_fWeight=0.0;
+		xD.AddKey(xKey);
+		var real fWeight=Math.Clamp(pxOwner^.GetCollisionRadius()/10.0,0.0,2.0);
+		xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*0.5);
+		xKey.m_fWeight=fWeight;
+		xD.AddKey(xKey);
+		xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*4.5);
+		xKey.m_fWeight=fWeight;
+		xD.AddKey(xKey);
+		xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*5.0);
+		xKey.m_fWeight=0.0;
+		xD.AddKey(xKey);
+		SetBlendAnim(xD);/**/
+		SetDieInterval(5.0);
+		pxOwner^.SetTrapEffect(GetHandle());
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+endclass;
+
+class CPoisonEffect inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		if(pxOwner^.GetCollisionRadius()>=8.0f) then
+			SetGFX("fx_poison_big");
+		else
+			SetGFX("fx_poison");
+		endif;
+	endconstructor;
+endclass;
+
+class CConcealStripSmall inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("conceal_strip_small");
+		SetAnim("anim",1,0);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CExploLovelacePoisonArrow inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("explo_lovelace_poison_arrow");
+		SetAnim("anim",1,0);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CExploNinigiWaterMine inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("mine_explo");
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CDropNinigiWaterMine inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("mine_drop");
+		SetDieInterval(4.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+//frame 10 in gsf
+class CNinigiMetzlerHarvest inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("ninigi_metzler_particle");
+		SetAnim("anim",1,0);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CRocketLauncherSmoke inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		var vec3 vP;var Quat qR;CFXHelper.GetLinkPosRotW(pxOwner,"Proj",vP,qR);
+		SetPos(vP);
+		SetRot(qR);
+		SetGFX("fx_seas_rpg");
+		SetAnim("anim",1,0);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CShipWaterSprayFront inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		var vec3 vP;var Quat qR;CFXHelper.GetLinkPosRotW(pxOwner,"SpFr",vP,qR);
+		SetPos(vP);
+		SetRot(qR);
+		if(pxOwner^.GetSize().GetX()>20.0) then
+			SetGFX("spray_front_3");
+		elseif(pxOwner^.GetSize().GetX()>10.0) then
+			SetGFX("spray_front_2");
+		else
+			SetGFX("spray_front_1");
+		endif;
+		SetAnim("anim",1,0);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CShipWaterSprayBack inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		var vec3 vP;var Quat qR;CFXHelper.GetLinkPosRotW(pxOwner,"SpBa",vP,qR);
+		SetPos(vP);
+		SetRot(qR);
+		if(pxOwner^.GetSize().GetX()>20.0) then
+			SetGFX("spray_back_3");
+		elseif(pxOwner^.GetSize().GetX()>10.0) then
+			SetGFX("spray_back_2");
+		else
+			SetGFX("spray_back_1");
+		endif;
+		SetAnim("anim",1,0);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CDeathSound inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		if(pxOwner==null)then return; endif;
+		var ^CAttribs pxAttr = pxOwner^.GetAttribs();
+		if(pxAttr==null)then return; endif;
+		var string sSound="voice_"+pxAttr^.GetValue("class")+"_die";
+		var string sSoundUI="ui_"+pxAttr^.GetValue("class")+"_die";
+		if(CGameWrap.GetSoundEventMgrClient().GetEventIndex(sSound) != -1)then
+			CGameWrap.GetSoundEventMgrClient().Play3DSound(sSound,pxOwner^.GetPos());
+		elseif(CGameWrap.GetSoundEventMgrClient().GetEventIndex(sSoundUI) != -1)then
+			CGameWrap.GetSoundEventMgrClient().Play3DSound(sSoundUI,pxOwner^.GetPos());
+		endif;
+		//CGameWrap.GetSoundEventMgrClient().PlayGlobalSound(sSound,CSoundMgrCln.SOUND_VOLTRACK_GLOBAL,0);
+		CGameWrap.GetSoundEventMgrClient().Play3DSound(sSound,pxOwner^.GetPos());
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CLivingstoneVanish inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("fx_impact_01");
+		SetDieInterval(1.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CNiBigBert inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetGFX("hit_object_ninigi_big_bertha");
+		SetDieInterval(3.0);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CHitObjNiExpB inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetGFX("hit_object_ninigi_explo_big");
+		SetDieInterval(3.0);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CHitObjSeExpB inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetGFX("hit_object_seas_explo_big");
+		SetDieInterval(3.0);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CHitLanAshExpB inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetGFX("hit_land_ash_explo_big");
+		SetDieInterval(3.0);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CMineExplo inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetGFX("mine_explo");
+		SetDieInterval(3.0);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CFxCraterB inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetGFX("fx_crater_big");
+		SetDieInterval(3.0);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CBurnEffect inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetGFX("Fire_Molotov");
+	endconstructor;
+endclass;
+
+class CEarthQuake inherit CEffect
+
+	export constructor()
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(1.0f,100,100.0f,GetPos(),100.0f);
+		CGameWrap.GetSoundEventMgrClient().Play3DSound("FX_CEarthQuake",GetPos());
+		SetDieInterval(1.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+endclass;
+
+class CStimpackOn inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Weapupping_Char_Nat_Fx");
+		SetDieInterval(3.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CMeteor inherit CEffect
+
+	export constructor()
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(4.0f,200,100.0f,GetPos(),100.0f);
+		SetDieInterval(4.0f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+endclass;
+
+class CWalkingBombFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetGFX("hit_object_ninigi_big_bertha");
+		SetDieInterval(3.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CSleepingAnimalFX inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos()+{0.0,0.0,1.0});
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Sleepping_Animal_Fx");
+		SetDieInterval(60.0);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+endclass;
+
+class CBrachioRage inherit CEffect
+
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		SetVisible(false);
+		//CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(0.5f,5,75.0f,GetPos(),30.0f);
+		CMainController.Get().GetCameraCtrl().ShakeCameraTheGundlachStyle(2.0f,15,75.0f,GetPos(),50.0f);
+		SetDieInterval(0.1f);
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+endclass;
+
+class CBlizzardEffect inherit CEffect
+	
+	export constructor()
+		SetGFX("fx_ice_freeze");
+		SetAnim("anim",0,0);
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		var CObj.CBlendAnimDesc xD;
+		xD.m_sAnim="anim";
+		xD.m_iUniqueID=500;
+		xD.m_iStartFrame=1;
+		xD.m_iEndFrame=1;
+		xD.m_dwAnimMode=CObj.CBlendAnimDesc.AM_Still;
+		var CGameTime xNow=CTimeMgr.Get().GetTime();
+		var CObj.CBlendAnimDesc.CKey xKey;
+		xKey.m_xTime=xNow;
+		var real fWeight=Math.Clamp(pxOwner^.GetCollisionRadius()/20.0,0.0,1.5);
+		xKey.m_fWeight=fWeight;
+		xD.AddKey(xKey);
+		xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*20.0);
+//		xKey.m_fWeight=0.0;
+		xKey.m_fWeight=fWeight;
+		xD.AddKey(xKey);
+		SetBlendAnim(xD);
+		SetDieInterval(20.0);
+		pxOwner^.SetTrapEffect(GetHandle());
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+endclass;
+
+class CLockedEffect inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos()+{0.0,0.0,1.0});
+		SetRot(pxOwner^.GetRot());
+		SetGFX("Sleepping_Animal_Fx");
+		SetDieInterval(5.0f);
+		pxOwner^.SetTrapEffect(GetHandle());
+	endconstructor;
+endclass;
+
+class CShadowCloneBanish inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+//		SetPos(pxOwner^.GetPos());
+//		SetRot(pxOwner^.GetRot());
+		SetGFX("fx_stina_convert");
+		SetAnim("anim",1,0);
+		SetDieInterval(2.5f);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+
+class CHitObjAjExpB inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetGFX("hit_object_aje_explo_med");
+		SetDieInterval(3.0);
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+endclass;
+	
+class CExploMineTrapSmall inherit CEffect
+	export constructor()
+//		var ^CObj pxOwner=m_xOwner.GetObj();
+		var string sSetting, sGfx="hit_land_";
+		var bitset dwID=CClientWrap.GetScapeMgr().GetTerrainSetting();
+		if(dwID==0000b)then
+			sSetting="nor";
+		elseif(dwID==0001b)then
+			sSetting="sav";
+		elseif(dwID==0010b)then
+			sSetting="jng";
+		elseif(dwID==0011b)then
+			sSetting = "ice";
+		elseif(dwID==0100b)then
+			sSetting = "ash";
+		elseif(dwID==0101b)then
+			sSetting = "nor";
+		elseif(dwID==0110b)then
+			sSetting = "sav";
+		elseif(dwID==0111b)then
+			sSetting = "ash";
+		elseif(dwID==01000b)then
+			sSetting = "ash";
+		else
+			sSetting="sav";
+		endif;
+		sGfx+=sSetting+"_explo_big";
+		SetGFX(sGfx);
+//		SetDieInterval(2.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+endclass;
+
+class CExploMineTrapBig inherit CEffect
+	export constructor()
+		var string sGfx="Big_Explo_0"+((Random.GetInt()%2)+1).ToString()+"_Fx";
+		SetGFX(sGfx);
+		SetAnim("anim",1,0);
+		SetDieInterval(2.5f);
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+endclass;
+
+class CExploNMTO inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		var string sSetting, sGfx="hit_land_";
+		var bitset dwID=CClientWrap.GetScapeMgr().GetTerrainSetting();
+		if(dwID==0000b)then
+			sSetting="nor";
+		elseif(dwID==0001b)then
+			sSetting="sav";
+		elseif(dwID==0010b)then
+			sSetting="jng";
+		elseif(dwID==0011b)then
+			sSetting = "ice";
+		elseif(dwID==0100b)then
+			sSetting = "ash";
+		elseif(dwID==0101b)then
+			sSetting = "nor";
+		elseif(dwID==0110b)then
+			sSetting = "sav";
+		elseif(dwID==0111b)then
+			sSetting = "ash";
+		elseif(dwID==01000b)then
+			sSetting = "ash";
+		else
+			sSetting="sav";
+		endif;
+		sGfx+=sSetting+"_explo_big";
+		SetGFX(sGfx);
+//		SetDieInterval(2.0f);
+		SetDieInterval(2.5f);
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+endclass;
+	
+class CResinfieldInfect inherit CEffect
+	export constructor()
+		var ^CObj pxOwner=m_xOwner.GetObj();
+		SetPos(pxOwner^.GetPos());
+		SetRot(pxOwner^.GetRot());
+		var string sGfx="Explo_Firepot_0"+((Random.GetInt()%2)+1).ToString();
+		SetGFX(sGfx);
+		SetAnim("anim",1,0);
+		SetDieInterval(2.5f);
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+endclass;

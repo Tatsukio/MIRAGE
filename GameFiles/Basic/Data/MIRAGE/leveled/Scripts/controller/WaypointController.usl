@@ -1,0 +1,103 @@
+class CWaypointController inherit CInputController
+
+	export const int			WAYPOINT_NEW	= 1;
+	export const int			WAYPOINT_EDIT	= 2;
+		
+	var int						m_iState;
+	var bool					m_bDrag;
+	var int						m_iDragIdx;
+	
+	var ^CObjMgr.CWaypointPath 	m_pxPath;
+	var int						m_iCurWPIdx;
+	
+	export var procref<bool, vec3>	m_xOnAddPoint;
+	export var procref<bool>		m_xOnRemPoint;
+		
+	export constructor()
+		m_pxPath = CLevelEditorWrap.GetObjMgr().GetWaypointPath();
+		m_pxPath^.SetDraw(true);
+		m_iCurWPIdx = -1;
+		m_bDrag = false;
+		m_iDragIdx=-1;
+	endconstructor;
+
+	export destructor()
+		m_pxPath^.SetDraw(false);
+	enddestructor;
+	
+	export proc void SetState(int p_iState)
+		m_iState = p_iState;
+	endproc;
+
+	export proc void SetActive(bool p_bOn)
+		KLog.LogSpam("MaZi", "SetAction("+p_bOn.ToString()+")");
+		if(m_pxPath!=null) then
+			m_pxPath^.SetDraw(p_bOn);
+			if(p_bOn) then 
+				m_iState = WAYPOINT_NEW;
+			endif;
+		endif;
+	endproc;
+
+	proc void GetWaterPlanePoint(ref vec3 po_rvPos) 
+		var real fWaterHeight = CClientWrap.GetScapeMgr().GetSeaLevel();
+		var vec3 vEyePos = CMultiCameraController.Get().GetEye();
+		var vec3 vDir= vEyePos - po_rvPos;
+		var real fLength = vDir.Abs();
+		vDir.Normalize();
+
+		var real fI;
+		for (fI=1.0f) cond (fI < fLength) iter (fI += 1.0f) do
+			var vec3 vCur =  po_rvPos + ( vDir * fI );
+			if (vCur.GetZ() > fWaterHeight-1.0f && vCur.GetZ() < fWaterHeight+1.0f) then
+				po_rvPos = vCur;
+				po_rvPos.SetZ(fWaterHeight);
+				return;
+			endif;
+		endfor;
+	endproc;
+
+	export proc bool HandleMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+		var bool bCtrl = false;
+		if( (p_dwFlags&0010b) == 00010b )then
+			bCtrl=true;
+		endif;
+	
+		var vec3 vPick=CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+		if(vPick.GetZ()<CClientWrap.GetScapeMgr().GetSeaLevel()) then
+			GetWaterPlanePoint(vPick);
+		endif;
+		
+		if(p_dwType==CInputController.MT_MouseLBtnDown)then
+			if(m_iState==WAYPOINT_NEW) then
+				m_pxPath^.AddWaypoint(vPick);
+				m_iCurWPIdx = m_pxPath^.NumWaypoints()-1;
+			endif;
+		elseif(p_dwType==CInputController.MT_MouseMove)then
+			if(m_iState==WAYPOINT_NEW) then
+				if(m_iCurWPIdx>=0) then
+					m_pxPath^.GetWaypoint(m_iCurWPIdx) = vPick;
+				endif;
+			endif;
+		elseif(p_dwType==CInputController.MT_MouseLBtnUp)then
+			if(m_iState==WAYPOINT_NEW && m_iCurWPIdx>=0) then
+				if(!m_xOnAddPoint.IsNull()) then
+					m_xOnAddPoint.Call(m_pxPath^.GetWaypoint(m_iCurWPIdx));
+				endif;
+				m_iCurWPIdx = -1;
+			endif;
+		elseif(p_dwType==CInputController.MT_MouseRBtnDown)then
+			if(m_pxPath^.NumWaypoints()>0) then
+				m_pxPath^.RemWaypoint(m_pxPath^.NumWaypoints()-1);
+				m_iCurWPIdx = -1;
+				if(!m_xOnRemPoint.IsNull()) then
+					m_xOnRemPoint.Call();
+				endif;
+			endif;
+		endif;
+		return(true);
+	endproc;
+	
+endclass;
+
+

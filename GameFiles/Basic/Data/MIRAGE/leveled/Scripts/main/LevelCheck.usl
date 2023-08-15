@@ -1,0 +1,287 @@
+class CLevelCheckItem inherit CItemData
+	export const int TYPE_MSG = 0;
+	export const int TYPE_OBJECT = 1;
+	export const int TYPE_POS = 2;
+	var int			m_iType;
+	var CClntHndl	m_xObj;
+	var vec3		m_vPos;
+	
+	export constructor()
+		m_iType=TYPE_MSG;
+	endconstructor;
+
+	export constructor(CClntHndl p_xObj)
+		m_iType=TYPE_OBJECT;
+		m_xObj=p_xObj;
+	endconstructor;
+
+	export constructor(vec3 p_vPos)
+		m_iType=TYPE_POS;
+		m_vPos=p_vPos;
+	endconstructor;
+	
+	export proc int GetType()
+		return m_iType;
+	endproc;
+
+	export proc CClntHndl GetObj();
+		return(m_xObj);
+	endproc;
+
+	export proc vec3 GetPos();
+		return(m_vPos);
+	endproc;
+endclass;
+
+
+class CLevelCheck inherit CEnhancedFrameWindow
+
+	var ^CList m_pxResults;
+	var int m_iCntHints;
+	var int m_iCntWarnings;
+	var int m_iCntErrors;
+
+	export constructor()
+		if(!InitFromResource("main/LevelCheck","LevelCheck"))then
+			CLevelEditorWrap.LogError("UI.LevelCheck","LevelCheck InitFromRessource() failed");
+			return;
+		endif;
+		var ^CButton pxBtnOK=cast<CButton>(GetControl("ButtonOK"));
+		pxBtnOK^.m_xOnClick=OnClickOK;
+		SetDefButtonOk(pxBtnOK);
+		SetSizable(true);
+		LoadPosition("LevelCheck");
+		m_pxResults=cast<CList>(GetControl("ResultList"));
+		m_pxResults^.m_xOnLBtnDblClick = ResultsDetails;
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	export proc void Show()
+		var ^CWindowMgr pxWM=^(CWindowMgr.Get());
+		var ^CDesktop pxDesktop=CClientWrap.GetDesktop();
+		var point xPos;
+		xPos.SetX((pxDesktop^.GetWidth()-GetWidth())/2);
+		xPos.SetY((pxDesktop^.GetHeight()-GetHeight())/2);
+		SetPos(xPos);
+		pxDesktop^.AddChild(this);
+		pxWM^.BringWindowToTop(this, true);
+		m_pxResults^.Clear();
+	endproc;
+	
+	export proc bool OnClickOK()
+		ShowAndCheck();
+		return true;
+	endproc;
+	
+	export proc bool ResultsDetails()
+		var int iSelReg=m_pxResults^.GetSelectedItem();
+		if(iSelReg!=-1)then
+			if(m_pxResults^.GetItemData(iSelReg)!=null)then
+				var ^CLevelCheckItem pxItem=cast<CLevelCheckItem>(m_pxResults^.GetItemData(iSelReg));
+				if(pxItem!=null)then
+					var int iType=pxItem^.GetType();
+					if(iType==CLevelCheckItem.TYPE_POS)then
+						CMainController.Get().SetCameraTarget(pxItem^.GetPos());
+					endif;
+					if(iType==CLevelCheckItem.TYPE_OBJECT)then
+						var ^CObjMgr pxOM=^(CClientWrap.GetObjMgr());
+						var CClntHndl xObjHndl=pxItem^.GetObj();
+						var ^CObj pxO=xObjHndl.GetObj();
+						if(pxO!=null)then
+							CMainController.Get().SetCameraTarget(pxO^.GetPos());
+							CClientWrap.GetSelection().Clear();
+							CClientWrap.GetSelection().Include(xObjHndl);
+						endif;
+					endif;
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	proc void AddHint(string p_sText,^CLevelCheckItem p_pxItem)
+		var int iItem=m_pxResults^.AddItem("HINT: "+p_sText,p_pxItem);
+		m_iCntHints++;
+		m_pxResults^.RemoveSelection();
+		m_pxResults^.ScrollToV(iItem);
+	endproc;
+
+	proc void AddWarning(string p_sText,^CLevelCheckItem p_pxItem)
+		var int iItem=m_pxResults^.AddItem("WARN: "+p_sText,p_pxItem);
+		m_iCntWarnings++;
+		m_pxResults^.RemoveSelection();
+		m_pxResults^.ScrollToV(32767);
+	endproc;
+
+	proc void AddError(string p_sText,^CLevelCheckItem p_pxItem)
+		var int iItem=m_pxResults^.AddItem("ERROR: "+p_sText,p_pxItem);
+		m_iCntErrors++;
+		m_pxResults^.RemoveSelection();
+		m_pxResults^.ScrollToV(32767);
+	endproc;
+
+	proc void AddHint(string p_sText)
+		AddHint(p_sText,new CLevelCheckItem());
+	endproc;
+
+	proc void AddWarning(string p_sText)
+		AddWarning(p_sText,new CLevelCheckItem());
+	endproc;
+
+	proc void AddError(string p_sText)
+		AddError(p_sText,new CLevelCheckItem());
+	endproc;
+
+	proc real GetScapeHeight(real p_fX,real p_fY)
+		return CLevelEditorWrap.GetScapeMgr().GetHeight(p_fX,p_fY);
+	endproc;
+	
+	proc int GetScapeMaterial(real p_fX,real p_fY)
+		return CLevelEditorWrap.GetScapeMgr().GetMaterial(p_fX,p_fY);
+	endproc;
+	
+	proc bool GetScapePassability(real p_fX,real p_fY)
+		return CLevelEditorWrap.GetScapeMgr().GetMatPassability(p_fX,p_fY);
+	endproc;
+	
+	proc bool GetScapePassabilityEx(real p_fX,real p_fY,real p_fRange)
+		if(!CLevelEditorWrap.GetScapeMgr().GetMatPassability(p_fX,p_fY))then return true;endif;
+		var int iCount=0;
+		if(CLevelEditorWrap.GetScapeMgr().GetMatPassability(p_fX-p_fRange,p_fY-p_fRange))then iCount++;endif;
+		if(CLevelEditorWrap.GetScapeMgr().GetMatPassability(p_fX,p_fY-p_fRange))then iCount++;endif;
+		if(CLevelEditorWrap.GetScapeMgr().GetMatPassability(p_fX+p_fRange,p_fY-p_fRange))then iCount++;endif;
+		if(CLevelEditorWrap.GetScapeMgr().GetMatPassability(p_fX-p_fRange,p_fY))then iCount++;endif;
+		if(CLevelEditorWrap.GetScapeMgr().GetMatPassability(p_fX+p_fRange,p_fY))then iCount++;endif;
+		if(CLevelEditorWrap.GetScapeMgr().GetMatPassability(p_fX-p_fRange,p_fY+p_fRange))then iCount++;endif;
+		if(CLevelEditorWrap.GetScapeMgr().GetMatPassability(p_fX,p_fY+p_fRange))then iCount++;endif;
+		if(CLevelEditorWrap.GetScapeMgr().GetMatPassability(p_fX+p_fRange,p_fY+p_fRange))then iCount++;endif;
+		return iCount>1;
+	endproc;
+
+	export proc bool ShowAndCheck()
+		var ^CWindowMgr pxWM=^(CWindowMgr.Get());
+		SetVisible(true);
+		pxWM^.BringWindowToTop(this, true);
+		m_pxResults^.Clear();
+		m_iCntHints=0;
+		m_iCntWarnings=0;
+		m_iCntErrors=0;
+		var bool bResult=true;
+		CheckPlayerSettings();
+		CheckMapData();
+		CheckObjects();
+		CheckAISettings();
+		m_pxResults^.AddItem("");
+		if(m_iCntErrors>0)then
+			bResult=false;
+		endif;
+		if(bResult)then
+			m_pxResults^.AddItem("Check OK.");
+		else
+			m_pxResults^.AddItem("Check FAILED.");
+		endif;
+		var int iLast=m_pxResults^.AddItem(m_iCntErrors.ToString()+" Errors, "+m_iCntWarnings.ToString()+" Warnings, "+m_iCntHints.ToString()+" Hints");
+		m_pxResults^.RemoveSelection();
+		m_pxResults^.ScrollToV(32767);
+		return bResult;
+	endproc;
+	
+	proc void CheckPlayerSettings()
+		var ^CLevelInfo pxLevelInfo=^(CLevelEditorWrap.GetClient().GetLevelInfo());
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		var ^CPropDB.CNode pxPSNode=^((pxGenericDB^)["PlayerSettings"]);
+		var ^CPropDB.CNode pxBaseNode=^((pxGenericDB^)["Base"]);
+		var string sMapType=pxBaseNode^.GetValueS("MapType","singleplayer");
+		if(sMapType=="singleplayer")then
+			var int iNumHumans=0;
+			var int i,iC=pxBaseNode^.GetValueI("MaxPlayers");
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CPropDB.CNode pxDefPlayer=pxPSNode^.FindNode("Player_"+i.ToString()+"/Restrictions/Base/DefPlayer",false);
+				if(pxDefPlayer!=null)then
+					if(pxDefPlayer^.Value()=="human")then
+						iNumHumans++;
+					endif;
+				endif;
+			endfor;
+			if(iNumHumans==0)then
+				AddError("No human players available");
+				return;
+			endif;
+			if(iNumHumans>1)then
+				AddError("Too many human players available");
+				return;
+			endif;
+		endif;
+	endproc;
+	
+	proc void CheckAISettings()
+	endproc;
+	
+	proc void CheckMapData()
+		if(!CLevelEditorWrap.GetScapeMgr().HasMap())then
+			AddError("No map loaded.");
+			return;
+		endif;
+		var int iMapWidth=CLevelEditorWrap.GetScapeMgr().GetMapWidth();
+		var int iMapHeight=CLevelEditorWrap.GetScapeMgr().GetMapHeight();
+		if((iMapWidth<=8)||(iMapHeight<=8))then
+			AddError("Map is too small ("+iMapWidth.ToString()+" x "+iMapHeight.ToString()+")");
+		endif;
+	endproc;
+
+	proc void CheckObjects()
+		var ^CObjMgr pxOM=^(CClientWrap.GetObjMgr());
+		var int iObjCnt=pxOM^.NumObjects();
+		var int iObjIdx;
+		var real fMapWidth=CLevelEditorWrap.GetScapeMgr().GetMapWidth().ToReal();
+		var real fMapHeight=CLevelEditorWrap.GetScapeMgr().GetMapHeight().ToReal();
+		var int iNumPlayers=CLevelEditorWrap.GetClient().GetLevelInfo().GetNumPlayers();
+		for(iObjIdx=0)cond(iObjIdx<iObjCnt)iter(iObjIdx++)do
+			var ^CObj pxO=pxOM^.GetObjByID(iObjIdx);
+			if(pxO==null)then
+				AddError("Object with index "+iObjIdx.ToString()+" is missing.");
+			else
+				var CClntHndl xObjHndl=pxO^.GetHandle();
+				var vec3 vPos=pxO^.GetPos();
+				var vec3 vSize=pxO^.GetSize();
+				var CFourCC xType=pxO^.GetType();
+				var int iBelow=0;
+				var int i;
+				
+				// check for objects below scape
+				if(GetScapeHeight(vPos.GetX(),vPos.GetY())-0.1f>=vPos.GetZ()+vSize.GetZ())then
+					iBelow++;
+				endif;
+				for(i=0)cond(i<8)iter(i++)do
+					var vec3 vPos=pxO^.GetBBoxCorner(i);
+					if(GetScapeHeight(vPos.GetX(),vPos.GetY())-0.1f>=vPos.GetZ())then
+						iBelow++;
+					endif;
+				endfor;
+				
+				if(iBelow>7)then
+					AddWarning("Object "+pxO^.GetName()+" is below scape",new CLevelCheckItem(xObjHndl));
+				endif;
+				
+				// check for map borders
+				if((vPos.GetX()<0.0f)||(vPos.GetY()<0.0f)||(vPos.GetX()>fMapWidth)||(vPos.GetY()>fMapHeight))then
+					AddError("Object "+pxO^.GetName()+" is outside of map (@ "+vPos.ToString()+")",new CLevelCheckItem(xObjHndl));
+				endif;
+				
+				var int iOwner=pxO^.GetOwner();
+				if((iOwner!=-1)&&(iOwner<iNumPlayers))then
+					AddError("Object "+pxO^.GetName()+" has invalid owner",new CLevelCheckItem(xObjHndl));
+				endif;
+				if(xType=="TREE"||(xType=="FRUI"&&pxO^.GetClassName()!="FishShoal_Tristychius")||xType=="STON")then
+					if(!GetScapePassabilityEx(vPos.GetX(),vPos.GetY(),4.0f))then
+						AddError("Resource "+pxO^.GetName()+" is unreachable",new CLevelCheckItem(xObjHndl));
+					endif;
+				endif;
+			endif;
+		endfor;
+	endproc;
+
+endclass;
+

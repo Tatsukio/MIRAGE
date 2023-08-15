@@ -1,0 +1,1214 @@
+class CAiGoalKindergarten inherit CAiGoal
+
+	var ^CAiBrain 								m_pxBrain;
+	var ^CAiSensor								m_pxSensor;
+	var CAiTaskBuildSquad						m_xAllocator;
+	var array CAiGoalKindergarten.CLevelSorter	m_axChildren;
+	var ^CAiModuleControlDefault 				m_pxCM;
+	var CAiObjWrap								m_xChildWaitingForCookie;
+	var CAiObjWrap								m_xFortuneCookie;
+
+	const real									MIN_HP_RATIO_TO_LEVEL = 0.3;
+	var string									m_sDifficulty;
+	var string									m_sPlayerID;
+	var string									m_sTribe;
+	var string									m_sUnitName;
+	var int										m_iDifficulty;
+	var int										m_iPlayerID;
+
+	class CLevelSorter
+		export constructor()
+		endconstructor;
+
+		export destructor()
+		enddestructor;
+
+		export var int			m_iLevel;
+		export var CAiObjWrap	m_xObj;
+		export var bool			m_bNPC;
+
+		export proc bool op_Greater(ref CAiGoalKindergarten.CLevelSorter p_rxOther)
+			if(m_bNPC!=p_rxOther.m_bNPC)then
+				return m_bNPC;
+			else
+				return m_iLevel>p_rxOther.m_iLevel;
+			endif;
+		endproc;
+	
+		export proc bool op_Equal(ref CAiGoalKindergarten.CLevelSorter p_rxOther)
+			return (m_xObj.IsSameAs(p_rxOther.m_xObj));
+		endproc;
+
+		export proc bool op_Equal(ref CAiObjWrap p_rxWrap)
+			return (m_xObj.IsSameAs(p_rxWrap));
+		endproc;
+	endclass;
+
+	///Init
+	export proc bool Init(^CAiBrain p_pxBrain)
+		super.Init(p_pxBrain);
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		m_sTribe=m_pxSensor^.GetTechTree().GetTribe();
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+		var int iType = 1+Random.GetInt()%iNumPlayers;
+		m_pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		m_sDifficulty=m_pxCM^.GetDifficulty();
+		if(m_sDifficulty=="Easy")then
+			SetThinkWait(500);
+		elseif(m_sDifficulty=="Medium")then
+			SetThinkWait(100);
+		else
+			SetThinkWait(10);
+		endif;
+		m_xAllocator.Init(this,false);
+		m_xAllocator.SetPriority(999999.0f);
+		RemoveTask(^m_xAllocator);
+		AddTask(^m_xAllocator);
+		m_xAllocator.m_bOnlyResources = true;
+		m_sUnitName="";
+		SetPermanent(true);
+		return true;
+	endproc;
+
+	///Shut
+	export proc void Shut()
+		m_xAllocator.Shut();
+		RemoveTask(^m_xAllocator);
+	endproc;
+
+	///Think
+	export proc void Think()
+		if(m_sDifficulty=="Easy")then return; endif;
+		if(!m_pxCM^.GetKindergardenEnabled())then return; endif;
+		if(m_xChildWaitingForCookie.IsValid())then 
+			if(m_xChildWaitingForCookie.GetCurrentTask()=="Trapped")then return; endif;
+			if(m_xAllocator.IsRunning())then
+				if(m_pxSensor==null)then return; endif;
+				if(CMirageAIMgr.Get().LevelingAllowed())then
+					m_pxSensor^.ExecuteGamePlayCommand(m_xChildWaitingForCookie.GetHandle(), "Action", -1, {0.0,0.0,0.0}, "/LevelUp");
+				endif;
+//				m_pxSensor^.ExecuteGamePlayCommand(m_xChildWaitingForCookie.GetHandle(), "Action", -1, {0.0,0.0,0.0}, "/LevelUp");
+				if(!Update(m_xChildWaitingForCookie))then m_xAllocator.Abort(); endif;
+				m_xChildWaitingForCookie.FromInt(-1);
+			elseif(m_xAllocator.IsNotPossible()||m_xAllocator.IsAborted())then
+				m_xChildWaitingForCookie.FromInt(-1);
+			else
+				return;
+			endif;
+		endif;
+		var int i;
+		for(i=0)cond(i<m_axChildren.NumEntries())iter(i++)do
+			var CAiObjWrap xChild = m_axChildren[i].m_xObj;
+			if(!xChild.IsValid())then
+				Remove(xChild);
+				i--;
+				continue;
+			endif;
+			var int iCurLevel = xChild.GetAttribValueInt("level");
+			if(iCurLevel>3 || iCurLevel<0)then
+				Remove(xChild);
+				i--;
+				continue;
+			endif;
+			if((xChild.GetAttribValue("CurTask")!="Idle")&&(xChild.GetAttribValue("CurTask")!="Fight"))then
+				continue;
+			endif;
+			var int iTargetLevel = iCurLevel+1;
+			var int iHP = xChild.GetAttribValueInt("hitpoints");
+			var int iMaxHP = xChild.GetAttribValueInt("maxhitpoints");
+			if(iHP<=0 || iMaxHP<=0)then
+				Remove(xChild);
+				i--;
+				continue;
+			endif;
+			var real fRatio = iHP.ToReal() / iMaxHP.ToReal();
+			if(fRatio <= MIN_HP_RATIO_TO_LEVEL || xChild.IsSameAs(m_xFortuneCookie))then
+				if(GiveCookie(xChild, iTargetLevel))then
+					return;
+				endif;
+			endif;
+		endfor;
+	endproc;
+
+	///SetFortuneCookie
+	export proc void SetFortuneCookie(ref CAiObjWrap p_rxChild)
+		m_xFortuneCookie = p_rxChild;
+	endproc;
+
+	///GiveCookie
+	export proc bool GiveCookie(ref CAiObjWrap p_rxChild, int p_iTargetLevel)
+		if(m_pxBrain==null)then return false; endif;
+		if(m_pxSensor==null) then return false; endif;
+		var ^CAiTechTree pxTechTree = ^(m_pxSensor^.GetTechTree());
+		if(pxTechTree==null)then return false; endif;
+		var int iCosts = m_pxBrain^.GetPlayerAttrib("foodcost_lvl_"+p_iTargetLevel.ToString()).ToInt();
+		var ^CAiSolution pxSolution = new CAiSolution();
+		var CAiNeedPtr pxNeed = CAiNeed.Create(true, iCosts);
+		pxNeed.GetNeed()^.AddEntry(pxTechTree^.GetNodeInstanceFromPartialName("iron"));
+		pxSolution^.SetSubject(0);
+		pxSolution^.AddRequired(pxNeed);
+		m_xAllocator.SetSolution(pxSolution);
+		if(!m_xAllocator.Start(false))then return false; endif;
+		if(!p_rxChild.IsValid())then return false; endif;
+		if(!CheckIfMaxLevelIsReached(p_rxChild))then return false; endif;
+		m_xChildWaitingForCookie = p_rxChild;
+		return true;
+	endproc;
+
+	///Add
+	export proc void Add(CAiObjWrap p_xChild)
+		if(!p_xChild.IsValid())then return; endif;
+		if((p_xChild.GetOwner()<0)||(p_xChild.GetOwner()>7))then return; endif;
+		var CAiGoalKindergarten.CLevelSorter xSort;
+		xSort.m_xObj = p_xChild;
+		var int iIdx = m_axChildren.FindEntry(xSort);
+		if(iIdx!=-1)then
+			Update(p_xChild);
+			return;
+		endif;
+		var ^CAiGoalKindergarten.CLevelSorter pxChild = ^(m_axChildren.NewEntryRef());
+		if(pxChild!=null)then
+			pxChild^.m_iLevel	= p_xChild.GetAttribValueInt("level");
+			pxChild^.m_xObj		= p_xChild;
+			var ^CAiBrain pxBrain = CAiWrap.GetBrain(p_xChild.GetOwner());
+			if(pxBrain!=null)then
+				if(m_pxCM!=null)then
+					pxChild^.m_bNPC = m_pxCM^.GetNPCMgr().HasNPC(p_xChild.GetClassName());
+				endif;
+			endif;
+		endif;
+		m_axChildren.QSort();
+	endproc;
+
+
+	///Update
+	export proc bool Update(CAiObjWrap p_xChild)
+		if(!p_xChild.IsValid())then return false; endif;
+		var CAiGoalKindergarten.CLevelSorter xSort;
+		xSort.m_xObj = p_xChild;
+		var int iIdx = m_axChildren.FindEntry(xSort);
+		if(iIdx==-1)then return false; endif;
+		var int iLevel = p_xChild.GetAttribValueInt("level");	
+		if(m_axChildren[iIdx].m_iLevel != iLevel)then
+			m_axChildren[iIdx].m_iLevel = iLevel;
+		else
+			return false;
+		endif;
+		m_axChildren.QSort();
+		return true;
+	endproc;
+
+	///Remove
+	export proc void Remove(CAiObjWrap p_xChild)
+		var CAiGoalKindergarten.CLevelSorter xSort;
+		xSort.m_xObj = p_xChild;
+		var int iIdx = m_axChildren.FindEntry(xSort);
+		if(iIdx==-1)then return; endif;
+		m_axChildren.DeleteEntry(iIdx);
+	endproc;
+
+	///CheckIfMaxLevelIsReached
+	proc bool CheckIfMaxLevelIsReached(CAiObjWrap p_xChild)
+		if(!p_xChild.IsValid())then return false; endif;
+		var string sClassName=p_xChild.GetClassName();
+		var string sUnitName=p_xChild.GetName();
+		if(m_pxCM!=null)then
+			if(m_pxCM^.GetNPCMgr().HasNPC(sClassName)/*||m_pxCM^.GetNPCMgr().NPCLive(sClassName)*/)then
+				return true;
+			endif;
+		endif;
+		var int iLevel=p_xChild.GetAttribValue("level").ToInt();
+		var bool bOK=true;
+		if(m_sTribe=="Hu")then
+			if(sClassName=="hu_worker")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=3);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_warrior")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_scout")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_fishing_boat")then
+				bOK=false;
+			elseif(sClassName=="hu_transport_ship")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_cart")then
+				bOK=false;
+			elseif(sClassName=="hu_jetpack_warrior")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=15);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_spearman")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_pikeman")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_archer")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_marksman")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=3);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_wild_boar")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_chariot")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_eusmilus")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_steam_ram")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=15);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_dragon_boat")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=30);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_ram_ship")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=30);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_berserker")then
+				if(iLevel<3)then
+					bOK=true;
+				elseif(iLevel==3)then
+					bOK=(Random.GetInt()%100<=5);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_killer")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_druid")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_rhino")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_rhino_transporter")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=40);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_rhino_ballista")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_mammoth")then
+				if(iLevel<3)then
+					bOK=true;
+				elseif(iLevel==3)then
+					bOK=(Random.GetInt()%100<=20);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_mammoth_lumber_upgrade")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=5);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_mammoth_log_cannon")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_steam_boat")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_mobile_suit")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_triceratops")then
+				if(iLevel<4)then
+					bOK=true;
+				else
+					bOK=false;
+				endif;
+			//Henry: adding new nm units
+			elseif(sClassName=="hu_ballista_titan")then
+				if(iLevel<4)then
+					bOK=true;
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_carcharodontosaurus")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="hu_colossi")then
+				if(iLevel<3)then
+					bOK=true;
+				elseif(iLevel==3)then
+					bOK=(Random.GetInt()%100<=60);
+				else
+					bOK=false;
+				endif;
+			endif;
+
+		elseif(m_sTribe=="Aje")then
+			if(sClassName=="aje_worker")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=3);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_spearman")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=3);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_resource_collector")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=15);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_trade_dino")then
+				bOK=false;
+			elseif(sClassName=="aje_velociraptor_handler")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=4);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_dilophosaurus")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=5);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_transport_turtle")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_scythian")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=40);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_warrior")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=40);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_thrower")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=15);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_ankylosaurus")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_ankylosaurus_catapult")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_stegosaurus")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=15);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_stegosaurus_transporter")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=15);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_cronosaurus")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_eusmilus")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_rammer")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=20);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_assassin")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=7);
+				else
+					bOK=false;
+				endif;
+			//Henry: fixing shamans name (from aje_shaham)
+			elseif(sClassName=="aje_shaman")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_poisoner")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=3);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_brachiosaurus")then
+				if(iLevel<3)then
+					bOK=true;
+				elseif(iLevel==3)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_brachiosaurus_transporter")then
+				if(iLevel<3)then
+					bOK=true;
+				elseif(iLevel==3)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_brachiosaurus_mobile_camp")then
+				if(iLevel<3)then
+					bOK=true;
+				elseif(iLevel==3)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_brachiosaurus_catapult")then
+				if(iLevel<3)then
+					bOK=true;
+				elseif(iLevel==3)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_allosaurus")then
+				if(iLevel<3)then
+					bOK=true;
+				elseif(iLevel==3)then
+					bOK=(Random.GetInt()%100<=30);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_catamaran")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			//Henry: fixing trex titans name (from aje_trex)
+			elseif(sClassName=="aje_atroxosaurus")then
+				if(iLevel<4)then
+					bOK=true;
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_triceratops_archer")then
+				if(iLevel<3)then
+					bOK=true;
+				elseif(iLevel==3)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			//Henry: adding new dr units
+			elseif(sClassName=="aje_tyrannosaurus")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_mosasaurus")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=15);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="aje_liopleurodon")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=20);
+				else
+					bOK=false;
+				endif;
+			endif;
+		elseif(m_sTribe=="Ninigi")then
+				if(sClassName=="ninigi_worker")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=3);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_archer")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=3);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_fishing_boat")then
+					bOK=false;
+			elseif(sClassName=="ninigi_scout")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=6);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_smokebomb_thrower")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_cart")then
+					bOK=false;
+			elseif(sClassName=="ninigi_transport_boat")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_samurai")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_mortar")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=20);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_marksman")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_eusmilus")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_baryonyx")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_parasaurolophus_drums")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_parasaurolophus_gatling")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=15);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_muraeno_submarine")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=5);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_fire_boat")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_flamethrower_trike")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=15);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_minelayer")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=2);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_sumo")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_ninja")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=30);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_monk")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_icespearman")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_saltasaurus_archer")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=60);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_saltasaurus_launcher")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=60);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_styracosaurus")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=35);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_triceratops")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=60);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_harvester")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_firecannon")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=20);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_rocket_boat")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=5);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_corsair")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=2);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_seismosaurus")then
+				if(iLevel<4)then
+					bOK=true;
+				else
+					bOK=false;
+				endif;
+			//Henry: adding new dc units
+			elseif(sClassName=="ninigi_helicopter")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_tarbosaurus")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="ninigi_pirate_boss_ship")then
+				if(iLevel<4)then
+					bOK=true;
+				else
+					bOK=false;
+				endif;
+			endif;
+	
+		elseif(m_sTribe=="SEAS")then
+			if(sClassName=="seas_worker")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=3);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_warrior")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=70);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_mechanical_walker")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_hovercraft")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_carrier")then
+					bOK=false;
+			elseif(sClassName=="seas_marksman")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=15);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_gunner")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=15);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_mobile_suit")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=20);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_submarine")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=15);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_rocketman")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=5);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_flamethrower")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=20);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_mobile_suit_flamethrower")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=20);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_mobile_terminator")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=20);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_medic")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=5);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_triceratops")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_triceratops_transporter")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_triceratops_carrier")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_triceratops_machinegun")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_triceratops_mg")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_trade_dino")then
+				bOK=false;
+			elseif(sClassName=="seas_helicopter")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=35);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_helicopter_flying")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=35);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_wehrspinne")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=7);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_lumberjack")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_lumberjack_minigun")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=10);
+				else
+					bOK=false;
+				endif;
+			//Henry: adding new seas units
+			elseif(sClassName=="seas_carnotaurus")then
+				if(iLevel==0)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_mosasaurus")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=20);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_polakanthus")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=20);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_cannon_turtle")then
+				if(iLevel<3)then
+					bOK=true;
+				elseif(iLevel==3)then
+					bOK=(Random.GetInt()%100<=25);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_gigantosaurus")then
+				if(iLevel<3)then
+					bOK=true;
+				elseif(iLevel==3)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_eusmilus")then
+				if(iLevel<1)then
+					bOK=true;
+				elseif(iLevel==1)then
+					bOK=(Random.GetInt()%100<=50);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_rex")then
+				if(iLevel<4)then
+					bOK=true;
+				elseif(iLevel==4)then
+					bOK=(Random.GetInt()%100<=65);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_mercenary")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=15);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_sniper")then
+				if(iLevel<2)then
+					bOK=true;
+				elseif(iLevel==2)then
+					bOK=(Random.GetInt()%100<=15);
+				else
+					bOK=false;
+				endif;
+			elseif(sClassName=="seas_muraenosaurus")then
+				bOK=false;
+			endif;
+		endif;
+		m_sUnitName=sUnitName;
+		return bOK;
+	endproc;
+
+endclass;

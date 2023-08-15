@@ -1,0 +1,399 @@
+class CHelpMenu inherit CFrameWindow
+
+	var ^CHelpSemlView		m_pxHelpText;
+	var ^CTreeCtrl2				m_pxIndex;
+	var ^CButton					m_pxBtnNavHome;
+	var ^CButton					m_pxBtnNavBack;
+	var ^CButton					m_pxBtnNavForward;	
+	
+	var array string			m_asHistory;
+	var array string			m_asHistoryRev;
+	var array CIndexListData	m_axIndexItemData;
+	var CBitmapPtr				m_pxTreeIcon;
+	var int								m_iReturnState;
+	
+	class CHelpSemlView inherit CUISemlView
+		export var ^CHelpMenu m_pxHelpMenu;
+		proc void OnClickNavigate(int p_iLinkIndex,string p_sLink)
+			m_pxHelpMenu^.Navigate(p_sLink);
+		endproc;
+	endclass;
+
+	class CIndexListData inherit CItemData
+		export var ^CTreeCtrl2.CNode 	m_pxItemNode;	//CTreeCtrl Id
+		export var string 	m_sName;	//Help Topic Name
+		export var string	m_sSEMLFile;//SEML URL
+	endclass;
+	
+	//Constructor for InGame
+	export constructor()
+		m_iReturnState=CUIStateMgr.Get().GetState();
+		var bool bMainMenu = CUIStateMgr.Get().StateToString(m_iReturnState)=="STATE_MAINMENU";
+		var ^CDesktop pxDesktop = CClientWrap.GetDesktop();
+		if(!InitFromResource("UI/HelpMenu","HelpMenu")) then
+			return;
+		endif;
+		
+		m_pxTreeIcon=CBitmapPtr.Create("menue/controls/treedefaultimg.tga");
+		
+		var ^CCardBitmapMgr pxBitmapMgr=^(CGameInst.GetBitmapMgr());
+		m_pxBtnNavHome=cast<CButton>(GetControl("NavHome"));
+		m_pxBtnNavHome^.SetBitmap(pxBitmapMgr^.GetBlendBitmap("-1, layer helpbtn_home_idle")^.GetBitmap(),pxBitmapMgr^.GetBlendBitmap("-1, layer helpbtn_home_down")^.GetBitmap(),pxBitmapMgr^.GetBlendBitmap("-1, layer helpbtn_home_hover")^.GetBitmap(),pxBitmapMgr^.GetBlendBitmap("-1, layer helpbtn_home_disabled")^.GetBitmap());
+		m_pxBtnNavHome^.m_xOnClick=NavigateHome;
+		
+		m_pxBtnNavBack=cast<CButton>(GetControl("NavBack"));
+		m_pxBtnNavBack^.SetBitmap(pxBitmapMgr^.GetBlendBitmap("-1, layer helpbtn_back_idle")^.GetBitmap(),pxBitmapMgr^.GetBlendBitmap("-1, layer helpbtn_back_down")^.GetBitmap(),pxBitmapMgr^.GetBlendBitmap("-1, layer helpbtn_back_hover")^.GetBitmap(),pxBitmapMgr^.GetBlendBitmap("-1, layer helpbtn_back_disabled")^.GetBitmap());
+		m_pxBtnNavBack^.m_xOnClick=NavigateBack;
+		
+		m_pxBtnNavForward=cast<CButton>(GetControl("NavFwd"));
+		m_pxBtnNavForward^.SetBitmap(pxBitmapMgr^.GetBlendBitmap("-1, layer helpbtn_fwd_idle")^.GetBitmap(),pxBitmapMgr^.GetBlendBitmap("-1, layer helpbtn_fwd_down")^.GetBitmap(),pxBitmapMgr^.GetBlendBitmap("-1, layer helpbtn_fwd_hover")^.GetBitmap(),pxBitmapMgr^.GetBlendBitmap("-1, layer helpbtn_fwd_disabled")^.GetBitmap());
+		m_pxBtnNavForward^.m_xOnClick=NavigateForward;
+		
+
+		var int iDW=pxDesktop^.GetSize().GetX();
+		var int iDH=pxDesktop^.GetSize().GetY();
+		var int iW=765 * CGameInst.ms_iUIScaleFactor;
+		var int iH=515 * CGameInst.ms_iUIScaleFactor;
+		SetSize(iW,iH);
+		SetPos((iDW-iW)/2,(iDH-iH)/2-95 * CGameInst.ms_iUIScaleFactor);
+		if(bMainMenu)then
+			SetCmd("Back", OnBackToMainMenu);
+			AddAccelerator("ESCAPE,NONE,Back");
+		else
+			SetCmd("Back", OnBackInGame);
+			AddAccelerator("ESCAPE,NONE,Back");
+		endif;
+		
+		m_pxHelpText=cast<CHelpSemlView>(GetControl("HelpText"));
+		m_pxIndex=cast<CTreeCtrl2>(GetControl("Index"));
+		m_pxHelpText^.m_pxHelpMenu=this;
+		m_pxHelpText^.SetDocRootPath(CClientWrap.GetUrsRelPath()+"/Data/Base/Texts/Help/");
+		
+		var ^CButton pxCloseBtn=cast<CButton>(GetControl("CloseBtn"));
+		//Credit to CEP
+		pxCloseBtn^.SetText(CLocalizer.Get().Translate("_PlayersWindow_Button_Close"));
+		if(bMainMenu)then
+			pxCloseBtn^.m_xOnClick=OnBackToMainMenu;
+		else
+			pxCloseBtn^.m_xOnClick=OnBackInGame;
+		endif;
+		
+		pxCloseBtn^.SetTextAlign(0);
+		pxCloseBtn^.SetTextIndent(6);
+
+		BuildIndex();
+		StartHelpNav();
+		if(!bMainMenu)then
+			CGameWrap.Pause();
+		endif;
+	endconstructor;
+	
+	destructor()
+		CGameWrap.Unpause();
+	enddestructor;
+	
+	proc ^CButton AddButton(string p_sText,string p_sLayoutBox,procref<bool> p_xOnClickHandler)
+		var ^CButton pxButton=new CButton();
+		pxButton^.SetText(p_sText);
+		AddChildWithLayout(pxButton,p_sLayoutBox);
+		pxButton^.m_xOnClick=p_xOnClickHandler;
+		return pxButton;
+	endproc;
+	
+	proc void StartHelpNav()
+		var ^CWindow pxWnd=CWindowMgr.Get().GetHoveredWindow();
+		if(pxWnd!=null) then
+			var ^CButton pxCmdBtn=cast<CButton>(pxWnd/*^.GetParentWindow()*/);
+			if(pxCmdBtn!=null) then
+				//KLog.LogWarn("CHP","CmdButton:"+pxCmdBtn^.GetText());
+				if(SelectHelpTopic(pxCmdBtn^.GetText())) then return; endif;
+			endif;
+		endif;
+		//Windows.DbgBreak();
+		
+		var ^CObjMgr pxObjMgr= ^(CClientWrap.GetObjMgr());
+		if(pxObjMgr^.NumGhosts()>0) then
+			//var ^CGhost pxGhost=pxObjMgr^.GetGhostIndex(0);
+			//KLog.LogWarn("CHP","Ghost:"+pxGhost^.GetGhostClass());
+			//if(SelectHelpTopic(pxGhost^.GetGhostClass())) then return; endif;
+			var string sTTP=CMainController.Get().GetPlacer().GetTTPath();
+			//KLog.LogWarn("CHP","Ghost:"+sTTP);
+			var ^CPlayer pxPlayer=^(CGameWrap.GetClient().GetPlayer());
+			if(pxPlayer!=null) then
+				var CTechTree xTechTree = pxPlayer^.GetPlayerTechTree();
+				var string sDesc=xTechTree.GetValueS(sTTP+"/description","<unknown>");
+				if(SelectHelpTopic(sDesc)) then return; endif;
+			endif;
+		endif;
+		
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		var ^CObj pxObj = null;
+		var string sFocus = CMirageClnMgr.Get().GetFocusClass();
+		if(sFocus != "")then
+			var int i, iC = pxSel^.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				pxObj = pxSel^[i].GetObj();
+				var string sSelName;
+				if(!CMirageClnMgr.ValidateName(sSelName, pxObj))then continue; endif;
+//				if(pxObj != null && sFocus == pxObj^.GetClassName())then
+				if(sFocus==sSelName)then
+					if(SelectHelpTopic(GetObjHelpitemKey(pxObj))) then return; endif;
+				endif;
+			endfor;
+		endif;
+		if(pxSel^.NumEntries()>0)then
+			var ^CObj pxObj=pxSel^[0].GetObj();
+			if(pxObj!=null) then
+				if(SelectHelpTopic(GetObjHelpitemKey(pxObj))) then return; endif;
+			endif;
+		endif;
+		
+		var CObjList xHoveredObjs=CClientWrap.GetObjMgr().GetHoveredObjs();
+		if(xHoveredObjs.NumEntries()>0)then
+			var ^CObj pxObj=xHoveredObjs[0].GetObj();
+			if(pxObj!=null) then
+				if(SelectHelpTopic(GetObjHelpitemKey(pxObj))) then return; endif;
+			endif;
+		endif;
+		
+		NavigateHome();
+	endproc;
+	
+	export static proc string GetObjHelpitemKey(^CObj p_pxObj)
+		var CTechTree xTechTree = p_pxObj^.GetTechTree();
+		var ^CAttribs pxA = p_pxObj^.GetAttribs();
+		if(pxA==null)then return p_pxObj^.GetClassName(); endif;
+		if(p_pxObj^.GetType()=="SPRT")then
+			var string sObjPath = CGameWrap.GetSpiritMgr().GetSpiritDescription(p_pxObj);
+			var string sDescription=xTechTree.GetValueS(sObjPath+"/description",p_pxObj^.GetClassName());
+			return sDescription;
+//		elseif(p_pxObj^.GetType()=="NMST")then
+//			var string sTmp, sObjPath = CSpiritMgr.Get().GetSpiritDescription(p_pxObj^.GetHandle(),sTmp);
+//			var string sDescription=xTechTree.GetValueS(sObjPath+"/description",sTmp);
+		elseif(p_pxObj^.GetType()=="NMST")then
+			var string sClass=pxA^.GetValue("class_of_source"), sObjPath=pxA^.GetValue("desc_of_source");
+			var string sDescription=xTechTree.GetValueS(sObjPath+"/description",sClass);
+			return sDescription;
+		elseif(p_pxObj^.GetType()=="QMRK")then
+			var string sCustom=pxA^.GetValue("CustomPicture");
+			if(sCustom!="")then
+				return sCustom;
+			endif;
+		endif;
+		var string sObjPath = pxA^.GetValue("ObjPath");
+		if(sObjPath.IsEmpty()) then return p_pxObj^.GetClassName(); endif;
+		return xTechTree.GetValueS(sObjPath+"/description",p_pxObj^.GetClassName());
+	endproc;
+	
+	proc bool SelectHelpTopic(string p_sName)
+		p_sName.MakeLower();
+		var int i,iC=m_axIndexItemData.NumEntries();
+		for(i=0) cond(i<iC) iter(i++) do
+			//KLog.LogWarn("CHP","'"+m_axIndexItemData[i].m_sName+"'=='"+p_sName+"'");
+			if(m_axIndexItemData[i].m_sName==p_sName) then
+				Navigate(m_axIndexItemData[i].m_sSEMLFile);
+				return true;
+			endif;
+		endfor;
+		return false;
+	endproc;
+	
+	proc void BuildIndex()
+		if(m_pxIndex==null) then KLog.LogError("CHelpMenu","Internal: .srf file corrupted!"); return; endif;
+		var string sIndexFile=CClientWrap.GetUrsRelPath()+"/Data/Base/Texts/Help/index.txt";
+		var CPropDB xDB;
+		if(!xDB.Load(sIndexFile)) then KLog.LogError("CHelpMenu","Internal: index file not found!"); return; endif;		
+		BuildIndexRec(xDB.GetRoot(),null);
+		FixNavigationLinksOfUnlinkedEntries();
+		m_pxIndex^.m_xOnLBtnDblClick=OnIndexDblClick;
+		m_pxIndex^.m_xOnSelect=OnIndexDblClick;
+	endproc;
+	
+	proc void BuildIndexRec(ref CPropDB.CNode p_rxPDBNode,^CHelpMenu.CIndexListData p_pxTreeItem)
+		var int i,iC=p_rxPDBNode.NumSubs();
+		for(i=0) cond(i<iC) iter(i++) do
+			var ^CPropDB.CNode pxSub=^(p_rxPDBNode[i]);
+			if(pxSub^.NumSubs()>0) then
+				var string sName=pxSub^.Name();
+				var string sText=sName;
+				pxSub^.GetValue("text",sText);
+				sText=CLocalizer.Get().Translate(sText);
+				var ^CIndexListData pxID=^(m_axIndexItemData.NewEntryRef());
+				pxID^.m_sName=sName;
+				pxID^.m_sName.MakeLower();
+				var ^CTreeCtrl2.CNode pxParentNode=null;
+				if(p_pxTreeItem!=null) then
+					pxParentNode=p_pxTreeItem^.m_pxItemNode; 
+				endif;
+				pxSub^.GetValue("helpfile",pxID^.m_sSEMLFile);
+				pxID^.m_sSEMLFile.MakeLower();
+				pxID^.m_pxItemNode=m_pxIndex^.AddItem(pxParentNode,sText,pxID,m_pxTreeIcon);
+				
+				m_pxHelpText^.Navigate(pxID^.m_sSEMLFile);
+				var CPropDB xTDB;
+				m_pxHelpText^.BuildTopicTree(xTDB);
+				if(xTDB.GetRoot().NumSubs()>0) then
+					BuildIndexRecFile(pxID^.m_sSEMLFile,xTDB.GetRoot(),pxID);
+				endif;
+								
+				BuildIndexRec(pxSub^,pxID);
+			endif;
+		endfor;
+	endproc;
+	
+	proc void BuildIndexRecFile(string p_sBaseFile,ref CPropDB.CNode p_rxPDBNode,^CHelpMenu.CIndexListData p_pxTreeItem)
+		var string sName=p_rxPDBNode.Name();
+		var string sTopic=p_rxPDBNode.Value();
+		if(sName!="Root") then
+			sName.TrimRight();
+			var ^CTreeCtrl2.CNode pxParentNode=p_pxTreeItem^.m_pxItemNode;
+			var ^CIndexListData pxID=^(m_axIndexItemData.NewEntryRef());
+			pxID^.m_sName=sTopic;
+			pxID^.m_sName.MakeLower();
+			pxID^.m_sSEMLFile=p_sBaseFile+"#"+sTopic;
+			pxID^.m_sSEMLFile.MakeLower();
+			//KLog.LogWarn("CHP","N:"+pxID^.m_sName+",S:"+pxID^.m_sSEMLFile);
+			pxID^.m_pxItemNode=null;
+//			var CConfig xConf;
+//			var bool bShowHidden=xConf.GetSetB("Client/GameplayOptions/ShowHiddenDesc",false);
+//			if(bShowHidden)then
+//				sName.Replace("-nodisplay ","");
+//			endif;
+			if(sName.Find("-nodisplay")<0 && pxParentNode!=null)then
+				pxID^.m_pxItemNode=m_pxIndex^.AddItem(pxParentNode,sName,pxID,m_pxTreeIcon);
+			endif;
+			p_pxTreeItem=pxID;
+		endif;
+		var int i,iC=p_rxPDBNode.NumSubs();
+		for(i=0) cond(i<iC) iter(i++) do
+			var ^CPropDB.CNode pxSub=^(p_rxPDBNode[i]);
+			//KLog.LogWarn("CHP","N:"+pxSub^.Name()+",S:"+sTopic);
+			if(pxSub^.Name()!=sTopic) then
+				BuildIndexRecFile(p_sBaseFile,pxSub^,p_pxTreeItem);
+			endif;
+		endfor;
+	endproc;
+
+	proc bool OnIndexDblClick()
+		var ^CTreeCtrl2.CNode pxSel=m_pxIndex^.GetSelectedItem();
+		var ^CIndexListData pxID=cast<CIndexListData>(m_pxIndex^.GetItemData(pxSel));
+		if(pxID==null) then return false; endif;		
+		if(pxID^.m_sSEMLFile.IsEmpty()) then return false; endif;
+		Navigate(pxID^.m_sSEMLFile);
+		return true;
+	endproc;
+	
+	proc void UpdateNavButtons()
+		var bool bEnableBack=(m_asHistory.NumEntries()>1);
+		var bool bEnableForward=(m_asHistoryRev.NumEntries()>0);
+		m_pxBtnNavBack^.SetDisabled(!bEnableBack);
+		m_pxBtnNavForward^.SetDisabled(!bEnableForward);
+	endproc;
+	
+	export proc void Navigate(string p_sDoc)
+		p_sDoc.MakeLower();
+		var string sDoc =m_pxHelpText^.GetRedirectedNodePath(p_sDoc);
+		sDoc.MakeLower();
+		var int iNum=m_asHistory.NumEntries();
+		if(iNum>0&&m_asHistory[iNum-1]==sDoc) then
+			return;
+		endif;
+		m_asHistory.AddEntry(sDoc);
+		m_asHistoryRev=0;
+		m_pxHelpText^.Navigate(sDoc);
+		TreeSelect(sDoc);
+		UpdateNavButtons();
+	endproc;
+	
+	proc void TreeSelect(string p_sDoc)
+		p_sDoc.MakeLower();
+		var int i,iC=m_axIndexItemData.NumEntries();
+		for(i=0) cond(i<iC) iter(i++) do
+			//KLog.LogWarn("CHP","'"+m_axIndexItemData[i].m_sSEMLFile+"'=='"+p_sDoc+"'");
+			if(m_axIndexItemData[i].m_sSEMLFile==p_sDoc) then
+				var ^CTreeCtrl2.CNode pxItemNode=m_axIndexItemData[i].m_pxItemNode;
+				m_pxIndex^.m_xOnLBtnDblClick.Clear();
+				m_pxIndex^.m_xOnSelect.Clear();
+				m_pxIndex^.Select(pxItemNode);
+				m_pxIndex^.EnsureVisible(pxItemNode);
+				m_pxIndex^.m_xOnLBtnDblClick=OnIndexDblClick;
+				m_pxIndex^.m_xOnSelect=OnIndexDblClick;
+				return;
+			endif;
+		endfor;	
+	endproc;
+	
+	proc bool NavigateHome()
+		Navigate("H_Intro.seml");
+		return true;
+	endproc;
+
+	proc bool NavigateBack()
+		m_pxIndex^.m_xOnLBtnDblClick.Clear();
+		m_pxIndex^.m_xOnSelect.Clear();
+		var int iNum=m_asHistory.NumEntries();
+		if(iNum>1) then
+			var string sLast=m_asHistory[iNum-2];
+			var string sCur=m_asHistory[iNum-1];
+			m_pxHelpText^.Navigate(sLast);
+			TreeSelect(sLast);
+			m_asHistoryRev.AddEntry(sCur);
+			if(m_asHistory.NumEntries()>0)then
+				m_asHistory--;
+			endif;
+		endif;
+		UpdateNavButtons();
+		m_pxIndex^.m_xOnLBtnDblClick=OnIndexDblClick;
+		m_pxIndex^.m_xOnSelect=OnIndexDblClick;
+		return true;
+	endproc;
+
+	proc bool NavigateForward()
+		m_pxIndex^.m_xOnLBtnDblClick.Clear();
+		m_pxIndex^.m_xOnSelect.Clear();
+		var int iNum=m_asHistoryRev.NumEntries();
+		if(iNum>0) then
+			var string sDoc=m_asHistoryRev[iNum-1];
+			m_pxHelpText^.Navigate(sDoc);
+			TreeSelect(sDoc);
+			m_asHistory.AddEntry(sDoc);
+			if(m_asHistoryRev.NumEntries()>0)then
+				m_asHistoryRev--;
+			endif;
+		endif;
+		UpdateNavButtons();
+		m_pxIndex^.m_xOnLBtnDblClick=OnIndexDblClick;
+		m_pxIndex^.m_xOnSelect=OnIndexDblClick;
+		return true;
+	endproc;
+
+	proc bool OnBackToMainMenu()
+		CUIStateMgr.Get().SetState(m_iReturnState);
+		return true;
+	endproc;
+
+	proc bool OnBackInGame()
+		Destroy();
+		return true;
+	endproc;
+
+	proc void FixNavigationLinksOfUnlinkedEntries()
+		var int i,j;
+		for(i=0)cond(i<m_axIndexItemData.NumEntries())iter(i++)do
+			var ^CIndexListData pxID=^m_axIndexItemData[i];
+			if(pxID^.m_sSEMLFile=="")then
+				var string sNewLink="";
+				for(j=i)cond(j<m_axIndexItemData.NumEntries())iter(j++)do
+					var ^CIndexListData pxLookAheadID=^m_axIndexItemData[j];
+					if(pxLookAheadID^.m_sSEMLFile!="")then
+						sNewLink=pxLookAheadID^.m_sSEMLFile;
+						break;
+					endif;
+				endfor;
+				if(sNewLink!="")then
+					pxID^.m_sSEMLFile=sNewLink;
+				endif;
+			endif;
+		endfor;
+	endproc;
+endclass;

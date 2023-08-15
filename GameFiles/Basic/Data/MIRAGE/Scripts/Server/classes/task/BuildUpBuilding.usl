@@ -1,0 +1,502 @@
+class CBuildUpBuilding inherit CTask
+
+	const real TESLA_LVL2_BONUS_RANGE		= 20.0;
+	const real TESLA_LVL2_BONUS_VALUE		= 0.5;
+	const real BABBAGE_LVL5_BONUS_VALUE	= 0.5;
+	const real SEAS_BETTER_TOOLS				= 0.75;
+
+	class CInvalid //obsolete, just for save loading
+		export var CFourCC	m_xLink;
+		export var int			m_iWorkers;
+		export var vec3			m_vPos;
+		
+		export proc bool op_Greater(ref CBuildUpBuilding.CInvalid p_rxOther)
+			return (m_iWorkers>p_rxOther.m_iWorkers);
+		endproc;
+		
+		export proc void DoKArc(ref CArc p_rxArc)
+			var string sA = m_xLink.AsString();
+			p_rxArc << sA;
+			m_xLink = sA;
+			p_rxArc << m_iWorkers;
+			p_rxArc << m_vPos;
+		endproc;
+	endclass;
+	
+	var CObjHndl					m_xBuilding;				///< this building
+	var CGameTimeSpan			m_xDuration;				///< time buildup will take standard
+	var CGameTime					m_xLastTick;
+	var vec3							m_vCurTarget;
+	var string						m_sState;
+	var real							m_fProgressStep;
+	var int								m_iMaxWorkers;
+	var CFourCC						m_xLink;
+	var real							m_fDuration;
+	var bool							m_bFirstHit;
+	var bool							m_bLastHit;
+	var array CObjHndl		m_axWorkers; ///< workers working on this buildup
+	var real							m_fStart;
+
+	export constructor()
+		SetName("BuildUpB");
+		m_iMaxWorkers = 10;
+		m_fStart = -1.0f;
+	endconstructor;
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="BuBl";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,3);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xBuilding.DoKArc(pxArc^);
+		m_xDuration.DoKArc(pxArc^);
+		m_xLastTick.DoKArc(pxArc^);
+		(pxArc^) << m_vCurTarget;
+		(pxArc^) << m_sState;
+		(pxArc^) << m_fProgressStep;
+		(pxArc^) << m_iMaxWorkers;
+		(pxArc^) << m_xLink;
+		(pxArc^) << m_fDuration;
+		(pxArc^) << m_bFirstHit;
+		(pxArc^) << m_bLastHit;
+		var int i,iC=m_axWorkers.NumEntries();
+		(pxArc^) << iC;
+		for(i=0) cond(i<iC) iter(i++) do
+			m_axWorkers[i].DoKArc(pxArc^);
+		endfor;
+		(pxArc^) << m_fStart;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="BuBl")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xBuilding.DoKArc(pxArc^);
+			m_xDuration.DoKArc(pxArc^);
+			m_xLastTick.DoKArc(pxArc^);
+			(pxArc^) << m_vCurTarget;
+			(pxArc^) << m_sState;
+			(pxArc^) << m_fProgressStep;
+			(pxArc^) << m_iMaxWorkers;
+			(pxArc^) << m_xLink;
+			(pxArc^) << m_fDuration;
+			(pxArc^) << m_bFirstHit;
+			(pxArc^) << m_bLastHit;
+			var int i,iC;
+			(pxArc^) << iC;
+			m_axWorkers=iC;
+			for(i=0) cond(i<iC) iter(i++) do
+				m_axWorkers[i].DoKArc(pxArc^);
+			endfor;
+			if(p_pxReaderNode^.GetVersion()<2)then	//obsolete, just for save loading
+				var array int aiInvalid;
+				(pxArc^) << iC;
+				aiInvalid=iC;
+				for(i=0) cond(i<iC) iter(i++) do
+					(pxArc^) << aiInvalid[i];
+				endfor;
+				var array CBuildUpBuilding.CInvalid axInvalid;
+				(pxArc^) << iC;
+				axInvalid=iC;
+				for(i=0) cond(i<iC) iter(i++) do
+					axInvalid[i].DoKArc(pxArc^);
+				endfor;
+			endif;
+			if(p_pxReaderNode^.GetVersion()>2)then
+				(pxArc^) << m_fStart;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xBuilding, string p_sPath, real p_fPercent)
+//		m_fStart=Math.Clamp(p_fPercent,0.0f,100.0f);
+		m_fStart=p_fPercent;
+		return Init(p_xBuilding, p_sPath);
+	endproc;
+	
+	export proc bool Init(CObjHndl p_xBuilding, string p_sPath)
+		if(!p_xBuilding.IsValid())then
+			return false;
+		endif;
+		m_xBuilding=p_xBuilding;
+		var ^CGameObj pxObj = m_xBuilding.GetObj();
+		if(pxObj==null)then return false; endif;
+		var ^CBuilding pxBuilding = cast<CBuilding>(pxObj);
+		if(pxBuilding==null)then return false; endif;
+		var ^CAttribs pxAttributes = pxBuilding^.GetAttribs();
+		if(pxAttributes!=null)then
+			pxAttributes^.SetValue("CurTask",GetName());
+			pxAttributes^.SetValue("ReadyForWork",0);
+		endif;
+		m_iMaxWorkers = pxBuilding^.GetMaxBuilders();
+		m_xBuilding=p_xBuilding;
+		var CTechTree xTechTree = pxBuilding^.GetTechTree();
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CPlayer pxPlayer=pxLevel^.GetPlayer(pxBuilding^.GetOwner());
+		if(pxPlayer==null)then return false; endif;
+		var ^CLevelInfoHost pxLevelInfo = CSrvWrap.GetLevelInfo(false);
+		if(pxLevelInfo==null)then return false; endif;
+		var ^CLevelInfo.CPlayerSlot pxPlSlot = pxLevelInfo^.GetOwnerPlayerSlot(pxBuilding^.GetOwner());
+		if(pxPlSlot==null)then return false; endif;
+		m_xDuration = xTechTree.GetValueR("Actions/"+pxBuilding^.GetTribeName()+"/Build/BLDG/"+pxBuilding^.GetClassName()+"/duration",10.0);
+		m_xDuration*=pxBuilding^.GetTechTreeActionModifier(p_sPath, "duration");
+		var ^CAttribs pxAttr = pxBuilding^.GetAttribs();
+		if(pxAttr!=null)then
+			m_fProgressStep = pxAttr^.GetValueInt("CurProcess").ToReal();
+			var real fHP=1.0f;
+			if(m_fStart>=0.0)then
+				fHP=Math.Clamp((m_fStart/100.0f)*pxBuilding^.GetMaxHitpoints(),1.0f,pxBuilding^.GetMaxHitpoints());
+			endif;
+			pxBuilding^.SetHitpoints(fHP);
+			if(AddProgress(0.0f))then
+				m_sState="finished_before_it_started";
+			endif;
+		endif;
+		/*
+		begin CheckResultActions;
+			var ^CTechTree.CNode pxResultsNode = xTechTree.FindNode(p_sPath+"/results");
+			if(pxResultsNode!=null)then
+				var int i, iC = pxResultsNode^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					if(pxResultsNode^.GetSub(i)^.GetValue() == ("/"+pxBuilding^.GetObjPath()))then
+						var ^CTechTree.CNode pxActionsNode = pxResultsNode^.GetSub(i)^.GetSub("resultactions");
+						if(pxActionsNode!=null)then
+							var int j, iD = pxActionsNode^.NumSubs();
+							for(j=0)cond(j<iD)iter(j++)do
+								var string sAction = pxActionsNode^.GetSub(j)^.GetValue();
+								var ^CTechTree.CNode pxResult = xTechTree.FindNode(sAction+"/results");
+								if(pxResult!=null)then
+									var int iL, iE = pxResult^.NumSubs();
+									for(iL=0)cond(iL<iE)iter(iL++)do
+										var string sClass = pxResult^.GetSub(iL)^.GetSubValue("class");
+										var bool bActivate = pxResult^.GetSub(iL)^.GetSubValue("type")=="activate";
+										var ^CTechTreeDef pxTechTreeDef;
+										if(sClass=="local")then
+											pxTechTreeDef = pxBuilding^.GetTechTreeDef();
+										else
+											pxTechTreeDef = ^(pxPlayer^.GetPlayerTechTreeDef());
+										endif;
+										if(bActivate)then
+											pxTechTreeDef^.EnableFilter(pxResult^.GetSub(iL)^.GetValue());
+										else
+											
+											pxTechTreeDef^.DisableFilter(pxResult^.GetSub(iL)^.GetValue());
+										endif;
+									endfor;
+								endif;
+							endfor;
+						endif;
+					endif;
+				endfor;
+			endif;
+		end CheckResultActions;
+		*/
+		begin CheckConversion;
+			var ^CTechTree.CNode pxConversionNode = xTechTree.FindNode(p_sPath+"/conversion");
+			if(pxConversionNode!=null)then
+				var int i, iC = pxConversionNode^.NumSubs();
+				for(i=0)cond(i<iC)iter(i++)do
+					var string sFilter = pxConversionNode^.GetSub(i)^.GetValue();
+					var string sClass = pxConversionNode^.GetSub(i)^.GetSubValue("class");
+					var bool bActivate = pxConversionNode^.GetSub(i)^.GetSubValue("type")=="activate";
+					var ^CTechTreeDef pxTechTreeDef;
+					if(sClass=="local")then
+						pxTechTreeDef = pxBuilding^.GetTechTreeDef();
+					else
+						pxTechTreeDef = ^(pxPlayer^.GetPlayerTechTreeDef());
+					endif;
+					if(bActivate)then
+						pxTechTreeDef^.EnableFilter(sFilter);
+					else
+						pxTechTreeDef^.DisableFilter(sFilter);
+					endif;
+				endfor;
+			endif;
+		end CheckConversion;
+		return true;
+	endproc;
+	
+	export proc void AddWorker(CObjHndl p_xWorker)
+		var int iBW = m_axWorkers.NumEntries();
+		if(!p_xWorker.IsValid())then return; endif;
+		//if worker is already registered
+		if(m_axWorkers.FindEntry(p_xWorker)!=-1)then return; endif;
+		//if max number of workers is already reached
+		//if(m_axWorkers.NumEntries()>=m_iMaxWorkers)then return; endif;
+		m_axWorkers.AddEntry(p_xWorker);
+		if(iBW==0 && m_axWorkers.NumEntries()==1) then
+			var ^CBuilding pxB = cast<CBuilding>(m_xBuilding.GetObj());
+			var CFourCC xFCCB;
+			var string sTribe=pxB^.GetTribeName();
+			//if (sTribe!="Ninigi") then
+			var int i,iC=4;
+			for(i=0) cond(i<iC) iter(++i) do
+				xFCCB="Cr_"+(i+1).ToString();
+				if(pxB^.HasLink(xFCCB)) then
+					pxB^.RemLinkGFX(xFCCB);
+					pxB^.SetLinkGFX(xFCCB,sTribe+"_Crane_0"+((i/2)+1).ToString(),"build");
+				endif;
+			endfor;
+			if(pxB!=null)then
+				pxB^.AddCranes();
+			endif;
+			//endif;
+		endif;
+		UpdateWorkerAttribs();
+	endproc;
+
+	proc void UpdateWorkerAttribs()
+		if(!m_xBuilding.IsValid())then return; endif;
+		var ^CAttribs pxAttr = m_xBuilding.GetObj()^.GetAttribs();
+		if(pxAttr==null)then return; endif;
+		pxAttr^.SetValue("CurWorkers",m_axWorkers.NumEntries());
+	endproc;
+
+	export proc void RemWorker(CObjHndl p_xWorker)
+		if(!p_xWorker.IsValid())then return; endif;
+		//if worker is not registered
+		var int iIndex = m_axWorkers.FindEntry(p_xWorker);
+		if(iIndex==-1)then return; endif;
+		m_axWorkers.DeleteEntry(iIndex);
+		if(m_axWorkers.NumEntries()==0) then
+			var ^CBuilding pxB = cast<CBuilding>(m_xBuilding.GetObj());
+			var CFourCC xFCCB;
+			var string sTribe=pxB^.GetTribeName();
+			//if (sTribe!="Ninigi") then
+			var int i,iC=4;
+			for(i=0) cond(i<iC) iter(++i) do
+				xFCCB="Cr_"+(i+1).ToString();
+				if(pxB^.HasLink(xFCCB)) then
+					pxB^.RemLinkGFX(xFCCB);
+					pxB^.SetLinkGFX(xFCCB,sTribe+"_Crane_0"+((i/2)+1).ToString(),"none");
+				endif;
+			endfor;
+			if(pxB!=null)then
+				pxB^.StopCranes();
+			endif;
+			//endif;
+		endif;
+		UpdateWorkerAttribs();
+	endproc;
+
+	export proc bool AddProgress(real p_fProgress)
+		var ^CGameObj pxBldg=m_xBuilding.GetObj();
+		if(pxBldg==null)then return true; endif;
+		var ^CBuilding pxBuilding = cast<CBuilding>(pxBldg);
+		if(pxBuilding==null)then EndTask(); return true; endif;
+		var ^CAttribs pxAttr=pxBldg^.GetAttribs();
+		if(pxAttr==null)then return true; endif;
+		if(pxBuilding^.GetIncapacitated())then return false; endif;
+		pxBuilding^.FireExtinguish();
+		m_fProgressStep+=p_fProgress;
+		pxBuilding^.AddHitpoints((pxBuilding^.GetMaxHitpoints()*p_fProgress)/100.0);
+		if(m_fProgressStep<100.0)then
+			var int iConLevel=m_fProgressStep.ToInt()/25;
+			pxBuilding^.SetProcess((m_fProgressStep+0.5).ToInt());
+			pxBuilding^.SetConstructLevel(iConLevel);
+			if(iConLevel>0&&!pxBuilding^.IsPFBlocker()) then pxBuilding^.SetPFBlocking(); endif;
+			return false;
+		else
+			pxAttr^.SetValue("CurTask","none");
+			pxAttr^.SetValue("CurProcessObj","");
+			pxAttr^.SetValue("CurProcess",0);
+			pxAttr^.SetValue("ReadyForWork",1);
+			pxBuilding^.SetReadyBuild();
+			// collect building creation to statistics
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			var ^CStatisticMgr pxStatisticMgr=^(pxLevel^.GetStatisticMgr());
+			var CGameTime xTime=CTimeMgr.Get().GetTime();
+			// search the subcategory of the building in the techtree
+			var string sTribe=pxBuilding^.GetTribeName();
+			var string sObjClass=pxBuilding^.GetClassName();
+			var string sCategory="";
+			var string sPath="/Actions/"+sTribe+"/Build/BLDG/"+sObjClass+"/locations/0/uiposition/subcat";
+			sCategory=pxBuilding^.GetTechTree().GetValueS(sPath,"default");
+			CSrvWrap.GetGameLogger().Log("BuildingDone",pxBuilding^.GetOwner().ToString(),pxBuilding^.GetClassName());
+			if(sCategory=="ECON")then
+				pxStatisticMgr^.AddSample( CStatisticSample.EcoBuildings.ToInt(), pxBuilding^.GetOwner(), 1 );
+			elseif(sCategory=="DEFE")then
+				if(pxBuilding^.GetClassName().Find("palisade")==-1)then
+					pxStatisticMgr^.AddSample( CStatisticSample.DefBuildings.ToInt(), pxBuilding^.GetOwner(), 1 );
+				endif;
+			elseif(sCategory=="COMB")then
+				pxStatisticMgr^.AddSample( CStatisticSample.MilBuildings.ToInt(), pxBuilding^.GetOwner(), 1 );
+			endif;
+			return true;
+		endif;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		var ^CGameObj pxBldg=m_xBuilding.GetObj();
+		if(pxBldg==null)then EndTask(); return; endif;
+		if(pxBldg^.GetType()!="BLDG")then EndTask(); return; endif;
+		//send all chars out of the area;
+		var real fRadius = pxBldg^.GetRadius();
+		//L KLog.LogSpam("BuildUp","fRadius="+fRadius.ToString());
+		var CObjQuery xGoAway;
+		xGoAway.SetType("CHTR");
+		xGoAway.SetType("ANML",true);
+		xGoAway.SetType("VHCL",true);
+		xGoAway.SetType("FGHT",true);
+		xGoAway.RegionCircle(pxBldg^.GetPos(), fRadius);
+		var CObjList xList;
+		if(xGoAway.Execute(xList))then
+			//L KLog.LogSpam("BuildUp","urs auf baustelle gefunden, husch husch...");
+			var int i;
+			for(i=0)cond(i<xList.NumEntries())iter(i++)do
+				var ^CGameObj pxObj = xList[i].GetObj();
+				if(pxObj!=null)then
+					var bool bGoAway=false;
+					var ^CCharacter pxChar=cast<CCharacter>(pxObj);
+					if(pxChar==null||pxChar^.IsIdle()) then bGoAway=true; endif;
+					if(bGoAway) then
+						var vec3 vDir = pxObj^.GetPos()-pxBldg^.GetPos();
+						vDir.Normalize();
+						vDir *= fRadius+1.0;
+						CSrvWrap.GetObjMgr()^.GetFreePos(vDir,pxObj,vDir+pxBldg^.GetPos(),null,true,false,false);
+						pxObj^.HandleGamePlayCommand("Action",pxObj,vDir,"/GoAway");
+						//L KLog.LogSpam("BuildUp",pxObj^.GetName()+" bewegt sich von der baustelle!");
+					endif;
+				endif;
+			endfor;
+		else
+			//L KLog.LogSpam("BuildUp","baustelle frei");
+		endif;
+		// RT#8432
+		var ^CAttribs pxAttributes = pxBldg^.GetAttribs();
+		if(pxAttributes!=null)then
+			pxAttributes^.SetValue("ReadyForWork",0);
+			pxAttributes^.SetValue("CurTask",GetName());
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		if(m_sState=="finished_before_it_started")then
+			EndTask();
+			return;
+		endif;
+		var ^CBuilding pxBuilding;
+		begin CheckBuidling;
+			var ^CGameObj pxTmp=m_xBuilding.GetObj();
+			if(pxTmp==null)then EndTask();return; endif;
+			pxBuilding=cast<CBuilding>(pxTmp);
+		end CheckBuidling;
+		if(pxBuilding==null)then EndTask(); return; endif;
+		var ^CAttribs pxAttributes = pxBuilding^.GetAttribs();
+		if(pxAttributes!=null)then
+//			if(pxAttributes^.GetValue("CurTask")!=GetName())then
+//				pxAttributes^.SetValue("CurTask",GetName());
+//			endif;
+			if(pxAttributes^.GetValueInt("ReadyForWork")!=0)then
+				pxAttributes^.SetValue("ReadyForWork",0);
+			endif;
+		endif;
+		if(pxBuilding^.GetIncapacitated())then return; endif;
+		var CGameTimeSpan xDiff;
+		begin TimeSpan;
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			xDiff=xNow-m_xLastTick;
+			m_xLastTick=xNow;
+		end TimeSpan;
+		/*var int i;
+		var int iC = Math.Min(m_iMaxWorkers,m_axWorkers.NumEntries());
+		var CGameTimeSpan xTempDuration = m_xDuration*iC.ToReal();
+		var real fSpeedFactor = 1.25;
+		var real fMinTimeFactor = 99.9;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_axWorkers[i].IsValid())then
+				var ^CCharacter pxChar = cast<CCharacter>(m_axWorkers[i].GetObj());
+				if(pxChar!=null)then
+					fSpeedFactor *= 0.8;
+					if(fMinTimeFactor>pxChar^.GetSelfTimeFactor())then
+						fMinTimeFactor=pxChar^.GetSelfTimeFactor();
+					endif;
+				endif;
+			endif;
+		endfor;*/
+		var real fMinTimeFactor=99.9;
+		iterloop(m_axWorkers,i) do
+			var ^CCharacter pxChar = cast<CCharacter>(m_axWorkers[i].GetObj());
+			if(pxChar!=null)then
+				if(fMinTimeFactor>pxChar^.GetSelfTimeFactor())then
+					fMinTimeFactor=pxChar^.GetSelfTimeFactor();
+				endif;
+			endif;
+		enditerloop;
+		var real fSpeedFactor=0.1+Math.Pow(0.8,(m_axWorkers.NumEntries()-1).ToReal())*0.9;
+		var CGameTimeSpan xTempDuration = m_xDuration*m_axWorkers.NumEntries().ToReal();
+		xTempDuration *= fMinTimeFactor;
+		xTempDuration *= fSpeedFactor;
+		var bool bTeslaBonus=false;
+		begin CheckTesla;
+			var CObjHndl xTesla=CNPCMgr.Get().GetPlayerNPC(pxBuilding^.GetOwner(), "tesla_s0");
+			if(xTesla.IsValid())then
+				var ^CFightingObj pxTesla=cast<CFightingObj>(xTesla.GetObj());
+				if(pxTesla!=null && pxTesla^.GetLevel()>=1)then
+					var real fDist = (pxTesla^.GetPos()-pxBuilding^.GetPos()).Abs2();
+					fDist-=pxBuilding^.GetCollisionRadius();
+					if(fDist<=TESLA_LVL2_BONUS_RANGE)then
+						xDiff/=TESLA_LVL2_BONUS_VALUE;
+						bTeslaBonus=true;
+					endif;
+				endif;
+			endif;
+		end CheckTesla;
+		begin CheckBabbage;
+			var CObjHndl xBabbage=CNPCMgr.Get().GetPlayerNPC(pxBuilding^.GetOwner(), "babbage_s0");
+			if(!xBabbage.IsValid())then
+				xBabbage=CNPCMgr.Get().GetPlayerNPC(pxBuilding^.GetOwner(), "special_mobile_suit");
+			endif;
+			if(xBabbage.IsValid())then
+				var ^CFightingObj pxBabbage=cast<CFightingObj>(xBabbage.GetObj());
+				if(pxBabbage!=null && pxBabbage^.GetLevel()>=4)then
+					xDiff/=BABBAGE_LVL5_BONUS_VALUE;
+				endif;
+			endif;
+		end CheckBabbage;
+		begin CheckSEASBonus;
+			if(m_xBuilding.IsValid())then
+				var ^CGameObj pxBldg = m_xBuilding.GetObj();
+				if(pxBldg!=null && cast<CWarpGate>(pxBldg)==null)then
+					var bool bSeasBetterToolsOneInvented=CRequirementsMgr.Get().CheckInvention(pxBuilding, pxBuilding^.GetOwner(), "improved_repair", pxBuilding^.GetTribeName());
+					if(bSeasBetterToolsOneInvented)then
+						xDiff/=SEAS_BETTER_TOOLS;
+					endif;
+				endif;
+			endif;
+		end CheckSEASBonus;
+		iterloop(m_axWorkers,i) do
+			if(m_axWorkers[i].IsValid())then
+				var ^CCharacter pxChar = cast<CCharacter>(m_axWorkers[i].GetObj());
+				if(pxChar!=null)then
+					if(bTeslaBonus)then
+						pxChar^.AddRangedBuff("faster_buildup");
+					else
+						pxChar^.RemoveRangedBuff("faster_buildup");
+					endif;
+					if(xTempDuration.GetSecondsF()!=0.0)then
+						if(AddProgress(100.0*(xDiff.GetSecondsF()/(xTempDuration.GetSecondsF()))))then
+							EndTask();
+							return;
+						endif;
+					endif;
+				endif;
+			endif;
+		enditerloop;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+		//L KLog.LogSpam("BuildUp","USLOnLeave()");
+		m_axWorkers=0;
+		UpdateWorkerAttribs();
+		return;
+	endproc;
+
+	export proc bool Break()
+		return false;
+	endproc;
+
+endclass;

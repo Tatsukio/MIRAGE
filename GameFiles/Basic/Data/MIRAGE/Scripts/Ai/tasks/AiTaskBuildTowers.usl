@@ -1,0 +1,237 @@
+class CAiTaskBuildTowers inherit CAiTaskTargetRealization
+
+	var array ^CAiNodeInstance	m_apxResources;
+	var ^CAiAllocation 			m_pxAllocation;
+	
+	var string					m_sClassName;
+	var real					m_fMaxDist;
+	var vec3					m_vTarget;
+	
+	var bool					m_bIsWorking;
+	var bool					m_bEnemyIsThere;
+
+	var int						m_iFailures;
+	var int						m_iMaxFailures;
+	var int						m_iNumWorkers;
+	var int						m_iIdleWorkers;
+	var int						m_iCountTowers;
+	
+	///constructor
+	export constructor(vec3 p_vPos, string p_sClassName)
+		m_vTarget=p_vPos;
+		m_sClassName=p_sClassName;
+		m_bIsWorking=false;
+		m_iCountTowers=0;
+	endconstructor;
+
+	///destructor
+	export destructor()
+		m_iCountTowers=0;
+	enddestructor;
+
+	///init()
+	export proc void Init(^CAiGoal p_pxGoal)
+		super.Init(p_pxGoal);
+		if(p_pxGoal==null)then return; endif;
+		m_pxBrain = GetGoal()^.GetAiBrain();
+		if(m_pxBrain==null)then return; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return; endif;
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+//		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType=1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(pxCM^.GetDifficultyInt()+iType);
+		var ^CAiTechTree pxTT=GetAiTechTree();
+		var ^CAiNodeInstance pxTowerNI=pxTT^.GetNodeInstanceFromPartialName("BLDG/"+m_sClassName);
+		if(pxTowerNI==null)then return; endif;
+		var ^CAiSolution pxTowerSol=pxTowerNI^.GetSolution(0);
+		if(pxTowerSol==null)then return; endif;
+		m_iFailures = 0;
+		m_iMaxFailures = 10;
+		SetSolution(pxTowerSol);
+	endproc;
+
+	///IsWorking
+	export proc bool IsWorking()
+		return m_bIsWorking;
+	endproc;
+
+	///Get maximum distance from target
+	export proc real GetMaxDist()
+		return m_fMaxDist;
+	endproc;
+
+	///Set maximum distance from target
+	export proc void SetMaxDist(real p_fMaxDist)
+		m_fMaxDist=p_fMaxDist;
+	endproc;
+
+	///Get target position forthis task (the place that the tower will be built on, actually)
+	export proc vec3 GetTarget()
+		return m_vTarget;
+	endproc;
+
+	///Shut
+	export proc void Shut()
+	endproc;
+
+	///CalculateStartCost
+	export proc real CalculateStartCost()
+		var real fCost=1.0;
+		return fCost;
+	endproc;
+
+	///Start
+	export proc bool Start()
+		if(GetSolution()==null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;
+		if(!CAiUtilityMgr.Get()^.CheckForEnemy(m_pxBrain, m_vTarget))then
+			m_bIsWorking=false;
+			Abort();
+			return false;
+		endif;
+		SetStarted();
+		m_bIsWorking=true;
+		m_iOutpostId=m_pxSensor^.ComputeOutpostId(m_vTarget);
+		var bool bSuccess=TryAllocate(GetSolution(), m_iOutpostId, 10, true, false, false);
+		if(!bSuccess)then
+			m_bIsWorking=false;
+			Abort();
+			return false;
+		endif;
+		return true;
+	endproc;
+
+	///EvtAllocationComplete
+	export proc void EvtAllocationComplete(^CAiAllocation p_pxAllocation)
+		if(m_iCountTowers>1)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		if(m_pxBrain==null)then return; endif;
+		m_pxAllocation=p_pxAllocation;
+		var bool bSuccess;
+		if(CAiUtilityMgr.Get()^.CheckForEnemy(m_pxBrain,m_vTarget))then
+			var CAiObjWrapList xWorkerList;
+			xWorkerList.Clear();
+			xWorkerList.Include(p_pxAllocation^.GetSubjects());
+			if(xWorkerList.Validate()>0)then
+				if(m_pxSensor^.ComputeIslandId(xWorkerList[0].GetPos())==m_pxSensor^.ComputeIslandId(m_vTarget))then
+					bSuccess = m_pxSensor^.BuildTowerNear(m_vTarget,m_sClassName,xWorkerList,m_fMaxDist);
+				else
+					bSuccess=false;
+				endif;
+			else
+				bSuccess=false;
+			endif;
+		else
+			bSuccess=false;
+		endif;
+		if(bSuccess)then
+			m_iCountTowers++;
+		else
+			p_pxAllocation^.SetUsed(false);
+			m_bIsWorking=false;
+			Abort();
+			m_iFailures++;
+			
+			if(m_iFailures<m_iMaxFailures)then
+				Start();
+			else
+				var int iX, iY;
+				var ^CAiMaps pxMaps = ^(m_pxSensor^.GetAiMaps());
+				var ^CAiMap pxDefMap=^(pxMaps^.GetAiMap("DefensiveCoverage", m_iPlayerID));
+				CAiArea.Vec3ToArea(m_vTarget, iX, iY);
+				if((iX>=0)&&(iX<pxMaps^.GetMapWidth())&&(iY>=0)&&(iY<pxMaps^.GetMapHeight()))then
+					pxDefMap^.SetValueFast(iX, iY, 10000.0);
+				endif;
+				
+				m_bIsWorking = false;
+			endif;
+			return;
+		endif;
+		m_iNumWorkers=p_pxAllocation^.GetSubjects().NumEntries();
+		var int i;
+		for(i=0)cond(i<m_iNumWorkers)iter(i++)do
+			m_pxSensor^.AddCheckpoint(this,i,"atto:"+p_pxAllocation^.GetSubject(i).GetHandle().ToString()+",CurTask,==,BuildUp",30.0);
+			m_pxSensor^.AddCheckpoint(this,i+m_iNumWorkers,"atto:"+p_pxAllocation^.GetSubject(i).GetHandle().ToString()+",CurTask,==,Idle",0.0);
+		endfor;
+		m_iIdleWorkers=0;
+	endproc;
+
+
+	///EvtAllocationFailed
+	export proc void EvtAllocationFailed(^CAiAllocation p_pxAllocation)
+		m_bIsWorking=false;
+		Abort();
+		Start();
+	endproc;
+
+
+	///EvtAllocationDestroyed
+	export proc void EvtAllocationDestroyed(^CAiAllocation p_pxAllocation,int p_iUnitHandle)
+		m_bIsWorking=false;
+		Abort();
+		Start();
+	endproc;
+
+
+	///EvtCheckpointReached
+	export proc void EvtCheckpointReached(int p_iCheckpointId, int p_iObjHandle)
+		if(p_iCheckpointId<(m_iNumWorkers))then
+		elseif(p_iCheckpointId<(2*m_iNumWorkers))then
+			m_iIdleWorkers++;
+			
+			if(m_iIdleWorkers>=m_iNumWorkers)then
+				m_bIsWorking = false;
+				SetCompleted();
+				
+				if(m_pxAllocation!=null)then	
+					var CAiObjWrapList xList=m_pxAllocation^.GetSubjects();
+					var int i, iC=xList.NumEntries();
+					if(iC>0)then
+						for(i=0)cond(i<iC)iter(i++)do
+							if(xList[i].IsValid())then
+								m_pxSensor^.ExecuteGamePlayCommand(xList[i].GetHandle(), "Action", -1 , {0.0,0.0,0.0}, "/Stop");
+							endif;
+						endfor;
+					endif;
+				endif;
+			endif;
+		endif;
+		
+		if(m_pxSensor==null)then return; endif;
+		m_pxSensor^.RemoveCheckpoint(this,p_iCheckpointId);
+	endproc;
+
+
+	//EvtCheckpointTimeout
+	export proc void EvtCheckpointTimeout(int p_iCheckpointId)
+		if(p_iCheckpointId<(m_iNumWorkers))then
+			m_bIsWorking = false;
+			Abort();
+		
+		elseif(p_iCheckpointId<(2*m_iNumWorkers))then
+			m_bIsWorking = false;
+			if(m_pxAllocation!=null)then
+				var CAiObjWrapList xList=m_pxAllocation^.GetSubjects();
+				var int i, iC=xList.NumEntries();
+				if(iC>0)then
+					for(i=0)cond(i<iC)iter(i++)do
+						if(xList[i].IsValid())then
+							m_pxSensor^.ExecuteGamePlayCommand(xList[i].GetHandle(), "Action", -1 , {0.0,0.0,0.0}, "/Stop");
+						endif;
+					endfor;
+				endif;
+			endif;
+			
+			SetCompleted();
+			Start();
+		endif;
+		
+		if(m_pxSensor==null)then return; endif;
+		m_pxSensor^.RemoveCheckpoint(this,p_iCheckpointId);
+	endproc;
+
+endclass;

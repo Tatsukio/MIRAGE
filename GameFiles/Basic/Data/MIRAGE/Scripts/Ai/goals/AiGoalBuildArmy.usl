@@ -1,0 +1,149 @@
+///CAiGoalBuildArmy
+class CAiGoalBuildArmy inherit CAiGoal
+	
+	var ^CAiBrain 				m_pxBrain;
+	var ^CAiSensor				m_pxSensor;
+	var ^CAiTechTree 			m_pxTT;
+	var CAiConstructionInfoPtr 	m_pxUnitCInfo;
+	var CAiNeedPtr				m_pxUnitNeed;
+	var string					m_sPlayerID;
+	var int						m_iPlayerID;
+	var string 					m_sTribe;
+	var int						m_iAtkOutpostID;
+	var int						m_iTickCnt;
+	var	string					m_sLevelName;
+	
+	///constructor
+	export constructor()
+	endconstructor;
+	
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	///init
+	export proc bool Init(^CAiBrain p_pxBrain)	
+		m_iAtkOutpostID=-1;
+		super.Init(p_pxBrain);
+		SetPermanent(true);
+		if(p_pxBrain==null)then return false; endif;
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		m_pxTT = ^(m_pxSensor^.GetTechTree());
+		m_sTribe = m_pxTT^.GetTribe();
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		var int iNumPlayers=1+m_pxSensor^.GetNumPlayers();
+//		var int iType = 1+Random.GetInt()%iNumPlayers;
+		var int iType = 1;
+		var ^CAiModuleControlDefault pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());
+		SetThinkWait(1+iType);
+		return true;
+	endproc;
+	
+	///GetOutpostID
+	export proc int GetOutpostID()
+		return m_iAtkOutpostID;
+	endproc;
+	
+	///Shut
+	export proc void Shut()
+		m_pxUnitCInfo.SetNull();
+	endproc;
+	
+	///AddRequest
+	proc void AddRequest(string p_sName,int p_iNumber)
+		AddRequest(p_sName,p_iNumber,"");
+	endproc;
+	
+	proc void AddRequest(string p_sName,int p_iNumber,string p_sObjFlag)
+		var CAiConstructionInfoPtr pxCI;
+		var CAiNeedPtr pxNd;
+		var ^CAiNodeInstance pxNI;
+		pxNI = m_pxTT^.GetNodeInstanceFromPartialName(p_sName, p_sObjFlag);
+		if(pxNI!=null)then
+			var int iRemReq=p_iNumber-pxNI^.GetInstanceCount(m_iAtkOutpostID);
+			if(iRemReq<=0)then return; endif; //we have enough
+			var ^CAiModuleEconomyDefault pxEMod=cast<CAiModuleEconomyDefault>(m_pxBrain^.GetEconomyModule());
+			if(pxEMod^.IsNodeInstanceQed(pxNI,m_iAtkOutpostID))then return; endif; //already queued
+			var vec3 vBuildPos;
+			pxNd = CAiNeed.Create(true,iRemReq);
+			pxNd.GetNeed()^.AddEntry(pxNI);
+			pxCI = CAiConstructionInfo.Create();
+			SetRequesterFor(pxCI.GetConstructionInfo());
+			pxCI.GetConstructionInfo()^.SetNeed(pxNd);
+			pxCI.GetConstructionInfo()^.SetPos(vBuildPos);
+			pxCI.GetConstructionInfo()^.SetUnique(false);
+			pxCI.GetConstructionInfo()^.SetOutpostId(m_iAtkOutpostID);
+			pxEMod^.ExternalRequestConstruction(pxCI);
+		endif;
+	endproc;
+	
+	///UpdateBuildList
+	proc void UpdateBuildList()
+		if(m_sTribe=="Hu")then
+			AddRequest("BLDG/hu_arena",1);
+			AddRequest("BLDG/hu_small_animal_farm",1);
+			AddRequest("BLDG/hu_large_tower",2);
+		elseif(m_sTribe=="Aje")then
+			AddRequest("BLDG/aje_rodeo",1);
+			AddRequest("BLDG/aje_small_farm",1,"aje_medium_farm");
+			AddRequest("BLDG/aje_medium_tower",2);
+		elseif(m_sTribe=="Ninigi")then
+			AddRequest("BLDG/ninigi_engineer",1);
+			AddRequest("BLDG/ninigi_animal_farm",1);
+			AddRequest("BLDG/ninigi_small_tower",2);
+		//Henry: added seas buildings
+		elseif(m_sTribe=="SEAS")then
+			AddRequest("BLDG/seas_barracks",1);
+			AddRequest("BLDG/seas_garage",1);
+			AddRequest("BLDG/seas_turret_tower",2);
+		endif;
+	endproc;
+	
+	///think
+	export proc void Think()
+		if(IsActive() == false)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		if(m_pxSensor^.GetMultimap()&&(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&
+		m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&
+		m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+		m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&
+		m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&
+		m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&
+		m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then
+			var int iAge=CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain);
+			if(m_iAtkOutpostID==-1&&iAge>=2) then
+				var vec3 vPos;
+				if(m_pxSensor^.GetPossibleAtkOutpostPosition(vPos)) then
+					var int iIslId=m_pxSensor^.ComputeIslandId(vPos);
+					if(iIslId>=0) then
+						var ^CAiModuleEconomyDefault pxEM=cast<CAiModuleEconomyDefault>(m_pxBrain^.GetEconomyModule());
+						pxEM^.StartOutpost(iIslId,vPos,"AttackOutpost",m_iAtkOutpostID);
+					endif;
+				endif;
+			endif;
+		endif;
+		if(m_iAtkOutpostID<=0) then return; endif; //wait for outpost
+		m_iTickCnt++;
+		if(m_iTickCnt%10==1) then
+			UpdateBuildList();
+		endif;
+	endproc;
+	
+	export proc void EvtRequestAccepted(^CAiRequestInfo p_pxRequest)
+	endproc;
+	
+	export proc void EvtRequestRejected(^CAiRequestInfo p_pxRequest)
+	endproc;
+	
+	export proc void EvtRequestSucceeded(^CAiRequestInfo p_pxRequest)
+	endproc;
+	
+	export proc void EvtRequestFailed(^CAiRequestInfo p_pxRequest)
+	endproc;
+	
+endclass;

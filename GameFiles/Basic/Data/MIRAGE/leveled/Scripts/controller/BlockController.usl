@@ -1,0 +1,259 @@
+class CBlockController inherit CInputController
+
+	var int						m_iState;
+	var vec3 					m_vPPoint;
+	var bool					m_bBlockSelection;
+	var CGuid					m_xBlock;
+	var int 					m_iSelectedBlockX, m_iSelectedBlockY;
+	var int 					m_iStartSelectedBlockX, m_iStartSelectedBlockY;
+	var int 					m_iEndSelectedBlockX, m_iEndSelectedBlockY;
+	var int 					m_iWidth, m_iHeight;
+	var bool					m_bLMB;
+	var	^CViewScapeTemplates	m_pxViewScapeTemplates;
+	
+	export constructor()
+		m_iState=-1;		//	-1	->	off
+							//	0	->	selection
+							//	1	->	insert
+							//	2	->	select level blocks
+		m_bBlockSelection=false;
+		m_bLMB = false;
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+	
+	export proc bool IsActive()
+		return (m_iState!=-1);
+	endproc;
+	
+	export proc bool SetState(int p_iState)
+		m_iState=p_iState;
+		if(m_iState==-1)then
+			CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+			CLevelEditorWrap.LogError("UI.ViewBrush","SetState: " +m_iState.ToString());
+		endif;
+		return(true);
+	endproc;
+	
+	export proc int GetState()
+		return(m_iState);
+	endproc;
+
+	export proc bool HandleMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+		if(m_iState==-1)then return false; endif;
+		if(m_iState==0)then
+			m_vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+			CScapeMgrLE.GetBlockCoords(m_vPPoint, m_iSelectedBlockX, m_iSelectedBlockY);
+			if(p_dwType==CInputController.MT_MouseRBtnDown)then
+				CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+				m_pxViewScapeTemplates^.UpdateTemplateList();
+				CMainController.Get().SetState(0);
+				m_bLMB = false;
+			elseif(p_dwType==CInputController.MT_MouseLBtnDown)then
+				if(m_vPPoint.ToBool()==false)then
+					CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+					return(false);
+				endif;
+				CScapeMgrLE.GetBlockCoords(m_vPPoint, m_iStartSelectedBlockX, m_iStartSelectedBlockY);
+				var color xColor={{100,0,0,0}};
+				var rect xRect;
+				xRect.SetLeft(m_iStartSelectedBlockX);
+				xRect.SetTop(m_iStartSelectedBlockY);
+				xRect.SetRight(m_iStartSelectedBlockX+1);
+				xRect.SetBottom(m_iStartSelectedBlockY+1);
+				CLevelEditorWrap.GetScapeMgr().HighlightBlocks(xColor,xRect);
+				m_bLMB = true;
+			elseif(p_dwType==CInputController.MT_MouseMove)then
+				CScapeMgrLE.GetBlockCoords(m_vPPoint, m_iEndSelectedBlockX, m_iEndSelectedBlockY);
+				if(m_bLMB)then
+					var color xColor={{100,0,0,0}};
+					var rect xRect;
+					var int iTmpXStart, iTmpYStart,iTmpXEnd, iTmpYEnd;
+					if(m_iStartSelectedBlockX<=m_iEndSelectedBlockX)then
+						iTmpXStart = m_iStartSelectedBlockX;
+						iTmpXEnd = m_iEndSelectedBlockX;
+					else
+						iTmpXEnd = m_iStartSelectedBlockX;
+						iTmpXStart = m_iEndSelectedBlockX;
+					endif;
+					if(m_iStartSelectedBlockY<=m_iEndSelectedBlockY)then
+						iTmpYStart = m_iStartSelectedBlockY;
+						iTmpYEnd = m_iEndSelectedBlockY;
+					else
+						iTmpYEnd = m_iStartSelectedBlockY;
+						iTmpYStart = m_iEndSelectedBlockY;
+					endif;
+					xRect.SetLeft(iTmpXStart);
+					xRect.SetTop(iTmpYStart);
+					xRect.SetRight(iTmpXEnd+1);
+					xRect.SetBottom(iTmpYEnd+1);
+					CLevelEditorWrap.GetScapeMgr().HighlightBlocks(xColor,xRect);
+				endif;
+			elseif(p_dwType==CInputController.MT_MouseLBtnUp)then
+				m_bLMB = false;
+				if(m_vPPoint.ToBool()==false)then
+					CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+					return(false);
+				endif;
+				CScapeMgrLE.GetBlockCoords(m_vPPoint, m_iEndSelectedBlockX, m_iEndSelectedBlockY);
+				var color xColor={{100,0,0,0}};
+				var rect xRect;
+				var int iTmpX, iTmpY;
+				if(m_iStartSelectedBlockX<=m_iEndSelectedBlockX)then
+				else
+					iTmpX = m_iStartSelectedBlockX;
+					m_iStartSelectedBlockX = m_iEndSelectedBlockX;
+					m_iEndSelectedBlockX = iTmpX;
+				endif;
+				if(m_iStartSelectedBlockY<=m_iEndSelectedBlockY)then
+				else
+					iTmpY = m_iStartSelectedBlockY;
+					m_iStartSelectedBlockY = m_iEndSelectedBlockY;
+					m_iEndSelectedBlockY = iTmpY;
+				endif;
+				xRect.SetLeft(m_iStartSelectedBlockX);
+				xRect.SetTop(m_iStartSelectedBlockY);
+				xRect.SetRight(m_iEndSelectedBlockX+1);
+				xRect.SetBottom(m_iEndSelectedBlockY+1);
+				CLevelEditorWrap.GetScapeMgr().HighlightBlocks(xColor,xRect);
+				m_pxViewScapeTemplates^.SetSelectedBlocks(xRect);
+			endif;
+		elseif(m_iState==1)then
+			var int iBlockX;
+			var int iBlockY;
+			if(p_dwType==CInputController.MT_MouseMove)then
+				m_vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+				CScapeMgrLE.GetBlockCoords(m_vPPoint,iBlockX,iBlockY);
+				/*
+				var color xColor={{100,0,0,0}};
+				var rect xRect;
+				xRect.SetLeft(iBlockX);
+				xRect.SetTop(iBlockY);
+				xRect.SetRight(iBlockX+m_iGhostSizeX);
+				xRect.SetBottom(iBlockY+m_iGhostSizeY);
+				CLevelEditorWrap.GetScapeMgr().HighlightBlocks(xColor,xRect);
+				*/
+				m_pxViewScapeTemplates^.m_xLevelTemplate.SetShowPos(iBlockX,iBlockY);
+				return true;
+			elseif(p_dwType==CInputController.MT_MouseLBtnUp)then
+				if(m_vPPoint.ToBool()==false)then
+					return(false);
+				endif;
+				CScapeMgrLE.GetBlockCoords(m_vPPoint,iBlockX,iBlockY);
+				CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+				Deactivate();
+				m_pxViewScapeTemplates^.PlaceTemplate(iBlockX,iBlockY);
+				return true;
+			elseif(p_dwType==CInputController.MT_MouseRBtnUp)then
+				var bool bAlt = ((p_dwFlags&0100b)==0100b);
+				if(!bAlt)then
+					CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+					Deactivate();
+					m_pxViewScapeTemplates^.m_xLevelTemplate.Hide();
+					return true;
+				endif;
+			endif;
+		elseif(m_iState==2)then
+			m_vPPoint = CLevelEditorWrap.GetScapeMgr().GetPickPoint();
+			CScapeMgrLE.GetBlockCoords(m_vPPoint, m_iSelectedBlockX, m_iSelectedBlockY);
+			if(p_dwType==CInputController.MT_MouseRBtnDown)then
+				CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+				m_bLMB = false;
+			elseif(p_dwType==CInputController.MT_MouseLBtnDown)then
+				CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+				if(m_vPPoint.ToBool()==false)then
+					CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+					return(false);
+				endif;
+				CScapeMgrLE.GetBlockCoords(m_vPPoint, m_iStartSelectedBlockX, m_iStartSelectedBlockY);
+				var color xColor={{0,100,0,0}};
+				var rect xRect;
+				xRect.SetLeft(m_iStartSelectedBlockX);
+				xRect.SetTop(m_iStartSelectedBlockY);
+				xRect.SetRight(m_iStartSelectedBlockX+1);
+				xRect.SetBottom(m_iStartSelectedBlockY+1);
+				CLevelEditorWrap.GetScapeMgr().HighlightBlocks(xColor,xRect);
+				m_bLMB = true;
+			elseif(p_dwType==CInputController.MT_MouseMove)then
+//				CScapeMgrLE.GetBlockCoords(m_vPPoint, m_iEndSelectedBlockX, m_iEndSelectedBlockY);
+				if(m_bLMB)then
+					CScapeMgrLE.GetBlockCoords(m_vPPoint, m_iEndSelectedBlockX, m_iEndSelectedBlockY);
+					var color xColor={{0,100,0,0}};
+					var rect xRect;
+					var int iTmpXStart, iTmpYStart,iTmpXEnd, iTmpYEnd;
+					if(m_iStartSelectedBlockX<=m_iEndSelectedBlockX)then
+						iTmpXStart = m_iStartSelectedBlockX;
+						iTmpXEnd = m_iEndSelectedBlockX;
+					else
+						iTmpXEnd = m_iStartSelectedBlockX;
+						iTmpXStart = m_iEndSelectedBlockX;
+					endif;
+					if(m_iStartSelectedBlockY<=m_iEndSelectedBlockY)then
+						iTmpYStart = m_iStartSelectedBlockY;
+						iTmpYEnd = m_iEndSelectedBlockY;
+					else
+						iTmpYEnd = m_iStartSelectedBlockY;
+						iTmpYStart = m_iEndSelectedBlockY;
+					endif;
+					xRect.SetLeft(iTmpXStart);
+					xRect.SetTop(iTmpYStart);
+					xRect.SetRight(iTmpXEnd+1);
+					xRect.SetBottom(iTmpYEnd+1);
+					CLevelEditorWrap.GetScapeMgr().HighlightBlocks(xColor,xRect);
+				endif;
+			elseif(p_dwType==CInputController.MT_MouseLBtnUp)then
+				m_bLMB = false;
+				if(m_vPPoint.ToBool()==false)then
+					CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+					return(false);
+				endif;
+				CScapeMgrLE.GetBlockCoords(m_vPPoint, m_iEndSelectedBlockX, m_iEndSelectedBlockY);
+				var color xColor={{0,100,0,0}};
+				var rect xRect;
+				var int iTmpX, iTmpY;
+				if(m_iStartSelectedBlockX<=m_iEndSelectedBlockX)then
+				else
+					iTmpX = m_iStartSelectedBlockX;
+					m_iStartSelectedBlockX = m_iEndSelectedBlockX;
+					m_iEndSelectedBlockX = iTmpX;
+				endif;
+				if(m_iStartSelectedBlockY<=m_iEndSelectedBlockY)then
+				else
+					iTmpY = m_iStartSelectedBlockY;
+					m_iStartSelectedBlockY = m_iEndSelectedBlockY;
+					m_iEndSelectedBlockY = iTmpY;
+				endif;
+				xRect.SetLeft(m_iStartSelectedBlockX);
+				xRect.SetTop(m_iStartSelectedBlockY);
+				xRect.SetRight(m_iEndSelectedBlockX+1);
+				xRect.SetBottom(m_iEndSelectedBlockY+1);
+				CLevelEditorWrap.GetScapeMgr().HighlightBlocks(xColor,xRect);
+			elseif(p_dwType==CInputController.MT_MouseRBtnUp)then
+				CEnhancedMenu.Get().GetScapeEdit()^.SetSelectionValid(false);
+			endif;
+		endif;
+		return false;
+	endproc;
+
+	export proc void SetViewBlock(^CViewScapeTemplates p_pxViewScapeTemplates);
+		m_pxViewScapeTemplates=p_pxViewScapeTemplates;
+	endproc;
+	
+	export proc bool Deactivate()
+		CLevelEditorWrap.GetScapeMgr().ClearHighlightBlocks();
+		m_iState=-1;
+		return (true);
+	endproc;
+	
+	export proc rect GetSelectedBlocks()
+		var rect xRect;
+		xRect.SetLeft(m_iStartSelectedBlockX);
+		xRect.SetTop(m_iStartSelectedBlockY);
+		xRect.SetRight(m_iEndSelectedBlockX+1);
+		xRect.SetBottom(m_iEndSelectedBlockY+1);
+		return xRect;
+	endproc;
+
+
+endclass;

@@ -1,0 +1,182 @@
+class CViewObjAttribs inherit CEnhancedFrameWindow
+
+	export constructor()
+		if(!InitFromResource("objects/ViewObjAttribs","Attribs")) then
+			CLevelEditorWrap.LogError("UI.ViewObjAttribs","InitFromResource failed");
+			return;
+		endif;
+
+		var ^CButton pxApply=cast<CButton>(GetControl("Btn_Apply"));
+		pxApply^.SetText(CLocalizer.Get().Translate("_ViewObjAttribs_Btn_Next"));
+		pxApply^.m_xOnClick=Apply;
+		var ^CButton pxCancel=cast<CButton>(GetControl("Btn_Cancel"));
+		pxCancel^.SetText(CLocalizer.Get().Translate("_ViewObjAttribs_Btn_Cancel"));
+		pxCancel^.m_xOnClick=Update;
+		var ^CList pxAttribs=cast<CList>(GetControl("Attribs"));
+		pxAttribs^.m_xOnSelect=OnSelectItem;
+		var ^CEdit pxValue=cast<CEdit>(GetControl("EditAttribGroup/Edt_Value"));
+		pxValue^.m_xOnChange=OnValueChange;
+
+		Update();
+
+		LoadPosition("ObjectAttributes");
+		SetVisible(true);
+	endconstructor;
+
+	export destructor()
+		ClearList();
+	enddestructor;
+
+	proc void ClearList()
+		var ^CList pxList=cast<CList>(GetControl("Attribs"));
+		var int i;
+		for(i=0)cond(i<pxList^.NumItems())iter(i++)do
+			delete pxList^.GetItemData(i);
+		endfor;
+		pxList^.Clear();
+	endproc;
+
+	proc void IncludeEntry(string p_sKey,string p_sValue)
+		var ^CList pxList=cast<CList>(GetControl("Attribs"));
+		var int iIdx=pxList^.FindItem(p_sKey);
+		if(iIdx==-1)then
+			pxList^.m_xOnSelect=DoNothing;
+			iIdx=pxList^.AddItem(p_sKey);
+			pxList^.SetItemData(iIdx,new CValueObject(p_sValue));
+			pxList^.m_xOnSelect=OnSelectItem;
+		else
+			cast<CValueObject>(pxList^.GetItemData(iIdx))^.SetValue(p_sValue);
+		endif;
+	endproc;
+
+	proc void RemEntry(string p_sKey)
+		var ^CList pxList=cast<CList>(GetControl("Attribs"));
+		var int iIdx=pxList^.FindItem(p_sKey);
+		if(iIdx!=-1)then
+			delete pxList^.GetItemData(iIdx);
+			pxList^.DeleteItem(iIdx);
+		endif;
+	endproc;
+
+	proc bool Apply()
+		var ^CList pxList=cast<CList>(GetControl("Attribs"));
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		var int i,iC=pxSel^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CClntHndl xWalk=(pxSel^)[i];
+			var ^CObj pxObj=xWalk.GetObj();
+			if(pxObj!=null)then
+				var ^CAttribs pxAttribs=pxObj^.GetAttribs();
+				if(pxAttribs!=null)then
+					var int j,iNI=pxList^.NumItems();
+					for(j=0)cond(j<iNI)iter(j++)do
+						var string sKey=pxList^.GetItem(j);
+						var ^CValueObject pxValue=cast<CValueObject>(pxList^.GetItemData(j));
+						if(pxValue!=null)then
+							pxAttribs^.SetValue(sKey,pxValue^.GetValue());
+							if(sKey=="info"&&pxObj^.GetType()=="INFO")then
+//								var vec3 vRelPos = {0.0,0.0,4.0};
+//								pxObj^.SetDebugText(pxValue^.GetValue(), vRelPos);
+							endif;
+						endif;
+					endfor;
+					CEvt_UpdateAttribs.Send(pxObj^.GetGuid());
+				endif;
+			endif;
+		endfor;
+		return true;
+	endproc;
+
+	/*
+		called when selection was updated
+	*/
+	export proc bool Update()
+		ClearList();
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		if(pxSel^.NumEntries() == 0) then
+			SetDisabled(true);
+		else
+			SetDisabled(false);
+			var int i,iC=pxSel^.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var CClntHndl xWalk=(pxSel^)[i];
+				var ^CObj pxObj=xWalk.GetObj();
+				if(pxObj!=null)then
+					var ^CAttribs pxAttribs=pxObj^.GetAttribs();
+					if(pxAttribs!=null)then
+						var int j,iC=pxAttribs^.NumEntries();
+						for(j=0)cond(j<iC)iter(j++)do
+							var string sKey,sValue;
+							pxAttribs^.GetEntry(j,sKey,sValue);
+							IncludeEntry(sKey,sValue);
+						endfor;
+					endif;
+				endif;
+			endfor;
+			OnSelectItem();
+		endif;
+		return true;
+	endproc;
+
+	proc bool DoNothing()
+		return true;
+	endproc;
+
+	proc bool OnSelectItem()
+		var ^CList pxList=cast<CList>(GetControl("Attribs"));
+		var int iSel=pxList^.GetSelectedItem();
+		if(iSel!=-1)then
+			var ^CValueObject pxValue=cast<CValueObject>(pxList^.GetItemData(iSel));
+			if(pxValue!=null)then
+				var ^CEdit pxEdtKey=cast<CEdit>(GetControl("EditAttribGroup/Edt_Key"));
+				var ^CEdit pxEdtValue=cast<CEdit>(GetControl("EditAttribGroup/Edt_Value"));
+				pxEdtKey^.SetText(pxList^.GetItem(iSel));
+				pxEdtValue^.SetText(pxValue^.GetValue());
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	proc bool OnValueChange()
+		var ^CEdit pxEdtValue=cast<CEdit>(GetControl("EditAttribGroup/Edt_Value"));
+		var ^CList pxList=cast<CList>(GetControl("Attribs"));
+		var int iSel=pxList^.GetSelectedItem();
+		if(iSel!=-1)then
+			var ^CValueObject pxValue=cast<CValueObject>(pxList^.GetItemData(iSel));
+			if(pxValue!=null)then
+				pxValue^.ChangeValue(pxEdtValue^.GetText());
+			endif;
+		endif;
+		return true;
+	endproc;
+
+endclass;
+
+class CValueObject inherit CItemData
+	var bool m_bMultiple;
+	var string m_sValue;
+
+	export constructor(string p_sValue)
+		m_bMultiple=false;
+		m_sValue=p_sValue;
+	endconstructor;
+
+	export proc string GetValue();
+		return m_sValue;
+	endproc;
+
+	export proc void ChangeValue(string p_sValue)
+		m_sValue=p_sValue;
+	endproc;
+
+	export proc void SetValue(string p_sValue)
+		if(m_sValue!=p_sValue)then
+			m_bMultiple=true;
+			m_sValue=p_sValue;
+		endif;
+	endproc;
+
+	export proc bool IsMultiple()
+		return m_bMultiple;
+	endproc;
+endclass;

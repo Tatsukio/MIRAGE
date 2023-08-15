@@ -1,0 +1,412 @@
+class CNPCMgr
+	
+	static var ^CNPCMgr					ms_pxInst;
+	
+	var array CObjList					m_axNPCs;
+	var array string						m_asValidNPCs;
+	
+	//Henry: for recruitpool
+	var CObjList								m_xPoolNPCs;
+	var array string						m_asPoolMembers;
+	var array string						m_asAvailableNPCs;
+	
+	constructor()
+		var string sName="";
+		m_axNPCs=8;
+		var CPropDB xDB;
+		if(xDB.Load(CSrvWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/settings/NPCList.txt"))then
+			var ^CPropDB.CNode pxRoot=^(xDB.GetRoot());
+			var int i, iC=pxRoot^.NumSubs();
+			for(i=0)cond(i<iC)iter(i++)do
+				m_asValidNPCs.AddEntry((pxRoot^)[i].Name());
+				sName=(pxRoot^)[i].Name();
+				if(sName!="Barry_s0"&&sName!="Harry_s0"&&sName!="schliemann_zombie")then
+					m_asAvailableNPCs.AddEntry(sName);
+					m_asPoolMembers.AddEntry(sName);
+				endif;
+			endfor;
+		endif;
+	endconstructor;
+	
+	destructor()
+	enddestructor;
+	
+	export static proc ref CNPCMgr Get()
+		if(ms_pxInst==null)then
+			ms_pxInst=new CNPCMgr;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+	
+	export static proc void Kill()
+		if(ms_pxInst!=null)then
+			delete ms_pxInst;
+			ms_pxInst=null;
+		endif;
+	endproc;
+	
+	export proc CObjHndl GetPlayerNPC(int p_iPlayer, string p_sNPCClass)
+		var CObjHndl xInvalid=CObjHndl.Invalid();
+		if(p_iPlayer<0||p_iPlayer>=m_axNPCs.NumEntries())then return xInvalid; endif;
+		if(m_asValidNPCs.FindEntry(p_sNPCClass)==-1)then return xInvalid; endif;
+		var int i, iC=m_axNPCs[p_iPlayer].NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxObj=m_axNPCs[p_iPlayer][i].GetObj();
+			if(pxObj==null)then continue; endif;
+			if(pxObj^.GetClassName()==p_sNPCClass)then return m_axNPCs[p_iPlayer][i]; endif;
+		endfor;
+		return xInvalid;
+	endproc;
+	
+	export proc bool IsAbleToBuyNPC(int p_iPlayer, string p_sNPCClass)
+		if(p_iPlayer<0||p_iPlayer>=m_axNPCs.NumEntries())then return false; endif;
+		if(p_sNPCClass=="special_mobile_suit")then p_sNPCClass="babbage_s0"; endif;
+		if(m_asValidNPCs.FindEntry(p_sNPCClass)==-1)then return false; endif;
+		var string sClass;
+		var bool bPool=CMirageSrvMgr.Get().HeroPool();
+		if(bPool)then
+			var int i, iC=m_xPoolNPCs.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!m_xPoolNPCs[i].IsValid())then continue; endif;
+				var ^CGameObj pxObj=m_xPoolNPCs[i].GetObj();
+				if(pxObj==null)then continue; endif;
+				sClass=pxObj^.GetClassName();
+				if(sClass=="special_mobile_suit")then sClass="babbage_s0"; endif;
+				if(sClass==p_sNPCClass)then return false; endif;
+			endfor;
+			if(UpdateMixer(true, p_sNPCClass, p_iPlayer))then
+				return true;
+			endif;
+			return false;
+		else
+			var int i, iC=m_axNPCs[p_iPlayer].NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!m_axNPCs[p_iPlayer][i].IsValid())then continue; endif;
+				var ^CGameObj pxObj=m_axNPCs[p_iPlayer][i].GetObj();
+				if(pxObj==null)then continue; endif;
+				if(pxObj^.GetClassName()==p_sNPCClass)then return false; endif;
+			endfor;
+			return true;
+		endif;
+	endproc;
+	
+	export proc void Clear()
+		var int i, iC=m_axNPCs.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			m_axNPCs[i].Clear();
+		endfor;
+		m_xPoolNPCs.Clear();
+	endproc;
+	
+	export proc bool AddNPC(int p_iPlayer, CObjHndl p_xNPC)
+		if(p_iPlayer<0||p_iPlayer>=m_axNPCs.NumEntries())then return false; endif;
+		var ^CGameObj pxNewNPC=p_xNPC.GetObj();
+		if(pxNewNPC==null)then return false; endif;
+		var string sClass, sName=pxNewNPC^.GetClassName();
+		if(sName=="special_mobile_suit")then sName="babbage_s0"; endif;
+		var int i, iC=m_axNPCs[p_iPlayer].NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!m_axNPCs[p_iPlayer][i].IsValid())then continue; endif;
+			var ^CGameObj pxObj=m_axNPCs[p_iPlayer][i].GetObj();
+			if(pxObj==null)then continue; endif;
+			sClass=pxObj^.GetClassName();
+			if(sClass=="special_mobile_suit")then sClass="babbage_s0"; endif;
+			if(sClass==sName)then
+				return false;
+			endif;
+		endfor;
+		var bool bPool=CMirageSrvMgr.Get().HeroPool();
+		if(bPool)then
+			var int i, iC=m_xPoolNPCs.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!m_xPoolNPCs[i].IsValid())then continue; endif;
+				var ^CGameObj pxObj=m_xPoolNPCs[i].GetObj();
+				if(pxObj==null)then continue; endif;
+				sClass=pxObj^.GetClassName();
+				if(sClass=="special_mobile_suit")then sClass="babbage_s0"; endif;
+				if(sClass==sName)then
+					return false;
+				endif;
+			endfor;
+			var int iHeroIndex=m_asAvailableNPCs.FindEntry(sName);
+			if(iHeroIndex!=-1)then
+				m_asAvailableNPCs.DeleteEntry(iHeroIndex);
+			endif;
+			if(UpdateMixer(true, sName, p_iPlayer))then
+			endif;
+			m_xPoolNPCs.Include(p_xNPC);
+		endif;
+		m_axNPCs[p_iPlayer].Include(p_xNPC);
+		UpdatePlayerAttribs(p_iPlayer);
+		return true;
+	endproc;
+	
+	export proc bool RemoveNPC(int p_iPlayer, CObjHndl p_xNPC)
+		if(p_iPlayer<0||p_iPlayer>=m_axNPCs.NumEntries())then return false; endif;
+		var bool bReturn=true;
+		var ^CGameObj pxNewNPC=p_xNPC.GetObj();
+		if(pxNewNPC==null)then return false; endif;
+		if(m_axNPCs[p_iPlayer].FindEntry(p_xNPC)==-1)then
+			bReturn=false;
+		endif;
+		var string sName=pxNewNPC^.GetClassName(),sClass;
+		var bool bPool=CMirageSrvMgr.Get().HeroPool();
+		if(bPool)then
+			if(m_xPoolNPCs.FindEntry(p_xNPC)==-1)then
+				bReturn=false;
+			endif;
+			if(UpdateMixer(false, sName, p_iPlayer))then
+			endif;
+			m_xPoolNPCs.RemEntry(p_xNPC);
+			if(sName!="Barry_s0"&&sName!="Harry_s0"&&sName!="schliemann_zombie")then
+				if(sName=="special_mobile_suit")then sName="babbage_s0"; endif;
+				m_asAvailableNPCs.AddEntry(sName);
+			endif;
+		endif;
+		m_axNPCs[p_iPlayer].RemEntry(p_xNPC);
+		UpdatePlayerAttribs(p_iPlayer);
+		return bReturn;
+	endproc;
+	
+	export proc void UpdateAllNPCs()
+		var int i, iC=m_axNPCs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			UpdatePlayerNPCs(i);
+		endfor;
+	endproc;
+	
+	export proc void UpdatePlayerNPCs(int p_iPlayer)
+		var bool bPool=CMirageSrvMgr.Get().HeroPool();
+		if(bPool)then
+			m_xPoolNPCs.Clear();
+			var CObjList xList;
+			var int i, iC=m_axNPCs.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var CObjQuery xQuery;
+				xQuery.SetOwner(i);
+				var int j, iJ=m_asValidNPCs.NumEntries();
+				var bool bAdd=false;
+				for(j=0)cond(j<iJ)iter(j++)do
+					xQuery.SetClass(m_asValidNPCs[j],bAdd);
+					bAdd=true;
+				endfor;
+				xQuery.SetClass("special_mobile_suit",bAdd);
+				if(xQuery.Execute(xList))then
+					m_xPoolNPCs.Include(xList);
+				endif;
+			endfor;
+		endif;
+		m_axNPCs[p_iPlayer].Clear();
+		var CObjQuery xQuery;
+		xQuery.SetOwner(p_iPlayer);
+		var bool bAdd=false;
+		var int i, iC=m_asValidNPCs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			xQuery.SetClass(m_asValidNPCs[i],bAdd);
+			bAdd=true;
+		endfor;
+		xQuery.SetClass("special_mobile_suit",bAdd);
+		var CObjList xList;
+		if(xQuery.Execute(xList))then
+			m_axNPCs[p_iPlayer].Include(xList);
+		endif;
+		UpdatePlayerAttribs(p_iPlayer);
+	endproc;
+
+	export proc void UpdateAllAttribs()
+		var int i, iC=m_axNPCs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			UpdatePlayerAttribs(i);
+		endfor;
+	endproc;
+
+	export proc void UpdatePlayerAttribs(int p_iPlayer)
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel==null)then return; endif;
+		var ^CPlayer pxPlayer=pxLevel^.GetPlayer(p_iPlayer);
+		if(pxPlayer==null)then return; endif;
+		var ^CAttribs pxAttr=pxPlayer^.GetAttribs();
+		if(pxAttr==null)then return; endif;
+		var string sNPCList;
+		var string sNPCListNames;
+		var int i, iC=m_axNPCs[p_iPlayer].NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxObj=m_axNPCs[p_iPlayer][i].GetObj();
+			if(pxObj==null)then continue; endif;
+			var string sClass=pxObj^.GetClassName();
+			if(sClass=="special_mobile_suit")then sClass="babbage_s0"; endif;
+			var int iIndex=m_asValidNPCs.FindEntry(sClass);
+			if(iIndex==-1)then continue; endif;
+			sNPCList +=pxObj^.GetHandle().AsInt().ToString()+";";
+			sNPCListNames+=pxObj^.GetClassName()+";";
+		endfor;
+		pxAttr^.SetValue("NPCList",sNPCList);
+		pxAttr^.SetValue("NPCListNames",sNPCListNames);
+	endproc;
+	
+	export proc bool HasNPC(string p_sClass, int p_iOwner)
+		if(p_iOwner<0||p_iOwner>=m_axNPCs.NumEntries())then return false; endif;
+		var int i, iC=m_axNPCs[p_iOwner].NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxObj=m_axNPCs[p_iOwner][i].GetObj();
+			if(pxObj==null)then continue; endif;
+			if(pxObj^.GetClassName()==p_sClass)then
+				return true;
+			endif;
+		endfor;
+		return false;
+	endproc;
+	
+	export proc bool RemoveNPCFromMixer(int p_iPlayer, string p_sNPCClass)
+		return UpdateMixer(false, p_sNPCClass, p_iPlayer);
+	endproc;
+	
+	proc bool UpdateMixer(bool p_bAdd, string p_sName, int p_iPlayer)
+		if(p_iPlayer<0||p_iPlayer>=m_axNPCs.NumEntries())then return false; endif;
+		if(p_sName=="special_mobile_suit")then p_sName="babbage_s0"; endif;
+		if(m_asValidNPCs.FindEntry(p_sName)==-1)then return false; endif;
+		if(CMirageSrvMgr.ms_pxPoolMixer==null)then
+			InitMixer();
+		endif;
+		if(CMirageSrvMgr.ms_pxPoolMixer!=null)then
+			var string sCookies="";
+			var int k, kC=m_asPoolMembers.NumEntries();
+			for(k=0)cond(k<kC)iter(k++)do
+				if(m_asAvailableNPCs.FindEntry(m_asPoolMembers[k])==-1)then continue; endif;
+				if(p_bAdd&&(p_sName==m_asPoolMembers[k]))then continue; endif;
+				if(CMirageSrvMgr.ms_pxPoolMixer^.GetAttribInt(m_asPoolMembers[k])!=-2)then continue; endif;
+				sCookies +=m_asPoolMembers[k]+":";
+			endfor;
+			CMirageSrvMgr.ms_pxPoolMixer^.SetAttribString("AvailableCookies",sCookies);
+			var string sNewValue="";
+			var string sHeroList=CMirageSrvMgr.ms_pxPoolMixer^.GetAttribString("Heroes");
+			var array string asHeroes;
+			var int iOwner=CMirageSrvMgr.ms_pxPoolMixer^.GetAttribInt(p_sName);
+			if(p_bAdd)then
+				if(!sHeroList.IsEmpty())then
+					sHeroList.Split(asHeroes,":",true);
+					if(asHeroes.FindEntry(p_sName)!=-1)then
+						return false;
+					endif;
+					asHeroes.AddEntry(p_sName);
+					var int i, iC=asHeroes.NumEntries();
+					for(i=0)cond(i<iC)iter(++i)do
+						sNewValue +=asHeroes[i]+":";
+					endfor;
+				else
+					sNewValue +=p_sName+":";
+				endif;
+				CMirageSrvMgr.ms_pxPoolMixer^.SetAttribInt(p_sName,p_iPlayer);
+				CMirageSrvMgr.ms_pxPoolMixer^.SetAttribString("Heroes",sNewValue);
+				return true;
+			else
+				sHeroList.Split(asHeroes,":",true);
+				var int iEntry=asHeroes.FindEntry(p_sName);
+				if(iEntry!=-1)then
+					asHeroes.DeleteEntry(iEntry);
+				endif;
+				var int i, iC=asHeroes.NumEntries();
+				for(i=0)cond(i<iC)iter(++i)do
+					sNewValue +=asHeroes[i]+":";
+				endfor;
+				CMirageSrvMgr.ms_pxPoolMixer^.SetAttribString("Heroes",sNewValue);
+				CMirageSrvMgr.ms_pxPoolMixer^.SetAttribInt(p_sName,-2);
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+	export proc void UpdateCookies(array string p_asList)
+		if(CMirageSrvMgr.ms_pxPoolMixer==null)then
+			InitMixer();
+		endif;
+		if(CMirageSrvMgr.ms_pxPoolMixer!=null)then
+			var string sCookies="";
+			var int k, kC=p_asList.NumEntries();
+			for(k=0)cond(k<kC)iter(k++)do
+				if(m_asAvailableNPCs.FindEntry(p_asList[k])==-1)then continue; endif;
+				sCookies +=p_asList[k]+":";
+			endfor;
+			CMirageSrvMgr.ms_pxPoolMixer^.SetAttribString("AvailableCookies",sCookies);
+		endif;
+	endproc;
+	
+	export proc void UpdateMixer()
+		UpdateCookies(m_asPoolMembers);
+	endproc;
+	
+	export proc bool InitMixer()
+		if(CMirageSrvMgr.ms_pxPoolMixer!=null)then return false; endif;
+		var ^CGameSrv pxGame=^(CSrvWrap.GetGame());
+		if(pxGame==null)then return false; endif;
+		if(pxGame^.IsLevelEd())then return false; endif;
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
+		if(pxLevelInfo==null)then return false; endif;
+		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+		if(pxGenericDB==null)then return false; endif;
+		var ^CPropDB.CNode pxCSNode=^((pxGenericDB^)["ClientSettings"]);
+		if(pxCSNode==null)then return false; endif;
+		var string sMixer="pool_mixer_0";
+		var ^CPropDB.CNode pxPoolMixer=^(pxCSNode^.Get("PoolMixer"));
+		if(pxPoolMixer==null)then
+			var ^CPoolMixer pxMixer=GetNewPoolMixer();
+			if(pxMixer!=null)then
+				CMirageSrvMgr.ms_pxPoolMixer=pxMixer;
+				pxPoolMixer=^(pxCSNode^.AddValue("PoolMixer",pxMixer^.GetName()));
+				return true;
+			endif;
+		else
+			sMixer=pxPoolMixer^.Value();
+			var ^CPoolMixer pxMixer=cast<CPoolMixer>(CSrvWrap.GetObjMgr()^.GetObjByName(sMixer));
+			if(pxMixer!=null)then
+				CMirageSrvMgr.ms_pxPoolMixer=pxMixer;
+				return true;
+			else
+				pxMixer=GetNewPoolMixer();
+				if(pxMixer!=null)then
+					pxCSNode^.SetValue("PoolMixer",pxMixer^.GetName());
+					CMirageSrvMgr.ms_pxPoolMixer=pxMixer;
+					return true;
+				endif;
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+	export proc CObjHndl GetPoolNPC(string p_sNPCClass)
+		var CObjHndl xInvalid=CObjHndl.Invalid();
+		if(m_asValidNPCs.FindEntry(p_sNPCClass)==-1)then return xInvalid; endif;
+		var string sClass;
+		var int i, iC=m_xPoolNPCs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxObj=m_xPoolNPCs[i].GetObj();
+			if(pxObj==null)then continue; endif;
+			sClass=pxObj^.GetClassName();
+			if(sClass=="special_mobile_suit")then sClass="babbage_s0"; endif;
+			if(sClass==p_sNPCClass)then return m_xPoolNPCs[i]; endif;
+		endfor;
+		return xInvalid;
+	endproc;
+	
+	export proc bool CheckHero(string p_sName)
+		if(p_sName=="special_mobile_suit")then p_sName="babbage_s0"; endif;
+		return m_asValidNPCs.FindEntry(p_sName)!=-1;
+	endproc;
+	
+	proc ^CPoolMixer GetNewPoolMixer()
+		var vec3 vSpawn={0.0,0.0,0.0};
+		var ^CRegion pxRgn=CSrvWrap.GetRegionMgr().GetRegion(CSrvWrap.GetRegionMgr().GetWorldRgnHndl());
+		if(pxRgn!=null)then
+			vSpawn=pxRgn^.GetRandomPointInside();
+		endif;
+		var ^CPoolMixer pxMixer=cast<CPoolMixer>(CSrvWrap.GetObjMgr()^.CreateObj("pool_mixer",-1,vSpawn));
+		if(pxMixer!=null)then
+			CMirageSrvMgr.ms_pxPoolMixer=pxMixer;
+			return pxMixer;
+		endif;
+		return null;
+	endproc;
+	
+endclass;

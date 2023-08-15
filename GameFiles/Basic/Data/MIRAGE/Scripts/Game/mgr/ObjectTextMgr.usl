@@ -1,0 +1,196 @@
+class CObjectTextMgr inherit CWindow
+	
+	static var ^CObjectTextMgr	ms_pxInst;
+	var ^CObjMgr								m_pxObjMgr;
+	var array ^CTextObj					m_apxTexts;
+	var ^CObjSelection					m_pxSelection;
+	var CObjList								m_xLastSelection;
+	var ^CLevelInfoClient				m_pxLevelInfo;
+	
+	export static proc ref CObjectTextMgr Get()
+		if(ms_pxInst==null)then
+			ms_pxInst=new CObjectTextMgr;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+	
+	export constructor()
+		m_pxObjMgr = ^(CClientWrap.GetObjMgr());
+		m_pxSelection = ^(CClientWrap.GetSelection());
+		m_pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+	endconstructor;
+	
+	export proc void KillTextObj(^CObjectTextMgr.CTextObj p_pxText)
+		var int iIndex = m_apxTexts.FindEntry(p_pxText);
+		if(iIndex!=-1)then
+			m_apxTexts[iIndex]^.Destroy();
+			m_apxTexts.DeleteEntryUS(iIndex);
+		endif;
+	endproc;
+	
+	export proc void KillTextObjByIndex(int p_iIdx)
+		if(p_iIdx!=-1)then
+			m_apxTexts[p_iIdx]^.Destroy();
+			m_apxTexts.DeleteEntryUS(p_iIdx);
+		endif;
+	endproc;
+	
+	export proc int FindTextObj(CClntHndl p_xHndl)
+		var int i, iC = m_apxTexts.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_apxTexts[i]^.m_xHndl==p_xHndl)then
+				return i;
+			endif;
+		endfor;
+		return -1;
+	endproc;
+	
+	proc void Clear()
+		var int i, iC = m_apxTexts.NumEntries();
+		for(i=(iC-1))cond(i>=0)iter(i--)do
+			m_apxTexts[i]^.Destroy();
+		endfor;
+		m_apxTexts = 0;
+	endproc;
+	
+	export static proc void Kill()
+		if(ms_pxInst != null)then
+			ms_pxInst^.Clear();
+			ms_pxInst^.Destroy();
+			ms_pxInst = null;
+		endif;
+	endproc;
+	
+	export proc bool ClearAll()
+		Clear();
+//		var int i, iC = m_pxSelection^.NumEntries();
+//		for(i=0)cond(i<iC)iter(i++)do
+//			m_pxObjMgr^.DeleteInfoTextsForObj(m_pxSelection^[i].GetObj());
+//		endfor;
+		m_xLastSelection.Clear();
+		return true;
+	endproc;
+	
+	export proc void UpdateTextForObj(CClntHndl p_xHndl)
+		var int i, iC = m_apxTexts.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_apxTexts[i]^.m_xHndl==p_xHndl)then
+				m_apxTexts[i]^.UpdateObjectText();
+			endif;
+		endfor;
+	endproc;
+	
+	export proc bool ObjectTextUpdate()
+		var int iPlayer = CGameWrap.GetClient().GetPlayer().GetID();
+		var int i, iC = m_pxSelection^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_xLastSelection.FindEntry(m_pxSelection^[i])==-1)then
+				ActivateObjectText(m_pxSelection^[i],iPlayer);
+			else
+				UpdateTextForObj(m_pxSelection^[i]);
+				m_xLastSelection.RemEntry(m_pxSelection^[i]);
+			endif;
+		endfor;
+		iC = m_xLastSelection.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			KillTextObjByIndex(FindTextObj(m_xLastSelection[i]));
+//			m_pxObjMgr^.DeleteInfoTextsForObj(m_xLastSelection[i].GetObj());
+		endfor;
+		iC = m_pxSelection^.NumEntries();
+		m_xLastSelection.Clear();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_xLastSelection.Include(m_pxSelection^[i]);
+		endfor;
+		return(true);
+	endproc;
+	
+	export proc void ActivateObjectText(CClntHndl p_xHndl, int p_iPlayer)
+		if(p_xHndl.IsValid())then
+			var color xColor={{0,0,0,255}};
+			if(p_iPlayer>=0 && p_iPlayer<=7)then
+				xColor=m_pxLevelInfo^.GetPlayerColor(p_iPlayer);
+			endif;
+			m_apxTexts.AddEntry(new CObjectTextMgr.CTextObj(p_xHndl,p_iPlayer,xColor));
+		endif;
+	endproc;
+	
+	class CTextObj inherit CWindow
+		
+		export var CClntHndl			m_xHndl;
+		export var int						m_iPID;
+		var ^CObjMgr							m_pxObjMgr;
+		var ^CObjMgr.CInfoText		m_pxInfoText;
+		var color									m_xColor;
+		
+		export constructor(CClntHndl p_xHndl, int p_iPID, color p_xColor)
+			SetSize(0,0);
+			SetPos({0,0});
+			m_xHndl = p_xHndl;
+			m_iPID = p_iPID;
+			m_xColor = p_xColor;
+			var int iFactor=50;
+			m_xColor.SetRed(Math.Max(m_xColor.GetRed()-iFactor,0));
+			m_xColor.SetGreen(Math.Max(m_xColor.GetGreen()-iFactor,0));
+			m_xColor.SetBlue(Math.Max(m_xColor.GetBlue()-iFactor,0));
+			m_pxObjMgr = ^(CClientWrap.GetObjMgr());
+			var ^CObj pxObj = m_xHndl.GetObj();
+			if(pxObj!=null)then
+				CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this, CSubscriptionMgr.CT_LostPlayerUnit, "");
+			endif;
+			SetObjectText(m_xColor);
+		endconstructor;
+		
+		export destructor()
+			if(m_pxInfoText!=null)then
+				m_pxObjMgr^.DeleteInfoText(m_pxInfoText);
+				m_pxInfoText=null;
+			endif;
+//			var ^CObj pxObj = m_xHndl.GetObj();
+//			if(pxObj != null)then
+//				m_pxObjMgr^.DeleteInfoTextsForObj(pxObj);
+//			endif;
+			CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this, CSubscriptionMgr.CT_LostPlayerUnit, "");
+			CObjectTextMgr.Get().KillTextObj(this);
+		enddestructor;
+		
+		proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+			if(p_rxEvt.GetClass()==CSubscriptionMgr.GetEvtClass_ObjChange())then
+				var CClntHndl xObjHandle;
+				var bitset dwTypes, dwAttribGroups;
+				if(CSubscriptionMgr.EvtGetData_ObjChange(p_rxEvt,xObjHandle,dwTypes,dwAttribGroups))then
+					if((dwTypes & CSubscriptionMgr.CT_LostPlayerUnit)!=0d)then
+						if(xObjHandle == m_xHndl)then
+							Destroy();
+						endif;
+					endif;
+				endif;
+			endif;
+			return true;
+		endproc;
+		
+		export proc void UpdateObjectText()
+			SetObjectText(m_xColor);
+		endproc;
+		
+		export proc void SetObjectText(color p_xColor)
+			var ^CObj pxObj = m_xHndl.GetObj();
+			if(pxObj==null || pxObj^.GetOwner()!=m_iPID || (pxObj^.GetType()!="CHTR" && pxObj^.GetType()!="ANML" && pxObj^.GetType()!="VHCL" && pxObj^.GetType()!="SHIP" && pxObj^.GetType()!="BLDG"))then return; endif;
+			var string sGroups = CGroupMgr.Get().GetGroupNumbers(m_xHndl);
+			if(sGroups!="")then
+				if(m_pxInfoText==null)then
+					m_pxInfoText = m_pxObjMgr^.CreateInfoText();
+				endif;
+				if(m_pxInfoText!=null)then
+					m_pxInfoText^.SetColor(p_xColor);
+					m_pxInfoText^.SetText(CLocalizer.Get().Translate("_MIRAGE_Groups")+sGroups);
+					m_pxInfoText^.SetObject(pxObj);
+				endif;
+			elseif(m_pxInfoText!=null)then
+				m_pxObjMgr^.DeleteInfoText(m_pxInfoText);
+				m_pxInfoText=null;
+			endif;
+		endproc;
+	
+	endclass;
+	
+endclass;

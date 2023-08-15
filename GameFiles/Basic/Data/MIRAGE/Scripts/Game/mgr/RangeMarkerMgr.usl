@@ -1,0 +1,358 @@
+
+class CRangeMarkerMgr inherit CWindow
+	
+	static var ^CRangeMarkerMgr	ms_pxInst;
+	var ^CObjMgr								m_pxObjMgr;
+	var array ^CRMObject				m_apxMarkers;
+	var ^CObjSelection					m_pxSelection;
+	var CObjList								m_xLastSelection;
+	var bool										m_bShowAttackRange;
+	var bool										m_bShowAuraRange;
+	var bool										m_bShowFOWRange;
+	
+	export static proc ref CRangeMarkerMgr Get()
+		if(ms_pxInst==null)then
+			ms_pxInst=new CRangeMarkerMgr;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+	
+	export static proc ref CRangeMarkerMgr GetSimple()
+		return(ms_pxInst^);
+	endproc;
+	
+	export constructor()
+		m_pxObjMgr = ^(CClientWrap.GetObjMgr());
+		m_pxSelection = ^(CClientWrap.GetSelection());
+		var CConfig xConf;
+		m_bShowAttackRange = xConf.GetSetB("Client/GameplayOptions/ShowAttackRangeMarkers",false);
+		m_bShowAuraRange = xConf.GetSetB("Client/GameplayOptions/ShowAuraRangeMarkers",true);
+		m_bShowFOWRange = xConf.GetSetB("Client/GameplayOptions/ShowFOWRangeMarkers",false);
+	endconstructor;
+	
+	export proc void ToggleAttackRanges()
+		m_bShowAttackRange = !m_bShowAttackRange;
+		var CConfig xConf;
+		xConf.SetB("Client/GameplayOptions/ShowAttackRangeMarkers",m_bShowAttackRange);
+		UpdateAllRMObjects();
+	endproc;
+	
+	export proc void ToggleAuraRanges()
+		m_bShowAuraRange = !m_bShowAuraRange;
+		var CConfig xConf;
+		xConf.SetB("Client/GameplayOptions/ShowAuraRangeMarkers",m_bShowAuraRange);
+		UpdateAllRMObjects();
+	endproc;
+	
+	export proc void ToggleFOWRanges()
+		m_bShowFOWRange = !m_bShowFOWRange;
+		var CConfig xConf;
+		xConf.SetB("Client/GameplayOptions/ShowFOWRangeMarkers",m_bShowFOWRange);
+		UpdateAllRMObjects();
+	endproc;
+	
+	proc void UpdateAllRMObjects()
+		var int i, iC = m_apxMarkers.NumEntries();
+		for(i=(iC-1))cond(i>=0)iter(i--)do
+			m_apxMarkers[i]^.UpdateMarkers(m_bShowAttackRange,m_bShowAuraRange,m_bShowFOWRange);
+		endfor;
+	endproc;
+	
+	export proc void KillMarkerObj(^CRangeMarkerMgr.CRMObject p_pxMarker)
+		var int iIndex = m_apxMarkers.FindEntry(p_pxMarker);
+		if(iIndex!=-1)then
+			m_apxMarkers[iIndex]^.Destroy();
+			m_apxMarkers.DeleteEntryUS(iIndex);
+		endif;
+	endproc;
+	
+	export proc void KillMarkerObjByIndex(int p_iIdx)
+		if(p_iIdx!=-1)then
+			m_apxMarkers[p_iIdx]^.Destroy();
+			m_apxMarkers.DeleteEntryUS(p_iIdx);
+		endif;
+	endproc;
+	
+	export proc int FindMarkerObj(CClntHndl p_xHndl)
+		var int i, iC = m_apxMarkers.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_apxMarkers[i]^.m_xHndl==p_xHndl)then
+				return i;
+			endif;
+		endfor;
+		return -1;
+	endproc;
+	
+	proc void Clear()
+		var int i, iC = m_apxMarkers.NumEntries();
+		for(i=(iC-1))cond(i>=0)iter(i--)do
+			m_apxMarkers[i]^.Destroy();
+		endfor;
+		m_apxMarkers = 0;
+	endproc;
+	
+	export static proc void Kill()
+		if(ms_pxInst != null)then
+			ms_pxInst^.Clear();
+			ms_pxInst^.Destroy();
+			ms_pxInst = null;
+		endif;
+	endproc;
+	
+	export proc bool ClearAll()
+		Clear();
+//		var int i, iC = m_pxSelection^.NumEntries();
+//		for(i=0)cond(i<iC)iter(i++)do
+//			m_pxObjMgr^.DeleteRangeMarkersForObj(m_pxSelection^[i].GetObj());
+//		endfor;
+		m_xLastSelection.Clear();
+		return true;
+	endproc;
+	
+	export proc bool RangeMarkerUpdate()
+		var int iPlayer = CGameWrap.GetClient().GetPlayer().GetID();
+		var int i, iC = m_pxSelection^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_xLastSelection.FindEntry(m_pxSelection^[i])==-1)then
+				ActivateRangeMarker(m_pxSelection^[i],iPlayer);
+			else
+				m_xLastSelection.RemEntry(m_pxSelection^[i]);
+			endif;
+		endfor;
+		iC = m_xLastSelection.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			KillMarkerObjByIndex(FindMarkerObj(m_xLastSelection[i]));
+//			m_pxObjMgr^.DeleteRangeMarkersForObj(m_xLastSelection[i].GetObj());
+		endfor;
+		iC = m_pxSelection^.NumEntries();
+		m_xLastSelection.Clear();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_xLastSelection.Include(m_pxSelection^[i]);
+		endfor;
+		return(true);
+	endproc;
+	
+	export proc void ActivateRangeMarker(CClntHndl p_xHndl, int p_iPlayer)
+		if(p_xHndl.IsValid())then
+			m_apxMarkers.AddEntry(new CRangeMarkerMgr.CRMObject(p_xHndl,p_iPlayer,m_bShowAttackRange,m_bShowAuraRange,m_bShowFOWRange));
+		endif;
+	endproc;
+	
+	class CRMObject inherit CWindow
+		
+		export var CClntHndl							m_xHndl;
+		export var int										m_iPID;
+		var ^CObjMgr											m_pxObjMgr;
+		var ^CObjMgr.CRangeMarker					m_pxAttackMarker;
+		var ^CObjMgr.CRangeMarker					m_pxAlarmMarker;
+		var ^CObjMgr.CRangeMarker					m_pxAuraMarker;
+		var ^CObjMgr.CRangeMarker					m_pxHealingMarker;
+		var ^CObjMgr.CRangeMarker					m_pxFOWMarker;
+		var bool													m_bShowAttackRange;
+		var bool													m_bShowAuraRange;
+		var bool													m_bShowFOWRange;
+		
+		export constructor(CClntHndl p_xHndl, int p_iPID, bool p_bAttack, bool p_bAura, bool p_bFOW)
+			SetSize(0,0);
+			SetPos({0,0});
+			m_xHndl = p_xHndl;
+			m_iPID = p_iPID;
+			m_bShowAttackRange=p_bAttack;
+			m_bShowAuraRange=p_bAura;
+			m_bShowFOWRange=p_bFOW;
+			m_pxObjMgr = ^(CClientWrap.GetObjMgr());
+			var ^CObj pxObj = m_xHndl.GetObj();
+			if(pxObj!=null)then
+				CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this, m_xHndl, CSubscriptionMgr.CT_ObjAttribs, "Marker");
+				CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this, CSubscriptionMgr.CT_LostPlayerUnit, "");
+			endif;
+			SetRangeMarker();
+		endconstructor;
+		
+		export destructor()
+			if(m_pxAttackMarker!=null)then
+				m_pxObjMgr^.DeleteRangeMarker(m_pxAttackMarker);
+				m_pxAttackMarker=null;
+			endif;
+			if(m_pxAlarmMarker!=null)then
+				m_pxObjMgr^.DeleteRangeMarker(m_pxAlarmMarker);
+				m_pxAlarmMarker=null;
+			endif;
+			if(m_pxAuraMarker!=null)then
+				m_pxObjMgr^.DeleteRangeMarker(m_pxAuraMarker);
+				m_pxAuraMarker=null;
+			endif;
+			if(m_pxHealingMarker!=null)then
+				m_pxObjMgr^.DeleteRangeMarker(m_pxHealingMarker);
+				m_pxHealingMarker=null;
+			endif;
+			if(m_pxFOWMarker!=null)then
+				m_pxObjMgr^.DeleteRangeMarker(m_pxFOWMarker);
+				m_pxFOWMarker=null;
+			endif;
+//			var ^CObj pxObj = m_xHndl.GetObj();
+//			if(pxObj != null)then
+//				m_pxObjMgr^.DeleteRangeMarkersForObj(pxObj);
+//			endif;
+			CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this, m_xHndl, CSubscriptionMgr.CT_ObjAttribs, "Marker");
+			CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this, CSubscriptionMgr.CT_LostPlayerUnit, "");
+			CRangeMarkerMgr.Get().KillMarkerObj(this);
+		enddestructor;
+		
+		proc bool HandleMessage(ref CEvtPointer p_rxEvt)
+			if(p_rxEvt.GetClass()==CSubscriptionMgr.GetEvtClass_ObjChange())then
+				var CClntHndl xObjHandle;
+				var bitset dwTypes, dwAttribGroups;
+				if(CSubscriptionMgr.EvtGetData_ObjChange(p_rxEvt,xObjHandle,dwTypes,dwAttribGroups))then
+					if(xObjHandle == m_xHndl)then
+						if((dwTypes & CSubscriptionMgr.CT_LostPlayerUnit)!=0d)then
+							Destroy();
+						elseif((dwTypes & CSubscriptionMgr.CT_ObjAttribs)!=0d)then
+							UpdateMarkers(m_bShowAttackRange,m_bShowAuraRange,m_bShowFOWRange);
+						endif;
+					endif;
+				endif;
+			endif;
+			return true;
+		endproc;
+		
+		export proc void UpdateMarkers(bool p_bAttack, bool p_bAura, bool p_bFOW)
+			m_bShowAttackRange=p_bAttack;
+			m_bShowAuraRange=p_bAura;
+			m_bShowFOWRange=p_bFOW;
+			if(!m_bShowAttackRange&&m_pxAttackMarker!=null)then
+				m_pxObjMgr^.DeleteRangeMarker(m_pxAttackMarker);
+				m_pxAttackMarker=null;
+			endif;
+			if(!m_bShowAttackRange&&m_pxAlarmMarker!=null)then
+				m_pxObjMgr^.DeleteRangeMarker(m_pxAlarmMarker);
+				m_pxAlarmMarker=null;
+			endif;
+			if(!m_bShowAuraRange&&m_pxAuraMarker!=null)then
+				m_pxObjMgr^.DeleteRangeMarker(m_pxAuraMarker);
+				m_pxAuraMarker=null;
+			endif;
+			if(!m_bShowAuraRange&&m_pxHealingMarker!=null)then
+				m_pxObjMgr^.DeleteRangeMarker(m_pxHealingMarker);
+				m_pxHealingMarker=null;
+			endif;
+			if(!m_bShowFOWRange&&m_pxFOWMarker!=null)then
+				m_pxObjMgr^.DeleteRangeMarker(m_pxFOWMarker);
+				m_pxFOWMarker=null;
+			endif;
+			SetRangeMarker();
+		endproc;
+		
+		export proc void SetRangeMarker()
+			var ^CObj pxObj = m_xHndl.GetObj();
+			if(pxObj==null || (pxObj^.GetType()!="CHTR" && pxObj^.GetType()!="ANML" && pxObj^.GetType()!="VHCL" && pxObj^.GetType()!="SHIP" && pxObj^.GetType()!="BLDG"))then return; endif;
+			var ^CAttribs pxAttr = pxObj^.GetAttribs();
+			if(pxAttr==null)then return; endif;
+			begin AttackRange;
+				if(m_bShowAttackRange)then
+					var real fRange = pxAttr^.GetValueFloat("range_marker");
+					if(fRange>0.0f)then
+						if(m_pxAttackMarker==null)then
+							m_pxAttackMarker = m_pxObjMgr^.CreateRangeMarker();
+						endif;
+						m_pxAttackMarker^.SetObject(pxObj);
+						m_pxAttackMarker^.m_fRange = fRange;
+						m_pxAttackMarker^.m_fWidth1 = 0.3f;
+						m_pxAttackMarker^.m_fWidth2 = 0.3f;
+						m_pxAttackMarker^.m_xColor1= {{255,0,0,0}};
+						m_pxAttackMarker^.m_xColor2= {{255,150,100,0}};
+					elseif(m_pxAttackMarker!=null)then
+						m_pxObjMgr^.DeleteRangeMarker(m_pxAttackMarker);
+						m_pxAttackMarker=null;
+					endif;
+					fRange = pxAttr^.GetValueFloat("alarm_range_marker");
+					if(fRange>0.0f)then
+						if(m_pxAlarmMarker==null)then
+							m_pxAlarmMarker = m_pxObjMgr^.CreateRangeMarker();
+						endif;
+						m_pxAlarmMarker^.SetObject(pxObj);
+						m_pxAlarmMarker^.m_fRange = fRange;
+						m_pxAlarmMarker^.m_fWidth1 = 0.3f;
+						m_pxAlarmMarker^.m_fWidth2 = 0.3f;
+						m_pxAlarmMarker^.m_xColor1= {{140,0,255,0}};
+						m_pxAlarmMarker^.m_xColor2= {{140,0,255,0}};
+					elseif(m_pxAlarmMarker!=null)then
+						m_pxObjMgr^.DeleteRangeMarker(m_pxAlarmMarker);
+						m_pxAlarmMarker=null;
+					endif;
+				endif;
+			end AttackRange;
+			
+			begin FOWRange;
+				if(m_bShowFOWRange)then
+					var real fRange = pxAttr^.GetValueFloat("FowRange");
+					if(fRange>0.0f)then
+						if(m_pxFOWMarker==null)then
+							m_pxFOWMarker = m_pxObjMgr^.CreateRangeMarker();
+						endif;
+						m_pxFOWMarker^.SetObject(pxObj);
+						m_pxFOWMarker^.m_fRange = fRange;
+						m_pxFOWMarker^.m_fWidth1 = 0.3f;
+						m_pxFOWMarker^.m_fWidth2 = 0.3f;
+						m_pxFOWMarker^.m_xColor1= {{0,255,255,0}};
+						m_pxFOWMarker^.m_xColor2= {{0,255,255,0}};
+					elseif(m_pxFOWMarker!=null)then
+						m_pxObjMgr^.DeleteRangeMarker(m_pxFOWMarker);
+						m_pxFOWMarker=null;
+					endif;
+				endif;
+			end FOWRange;
+			
+			begin HealingRange;
+				if(m_bShowAuraRange)then
+					var real fRange = pxAttr^.GetValueFloat("HealingMarker");
+					if(fRange>0.0f)then
+						if(m_pxHealingMarker==null)then
+							m_pxHealingMarker = m_pxObjMgr^.CreateRangeMarker();
+						endif;
+						m_pxHealingMarker^.SetObject(pxObj);
+						m_pxHealingMarker^.m_fRange = fRange;
+						m_pxHealingMarker^.m_fWidth1 = 0.3f;
+						m_pxHealingMarker^.m_fWidth2 = 0.3f;
+						m_pxHealingMarker^.m_xColor1= {{255,216,0,0}};
+						m_pxHealingMarker^.m_xColor2= {{255,216,0,0}};
+					elseif(m_pxHealingMarker!=null)then
+						m_pxObjMgr^.DeleteRangeMarker(m_pxHealingMarker);
+						m_pxHealingMarker=null;
+					endif;
+				endif;
+			end HealingRange;
+			
+			begin AuraRange;
+				if(m_bShowAuraRange)then
+					var string sRangeMarker = pxAttr^.GetValue("RangeMarker");
+					sRangeMarker.Replace(";","");
+					if(sRangeMarker=="")then
+						if(m_pxAuraMarker!=null)then
+							m_pxObjMgr^.DeleteRangeMarker(m_pxAuraMarker);
+							m_pxAuraMarker=null;
+						endif;
+						return;
+					endif;
+					var real fRange = sRangeMarker.Mid(sRangeMarker.FindRev('/')+1).ToReal();
+					if(fRange > 0.0f)then
+						if(m_pxAuraMarker==null)then
+							m_pxAuraMarker = m_pxObjMgr^.CreateRangeMarker();
+						endif;
+						m_pxAuraMarker^.SetObject(pxObj);
+						m_pxAuraMarker^.m_fRange = fRange;
+						m_pxAuraMarker^.m_fWidth1 = 0.3f;
+						m_pxAuraMarker^.m_fWidth2 = 0.3f;
+						m_pxAuraMarker^.m_xColor1= {{0,255,0,0}};
+						m_pxAuraMarker^.m_xColor2= {{0,255,100,0}};
+					elseif(m_pxAuraMarker!=null)then
+						m_pxObjMgr^.DeleteRangeMarker(m_pxAuraMarker);
+						m_pxAuraMarker=null;
+					endif;
+				endif;
+			end AuraRange;
+		endproc;
+		
+	endclass;
+	
+endclass;

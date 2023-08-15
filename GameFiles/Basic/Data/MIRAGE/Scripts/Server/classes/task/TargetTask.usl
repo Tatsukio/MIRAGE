@@ -1,0 +1,113 @@
+class CTargetTask inherit CTask
+
+	var int				m_iFollowCounter;
+	var int				m_iMaxCounter;
+	var vec3			m_vCurrentTargetPos;
+	var CObjHndl	m_xCurrentTargetObj;
+	var vec3			m_vCurrentTargetObjPos;
+
+	export constructor()
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="TaTa";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		(pxArc^) << m_iFollowCounter;
+		(pxArc^) << m_iMaxCounter;
+		(pxArc^) << m_vCurrentTargetPos;
+		m_xCurrentTargetObj.DoKArc(pxArc^);
+		(pxArc^) << m_vCurrentTargetObjPos;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="TaTa")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			(pxArc^) << m_iFollowCounter;
+			(pxArc^) << m_iMaxCounter;
+			(pxArc^) << m_vCurrentTargetPos;
+			if(p_pxReaderNode^.GetVersion()>=2)then
+				m_xCurrentTargetObj.DoKArc(pxArc^);
+				(pxArc^) << m_vCurrentTargetObjPos;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc void SetCurrentTarget(vec3 p_vPos)
+		m_vCurrentTargetPos=p_vPos;
+	endproc;
+	
+	export proc void SetCurrentTarget(CObjHndl p_xObj)
+		m_xCurrentTargetObj=p_xObj;
+		if(m_xCurrentTargetObj.IsValid())then
+			m_vCurrentTargetObjPos=m_xCurrentTargetObj.GetObj()^.GetPos();
+		endif;
+	endproc;
+	
+	export proc void SetMaxCounter(int p_iMax)
+		m_iMaxCounter=p_iMax;
+	endproc;
+	
+	export proc void IncCounter()
+		m_iFollowCounter++;
+	endproc;
+	
+	export proc void ResetCounter()
+		m_iFollowCounter=0;
+	endproc;
+	
+	export proc bool CounterOverFlow()
+		return m_iFollowCounter>=m_iMaxCounter;
+	endproc;
+	
+	export proc bool HasArrivedTarget(vec3 p_vCurPos, real p_fRadius)
+		var vec3 vTargetPos=m_vCurrentTargetPos;
+		if(m_xCurrentTargetObj.IsValid())then
+			vTargetPos=m_vCurrentTargetObjPos;
+			if((m_vCurrentTargetObjPos-m_xCurrentTargetObj.GetObj()^.GetPos()).Abs2S()>64.0)then
+				m_vCurrentTargetObjPos=m_xCurrentTargetObj.GetObj()^.GetPos();
+				m_vCurrentTargetPos=m_vCurrentTargetObjPos;
+				ResetCounter();
+				return false;
+			endif;
+		endif;
+//		vTargetPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vTargetPos.GetX(), vTargetPos.GetY()));
+		vTargetPos.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vTargetPos.GetX(),vTargetPos.GetY()),CSrvWrap.GetScapeMgr().GetSeaLevel()));
+		var bool bArrived=(vTargetPos-p_vCurPos).AbsSquare()<=(p_fRadius*p_fRadius);
+		if(bArrived)then ResetCounter(); endif;
+		return bArrived;
+	endproc;
+	
+	export proc bool CanFollow()
+		if(!CounterOverFlow())then
+			IncCounter();
+			return true;
+		endif;
+		return false;
+	endproc;
+	
+	export proc vec3 GetCurrentTarget()
+		if(m_xCurrentTargetObj.IsValid())then
+			return m_xCurrentTargetObj.GetObj()^.GetPos();
+		endif;
+		return m_vCurrentTargetPos;
+	endproc;
+	
+	export proc bool IsAlreadyAtTargetPos(vec3 p_vCurPos, real p_fRadius)
+		var vec3 vTargetPos=m_vCurrentTargetPos;
+		vTargetPos.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vTargetPos.GetX(),vTargetPos.GetY()),CSrvWrap.GetScapeMgr().GetSeaLevel()));
+		return (vTargetPos-p_vCurPos).AbsSquare()<=(p_fRadius*p_fRadius);
+	endproc;
+	
+	export proc void BreakExt()
+	endproc;
+	
+endclass;
+

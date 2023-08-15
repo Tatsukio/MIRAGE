@@ -1,0 +1,156 @@
+class CManagedBoardingPassenger inherit CTask
+	
+	var CObjHndl	m_xCharacter;
+	var CObjHndl	m_xTransporter;
+	var string		m_sState;
+	var string      m_s1;
+
+	
+	export constructor()
+		SetName("BoardPas");
+	endconstructor;
+	
+	export proc bool Init(CObjHndl p_xCharacter,CObjHndl p_xTransporter)
+	   
+		m_sState = "EndTask";
+		m_s1 = p_xCharacter.GetObj()^.GetClassName();
+		
+		if(!p_xCharacter.IsValid() || !p_xTransporter.IsValid()|| m_s1=="hu_avatar" || m_s1=="hu_berserk_statue_01" || m_s1=="hu_berserk_statue_02" || m_s1=="hu_berserk_statue_03" || m_s1=="hu_berserk_statue_04" || m_s1=="hu_stone_statue")then return false; endif;
+		m_sState = "Prepare";
+		m_xCharacter = p_xCharacter;
+		m_xTransporter = p_xTransporter;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+		if(m_xCharacter.IsValid())then
+			var ^CFightingObj pxFO=cast<CFightingObj>(m_xCharacter.GetObj());
+			if(pxFO!=null)then
+				pxFO^.SetTaskDescription(pxFO^.GetStandardDescription());
+			endif;
+		endif;
+		if(m_xTransporter.IsValid())then
+			var ^CFightingObj pxTO=cast<CFightingObj>(m_xTransporter.GetObj());
+			if(pxTO!=null)then
+				pxTO^.SetTaskDescription(pxTO^.GetStandardDescription());
+			endif;
+		endif;
+//		if(m_sState=="Prepare" && CBoardingMgr.Get().RegisterPassengerRequest(m_xCharacter, m_xTransporter))then
+		if(m_sState=="Prepare")then
+			if(CBoardingMgr.Get().RegisterPassengerRequest(m_xCharacter, m_xTransporter))then
+				m_sState = "Wait";
+			else
+				m_sState=="EndTask";
+			endif;
+		endif;
+	endproc;
+	
+	proc void USLOnTick(int p_iTime)
+		if(m_sState=="Wait")then
+			return;
+		endif;
+		if(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		CBoardingMgr.Get().UnregisterPassengerRequest(m_xCharacter, m_xTransporter);
+	endproc;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="MgdP";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		pxArc^ << m_sState;
+		m_xCharacter.DoKArc(pxArc^);
+		m_xTransporter.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="MgdP")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			pxArc^ << m_sState;
+			m_xCharacter.DoKArc(pxArc^);
+			m_xTransporter.DoKArc(pxArc^);
+			if(!CBoardingMgr.Get().RevivePassengerRequest(m_xCharacter, m_xTransporter))then
+				m_sState="EndTask";
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc void EndTask()
+		UpdateAggressionPos(m_xCharacter);
+		super.EndTask();
+	endproc;
+	
+	export proc CObjHndl GetTransporter()
+		return m_xTransporter;
+	endproc;
+	
+endclass;
+	
+class CManagedBoardingTransporter inherit CTask
+	
+	var CObjHndl	m_xTransporter;
+	var string		m_sState;
+	
+	export constructor()
+		SetName("BoardTra");
+	endconstructor;
+	
+	export proc bool Init(CObjHndl p_xTransporter)
+		m_sState = "EndTask";
+		if(!p_xTransporter.IsValid())then return false; endif;
+		m_sState = "Wait";
+		m_xTransporter = p_xTransporter;
+		return true;
+	endproc;
+	
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		CBoardingMgr.Get().UnregisterTransporterRequest(m_xTransporter);
+	endproc;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="MgdT";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		pxArc^ << m_sState;
+		m_xTransporter.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="MgdT")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			pxArc^ << m_sState;
+			m_xTransporter.DoKArc(pxArc^);
+			Init(m_xTransporter);
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc void EndTask()
+		UpdateAggressionPos(m_xTransporter);
+		super.EndTask();
+	endproc;
+	
+endclass;

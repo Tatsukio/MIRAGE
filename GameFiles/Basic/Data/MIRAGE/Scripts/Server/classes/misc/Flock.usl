@@ -1,0 +1,133 @@
+class CFlock inherit CGameObj
+
+	var CObjList	m_xMembers;
+	const int			UPDATE_TIMER_ID=1177;
+	var real			m_fSize; //flocksize in m
+
+	export constructor()
+	endconstructor;
+
+	export destructor()
+	enddestructor;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		if(!p_bLoad)then
+			SetType("FLCK");
+			SetVisible(false);
+//			InitAttribs();
+		endif;
+		InitEvents();
+		if(!p_bLoad)then
+			CreateTimer(UPDATE_TIMER_ID,CGameTimeSpan.OneSecond(),true);
+		endif;
+	endproc;
+
+	proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="flck";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xMembers.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+
+	proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="flck")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			if(p_pxReaderNode^.GetVersion()==1)then
+				m_xMembers.DoKArc(pxArc^);
+				m_fSize=-1.0f;
+			else
+				KLog.LogWarn("Flock","unknown version "+p_pxReaderNode^.GetVersion().ToString()+" of chunk");
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc void AddMember(CObjHndl p_xNewMember)
+		if(m_xMembers.FindEntry(p_xNewMember)>-1)then return; endif
+		var ^CAnimal pxNewMember=cast<CAnimal>(p_xNewMember.GetObj());
+		if(pxNewMember!=null)then
+			m_xMembers.Include(p_xNewMember);
+			pxNewMember^.m_xFlock=GetHandle();
+			UpdateSize();
+		endif;
+	endproc;
+
+	export proc void RemoveMember(CObjHndl p_xMember)
+		if(m_xMembers.FindEntry(p_xMember)<0)then return; endif
+		m_xMembers.RemEntry(p_xMember);
+		if(m_xMembers.NumEntries()==0)then
+			Delete();
+			return;
+		endif;
+		UpdateSize();
+	endproc;
+
+	export proc real GetFlockSize()
+		return m_fSize;
+	endproc;
+
+	export proc bool AcceptablePos(vec3 p_vPos)
+		var real fAbs=(p_vPos-GetPos()).Abs2();
+		if(fAbs<=(2.0f*m_fSize))then
+			return true;
+		endif;
+		return false;
+	endproc;
+/*
+	export proc bool IsInside(vec3 p_vPos) return ((p_vPos-GetPos()).Abs2()<=m_fSize); endproc;
+
+	export proc bool IsOutside(vec3 p_vPos) return (!IsInside(p_vPos)); endproc;
+*/
+	export proc CObjList GetObjects()
+		return m_xMembers;
+	endproc;
+
+	proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		super.HandleEvent(p_rxEvtPtr);
+		if (p_rxEvtPtr.GetClass()==ms_xTimerClass) then
+			if(p_rxEvtPtr.GetInt(0)==UPDATE_TIMER_ID)then
+				Update();
+			endif;
+		endif;
+	endproc;
+
+	proc void UpdatePos()
+		var vec3 vPos;
+		var int i,iC=m_xMembers.NumEntries();
+		var int iCnt=0;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxWalk=m_xMembers[i].GetObj();
+			if(pxWalk!=null)then
+				vPos+=pxWalk^.GetPos();
+				iCnt++;
+			endif;
+		endfor;
+		SetPos(vPos/iCnt.ToReal());
+	endproc;
+
+	proc void UpdateSize()
+		m_fSize=0.0f;
+		var int i,iC=m_xMembers.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxWalk=m_xMembers[i].GetObj();
+			if(pxWalk!=null)then
+				var vec3 vSize=pxWalk^.GetSize();
+				m_fSize+=vSize.Abs2();
+			endif;
+		endfor;
+/*		var ^CAttribs pxAttr=GetAttribs();
+		pxAttr^.SetValue("range",m_fSize);*/
+	endproc;
+
+	proc void Update()
+		UpdatePos();
+		if(m_fSize==-1.0f)then
+			UpdateSize();
+		endif;
+	endproc;
+
+endclass;

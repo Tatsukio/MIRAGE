@@ -1,0 +1,111 @@
+class CResKick inherit CActionTask
+
+	var CObjHndl		m_xActor;
+	var CObjHndl		m_xTarget;
+	var string			m_sState;
+	var bool				m_bSkipVis;
+	
+	export constructor()
+		SetName("ResKick");
+		SetCivil(false);
+		m_bSkipVis=false;
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="ReKi";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xActor.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_bSkipVis;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="ReKi")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xActor.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			if(p_pxReaderNode^.GetVersion()>=2)then
+				(pxArc^) << m_bSkipVis;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xActor, CObjHndl p_xTarget, string p_sPath, bool p_bSkipVis)
+		m_sState="start_anim";
+		if(!p_xActor.IsValid() || !p_xTarget.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xActor = p_xActor;
+		m_xTarget = p_xTarget;
+		m_bSkipVis=p_bSkipVis;
+		SetSpecialActionPath(p_sPath);
+		SetPrepareActionPath(m_xActor, p_sPath, true);
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxActor = cast<CCharacter>(m_xActor.GetObj());
+		if(pxActor==null)then EndTask(); return; endif;
+		if(m_sState == "start_anim")then
+			if(!StartSpecialActionTimer(pxActor, m_bSkipVis))then
+				EndTask();
+				return;
+			endif;
+			pxActor^.MemorizeCurrentFightState(CObjHndl.Invalid(),false,false);
+			pxActor^.AnimAction("res_sm_kick");
+			var int iOwner = pxActor^.GetOwner();
+			if(iOwner>=0)then
+				var ^CFightingObj pxFight = cast<CFightingObj>(m_xTarget.GetObj());
+				if(pxFight!=null && !pxFight^.GetOnWall())then
+					pxFight^.TakeDmg(pxActor,2.0);
+				endif;
+				var ^CCharacter pxChar = cast<CCharacter>(pxFight);
+				if(pxChar!=null && !pxChar^.GetTransportObj().IsValid() && !pxChar^.GetOnWall())then
+					var vec3 vDir = (pxChar^.GetPos() - pxActor^.GetPos());
+					vDir.Normalize();
+					vDir.SetZ(vDir.GetZ()+0.5);
+					vDir.Normalize();
+					pxChar^.SetHitReactionTimer(0.7,vDir*(10.0f));
+				endif;
+			endif;
+			m_sState = "finished";
+		elseif(m_sState == "finished")then
+			m_sState="EndTask";
+			pxActor^.ReturnToFight();
+		elseif(m_sState == "EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+	
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+	
+	export proc void EndTask()
+		SetPrepareActionPath(m_xActor, GetSpecialActionPath(), false);
+		super.EndTask();
+	endproc;
+	
+	export proc bool Break()
+		return false;
+	endproc;
+	
+	export proc void Skip()
+	endproc;
+	
+endclass;

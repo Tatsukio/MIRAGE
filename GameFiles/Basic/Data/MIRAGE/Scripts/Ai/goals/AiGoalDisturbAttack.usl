@@ -1,0 +1,2064 @@
+///CAiGoalDisturbAttack
+
+class CAiGoalDisturbAttack inherit CAiGoal
+
+	var array CAiGoalDisturbAttack.CWaypointCluster m_axWaypoints;
+	var array CAiGoalDisturbAttack.CAttackResult	m_axResults;
+	
+	var ^CAiBrain 					m_pxBrain;
+	var ^CAiSensor					m_pxSensor;
+	var ^CAiModuleControlDefault 	m_pxCM;
+	var ^CAiModuleFightDefault 		m_pxFM;
+	var CAiObjWrapList				m_xKotHList;
+	var CAiObjWrapList				m_xSP9List;
+	var CAiObjWrapList				m_xWarpGates;
+	var CAiObjQuery					m_xWarpGateQuery;	
+	var CAiObjWrap					m_xCurWarpGate;
+	var ^CAiGoalKotH				m_pxKotHGoal;
+	
+	var array vec3					m_avStartPos;
+	var array int					m_aiStartPosOwner;
+	
+	var bool 						m_bAttacking;
+	var bool						m_bBusy;
+	var bool						m_bEvalStartLocations;
+	var bool						m_bInsects;
+	var bool						m_bTermites;
+	var bool						m_bLockpicking;
+	var bool						m_bDetectTraps;
+	var bool						m_bWarpGateHunt;
+	var bool						m_bGrimmigbeissersPestTermination;
+	var bool						m_bMarketPlaceAttackRequested;
+	var bool						m_bKotH;	
+	var bool						m_bMultimap;
+	var bool						m_bOnlyEverySecondTime;
+	var bool						m_bScouting;
+	var bool						m_bSPLevel9IslandAttack;
+	var bool						m_bDefenderplayer;
+	var bool						m_bOpenGateAttack;
+	var bool						m_bNoMore;
+	var bool						m_bHuntAnimal;
+	var bool						m_bShipAttack;
+	var bool						m_bWatermap;
+	var bool						m_bAssistEnabled;
+	var bool						m_bEcoAssist;
+	var bool						m_bDefAssist;
+	var bool						m_bAtkAssist;
+	
+	var int 						m_iNumUnits;
+	var int 						m_iTimeToAttack;
+	var int							m_iAttackType;
+	var int							m_iAge;	
+	var int							m_iCurrentEnemy;		
+	var int							m_iWarpGateHuntOwner;
+	var int							m_iCount;
+	var int							m_iPlayerID;
+	var int							m_iWarpGateCounter;
+	var int							m_iAttackStrategy;
+	var int							m_iEnemyStrength;
+	var int							m_iAttackChange;
+	var int							m_iValidSLToAttack;
+	var int							m_iLastAttacker;
+	var int							m_iDifficulty;
+	var int							m_iFirstAttack;
+	
+	var string						m_sState;	
+	var string						m_sBehavior;
+	var string						m_sLevelName;	
+	var string						m_sPlayerID;		
+	var string						m_sGametype;
+	var string						m_sTribe;
+	var string						m_sDifficulty;
+	
+	var vec3						m_vDisturbancePosition;
+	var vec3						m_vOutpostPos;
+	var vec3						m_vItemPos;
+	
+
+	///class CWaypointCluster
+	export class CWaypointCluster		
+		export constructor()
+		endconstructor;
+
+		export destructor()
+		enddestructor;
+		
+		var int 				m_iOwner;
+		export var vec3			m_vStartPos;		
+		export var array vec3	m_avWaypointsFront;
+		export var array vec3	m_avWaypointsLeft;
+		export var array vec3	m_avWaypointsBack;
+		export var array vec3	m_avWaypointsRight;		
+	endclass;
+
+
+	///class CAttackResult
+	export class CAttackResult
+		export constructor()
+		endconstructor;
+
+		export destructor()
+		enddestructor;
+		
+		export var string	m_sType;
+		export var int		m_iSucceeded;
+		export var int		m_iFailed;
+		
+		export proc bool op_Equal(ref CAiGoalDisturbAttack.CAttackResult p_rxOther)
+			return (m_sType==p_rxOther.m_sType);
+		endproc;
+
+		export proc bool op_Equal(string p_sOther)
+			return (m_sType==p_sOther);
+		endproc;
+	endclass;
+	
+	
+	///class CTargetAreaSorter
+	export class CFloatObjSorter
+		export var real			m_fValue;
+		export var CAiObjWrap	m_xObj;
+		
+		export proc bool op_Greater(ref CAiGoalDisturbAttack.CFloatObjSorter p_rxOther)
+			return (m_fValue<p_rxOther.m_fValue);
+		endproc;
+	endclass;
+	
+
+	///class CTargetAreaSorter
+	export class CTargetAreaSorter inherit CFloatObjSorter
+		export var int			m_iX,m_iY;
+	endclass;
+
+
+	///constructor
+	export constructor()
+		m_iNumUnits=2;
+		m_xWarpGateQuery.SetClass("hu_warpgate");
+		m_xWarpGateQuery.SetClass("aje_warpgate", true);
+		m_xWarpGateQuery.SetClass("ninigi_warpgate", true);
+		//Henry: added seas warpgate
+		m_xWarpGateQuery.SetClass("seas_warpgate", true);
+		m_bWarpGateHunt=false;
+	endconstructor;
+
+
+	///destructor
+	export destructor()
+	enddestructor;
+	
+	
+	///Init Goal
+	export proc bool Init(^CAiBrain p_pxBrain)
+		super.Init(p_pxBrain);
+		SetPermanent(true);
+		
+		if(p_pxBrain==null)then return false; endif;	
+		m_pxBrain = p_pxBrain;
+		if(m_pxBrain==null)then return false; endif;
+		
+		m_pxSensor=^(m_pxBrain^.GetSensor());
+		if(m_pxSensor==null) then return false; endif;
+		
+		m_iPlayerID=m_pxBrain^.GetPlayerId();
+		m_sPlayerID=m_iPlayerID.ToString();
+		
+		m_sLevelName=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		m_bDefenderplayer=CAiUtilityMgr.Get()^.IsDefenderPlayer(m_iPlayerID);
+		m_sGametype=CAiUtilityMgr.Get()^.GetGameType(m_pxBrain);		
+		m_sTribe = GetAiTechTree()^.GetTribe();
+		m_bKotH=CAiUtilityMgr.Get()^.GetKothSectors(m_pxBrain, m_xKotHList);
+		m_bMultimap=m_pxSensor^.GetMultimap();
+		m_bWatermap=m_pxSensor^.GetWatermap();
+		m_bHuntAnimal=m_pxSensor^.GetHuntAnimal();
+		
+		m_pxCM=cast<CAiModuleControlDefault>(m_pxBrain^.GetControlModule());	
+		m_pxFM=cast<CAiModuleFightDefault>(m_pxBrain^.GetFightModule());
+				
+		m_sBehavior=m_pxCM^.GetBehaviorType();
+		m_iDifficulty=m_pxCM^.GetOldDifficultyInt();
+		var int iOldDifficulty=m_pxCM^.GetDifficultyInt();
+		m_sDifficulty=m_pxCM^.GetDifficulty();
+		
+		m_bAssistEnabled=m_pxCM^.GetAIAssistEnabled();
+		m_bEcoAssist=m_pxCM^.GetAIAssistEconomy();
+		m_bDefAssist=m_pxCM^.GetAIAssistDefense();
+		m_bAtkAssist=m_pxCM^.GetAIAssistFight();
+		
+		if(m_iDifficulty==0)then
+			m_iTimeToAttack=20+(Random.GetInt()%20);
+		elseif(m_iDifficulty==1)then
+			m_iTimeToAttack=20+(Random.GetInt()%20);
+		elseif(m_iDifficulty==2)then
+			m_iTimeToAttack=20+(Random.GetInt()%20);
+		elseif(m_iDifficulty==3)then
+			m_iTimeToAttack=20+(Random.GetInt()%20);
+		elseif(m_iDifficulty==4)then
+			m_iTimeToAttack=20+(Random.GetInt()%20);
+		elseif(m_iDifficulty==5)then
+			m_iTimeToAttack=20+(Random.GetInt()%20);
+		elseif(m_iDifficulty==6)then
+			m_iTimeToAttack=20+(Random.GetInt()%20);
+		elseif(m_iDifficulty==7)then
+			m_iTimeToAttack=20+(Random.GetInt()%20);
+		elseif(m_iDifficulty==8)then
+			m_iTimeToAttack=15+(Random.GetInt()%20);
+		else
+			m_iTimeToAttack=10+(Random.GetInt()%20);
+		endif;
+		
+		SetThinkWait(iOldDifficulty+m_iTimeToAttack);
+		
+		m_bBusy=false;
+		m_bAttacking=false;
+		m_bGrimmigbeissersPestTermination = false;
+		m_bSPLevel9IslandAttack=false;
+		m_bEvalStartLocations = false;
+		m_bMarketPlaceAttackRequested = false;
+		m_bOnlyEverySecondTime=true;
+		m_bOpenGateAttack=false;	
+		m_bScouting=false;
+		m_bNoMore=false;	
+		
+		m_iCount=0;
+		m_avStartPos=0;
+		m_aiStartPosOwner=0;	
+		m_iWarpGateCounter=0;
+		m_iWarpGateHuntOwner=-1;
+		m_iEnemyStrength=99999999;
+		m_iAttackChange=0;
+		m_iValidSLToAttack=-2;
+		m_iLastAttacker=0;
+		m_iFirstAttack=0;
+		
+		m_sState = "start";	
+		m_vOutpostPos={0.0,0.0,0.0};
+		m_vItemPos={0.0,0.0,0.0};
+		
+		m_iAttackStrategy=Random.GetInt()%6;
+		
+		return true;
+	endproc;
+	
+	
+	///SetKothMode
+	export proc void SetKotHMode(bool p_bEnable)
+		m_bKotH=p_bEnable;
+	endproc;
+	
+
+	///GetWargateHunt
+	export proc int GetWarpgateHuntOwner()
+		return m_iWarpGateHuntOwner;
+	endproc;
+	
+
+	///WasWarpGateBuild
+	export proc void WasWarpGateBuild()
+		if(m_iWarpGateCounter==0)then
+			m_iWarpGateCounter=5;
+			m_xWarpGateQuery.AddMyEnemiesToSearch(m_iPlayerID, true);
+			var CAiObjWrapList xList;
+			m_xWarpGateQuery.Execute(xList);
+			
+			if(xList.NumEntries()>0)then			
+				var bool bNew = false;
+				var bool bDestroyed = false;
+				if(xList.FindEntry(m_xCurWarpGate)==-1)then
+					m_xWarpGates.RemEntry(m_xCurWarpGate);
+					m_xCurWarpGate.FromInt(-1);
+					m_iWarpGateHuntOwner=(-1);
+					bDestroyed = true;
+				endif;
+				
+				var int i, iC = xList.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					if(m_xWarpGates.FindEntry(xList[i])==-1)then
+						m_xWarpGates.Include(xList[i]);
+						m_iWarpGateHuntOwner=xList[i].GetOwner();
+						bNew = true;
+					endif;
+				endfor;
+				
+				if(bDestroyed||bNew)then UpdateWarpGateHunt(); endif;		
+			else
+				m_xWarpGates.Clear();
+				if(m_bWarpGateHunt)then UpdateWarpGateHunt(); endif;
+			endif;
+		endif;
+		m_iWarpGateCounter--;
+	endproc;
+
+
+	///UpdateWarpGateHunt
+	proc void UpdateWarpGateHunt()
+		if(m_pxFM==null)then return; endif;
+		
+		m_pxFM^.ClearAllAttacks();
+		m_xCurWarpGate = GetNearestWarpGate();
+
+		if(m_xCurWarpGate.IsValid())then
+			if(!m_bWarpGateHunt)then
+				var CAiObjWrapList xList;
+				xList.Include(m_xCurWarpGate);
+				RequestAttack(xList, m_xCurWarpGate.GetPos(), "siege");
+				m_bWarpGateHunt=true;
+				return;
+			endif;
+		else
+			m_bWarpGateHunt=false;
+		endif;
+		
+		m_bAttacking=false;
+	endproc;
+	
+	
+	///GetNearestWarpGate
+	proc CAiObjWrap GetNearestWarpGate()
+		var vec3 vHome = m_pxSensor^.GetStartLocation();
+		var CAiObjWrap xNearest;
+		var real fMaxDistS = 99999999.0;
+		var int i, iC = m_xWarpGates.NumEntries();
+		
+		if(m_pxSensor==null)then return xNearest; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			var real fDistS = (vHome - m_xWarpGates[i].GetPos()).Abs2S();
+			if(fDistS<fMaxDistS)then
+				fMaxDistS = fDistS;
+				xNearest = m_xWarpGates[i];
+			endif;
+		endfor;
+		
+		return xNearest;
+	endproc;
+
+	
+	///GetFightModule
+	proc ^CAiModuleFightDefault GetFightModule()
+		var ^CAiModuleFightDefault pxModule=cast<CAiModuleFightDefault>(m_pxBrain^.GetFightModule());
+		return pxModule;
+	endproc;
+	
+	
+	///GetWaypoints
+	export proc void GetWaypoints(vec3 p_vPosition, int p_iDirection, ref array vec3 p_ravWaypoints)	
+		p_ravWaypoints = 0;		
+		var int i, iC = m_axWaypoints.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_axWaypoints[i].m_vStartPos != p_vPosition)then continue; endif;
+			if(p_iDirection==0)then
+				p_ravWaypoints = m_axWaypoints[i].m_avWaypointsFront;
+			elseif(p_iDirection==1)then
+				p_ravWaypoints = m_axWaypoints[i].m_avWaypointsLeft;
+			elseif(p_iDirection==2)then
+				p_ravWaypoints = m_axWaypoints[i].m_avWaypointsBack;
+			elseif(p_iDirection==3)then
+				p_ravWaypoints = m_axWaypoints[i].m_avWaypointsRight;
+			else
+				continue;
+			endif;
+			break;
+		endfor;		
+		
+		if(p_ravWaypoints.NumEntries()<=0)then
+			p_ravWaypoints.AddEntry(p_vPosition);
+		endif;
+	endproc;
+
+
+	///GetValidStartLocationToAttack
+	export proc int GetValidStartLocationToAttack()
+		var array vec3 avBasePosses;
+		
+		if(m_pxBrain==null)then return 0; endif;
+		if(m_pxSensor==null)then return 0; endif;
+		if(m_pxCM==null)then return 0; endif;
+		
+		m_pxCM^.FindEnemyMainBase(avBasePosses);	
+		var int j, iE=avBasePosses.NumEntries();
+		m_aiStartPosOwner=0;
+		m_avStartPos=0;
+		m_iValidSLToAttack= -2;
+		
+		if(iE>0)then
+			for(j=0)cond(j<iE)iter(j++)do
+				m_avStartPos.AddEntry(avBasePosses[j]);
+				m_aiStartPosOwner.AddEntry(j);
+			endfor;
+		endif;
+		
+		var int i, iC = m_aiStartPosOwner.NumEntries();
+		var array int aiLocs;
+		for(i=0)cond(i<iC)iter(i++)do	
+			if(m_pxSensor^.GetDiplomacyMyOpinion(m_aiStartPosOwner[i])==0)then
+				aiLocs.AddEntry(i);
+			endif;
+		endfor;
+				
+		if(m_iCurrentEnemy!=-1)then
+			if(aiLocs.NumEntries()<=0)then return -2; endif;
+			
+			if(m_iAttackStrategy==0)then
+				m_iValidSLToAttack=aiLocs[Random.GetInt()%aiLocs.NumEntries()];
+				return m_iValidSLToAttack;
+				
+			elseif(m_iAttackStrategy==1||m_iAttackStrategy==2)then
+				m_iValidSLToAttack=CheckForWeakestEnemy(aiLocs);
+				return m_iValidSLToAttack;
+				
+			elseif(m_iAttackStrategy==3||m_iAttackStrategy==4)then
+				m_iValidSLToAttack=CheckForHumanEnemy(aiLocs);
+				return m_iValidSLToAttack;
+			
+			elseif(m_iAttackStrategy==5)then
+				m_iValidSLToAttack=CheckForLastHumanAttacker(aiLocs);
+				return m_iValidSLToAttack;		
+			endif;
+		
+		elseif(m_iCurrentEnemy== -1)then
+			return m_iCurrentEnemy;
+		endif;
+		
+		return -2;
+	endproc;
+
+		
+	///SetTactics
+	export proc void SetTactics(string p_sTactics)
+		if(p_sTactics.GetLength()==2)then
+			m_sBehavior=p_sTactics.Left(1);
+			m_iAttackType=p_sTactics.Right(1).ToInt();
+		endif;
+	endproc;
+
+
+	///GetAttackResult
+	proc ^CAiGoalDisturbAttack.CAttackResult GetAttackResult(string p_sType)	
+		var int i, iC = m_axResults.NumEntries();	
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_axResults[i].m_sType!=p_sType)then continue; endif;
+			return ^(m_axResults[i]);
+		endfor;
+		
+		var ^CAiGoalDisturbAttack.CAttackResult pxResult= ^(m_axResults.NewEntryRef());
+		pxResult^.m_sType = p_sType;		
+		
+		return pxResult;
+	endproc;
+
+
+	///EvtRequestSucceeded
+	export proc void EvtRequestSucceeded(^CAiRequestInfo p_pxInfo)
+		if(m_pxSensor==null)then return; endif;
+		if(m_pxFM==null)then return; endif;
+		
+		var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+		if(pxAtckInfo!=null)then
+			GetAttackResult(pxAtckInfo^.GetStrategy())^.m_iSucceeded++;
+			
+			if(pxAtckInfo^.GetStrategy() == "MarketPlace")then
+				m_bMarketPlaceAttackRequested = false;
+			endif;
+			
+			if((m_sLevelName=="Single 09")&&(m_iPlayerID==1)&&(pxAtckInfo^.GetStrategy()=="siege"))then
+				m_pxFM^.SetAttackHasFinished(true);
+				m_pxSensor^.AttackEnd();
+				return;
+			endif;
+
+			var string sAttackType=pxAtckInfo^.GetStrategy();
+			var array string asPestTerminationStrategies;
+			
+			asPestTerminationStrategies.AddEntry("blitz");
+			asPestTerminationStrategies.AddEntry("quick");
+			asPestTerminationStrategies.AddEntry("towersiege");
+
+			var int i, iC=asPestTerminationStrategies.NumEntries();
+			var bool bFound=false;			
+			for(i=0)cond(i<iC)iter(++i)do
+				if(sAttackType==asPestTerminationStrategies[i])then
+					bFound = true;
+					break;
+				endif;
+			endfor;
+			
+			if(bFound==true)then m_bGrimmigbeissersPestTermination=false; endif;
+		
+			m_pxFM^.SetAttackHasFinished(true);	
+			m_pxSensor^.AttackEnd();
+		endif;
+		
+		m_bOnlyEverySecondTime=true;
+		m_bAttacking=false;
+	endproc;
+	
+	
+	///EvtRequestFailed
+	export proc void EvtRequestFailed(^CAiRequestInfo p_pxInfo)
+		if(m_pxSensor==null)then return; endif;
+		if(m_pxFM==null)then return; endif;
+		
+		var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+		if(pxAtckInfo!=null)then
+			GetAttackResult(pxAtckInfo^.GetStrategy())^.m_iFailed++;		
+			
+			if(pxAtckInfo^.GetStrategy()=="MarketPlace")then
+				m_bMarketPlaceAttackRequested = false;
+			endif;
+
+			m_pxFM^.SetAttackHasFinished(true);				
+			
+			if(pxAtckInfo^.GetResult()=="all fighters are dead!")then
+				m_pxSensor^.AttackEnd();
+			endif;
+		endif;
+
+		m_bAttacking=false;
+	endproc;
+	
+	
+	///EvtRequestAccepted
+	export proc void EvtRequestAccepted(^CAiRequestInfo p_pxInfo)
+		if(m_pxSensor==null)then return; endif;
+		if(m_pxFM==null)then return; endif;
+		
+		var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+		if(pxAtckInfo!=null)then			
+			
+			if((m_sLevelName=="Single 09")&&(m_iPlayerID==1)&&(pxAtckInfo^.GetStrategy()=="siege"))then
+				m_pxFM^.SetAttackHasFinished(true);
+				m_pxSensor^.AttackEnd();
+				return;
+			endif;
+			m_pxFM^.SetAttackHasFinished(false);
+		endif;
+		
+	endproc;
+	
+	
+	///EvtRequestRejected
+	export proc void EvtRequestRejected(^CAiRequestInfo p_pxInfo)
+		var ^CAiAttackInfo pxAtckInfo=cast<CAiAttackInfo>(p_pxInfo);
+		if(pxAtckInfo!=null)then	
+			if(pxAtckInfo^.GetStrategy()=="MarketPlace")then
+				m_bMarketPlaceAttackRequested = false;
+			endif;
+		endif;
+		
+		m_bAttacking=false;
+	endproc;
+
+	
+	///think
+	export proc void Think()
+		if(!IsActive())then return; endif;
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		if(!m_bEvalStartLocations)then
+			m_axWaypoints=0;
+			m_bEvalStartLocations=true;
+			var int i, iC=m_avStartPos.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CAiGoalDisturbAttack.CWaypointCluster pxCluster =  ^(m_axWaypoints.NewEntryRef());
+				pxCluster^.m_vStartPos = m_avStartPos[i];
+				GetAttackWaypoints(m_pxSensor^.GetStartLocation(), m_avStartPos[i], pxCluster^.m_avWaypointsFront, 0);
+				GetAttackWaypoints(m_pxSensor^.GetStartLocation(), m_avStartPos[i], pxCluster^.m_avWaypointsLeft, 1);
+				GetAttackWaypoints(m_pxSensor^.GetStartLocation(), m_avStartPos[i], pxCluster^.m_avWaypointsBack, 2);
+				GetAttackWaypoints(m_pxSensor^.GetStartLocation(), m_avStartPos[i], pxCluster^.m_avWaypointsRight, 3);
+			endfor;
+		endif;
+		WasWarpGateBuild();
+		if(!m_bWarpGateHunt)then
+			if((m_sLevelName!="_MN_MP_2_COLDBLOOD")&&m_iAge<3)then
+				CheckGetItem();
+			endif;
+		endif;
+		if(m_sLevelName=="Single 09")then AttackPlayer0InSP9(); endif;
+		if(m_iAttackChange==20)then
+			m_iAttackStrategy=Random.GetInt()%6;
+			m_iAttackChange=0;
+		endif;
+		m_iAttackChange++;
+		UpdateTechTreeData();
+		CheckTacticalConditionsAndAct();
+	endproc;
+	
+	///UpdateTechTreeData
+	proc void UpdateTechTreeData()
+		if(m_pxBrain==null)then return; endif;
+		var ^CAiTechTree pxTechTree = GetAiTechTree();
+		if(pxTechTree==null)then return; endif;
+		if(!m_bTermites)then
+			var ^CAiNodeInstance pxNI=pxTechTree^.GetNodeInstanceFromPartialName("InventObjects/termites");
+			if(pxNI!=null)then
+				m_bTermites=pxNI^.GetInstanceCount()>0;
+			endif;
+		endif;
+		if(!m_bInsects)then
+			var ^CAiNodeInstance pxNI=pxTechTree^.GetNodeInstanceFromPartialName("InventObjects/insects");
+			if(pxNI!=null)then
+				m_bInsects=pxNI^.GetInstanceCount()>0;
+			endif;
+		endif;
+		if(!m_bLockpicking)then
+			var ^CAiNodeInstance pxNI=pxTechTree^.GetNodeInstanceFromPartialName("InventObjects/lockpicking");
+			if(pxNI!=null)then
+				m_bLockpicking=pxNI^.GetInstanceCount()>0;
+			endif;
+		endif;
+		var int iAge=m_iAge;
+		m_iAge=CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)-1;
+		if(iAge<m_iAge)then
+			m_bDetectTraps = true;
+		endif;
+		if(m_sLevelName=="Single 09")then
+			m_bDetectTraps=false;
+		endif;
+	endproc;
+
+	//CheckItem
+	export proc void CheckGetItem()	
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		if(m_pxCM==null)then return; endif;
+		if(!m_bMultimap||(m_sLevelName=="Single 01"||m_sLevelName=="Single 02"||m_sLevelName=="Single 03"||
+		m_sLevelName=="Single 04"||m_sLevelName=="Single 05"||m_sLevelName=="Single 06"||
+		m_sLevelName=="Single 07"||m_sLevelName=="Single 08"||m_sLevelName=="Single 09"||
+		m_sLevelName=="Single 10"||m_sLevelName=="Single 11"||m_sLevelName=="Single 12"||
+		m_sLevelName=="Single 13"||m_sLevelName=="Single 14"||m_sLevelName=="Single 15"||
+		m_sLevelName=="Single 16"||m_sLevelName=="Single B41"||m_sLevelName=="Single B42"||
+		m_sLevelName=="Single B43"))then return; endif;
+		var string sMap=CAiUtilityMgr.Get()^.GetLevelName(m_pxBrain);
+		if(sMap=="_CU_MP_6_CRASH_RPG")then return; endif;
+		var CAiObjQuery xQuery;
+		xQuery.SetType("ITEM");
+		xQuery.SetOwner(-1);
+		var CAiObjWrapList xItemList;
+		if(xQuery.Execute(xItemList))then	
+			var real fMinDist = 9999999.0;
+			var CAiObjWrap xItem;
+			//var int iMainIslandID = m_pxSensor^.ComputeIslandId(m_pxSensor^.GetStartLocation());
+			var int iMainIslandID = m_pxSensor^.GetOutpost(0).GetDynamicIslandId();
+			var int i, iC = xItemList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				//var int iIslandID = m_pxSensor^.ComputeIslandId(xItemList[i].GetPos());
+				var int iIslandID = m_pxSensor^.GetDynamicIslandIdForChar(xItemList[i].GetPos());
+				if(iIslandID!=iMainIslandID)then continue; endif;
+				var real fDist = (xItemList[i].GetPos()-m_pxSensor^.GetStartLocation()).Abs2();
+				if(fDist<fMinDist)then
+					fMinDist = fDist;
+					xItem = xItemList[i];
+				endif;
+			endfor;
+			if(!xItem.IsValid())then return; endif;
+			xItemList.Clear();
+			xItemList.Include(xItem);	
+			m_vItemPos=xItem.GetPos();
+			if(m_sDifficulty=="Easy")then
+				return;
+			elseif(m_sDifficulty=="Medium")then
+				if(Random.GetInt()%15!=0)then return; endif;
+				RequestAttack(xItemList, m_vItemPos, "getitem");
+			else
+				RequestAttack(xItemList, m_vItemPos, "getitem");
+			endif;
+		endif;
+	endproc;
+	
+	///SetKotHGoal
+	export proc void SetKotHGoal(^CAiGoalKotH p_pxKotHGoal)
+		m_pxKotHGoal = p_pxKotHGoal;
+	endproc;
+	
+	///RequestPestPatrol
+	export proc bool RequestPestPatrol(vec3 p_vDeathPos)
+		if((m_bEcoAssist)&&(!m_bDefAssist)&&(!m_bAtkAssist))then return false; endif;
+		if(m_pxBrain==null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;
+		if(!m_bMultimap||(m_sLevelName=="Single 01"||m_sLevelName=="Single 02"||m_sLevelName=="Single 03"||
+		m_sLevelName=="Single 04"||m_sLevelName=="Single 05"||m_sLevelName=="Single 06"||
+		m_sLevelName=="Single 07"||m_sLevelName=="Single 08"||m_sLevelName=="Single 09"||
+		m_sLevelName=="Single 10"||m_sLevelName=="Single 11"||m_sLevelName=="Single 12"||
+		m_sLevelName=="Single 13"||m_sLevelName=="Single 14"||m_sLevelName=="Single 15"||
+		m_sLevelName=="Single 16"||m_sLevelName=="Single B41"||m_sLevelName=="Single B42"||
+		m_sLevelName=="Single B43"))then return false; endif;
+		if(p_vDeathPos=={0.0, 0.0, 0.0})then return false; endif;
+		m_bGrimmigbeissersPestTermination = true;
+		m_vDisturbancePosition = p_vDeathPos;
+		return true;
+	endproc;
+
+	///SearchForDisturbance
+	proc bool SearchForDisturbance(ref string po_rsTerminationAttackType, ref CAiObjWrapList po_rxEnemyList, ref vec3 po_rvEnemyPos)
+		if(m_pxBrain==null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;
+		if(!m_bMultimap||(m_sLevelName=="Single 01"||m_sLevelName=="Single 02"||m_sLevelName=="Single 03"||
+		m_sLevelName=="Single 04"||m_sLevelName=="Single 05"||m_sLevelName=="Single 06"||
+		m_sLevelName=="Single 07"||m_sLevelName=="Single 08"||m_sLevelName=="Single 09"||
+		m_sLevelName=="Single 10"||m_sLevelName=="Single 11"||m_sLevelName=="Single 12"||
+		m_sLevelName=="Single 13"||m_sLevelName=="Single 14"||m_sLevelName=="Single 15"||
+		m_sLevelName=="Single 16"||m_sLevelName=="Single B41"||m_sLevelName=="Single B42"||
+		m_sLevelName=="Single B43"))then return false; endif;
+		var CAiObjQuery xOQ;
+		xOQ.Clear();
+		xOQ.SetOwner(-1);
+		xOQ.RegionCircle(m_vDisturbancePosition, 90.0);
+		xOQ.SetType("ANML");
+		xOQ.SetType("NEST", true);
+		xOQ.SetSorting(m_pxSensor^.GetStartLocation(), 1);
+		xOQ.Execute(po_rxEnemyList);
+		var int i, iC = po_rxEnemyList.NumEntries();
+		iC = po_rxEnemyList.NumEntries();
+		for(i=0)cond(i<iC)iter(++i)do
+			if(!po_rxEnemyList[i].IsValid())then
+				po_rxEnemyList.RemEntry(po_rxEnemyList[i]);
+				i--; iC--;
+				continue;
+			endif;
+			if(!po_rxEnemyList[i].IsHostile())then
+				po_rxEnemyList.RemEntry(po_rxEnemyList[i]);
+				i--; iC--;
+				continue;
+			endif;
+		endfor;
+		po_rxEnemyList.Validate();
+		if(po_rxEnemyList.NumEntries()>0)then
+			if((po_rxEnemyList[0].GetClassName().Find("_allosaurus")!= -1)||(po_rxEnemyList[0].GetClassName().Find("_nest")!= -1))then
+				if(CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain)<=3)then 
+					return false;
+				endif;
+			endif;
+		endif;
+		if(po_rxEnemyList.NumEntries()>0)then
+			if(CAiUtilityMgr.Get()^.ComputeCenterPosObjects(po_rxEnemyList, po_rvEnemyPos))then
+				po_rsTerminationAttackType="suicide";
+				return true;
+			endif;
+		endif;
+		if((m_sBehavior=="Schnecke"&&m_iAge>=4)||(m_sBehavior=="Giraffe"&&m_iAge>=2)||(m_sBehavior=="Dodo"))then
+			xOQ.Clear();
+			xOQ.AddMyEnemiesToSearch(m_iPlayerID, true);
+			xOQ.RegionCircle(m_vDisturbancePosition, 60.0);
+			xOQ.SetType("CHTR");
+			xOQ.SetType("VHCL", true);
+			xOQ.SetType("ANML", true);
+			xOQ.SetType("BLDG", true);
+			xOQ.SetType("NEST", true);
+			xOQ.Execute(po_rxEnemyList);
+			for(i=0)cond(i<iC)iter(++i)do
+				if(!po_rxEnemyList[i].IsValid())then
+					po_rxEnemyList.RemEntry(po_rxEnemyList[i]);
+					i--;iC--;
+					continue;
+				endif;
+				if(po_rxEnemyList[i].GetAttribValueBool("is_riding"))then
+					po_rxEnemyList.RemEntry(po_rxEnemyList[i]);
+					i--;iC--;
+					continue;
+				endif;
+			endfor;
+			if(po_rxEnemyList.NumEntries()>0)then	
+				if(CAiUtilityMgr.Get()^.ComputeCenterPosObjects(po_rxEnemyList, po_rvEnemyPos))then
+					po_rsTerminationAttackType="blitz";
+					return true;
+				endif;
+			endif;
+		endif;
+		xOQ.Clear();
+		xOQ.AddMyEnemiesToSearch(m_iPlayerID, true);
+		xOQ.RegionCircle(m_vDisturbancePosition, 60.0);
+		xOQ.SetClass("hu_small_tower");
+		xOQ.SetClass("hu_large_tower",true);
+		xOQ.SetClass("aje_small_tower",true);
+		xOQ.SetClass("aje_medium_tower",true);
+		xOQ.SetClass("aje_tesla_tower",true);
+		xOQ.SetClass("ninigi_small_tower",true);
+		xOQ.SetClass("ninigi_large_tower",true);
+		xOQ.SetClass("ninigi_telescope_tower",true);
+		xOQ.SetClass("ninigi_smoke_tower",true);
+		//Henry: added new seas offensive buildings
+		xOQ.SetClass("seas_mg_nest", true);
+		xOQ.SetClass("seas_turret_tower", true);
+		xOQ.SetClass("seas_small_cannon", true);
+		xOQ.SetSorting(m_pxSensor^.GetStartLocation(), 1);
+		xOQ.Execute(po_rxEnemyList);
+		if(po_rxEnemyList.NumEntries()>0)then
+			if(CAiUtilityMgr.Get()^.ComputeCenterPosObjects(po_rxEnemyList, po_rvEnemyPos))then
+				if(m_iAge < 2)then
+					po_rsTerminationAttackType="blitz";
+				else
+					po_rsTerminationAttackType="towersiege";
+				endif;
+				return true;
+			endif;
+		endif;
+		return false;
+	endproc;
+	
+	//CheckTacticalConditionsAndAct
+	proc void CheckTacticalConditionsAndAct()
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		var ^CAiTechTree pxTechTree = GetAiTechTree();
+		var CAiObjWrapList xEnemyList;
+		var CAiObjWrapList xPestEnemyList;
+		var CAiObjWrapList xEnemyShip;
+		var array string asAttacks;
+		var bool bKingOfTheHill;
+		var bool bFoundEnemies;
+		var bool bShipAttack=false;
+		var bool bGuerillaAttack=false;
+		var bool bSiege=false;
+		var bool bAgressiveAnimal=false;
+		var bool bPyramidAttack;
+		var vec3 vEnemyPos;
+		var vec3 vPestEnemyPos;
+		var vec3 vShipPos;
+		var string sTerminationAttackType;
+		var int iAge=CAiUtilityMgr.Get()^.GetCurrentAge(m_pxBrain);
+		if(m_bMultimap)then
+			if((m_sLevelName=="_MN_MP_4_MALICE")&&(!m_bNoMore))then
+				if(m_vItemPos!={0.0,0.0,0.0})then
+					m_bOpenGateAttack=CAiUtilityMgr.Get()^.CheckPathToTargetPlace(m_pxBrain, m_vItemPos, false);
+					if(m_bOpenGateAttack)then 
+						m_bNoMore=true;
+					else
+						if(m_iPlayerID==0)then
+							RequestAttack(xEnemyList, {420.40, 514.69, 59.87}, "quick");
+						elseif(m_iPlayerID==1)then
+							RequestAttack(xEnemyList, {516.66, 415.26, 59.02}, "quick");
+						elseif(m_iPlayerID==2)then
+							RequestAttack(xEnemyList, {611.32, 505.65, 58.18}, "quick");
+						elseif(m_iPlayerID==3)then
+							RequestAttack(xEnemyList, {512.20, 602.10, 59.19}, "quick");
+						endif;
+						return;
+					endif;
+				else
+					return;
+				endif;
+			endif;
+		endif;
+		if((m_sGametype=="KingOfTheHill")&&(m_pxKotHGoal!=null))then
+			m_bKotH=true;
+			var int iTeam = m_pxKotHGoal^.GetTeam();
+			var int i, iC=m_xKotHList.NumEntries();
+			if(iC<=0)then return; endif;
+			for(i=0)cond(i<iC)iter(i++)do
+				if(m_xKotHList[i].IsValid())then
+					var vec3 vPos=m_xKotHList[i].GetPos();
+					var int iFlagOwner=m_xKotHList[i].GetOwner();
+					m_vDisturbancePosition=vPos;
+					if(iFlagOwner==(-1))then
+						SearchForDisturbance(sTerminationAttackType, xEnemyList, vPos);
+						var int j, jC = xEnemyList.NumEntries();
+						for(j=0)cond(j<jC)iter(++j)do
+							if(!xEnemyList[j].IsValid())then continue; endif;
+							if((xEnemyList[j].GetType()=="ANML")&&(xEnemyList[j].GetOwner()==(-1))&&(xEnemyList[j].GetAttribValueInt("anml_aggressive_type")==1))then
+								bAgressiveAnimal=true;
+							endif;
+							if(xEnemyList[j].GetType()=="DOFL")then
+								xEnemyList.RemEntry(xEnemyList[j]);
+								j--; jC--;
+							endif;
+						endfor;
+						if((bAgressiveAnimal)&&(iAge<2))then return; endif;
+						if(iC==1)then
+							RequestAttack(xEnemyList, m_vDisturbancePosition, "KotH Pyramid");
+						else
+							RequestAttack(xEnemyList, m_vDisturbancePosition, "KotH Violence");
+						endif;
+					elseif(m_pxSensor^.IsEnemy(iFlagOwner))then
+						SearchForDisturbance(sTerminationAttackType, xEnemyList, vPos);
+						var int j, jC = xEnemyList.NumEntries();
+						for(j=0)cond(j<jC)iter(++j)do
+							if(!xEnemyList[j].IsValid())then continue; endif;
+							if(xEnemyList[j].GetType()=="BLDG")then
+								bSiege=true;
+							endif;
+							if(xEnemyList[j].GetType()=="DOFL")then
+								xEnemyList.RemEntry(xEnemyList[j]);
+								j--; jC--;
+							endif;
+						endfor;
+						if(bSiege)then
+							RequestAttack(xEnemyList, m_vDisturbancePosition, "KotH Siege");
+						else
+							if(m_iCount==0)then
+								RequestAttack(xEnemyList, m_vDisturbancePosition, "KotH Suicide");
+								m_iCount++;
+							elseif(m_iCount>=1)then
+								RequestAttack(xEnemyList, m_vDisturbancePosition, "KotH Violence");
+								m_iCount=0;
+							endif;
+						endif;
+					elseif((!m_pxSensor^.IsEnemy(iFlagOwner))&&(iFlagOwner!=(-1)))then
+						if(iFlagOwner==m_iPlayerID)then	
+							if(m_vOutpostPos!=vPos)then	
+								m_vOutpostPos=vPos;
+							endif;
+						endif;
+					endif;
+				endif;
+			endfor;
+			return;
+		endif;
+		if(m_bMultimap&&(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&
+		m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&
+		m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+		m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&
+		m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&
+		m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&
+		m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then
+			if(m_bGrimmigbeissersPestTermination)then
+				if(!SearchForDisturbance(sTerminationAttackType, xPestEnemyList, vPestEnemyPos))then
+					m_bGrimmigbeissersPestTermination=false;
+				endif;
+			endif;
+		endif;
+		bFoundEnemies = SearchForEnemies(xEnemyList, vEnemyPos, "center_of_threat", xEnemyShip);
+		if(xEnemyShip.NumEntries()>0)then
+			var int i, iC = xEnemyShip.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!xEnemyShip[i].IsValid())then continue; endif;
+				bShipAttack = true;
+				vShipPos = xEnemyShip[i].GetPos();
+				if(xEnemyShip[i].GetType()=="BLDG")then break; endif;	
+			endfor;
+		endif;
+		asAttacks.AddEntry("none");
+		asAttacks.AddEntry("none");
+		asAttacks.AddEntry("none");
+		asAttacks.AddEntry("none");
+		asAttacks.AddEntry("none");
+		if(m_sTribe=="Hu")then
+			if((m_sBehavior=="D")||(m_sBehavior=="Dodo"))then
+				if(m_sGametype!="Defender")then
+					if(m_bMultimap&&(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&
+					m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&
+					m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+					m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&
+					m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&
+					m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&
+					m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then
+						asAttacks = 0;
+						asAttacks.AddEntry("pyramid");
+						asAttacks.AddEntry("violence");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("violence");
+						asAttacks.AddEntry("suicide");
+						bGuerillaAttack=(Random.GetInt()%100<=10);
+					else
+						if((m_sLevelName=="Single 04")&&(!m_bMultimap)&&(m_iPlayerID==6))then
+							asAttacks = 0;
+							asAttacks.AddEntry("blitz");
+							asAttacks.AddEntry("blitz");
+							asAttacks.AddEntry("blitz");
+							asAttacks.AddEntry("blitz");
+							asAttacks.AddEntry("blitz");
+						elseif((m_sLevelName=="Single 04")&&(!m_bMultimap)&&(m_iPlayerID==5))then
+							asAttacks = 0;
+							asAttacks.AddEntry("rider");
+							asAttacks.AddEntry("rider");
+							asAttacks.AddEntry("rider");
+							asAttacks.AddEntry("rider");
+							asAttacks.AddEntry("rider");
+						elseif((m_sLevelName=="Single 04")&&(m_bMultimap)&&(m_iPlayerID==3))then
+							asAttacks = 0;
+							asAttacks.AddEntry("blitz");
+							asAttacks.AddEntry("blitz");
+							asAttacks.AddEntry("blitz");
+							asAttacks.AddEntry("blitz");
+							asAttacks.AddEntry("blitz");
+						elseif((m_sLevelName=="Single 04")&&(m_bMultimap)&&(m_iPlayerID==2))then
+							asAttacks = 0;
+							asAttacks.AddEntry("rider");
+							asAttacks.AddEntry("rider");
+							asAttacks.AddEntry("rider");
+							asAttacks.AddEntry("rider");
+							asAttacks.AddEntry("rider");
+						elseif((m_sLevelName=="Single 01")&&(m_iPlayerID==1))then
+							asAttacks = 0;
+							asAttacks.AddEntry("blitz");
+							asAttacks.AddEntry("blitz");
+							asAttacks.AddEntry("blitz");
+							asAttacks.AddEntry("blitz");
+							asAttacks.AddEntry("blitz");
+						else
+							asAttacks = 0;
+							asAttacks.AddEntry("blitz");
+							asAttacks.AddEntry("suicide");
+							asAttacks.AddEntry("violence");
+							asAttacks.AddEntry("suicide");
+							asAttacks.AddEntry("violence");
+						endif;
+					endif;	
+				elseif((m_sGametype=="Defender")&&(!m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("pyramid");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					bGuerillaAttack=(Random.GetInt()%100<=10);
+				elseif((m_sGametype=="Defender")&&(m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+				endif;
+			elseif((m_sBehavior=="G")||(m_sBehavior=="Giraffe"))then
+				if((m_sGametype!="Defender"))then
+					if(m_bMultimap&&(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&
+					m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&
+					m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+					m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&
+					m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&
+					m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&
+					m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then
+						asAttacks = 0;
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("violence");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("violence");
+						bGuerillaAttack=(Random.GetInt()%100<=10);
+					else
+						if(m_sLevelName!="Single 09")then
+							asAttacks = 0;
+							asAttacks.AddEntry("scout");
+							asAttacks.AddEntry("suicide");
+							asAttacks.AddEntry("violence");
+							asAttacks.AddEntry("suicide");
+							asAttacks.AddEntry("violence");
+							bGuerillaAttack = false;
+						else
+							if(m_iPlayerID==1)then
+								asAttacks = 0;
+								asAttacks.AddEntry("none");
+								asAttacks.AddEntry("blitz");
+								asAttacks.AddEntry("blitz");
+								asAttacks.AddEntry("blitz");
+								asAttacks.AddEntry("blitz");
+								bGuerillaAttack = false;
+							else
+								asAttacks = 0;
+								asAttacks.AddEntry("none");
+								asAttacks.AddEntry("suicide");
+								asAttacks.AddEntry("violence");
+								asAttacks.AddEntry("suicide");
+								asAttacks.AddEntry("violence");
+								bGuerillaAttack = false;
+							endif;
+						endif;	
+					endif;
+				elseif((m_sGametype=="Defender")&&(!m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("suicide");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					bGuerillaAttack=(Random.GetInt()%100<=10);
+				elseif((m_sGametype=="Defender")&&(m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+				endif;
+			elseif((m_sBehavior=="S")||(m_sBehavior=="Schnecke"))then
+				if(m_sGametype!="Defender")then
+					if(m_iAttackType==5)then
+						asAttacks = 0;
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+					else
+						if(m_bMultimap&&(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&
+						m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&
+						m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+						m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&
+						m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&
+						m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&
+						m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then
+							asAttacks = 0;
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("suicide");
+							asAttacks.AddEntry("violence");
+							bGuerillaAttack=(Random.GetInt()%100<=10);
+						else
+							asAttacks = 0;
+							asAttacks.AddEntry("scout");
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("violence");
+							asAttacks.AddEntry("suicide");
+							asAttacks.AddEntry("violence");
+						endif;
+					endif;
+				elseif((m_sGametype=="Defender")&&(m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+				elseif((m_sGametype=="Defender")&&(!m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					bGuerillaAttack=(Random.GetInt()%100<=10);
+				endif;
+			elseif(m_sBehavior=="X")then
+				if(m_iAttackType==1)then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+				elseif(m_iAttackType==2)then
+					asAttacks = 0;
+					asAttacks.AddEntry("suicide");
+					asAttacks.AddEntry("suicide");
+					asAttacks.AddEntry("suicide");
+					asAttacks.AddEntry("suicide");
+					asAttacks.AddEntry("suicide");
+				endif;
+			endif;
+		elseif(m_sTribe=="Aje")then
+			if((m_sBehavior=="D")||(m_sBehavior=="Dodo"))then
+				if(m_sGametype!="Defender")then
+					if(m_bMultimap&&(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&
+					m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&
+					m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+					m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&
+					m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&
+					m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&
+					m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then
+						asAttacks = 0;
+						asAttacks.AddEntry("pyramid");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("violence");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("violence");
+						bGuerillaAttack=(Random.GetInt()%100<=10);	
+					else
+						asAttacks = 0;
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("violence");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("violence");
+					endif;
+				elseif((m_sGametype=="Defender")&&(!m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("pyramid");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					bGuerillaAttack=(Random.GetInt()%100<=10);
+				elseif((m_sGametype=="Defender")&&(m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+				endif;
+			elseif((m_sBehavior=="G")||(m_sBehavior=="Giraffe"))then
+				if(m_sGametype!="Defender")then
+					if(m_bMultimap&&(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&
+					m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&
+					m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+					m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&
+					m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&
+					m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&
+					m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then	
+						asAttacks = 0;
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("violence");
+						asAttacks.AddEntry("violence");
+						bGuerillaAttack=(Random.GetInt()%100<=10);
+					else
+						asAttacks.AddEntry("scout");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("violence");
+						asAttacks.AddEntry("violence");
+					endif;	
+				elseif((m_sGametype=="Defender")&&(!m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					bGuerillaAttack=(Random.GetInt()%100<=10);
+				elseif((m_sGametype=="Defender")&&(m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+				endif;
+			elseif((m_sBehavior=="S")||(m_sBehavior=="Schnecke"))then
+				if(m_sGametype!="Defender")then
+					if(m_iAttackType==5)then
+						asAttacks = 0;
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+					else
+						if(m_bMultimap&&(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&
+						m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&
+						m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+						m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&
+						m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&
+						m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&
+						m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then
+							asAttacks = 0;
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("suicide");
+							asAttacks.AddEntry("violence");
+							bGuerillaAttack=(Random.GetInt()%100<=10);
+						else
+							asAttacks = 0;
+							asAttacks.AddEntry("scout");
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("suicide");
+							asAttacks.AddEntry("violence");
+						endif;
+					endif;
+				elseif((m_sGametype=="Defender")&&(m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+				elseif((m_sGametype=="Defender")&&(!m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					bGuerillaAttack=(Random.GetInt()%100<=10);
+				endif;
+			elseif(m_sBehavior=="X")then
+				if(m_iAttackType==1)then
+					asAttacks = 0;
+					asAttacks.AddEntry("scout");
+					asAttacks.AddEntry("scout");
+					asAttacks.AddEntry("scout");
+					asAttacks.AddEntry("scout");
+					asAttacks.AddEntry("scout");
+				else
+					asAttacks = 0;
+					asAttacks.AddEntry("suicide");
+					asAttacks.AddEntry("suicide");
+					asAttacks.AddEntry("suicide");
+					asAttacks.AddEntry("suicide");
+					asAttacks.AddEntry("suicide");
+				endif;
+			endif;
+		elseif(m_sTribe=="Ninigi")then
+			if((m_sBehavior=="D")||(m_sBehavior=="Dodo"))then
+				if(m_sGametype!="Defender")then
+					if(m_bMultimap&&(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&
+					m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&
+					m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+					m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&
+					m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&
+					m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&
+					m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then
+						asAttacks = 0;
+						asAttacks.AddEntry("pyramid");
+						asAttacks.AddEntry("stealth");
+						asAttacks.AddEntry("violence");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("violence");
+						bGuerillaAttack=(Random.GetInt()%100<=10);
+					else	
+						asAttacks = 0;
+						asAttacks.AddEntry("blitz");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("stealth");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("violence");
+					endif;
+				elseif((m_sGametype=="Defender")&&(!m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("pyramid");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					bGuerillaAttack=(Random.GetInt()%100<=10);
+				elseif((m_sGametype=="Defender")&&(m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+				endif;
+			elseif((m_sBehavior=="G")||(m_sBehavior=="Giraffe"))then
+				if(m_sGametype!="Defender")then
+					if(m_bMultimap&&(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&
+					m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&
+					m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+					m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&
+					m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&
+					m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&
+					m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then
+						asAttacks = 0;
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("stealth");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("violence");
+						bGuerillaAttack=(Random.GetInt()%100<=10);
+					else
+						asAttacks = 0;
+						asAttacks.AddEntry("scout");
+						asAttacks.AddEntry("stealth");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("violence");
+					endif;
+				elseif((m_sGametype=="Defender")&&(!m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					bGuerillaAttack=(Random.GetInt()%100<=10);
+				elseif((m_sGametype=="Defender")&&(m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+				endif;
+			elseif((m_sBehavior=="S")||(m_sBehavior=="Schnecke"))then
+				if(m_sGametype!="Defender")then	
+					if(m_iAttackType==5)then
+						asAttacks = 0;
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+					else
+						if(m_bMultimap&&(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&
+						m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&
+						m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+						m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&
+						m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&
+						m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&
+						m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then
+							asAttacks = 0;
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("suicide");
+							asAttacks.AddEntry("violence");
+							bGuerillaAttack=(Random.GetInt()%100<=10);
+						else
+							asAttacks = 0;
+							asAttacks.AddEntry("scout");
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("violence");
+							asAttacks.AddEntry("suicide");
+							asAttacks.AddEntry("violence");
+						endif;
+					endif;
+				elseif((m_sGametype=="Defender")&&(m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+				elseif((m_sGametype=="Defender")&&(!m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					bGuerillaAttack=(Random.GetInt()%100<=10);
+				endif;
+			elseif(m_sBehavior=="X")then
+				if(m_iAttackType==1)then
+					asAttacks = 0;
+					asAttacks.AddEntry("scout");
+					asAttacks.AddEntry("scout");
+					asAttacks.AddEntry("scout");
+					asAttacks.AddEntry("scout");
+					asAttacks.AddEntry("scout");
+				else
+					asAttacks = 0;
+					asAttacks.AddEntry("violence");
+					asAttacks.AddEntry("violence");
+					asAttacks.AddEntry("violence");
+					asAttacks.AddEntry("violence");
+					asAttacks.AddEntry("violence");
+				endif;
+			endif;
+		elseif(m_sTribe=="SEAS")then
+			if((m_sBehavior=="D")||(m_sBehavior=="Dodo"))then
+				if(m_sGametype!="Defender")then	
+					if(m_sLevelName=="Single 10")then
+						asAttacks = 0;
+						asAttacks.AddEntry("pyramid");
+						asAttacks.AddEntry("blitz");
+						asAttacks.AddEntry("blitz");
+						asAttacks.AddEntry("blitz");
+						asAttacks.AddEntry("blitz");	
+					else				
+						asAttacks = 0;
+						asAttacks.AddEntry("pyramid");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("violence");
+						asAttacks.AddEntry("suicide");
+						asAttacks.AddEntry("violence");	
+					endif;
+				elseif((m_sGametype=="Defender")&&(!m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("pyramid");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+				elseif((m_sGametype=="Defender")&&(m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+				endif;
+			elseif((m_sBehavior=="G")||(m_sBehavior=="Giraffe"))then
+				if(m_sGametype!="Defender")then
+					if(m_sLevelName=="Single 10")then
+						asAttacks = 0;
+						asAttacks.AddEntry("blitz");
+						asAttacks.AddEntry("blitz");
+						asAttacks.AddEntry("blitz");
+						asAttacks.AddEntry("blitz");
+						asAttacks.AddEntry("blitz");
+					else
+						if(m_bMultimap&&(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&
+						m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&
+						m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+						m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&
+						m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&
+						m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&
+						m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then
+							asAttacks = 0;
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("violence");
+							asAttacks.AddEntry("suicide");
+							asAttacks.AddEntry("violence");
+						else	
+							asAttacks = 0;
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("suicide");
+							asAttacks.AddEntry("violence");
+							asAttacks.AddEntry("suicide");
+							asAttacks.AddEntry("violence");
+						endif;
+					endif;
+				elseif((m_sGametype=="Defender")&&(!m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+				elseif((m_sGametype=="Defender")&&(m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+				endif;
+			elseif((m_sBehavior=="S")||(m_sBehavior=="Schnecke"))then
+				if(m_sGametype!="Defender")then
+					if(m_iAttackType==5)then
+						asAttacks = 0;
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+						asAttacks.AddEntry("none");
+					else
+						if(m_bMultimap&&(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&
+						m_sLevelName!="Single 03"&&m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&
+						m_sLevelName!="Single 06"&&m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&
+						m_sLevelName!="Single 09"&&m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&
+						m_sLevelName!="Single 12"&&m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&
+						m_sLevelName!="Single 15"&&m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&
+						m_sLevelName!="Single B42"&&m_sLevelName!="Single B43"))then
+							asAttacks = 0;
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("suicide");
+							asAttacks.AddEntry("violence");
+						else
+							asAttacks = 0;
+							asAttacks.AddEntry("scout");
+							asAttacks.AddEntry("none");
+							asAttacks.AddEntry("violence");
+							asAttacks.AddEntry("suicide");
+							asAttacks.AddEntry("violence");
+						endif;
+					endif;
+				elseif((m_sGametype=="Defender")&&(m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+				elseif((m_sGametype=="Defender")&&(!m_bDefenderplayer))then
+					asAttacks = 0;
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("none");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+					asAttacks.AddEntry("siege");
+				endif;
+			elseif(m_sBehavior=="X")then
+				if(m_iAttackType==1)then
+					asAttacks = 0;
+					asAttacks.AddEntry("scout");
+					asAttacks.AddEntry("scout");
+					asAttacks.AddEntry("scout");
+					asAttacks.AddEntry("scout");
+					asAttacks.AddEntry("scout");
+				else
+					asAttacks = 0;
+					asAttacks.AddEntry("violence");
+					asAttacks.AddEntry("violence");
+					asAttacks.AddEntry("violence");
+					asAttacks.AddEntry("violence");
+					asAttacks.AddEntry("violence");
+				endif;
+			endif;
+		endif;
+		if(m_bWarpGateHunt)then RequestAttack(xEnemyList, vEnemyPos, "siege_warpgate"); endif;
+		bShipAttack=(bShipAttack)&&(m_iAge>1)&&(CheckForHarbour()&&(Random.GetInt()%100<=5));
+		
+		if(!m_bScouting)then
+			if((!m_bGrimmigbeissersPestTermination)&&(!bShipAttack)&&(asAttacks[m_iAge]=="scout"||(!bFoundEnemies && asAttacks[m_iAge]!="blitz")))then
+				if(m_sLevelName!="Single 09")then
+					RequestExploration();
+					m_bScouting=true;
+					return;
+				endif;
+			endif;
+		endif;
+		if(m_bGrimmigbeissersPestTermination)then RequestAttack(xPestEnemyList, vPestEnemyPos, sTerminationAttackType); endif;
+		if(asAttacks[m_iAge]=="none")then return; endif;
+		if(Random.GetInt()%100<=10)then asAttacks[m_iAge]="pyramid"; endif;
+		if((m_iDifficulty==0||m_iDifficulty==1)&&(m_iAge==0)&&(m_bMultimap)&&
+		(m_sLevelName!="Single 01"&&m_sLevelName!="Single 02"&&m_sLevelName!="Single 03"&&
+		m_sLevelName!="Single 04"&&m_sLevelName!="Single 05"&&m_sLevelName!="Single 06"&&
+		m_sLevelName!="Single 07"&&m_sLevelName!="Single 08"&&m_sLevelName!="Single 09"&&
+		m_sLevelName!="Single 10"&&m_sLevelName!="Single 11"&&m_sLevelName!="Single 12"&&
+		m_sLevelName!="Single 13"&&m_sLevelName!="Single 14"&&m_sLevelName!="Single 15"&&
+		m_sLevelName!="Single 16"&&m_sLevelName!="Single B41"&&m_sLevelName!="Single B42"&&
+		m_sLevelName!="Single B43"))then 
+			if(m_iFirstAttack>=5)then
+				asAttacks[m_iAge]="blitz"; 
+				m_iFirstAttack=0;
+			else
+				asAttacks[m_iAge]="none";
+			endif;
+			m_iFirstAttack++;
+		endif;
+		if(asAttacks[m_iAge]=="none")then return; endif;
+		if((m_sLevelName=="Single 13"||m_sLevelName=="Single 14"||m_sLevelName=="Single 15"||m_sLevelName=="Single 09")&&(asAttacks[m_iAge]=="scout"))then
+			return; 
+		endif;
+		if(((m_sLevelName=="Single 03")&&(m_iPlayerID==1))||(m_sLevelName=="Single 01")||(m_sLevelName=="Single 02")||(m_sLevelName=="Single 10"))then
+			bShipAttack=false;
+		endif;
+		if((m_sLevelName=="Single 08")&&((m_iPlayerID==2)||(m_iPlayerID==1)))then
+			RequestAttack(xEnemyList, vEnemyPos, asAttacks[m_iAge]);
+			return;
+		endif;
+		if((m_sLevelName=="Single 09")&&((m_iPlayerID==2)||(m_iPlayerID==1)))then
+			if(m_xSP9List.NumEntries()>0)then
+				RequestAttack(m_xSP9List, {220.39,836.77,39.47}, asAttacks[m_iAge]);
+			else
+				RequestAttack(xEnemyList, vEnemyPos, asAttacks[m_iAge]);
+			endif;
+			return;
+		endif;
+		if((m_sLevelName=="Single 10"))then
+			var bool bSpecialSEASAttack=(Random.GetInt()%100<=10);
+			if(bSpecialSEASAttack)then
+				RequestAttack(xEnemyList, vEnemyPos, "SpecialSEASAttack");
+			else
+				RequestAttack(xEnemyList, vEnemyPos, asAttacks[m_iAge]);
+			endif;
+			return;
+		endif;
+		bGuerillaAttack=bGuerillaAttack&&(m_bTermites||m_bInsects||m_bLockpicking);
+		var string sEnemyTribe;
+		begin CheckEnemyTribe;
+			if(xEnemyList.NumEntries()>0)then
+				var int iEnemy = xEnemyList[0].GetOwner();
+				if(iEnemy!=-1)then
+					sEnemyTribe = m_pxSensor^.GetTechTree().GetTribe();
+				endif;
+			endif;
+		end CheckEnemyTribe;
+		if(m_bDetectTraps)then
+			m_bDetectTraps=sEnemyTribe=="Ninigi";
+		elseif(m_iAge==4)then
+			m_bDetectTraps=(sEnemyTribe=="Ninigi")&&(Random.GetInt()%100<=10);
+		else
+			m_bDetectTraps=(sEnemyTribe=="Ninigi")&&(Random.GetInt()%100<=3);
+		endif;
+		if(bShipAttack)then
+			RequestAttack(xEnemyShip, vShipPos, "ship");
+		elseif(m_bDetectTraps)then
+			RequestAttack(xEnemyList, vEnemyPos, "traps");
+		elseif(bGuerillaAttack)then
+			RequestAttack(xEnemyList, vEnemyPos, "guerilla");
+		else
+			RequestAttack(xEnemyList, vEnemyPos, asAttacks[m_iAge]);
+		endif;
+		bShipAttack=false;
+		m_bDetectTraps = false;
+		m_bGrimmigbeissersPestTermination=false;
+		bGuerillaAttack=false;
+	endproc;
+
+	///SearchForEnemies
+	proc bool SearchForEnemies(ref CAiObjWrapList p_rxEnemyList, ref vec3 p_rvEnemyPos, string p_sSortBy, ref CAiObjWrapList p_rxShipList)
+		if(m_pxBrain==null)then return false; endif;
+		if(m_pxSensor==null)then return false; endif;
+		var int iEnemy=GetValidStartLocationToAttack();
+		if(iEnemy==m_iPlayerID)then 
+			iEnemy=GetValidStartLocationToAttack();
+		endif;
+		var vec3 vHome=m_pxSensor^.GetStartLocation();
+		var CAiObjQuery xQuery;
+		xQuery.SetOwner(iEnemy);
+		xQuery.SetType("CHTR");
+		xQuery.SetType("ANML",true);
+		xQuery.SetType("VHCL",true);
+		xQuery.SetType("BLDG",true);
+		xQuery.SetType("SHIP",true);
+		xQuery.SetType("NEST",true);
+		xQuery.SetAttribNeg("camouflage_active","true");
+		p_rxEnemyList.Clear();
+		p_rxShipList.Clear();
+		xQuery.Execute(p_rxEnemyList);
+		var ^CAiMaps pxMaps = ^(m_pxSensor^.GetAiMaps());
+		var ^CAiMaps pxGlobalMaps = ^(m_pxSensor^.GetGlobalAiMaps());
+		var ^CAiMap pxEnemies = ^(pxMaps^.GetAiMap("Enemy",m_iPlayerID));
+		var array CTargetAreaSorter axTargets;
+		var int i, iC=p_rxEnemyList.Validate();
+		for(i=0)cond(i<iC)iter(i++)do
+			var CAiObjWrap xCurEnemy = p_rxEnemyList[i];
+			if(xCurEnemy.GetAttribValueBool("is_riding"))then continue; endif;
+			if(xCurEnemy.GetClassName()=="Virtual_Produce_Unit")then continue; endif;
+			var CAiArea xA, xB, xC;
+			var point xDimension = CAiMap.GetScapeDimensions();
+			if(xCurEnemy.GetPos()=={0.0,0.0,0.0})then continue; endif;
+			xA=pxEnemies^.ScapePosToAiArea(xCurEnemy.GetPos());
+			if((xDimension.GetX()<xA.GetX())||(xDimension.GetY()<xA.GetY())||(xA.GetX()<0)||(xA.GetY()<0))then
+				continue;
+			endif;
+			if(xCurEnemy.GetType()=="SHIP"||(xCurEnemy.GetType()=="BLDG"&&xCurEnemy.GetClassName().Find("_harbour")!=-1))then
+				p_rxShipList.AddEntry(xCurEnemy);
+				continue;
+			endif;
+			var real fValue=pxEnemies^.GetValue(xA);
+			if(fValue>0.0f)then continue; endif;
+			var ^CTargetAreaSorter pxS=^(axTargets.NewEntryRef());
+			pxS^.m_iX = xA.GetX();
+			pxS^.m_iY = xA.GetY();
+			if(p_sSortBy=="center_of_threat")then
+				pxS^.m_fValue = fValue;
+			elseif(p_sSortBy=="nearest_enemy")then
+				pxS^.m_fValue = -(vHome-xCurEnemy.GetPos()).AbsSquare();
+			endif;
+			pxS^.m_xObj = xCurEnemy;
+		endfor;
+		m_iCurrentEnemy=iEnemy;
+		axTargets.QSort();
+		iC = axTargets.NumEntries();
+		p_rxEnemyList.Clear();
+		for(i=0)cond(i<iC)iter(i++)do	
+			if(axTargets[i].m_xObj.GetOwner()==iEnemy)then
+				p_rxEnemyList.AddEntry(axTargets[i].m_xObj);
+			endif;
+			if(p_rxEnemyList.NumEntries()==1)then
+				p_rvEnemyPos=p_rxEnemyList[0].GetPos();
+			endif;
+		endfor;
+		if(p_rxEnemyList.NumEntries()>0)then return true; endif;	
+		return false;
+	endproc;
+	
+	///RequestExploration
+	proc void RequestExploration()
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxBrain^.GetAreaModule()==null)then return; endif;		
+		var ^CAiExplorationInfo	pxExplInfo = new CAiExplorationInfo();
+		pxExplInfo^.AddMyEnemiesToSearch(m_iPlayerID, true);
+		SetRequesterFor(pxExplInfo);
+		m_pxBrain^.GetAreaModule()^.RequestExploration(pxExplInfo);
+		m_bAttacking=true;
+	endproc;
+	
+	///RequestAttack
+	proc void RequestAttack(CAiObjWrapList p_xEnemyList, vec3 p_vEnemyPos, string p_sType)
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		if((p_xEnemyList.NumEntries()<=0)&&(p_vEnemyPos=={0.0,0.0,0.0}))then
+			var CAiObjWrapList xShipList;
+			SearchForEnemies(p_xEnemyList, p_vEnemyPos, "centre_of_thread", xShipList);
+		endif;
+		var ^CAiAttackInfo pxAttackInfo = new CAiAttackInfo();
+		//fornow only land attacks
+		if(p_sType!="ship")then
+			pxAttackInfo^.SetCanUse(CAiAttackInfo.AT_Ships,false);
+		endif;
+		var string sRangedAttackType=CheckTargetTypeOfEnemy(p_xEnemyList);
+		if(sRangedAttackType!="")then
+			if((p_sType=="suicide")||(p_sType=="violence"))then
+				p_sType=sRangedAttackType;
+			endif;
+		elseif(p_sType=="")then
+			p_sType="suicide";
+		endif;
+		pxAttackInfo^.SetStrategy(p_sType);
+		if((m_sLevelName=="Single 09")&&(m_iPlayerID==2)&&(m_bSPLevel9IslandAttack))then
+			pxAttackInfo^.SetPos(p_vEnemyPos);
+			pxAttackInfo^.SetIslandID(m_pxSensor^.ComputeIslandId(p_vEnemyPos));
+		else
+			if(p_vEnemyPos!={0.0,0.0,0.0})then
+				pxAttackInfo^.SetPos(p_vEnemyPos);
+				pxAttackInfo^.SetIslandID(m_pxSensor^.ComputeIslandId(p_vEnemyPos));
+			endif;
+			if(p_xEnemyList.Validate()>0)then
+				pxAttackInfo^.GetTargets()=p_xEnemyList;
+				pxAttackInfo^.SetIslandID(m_pxSensor^.ComputeIslandId(p_xEnemyList[0].GetPos()));
+			endif;
+			if((p_xEnemyList.NumEntries()<=0)&&(p_vEnemyPos=={0.0,0.0,0.0}))then
+				delete pxAttackInfo;
+				return;
+			endif;
+		endif;
+		SetRequesterFor(pxAttackInfo);
+		m_pxBrain^.GetFightModule()^.RequestAttack(pxAttackInfo);
+		if((p_sType!="ship")&&(p_sType!="getitem")&&(p_sType!="MarketPlace")&&(p_sType!="auto"))then
+			m_bAttacking=true;
+		endif;
+	endproc;
+
+	///GetAttackWaypoints
+	export proc void GetAttackWaypoints(vec3 p_vHome, vec3 p_vEnemyBase, ref array vec3 p_ravWaypoints, int p_iDirection)
+		if(m_pxSensor==null)then return; endif;
+		var vec3 vDirection =  p_vHome - p_vEnemyBase;		
+		if((!p_vHome.ToBool())||(!p_vEnemyBase.ToBool())||(!vDirection.ToBool()))then return; endif;
+		p_ravWaypoints = 0;
+		vDirection.Normalize();
+		var array vec3 avPos;
+		var array real afDistances;		
+		var ^CAiMap pxPassability = ^(m_pxSensor^.GetPassabilityMap());		
+		var int i , iC = 4;
+		for(i=0)cond(i<iC)iter(i++)do
+			var vec3 vDir = vDirection;
+			vDir.RotZ(i.ToReal()*(Math.Pi()*0.5));
+			var real fDistance = 0.0;
+			var real fPassabilityValue = 1.0;
+			var vec3 vLastPos = p_vEnemyBase;
+			var vec3 vEndPos = p_vEnemyBase;
+			var bool bFoundPassable;
+			var vec3 vActualLastPos;
+			while((fPassabilityValue > 0.0 || !bFoundPassable) && fDistance<100.0)do
+				vActualLastPos = vLastPos;
+				vLastPos = vEndPos;
+				fDistance += 8.0;
+				vEndPos = p_vEnemyBase+(vDir*fDistance);
+				var int iX = (vEndPos.GetX()/8.0).ToInt();
+				var int iY = (vEndPos.GetY()/8.0).ToInt();
+				fPassabilityValue = pxPassability^.GetValue(iX, iY);
+				if(fPassabilityValue>0.0)then
+					bFoundPassable = true;
+				endif;
+			endwhile;
+			avPos.AddEntry(vActualLastPos);
+			afDistances.AddEntry(fDistance);
+		endfor;
+		if(p_iDirection==0)then
+			p_ravWaypoints.AddEntry(avPos[0]);
+		elseif(p_iDirection==1)then
+			p_ravWaypoints.AddEntry(avPos[1]);
+		elseif(p_iDirection==2)then
+			if(afDistances[1]>afDistances[3])then
+				p_ravWaypoints.AddEntry(avPos[1]);
+			else
+				p_ravWaypoints.AddEntry(avPos[3]);
+			endif;
+			p_ravWaypoints.AddEntry(avPos[2]);
+		elseif(p_iDirection==3)then
+			p_ravWaypoints.AddEntry(avPos[3]);
+		endif;
+	endproc;
+	
+	///CheckTargetTypeOfEnemy
+	export proc string CheckTargetTypeOfEnemy(CAiObjWrapList p_xEnemyList)
+		var string sAttack="";
+		var int iLongRange=0;
+		var int iShortRange=0;
+		var int i, iC=p_xEnemyList.Validate();
+		if(iC<=0)then sAttack=""; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(p_xEnemyList[i].GetAttribValueInt("range")>=10)then
+				iLongRange++;
+			else
+				iShortRange++;
+			endif;
+		endfor;
+		if(iLongRange>(iShortRange+5))then
+			sAttack="violence";
+		elseif(iShortRange>(iLongRange+5))then
+			sAttack="suicide";
+		endif;
+		if(Random.GetInt()%2==1)then
+			return sAttack;
+		else
+			return "";
+		endif;
+	endproc;
+	
+	///CheckForHabour
+	proc bool CheckForHarbour()
+		var bool bHarbour=false;
+		var CAiObjWrapList xList;
+		var CAiObjQuery xQuery;
+		xList.Clear();
+		xQuery.AddMyEnemiesToSearch(m_iPlayerID);
+		xQuery.SetClass("hu_harbour");
+		xQuery.SetClass("ninigi_harbour",true);
+		xQuery.SetClass("aje_floating_harbour",true);
+		xQuery.SetClass("seas_carrier",true);
+		xQuery.Execute(xList);
+		if(xList.NumEntries()>0)then
+			bHarbour=true;
+		endif;
+		return bHarbour;
+	endproc;
+	
+	///Special SP9 scripting
+	proc void AttackPlayer0InSP9()
+		if(m_pxBrain==null)then return; endif;
+		if(m_pxSensor==null)then return; endif;
+		if(m_iPlayerID==0||m_iPlayerID==1)then return; endif;
+		if(m_pxCM==null)then return; endif;
+		if(m_pxCM^.GetBehaviorType()!="Giraffe")then return; endif;
+		var CAiObjWrapList xList;
+		var CAiObjQuery xQuery;
+		xList.Clear();
+		if(m_iPlayerID==3||m_iPlayerID==2)then
+			var vec3 vPos={452.66, 589.45,19.94};
+			xQuery.SetOwner(0);
+			xQuery.RegionCircle(vPos, 150.0);
+			xQuery.Execute(xList);
+			if(xList.NumEntries()>0)then
+				var ^CAiAttackInfo pxAttackInfo = new CAiAttackInfo();
+				pxAttackInfo^.SetStrategy("suicide");
+				pxAttackInfo^.SetIslandID(m_pxSensor^.ComputeIslandId(vPos));
+				pxAttackInfo^.SetPos(vPos);
+				pxAttackInfo^.GetTargets() = xList;
+				m_pxBrain^.GetFightModule()^.RequestAttack(pxAttackInfo);
+			endif;
+		endif;
+		m_xSP9List.Clear();
+		if(m_iPlayerID==2)then
+			var vec3 vPos={220.39,836.77,39.47};
+			xQuery.SetOwner(0);
+			xQuery.RegionCircle(vPos, 100.0);
+			xQuery.Execute(m_xSP9List);
+			if(m_xSP9List.NumEntries()>0)then
+				m_bSPLevel9IslandAttack=true;
+				var ^CAiAttackInfo pxAttackInfo = new CAiAttackInfo();
+				pxAttackInfo^.SetStrategy("violence");
+				pxAttackInfo^.SetPos(vPos);
+				pxAttackInfo^.GetTargets() = m_xSP9List;
+				m_pxBrain^.GetFightModule()^.RequestAttack(pxAttackInfo);
+			else
+				m_bSPLevel9IslandAttack=false;
+			endif;
+		endif;
+	endproc;
+	
+	///RequestOutpost
+	proc void RequestOutpost(int p_iIslandId, vec3 p_vTargetPos, string p_sOutpostType)
+		if(m_pxBrain==null)then return; endif;
+		var ^CAiModuleEconomyDefault pxEM	= cast<CAiModuleEconomyDefault>(m_pxBrain^.GetEconomyModule());
+		if(pxEM == null)then return; endif;
+		pxEM^.StartOutpost(p_iIslandId, p_vTargetPos, p_sOutpostType);
+	endproc;
+	
+	///CheckForWeakestEnemy
+	proc int CheckForWeakestEnemy(array int p_aiLocs)
+		var CAiObjWrapList xEnemyList;
+		var CAiObjQuery xEnemyQuery;
+		var int iOwnerToAttack=-2; 
+		var int iEnemyStrength;
+		m_iEnemyStrength=99999;
+		var int i, iC=p_aiLocs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			xEnemyQuery.Clear();
+			xEnemyList.Clear();
+			xEnemyQuery.SetOwner(p_aiLocs[i]);
+			xEnemyQuery.SetType("CHTR");
+			xEnemyQuery.SetType("ANML",true);
+			xEnemyQuery.SetType("VHCL",true);
+			xEnemyQuery.SetType("BLDG",true);
+			xEnemyQuery.Execute(xEnemyList);
+			iEnemyStrength=CheckUnitLevel(xEnemyList);	
+			if(iEnemyStrength== -1)then continue; endif;
+			if(iEnemyStrength<m_iEnemyStrength)then
+				m_iEnemyStrength=iEnemyStrength;
+				iOwnerToAttack=p_aiLocs[i];
+			endif;
+		endfor;
+		if(iOwnerToAttack== -2)then iOwnerToAttack=p_aiLocs[0]; endif;
+		return iOwnerToAttack;
+	endproc;
+	
+	///CheckForHumanEnemy
+	proc int CheckForHumanEnemy(array int p_aiLocs)
+		var int iOwnerToAttack= -2;
+		var int iNumHumanPlayers=0;
+		var int i, iC=p_aiLocs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CAiBrain pxBrain = CAiWrap.GetBrain(p_aiLocs[i]);
+			if(pxBrain==null)then
+				iOwnerToAttack=p_aiLocs[i];
+				iNumHumanPlayers++;
+			endif;
+		endfor;
+		if(iNumHumanPlayers<=0)then
+			iOwnerToAttack=CheckForWeakestEnemy(p_aiLocs);
+		endif;
+		if(iOwnerToAttack== -2)then return CheckForWeakestEnemy(p_aiLocs); endif;
+		return iOwnerToAttack;
+	endproc;
+	
+	///CheckForLastHumanAttacker
+	proc int CheckForLastHumanAttacker(array int p_aiLocs)
+		var int iLastAttacker=m_pxFM^.GetLastAttacker();
+		if(iLastAttacker != -1)then
+			var ^CAiBrain pxBrain = CAiWrap.GetBrain(iLastAttacker);
+			if(pxBrain==null)then
+				m_iLastAttacker=p_aiLocs.FindEntry(iLastAttacker);
+			elseif((iLastAttacker<0)||(iLastAttacker>7))then
+				m_iLastAttacker=CheckForHumanEnemy(p_aiLocs);
+			else
+				m_iLastAttacker=CheckForHumanEnemy(p_aiLocs);
+			endif;
+		else
+			m_iLastAttacker=CheckForHumanEnemy(p_aiLocs);
+		endif;
+		return m_iLastAttacker;
+	endproc;
+	
+	///CheckUnitLevel
+	proc int CheckUnitLevel(CAiObjWrapList p_xEnemyList)
+		var int	iTotalLevel=0;
+		var int iWorker=0;
+		var int iBldg=0;
+		var int i, iC=p_xEnemyList.Validate();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(p_xEnemyList[i].GetType()!="BLDG")then
+				if(p_xEnemyList[i].GetClassName().Find("_worker")!=(-1))then 
+					iWorker++;
+					continue; 
+				endif;
+				if(p_xEnemyList[i].GetAttribValueInt("level")==0)then
+					iTotalLevel++;
+				elseif(p_xEnemyList[i].GetAttribValueInt("level")==1)then
+					iTotalLevel+=2;
+				elseif(p_xEnemyList[i].GetAttribValueInt("level")==2)then
+					iTotalLevel+=3;
+				elseif(p_xEnemyList[i].GetAttribValueInt("level")==3)then
+					iTotalLevel+=4;
+				elseif(p_xEnemyList[i].GetAttribValueInt("level")==4)then
+					iTotalLevel+=5;
+				endif;
+				if(p_xEnemyList[i].GetAttribValueBool("unique"))then
+					iTotalLevel+=2;
+				endif;	
+			else
+				if((p_xEnemyList[i].GetClassName()=="hu_fireplace")||(p_xEnemyList[i].GetClassName()=="ninigi_fireplace")||(p_xEnemyList[i].GetClassName()=="aje_resource_collector"))then
+					iBldg++;
+				endif;
+			endif;
+		endfor;
+		if(iTotalLevel==0)then iTotalLevel+=iWorker; endif;
+		if(iTotalLevel==0)then iTotalLevel+=iBldg; endif;
+		if(iTotalLevel==0)then iTotalLevel=-1; endif;
+		return iTotalLevel;
+	endproc;
+	
+	///CheckNumFightingUnits
+	proc int CheckNumFightingUnits()
+		var CAiObjWrapList xList;
+		var CAiObjQuery xQuery;
+		xQuery.SetOwner(m_iPlayerID);
+		xQuery.SetType("CHTR");
+		xQuery.SetType("ANML", true);
+		xQuery.SetType("VHCL", true);
+		xList.Clear();
+		xQuery.Execute(xList);
+		var int i, iC=xList.Validate();
+		if(iC<=0)then return 0; endif;
+		for(i=0)cond(i<iC)iter(i++)do
+			if(xList[i].GetClassName().Find("_worker")!=(-1))then
+				xList.RemEntry(xList[i]);
+				i--;iC--;
+			endif;
+		endfor;
+		return xList.NumEntries();
+	endproc;
+	
+endclass;
