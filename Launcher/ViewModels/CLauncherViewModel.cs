@@ -153,6 +153,7 @@ namespace MIRAGE_Launcher.ViewModel
             SelectedLang = LangCollection.FirstOrDefault(i => i.LangID == currLang);
         }
 
+
         private void LoadUI()
         {
             Random random = new Random();
@@ -237,17 +238,6 @@ namespace MIRAGE_Launcher.ViewModel
 
             return true;
         }
-
-        private ObservableCollection<LangInfo> _langCollection = new ObservableCollection<LangInfo>();
-        public ObservableCollection<LangInfo> LangCollection
-        {
-            get => _langCollection;
-            set
-            {
-                Set(ref _langCollection, value);
-            }
-        }
-
         private ObservableCollection<LangInfo> UpdatedLangCollection(string langID)
         {
             ObservableCollection<LangInfo> updatedLangCollection = new ObservableCollection<LangInfo>(LangCollection);
@@ -258,6 +248,16 @@ namespace MIRAGE_Launcher.ViewModel
             }
 
             return updatedLangCollection;
+        }
+
+        private ObservableCollection<LangInfo> _langCollection = new ObservableCollection<LangInfo>();
+        public ObservableCollection<LangInfo> LangCollection
+        {
+            get => _langCollection;
+            set
+            {
+                Set(ref _langCollection, value);
+            }
         }
 
         public class LangInfo
@@ -275,7 +275,6 @@ namespace MIRAGE_Launcher.ViewModel
             {
                 if (_selectedLang == value)
                     return;
-
 
                 _selectedLang = value;
                 LoadDB();
