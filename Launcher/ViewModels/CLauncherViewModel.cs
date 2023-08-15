@@ -259,7 +259,6 @@ namespace MIRAGE_Launcher.ViewModel
                 Set(ref _langCollection, value);
             }
         }
-
         public class LangInfo
         {
             public string FullName { get; set; }
