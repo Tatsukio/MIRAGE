@@ -1,0 +1,1106 @@
+/*
+
+ParaMemory © 2013 by AyCe
+
+done for the Secret Project
+
+*/
+
+class CMemory inherit CStaticCtrl
+
+	static var array string		ms_asPics;
+
+	var int			m_iAITimer, m_iHideTimer;
+	var int			m_iPlayer, m_iTurn, m_iStreak;
+	var int			m_iState; // States: -1=Not started/0=No card/1=First card/2=Both cards, pause/3=End
+	var int			m_iCard1, m_iCard2;
+	var int			m_iRows, m_iCols;
+	var int			m_iShiftX, m_iShiftY;
+	var array int		m_aiLeftCards;
+	var array ^CCard	m_apxCards;
+	var ^CPlayfield		m_pxPlayfield;
+	var ^CStats		m_pxStats;
+	var ^CButton		m_pxButtonQuit;
+	var array ^CMemoryPlayer	m_apxPlayers;
+	
+	export constructor()
+		if(ms_asPics.NumEntries()==0)then
+			LoadNames(ms_asPics);
+		endif;
+
+		var ^CDesktop pxDesktop=CClientWrap.GetDesktop();	
+		SetPos(0,0);
+
+		var int iWidth = pxDesktop^.GetWidth();
+		var int iHeight = pxDesktop^.GetHeight();
+
+		SetSize(iWidth, iHeight);
+
+		var int	iWRemaining = (iWidth-(800+250))/2;
+		var int	iHRemaining = (iHeight-700)/2;
+
+		m_pxPlayfield=new CPlayfield(this);
+		AddChild(m_pxPlayfield);
+		m_pxPlayfield^.SetPos(iWRemaining, iHRemaining);
+		
+		m_pxStats=new CStats();
+		AddChild(m_pxStats);
+		m_pxStats^.SetPos(iWRemaining+800,iHRemaining);
+		m_pxStats^.SetVisible(false);
+
+		m_iShiftX = iWRemaining+800;
+		m_iShiftY = iHRemaining+110;
+
+		m_iPlayer = 0; //human
+		m_iState = -1;
+
+		m_pxPlayfield^.OnGameInit();
+
+		m_pxButtonQuit = new CButton();
+		m_pxButtonQuit^.SetPos(m_iShiftX, iHRemaining+655);
+		m_pxButtonQuit^.SetSize(250, 30);
+		m_pxButtonQuit^.SetText("Quit game");
+		m_pxButtonQuit^.m_xOnClick=OnQuit;
+		AddChild(m_pxButtonQuit);
+	endconstructor;
+	
+	export destructor()
+		Cleanup();
+		//Windows.MessageBox("lol", "test", 0h);
+	enddestructor;
+
+	proc void Cleanup()
+		var ^CCard pxCard;
+		while(m_apxCards.NumEntries()>0)do
+			pxCard = m_apxCards[0];
+			if(m_pxPlayfield!=null)then
+				m_pxPlayfield^.RemoveChild(pxCard^.GetButton());
+			endif;
+			delete pxCard;
+			m_apxCards.DeleteEntry(0);
+		endwhile;
+		var ^CMemoryPlayer pxPlayer;
+		while(m_apxPlayers.NumEntries()>0)do
+			pxPlayer = m_apxPlayers[0];
+			RemoveChild(pxPlayer^.GetPanel());
+			delete pxPlayer;
+			m_apxPlayers.DeleteEntry(0);
+		endwhile;
+		if(m_pxPlayfield != null)then
+			RemoveChild(m_pxPlayfield);
+			delete m_pxPlayfield;
+		endif;
+	endproc;
+
+	proc bool OnQuit()
+		//Cleanup();
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_MAINMENU);
+		return(true);
+	endproc;
+
+	export proc void StartGame(array bool p_abAI, array string p_asNames)
+		Random.Seed();
+		m_apxPlayers = 0;
+		m_iTurn = 0;
+		m_iStreak = 0;
+
+		var bool bAI;
+		var int i,iC = p_abAI.NumEntries();
+		var ^CMemoryPlayer.CMPPanel pxPanel;
+		for(i=0)cond(i<iC)iter(i++)do
+			bAI = p_abAI[i];
+			m_apxPlayers.AddEntry(new CMemoryPlayer(bAI, p_asNames[i]));
+			pxPanel = m_apxPlayers[i]^.GetPanel();
+			pxPanel^.SetPos(m_iShiftX, m_iShiftY+135*i);
+			AddChild(pxPanel);
+		endfor;
+
+		m_iCols = 9;
+		m_iRows = 8;
+
+		var int iMaxNames = ms_asPics.NumEntries();
+
+		var array int aiRemaining;
+
+		var array int aiNames;
+		iC=iMaxNames;
+		for(i=0)cond(i<iC)iter(i++)do
+			aiNames.AddEntry(i);
+		endfor;
+		
+		var array string asCards;
+		m_apxCards = 0;
+		m_aiLeftCards = 0;
+
+		var ^CCard pxCard;
+
+		// Create the buttons and cards
+		iC=m_iCols*m_iRows;
+		//iC =2;
+		for(i=0)cond(i<iC)iter(i++)do
+			pxCard = new CCard(this, i);
+			m_apxCards.AddEntry(pxCard);
+			m_aiLeftCards.AddEntry(i);
+			aiRemaining.AddEntry(i);
+			asCards.AddEntry("");
+			m_pxPlayfield^.AddChild(pxCard^.GetButton());
+		endfor;
+
+		// Assign the same value to two random not-assigned cards
+		i = 0;
+		var int iName, iVName, iC1, iV1, iC2, iV2;
+		var string sName;
+		while(true)do
+			iC = aiRemaining.NumEntries();
+			if(iC == 0)then
+				break;
+			endif;
+			iC1 = Random.GetInt()%iC;
+			iV1 = aiRemaining[iC1];
+			aiRemaining.DeleteEntry(iC1);
+			iC--;
+			iC2 = Random.GetInt()%iC;
+			iV2 = aiRemaining[iC2];
+			aiRemaining.DeleteEntry(iC2);
+			iName = Random.GetInt()%aiNames.NumEntries();
+			iVName = aiNames[iName];
+			aiNames.DeleteEntry(iName);
+			sName = ms_asPics[iVName];
+			asCards[iV1] = sName;
+			asCards[iV2] = sName;
+			i++;
+		endwhile;
+
+		iC=m_apxCards.NumEntries();
+
+		for(i=0)cond(i<iC)iter(i++)do
+			pxCard = m_apxCards[i];
+			pxCard^.SetValue(asCards[i]);
+		endfor;
+
+		iC=m_apxPlayers.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_apxPlayers[i]^.Init(m_apxCards.NumEntries());
+		endfor;
+
+		m_pxStats^.SetVisible(true);
+		m_pxStats^.OnGameStart();
+
+		StartTurn();
+
+	endproc;
+
+	export proc int NumPlayers()
+		return m_apxPlayers.NumEntries();
+	endproc;
+
+	export proc ^CMemory.CMemoryPlayer GetPlayer(int p_iNr)
+		return m_apxPlayers[p_iNr];
+	endproc;
+
+	export proc int GetState()
+		return m_iState;
+	endproc;
+
+	static proc void LoadNames(ref array string p_rasNames)
+		var string sFileName = CClientWrap.GetUrsRelPath() + "/Data/Base/Scripts/Game/misc/memory.txt";
+
+		var string sLine;
+		var Filesystem.CFile xFile;
+		if(xFile.OpenRead(sFileName))then
+			while(!xFile.EndOfFile() && !xFile.Error())do
+				sLine = xFile.GetLn();
+				sLine.TrimLeft();
+				sLine.TrimRight();
+				if(!sLine.IsEmpty() && sLine.Find(";")!=0)then
+					p_rasNames.AddEntry(sLine);
+				endif;
+			endwhile;
+			xFile.Close();
+		else
+			Windows.MessageBox("Error","Names could not be loaded!",0h);
+		endif;
+
+		//sLine = "";
+		//var int i,iC=p_rasNames.NumEntries();
+		//for(i=0)cond(i<iC)iter(i++)do
+		//	sLine += p_rasNames[i]+"\n";
+		//endfor;
+		//Windows.MessageBox("Debug",sLine,0h);
+	endproc;
+
+	export proc bool HumanCanClick()
+		return !m_apxPlayers[m_iPlayer]^.IsAI() && m_iState < 2;
+	endproc;
+
+	export proc void ClickCard(int p_iCard)
+		if(m_iState==0)then
+			m_iCard1 = p_iCard;
+		else
+			m_iCard2 = p_iCard;
+			m_iHideTimer = SetTimer( 1500, false );
+		endif;
+		var ^CCard pxCard = m_apxCards[p_iCard];
+		pxCard^.ShowCard();
+		var int i,iC=m_apxPlayers.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			m_apxPlayers[i]^.NotifyCardIs(p_iCard, pxCard^.GetName());
+		endfor;
+		CGameWrap.GetSoundEventMgrClient().PlayGlobalSound("memory_"+pxCard^.GetName(),CSoundMgrCln.SOUND_VOLTRACK_GLOBAL,0);
+		m_iState++;
+	endproc;
+
+	proc void StartTurn()
+		m_iState = 0;
+		
+		//m_pxStats^.SetPlayer(m_apxPlayers[m_iPlayer]);
+		m_apxPlayers[m_iPlayer]^.StartTurn();
+		if(m_apxPlayers[m_iPlayer]^.IsAI())then
+			// Do AI
+			m_iAITimer = SetTimer( 500, false );
+		endif;
+		m_pxStats^.BuildText();
+	endproc;
+
+	proc bool OnTimer( int p_iID )
+		if ( p_iID == m_iHideTimer ) then
+			var bool bFound = false;
+			var ^CCard pxCard1 = m_apxCards[m_iCard1];
+			var ^CCard pxCard2 = m_apxCards[m_iCard2];
+			if(pxCard1^.GetName()==pxCard2^.GetName())then
+				var string sCardName = pxCard1^.GetName();
+				m_aiLeftCards.RemEntry(m_iCard1);
+				m_aiLeftCards.RemEntry(m_iCard2);
+				pxCard1^.Remove();
+				pxCard2^.Remove();
+				CGameWrap.GetSoundEventMgrClient().PlayGlobalSound("memory_found_pair",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL,0);
+				bFound = true;
+				var int i,iC=m_apxPlayers.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					m_apxPlayers[i]^.NotifyCardRemove(m_iCard1, m_iCard2);
+				endfor;
+				m_apxPlayers[m_iPlayer]^.AddPoints(GetPoints(sCardName));
+			else
+				pxCard1^.HideCard();
+				pxCard2^.HideCard();
+			endif;
+			if(m_aiLeftCards.NumEntries()>0)then
+				m_apxPlayers[m_iPlayer]^.EndTurn();
+				if(!bFound)then
+					m_apxPlayers[m_iPlayer]^.EndMove();
+					m_iStreak = 0;
+					m_iPlayer++;
+					if(m_iPlayer>=m_apxPlayers.NumEntries())then
+						m_iTurn++;
+						m_pxStats^.NextTurn();
+						m_iPlayer = 0;
+					endif;
+				else
+					m_iStreak++;
+					m_apxPlayers[m_iPlayer]^.UpdateStreak(m_iStreak);
+				endif;
+				StartTurn();
+			else
+				m_apxPlayers[m_iPlayer]^.EndMove();
+				m_pxStats^.OnGameEnd();
+				m_pxPlayfield^.OnGameEnd();
+				m_iState = 3;// ende
+			endif;
+			m_pxStats^.SetStreak(m_iStreak);
+		elseif ( p_iID == m_iAITimer ) then
+			if(m_iState==0)then
+				ClickCard(m_apxPlayers[m_iPlayer]^.SelectCard1());
+			elseif(m_iState==1)then
+				ClickCard(m_apxPlayers[m_iPlayer]^.SelectCard2());
+			endif;
+			CGameWrap.GetSoundEventMgrClient().PlayGlobalSound("UI_click",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL,0);
+			if(m_iState==1)then
+				m_iAITimer = SetTimer( 500, false );
+			endif;
+		endif;
+		return( true );
+	endproc;
+
+	proc int GetPoints(string p_sName)
+		if(p_sName=="cole"||p_sName=="bela"||p_sName=="stina"||p_sName=="lovelace"
+		||p_sName=="tesla"||p_sName=="babbage"||p_sName=="darwin"||p_sName=="mayor"
+		||p_sName=="hermit"||p_sName=="trader"||p_sName=="livingstone"||p_sName=="schliemann")then
+			return 3;
+		else
+			return 1;
+		endif;
+	endproc;
+
+	class CPlayfield inherit CFrameWindow
+
+		var ^CMemory		m_pxMemory;
+		var ^CStaticCtrl	m_pxLogo, m_pxGameOver;
+		var array ^CGOPlayer	m_apxGOs;
+		var ^CButton		m_pxBtnStart;
+		var array ^CButton	m_apxBtnPlayers;
+		var array int		m_aiPlayerStates;
+		var int			m_iGameOverTimer;
+		var int			m_iTick;
+
+		export constructor(^CMemory p_pxMemory)
+			if(!InitFromResource("UI/Paragames/Memory","Playfield")) then
+				return;
+			endif;
+			m_pxMemory = p_pxMemory;
+		endconstructor;
+
+		export destructor()
+			KillStartScreen();
+		enddestructor;
+
+		export proc void OnGameInit()
+
+			m_pxBtnStart = new CButton();
+			m_pxBtnStart^.m_xOnClick = ClickStart;
+			m_pxBtnStart^.SetText("Start game!");
+			m_pxBtnStart^.SetPos(300, 600);
+			m_pxBtnStart^.SetSize(200, 30);
+			AddChild(m_pxBtnStart);
+
+			m_pxLogo = new CStaticCtrl();
+			m_pxLogo^.SetBitmap(CGameWrap.GetUrsRelPath() + "/Data/Base/UI/memory_logo.tga");
+			m_pxLogo^.SetPos(200, 20);
+			m_pxLogo^.SetSize(400,130);
+			AddChild(m_pxLogo);
+
+			m_pxGameOver = new CStaticCtrl();
+			m_pxGameOver^.SetBitmap(CGameWrap.GetUrsRelPath() + "/Data/Base/UI/memory_gameover.tga");
+			m_pxGameOver^.SetPos(150, 20);
+			//m_pxGameOver^.SetSize(500,110);
+			m_pxGameOver^.SetSize(0,110);
+
+			m_apxGOs = 0;
+
+			m_apxBtnPlayers = 4;
+			m_aiPlayerStates = m_apxBtnPlayers.NumEntries();
+
+			var ^CButton pxBtnPlr;
+			var int i, iC = m_apxBtnPlayers.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(i==0)then
+					m_aiPlayerStates[i] = 0;
+				else
+					m_aiPlayerStates[i] = 1;
+				endif;
+				pxBtnPlr = new CButton();
+				m_apxBtnPlayers[i] = pxBtnPlr;
+				switch(i)
+					case(0)do
+						pxBtnPlr^.m_xOnClick = PlayerBtn1;
+					endcase;
+					case(1)do
+						pxBtnPlr^.m_xOnClick = PlayerBtn2;
+					endcase;
+					case(2)do
+						pxBtnPlr^.m_xOnClick = PlayerBtn3;
+					endcase;
+					case(3)do
+						pxBtnPlr^.m_xOnClick = PlayerBtn4;
+					endcase;
+					case default do
+					endcase;
+				endswitch;
+				pxBtnPlr^.SetText("[ ]");
+				pxBtnPlr^.SetPos(300, 200+80*i);
+				pxBtnPlr^.SetSize(200, 30);
+				PlayerBtn(i, false);
+				AddChild(pxBtnPlr);
+			endfor;
+
+		endproc;
+
+		proc void KillStartScreen()
+			var ^CButton pxButton;
+			while(m_apxBtnPlayers.NumEntries()>0)do
+				pxButton = m_apxBtnPlayers[0];
+				m_apxBtnPlayers.DeleteEntry(0);
+				RemoveChild(pxButton);
+				delete pxButton;
+			endwhile;
+			if(m_pxBtnStart!=null)then
+				RemoveChild(m_pxBtnStart);
+				delete m_pxBtnStart;
+				m_pxBtnStart = null;
+			endif;
+			if(m_pxLogo!=null)then
+				RemoveChild(m_pxLogo);
+				delete m_pxLogo;
+				m_pxLogo = null;
+			endif;
+		endproc;
+
+		export proc void OnGameEnd()
+			AddChild(m_pxGameOver);
+			m_pxGameOver^.SetSize(0, 110);
+			m_iTick = 0;
+			m_iGameOverTimer = SetTimer(10, true);
+			var array int aiPoints, aiPointsN;
+			aiPoints = 0;
+			var array ^CMemoryPlayer apxPlayers;
+			var ^CMemoryPlayer pxPlayer;
+			var int j,i,iC = m_pxMemory^.NumPlayers();
+			for(i=0)cond(i<iC)iter(i++)do
+				pxPlayer = m_pxMemory^.GetPlayer(i);
+				aiPoints.AddEntry(pxPlayer^.GetPoints());
+				apxPlayers.AddEntry(pxPlayer);
+			endfor;
+			aiPoints.QSort();
+			for(i=0)cond(i<iC)iter(i++)do
+				aiPointsN.AddEntry(aiPoints[iC-1-i]);
+			endfor;
+			aiPoints = aiPointsN;
+			var ^CGOPlayer pxGO;
+			var int iPoints, iPlayerPoints;
+			var int iRank, iStreak;
+			var int iLastRank = 0;
+			var int iLastPoints = 0;
+			var int jC = apxPlayers.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				iPoints = aiPoints[i];
+				// get the player
+				for(j=0)cond(j<jC)iter(j++)do
+					pxPlayer = apxPlayers[j];
+					iPlayerPoints = pxPlayer^.GetPoints();
+					if(iPoints==iPlayerPoints)then
+						apxPlayers.DeleteEntry(j);
+						break;
+					endif;
+				endfor;
+				jC--;
+				if(iLastRank==0)then
+					iRank = 1;
+				elseif(iLastPoints>iPoints)then
+					iRank = i+1;
+				endif;
+				iLastRank = iRank;
+				iLastPoints = iPoints;
+				iStreak = pxPlayer^.GetStreak();
+				pxGO = new CGOPlayer(iRank, pxPlayer^.GetName(), iPoints, iStreak, -i*20);
+				pxGO^.SetPos(250, 200+i*110);
+				AddChild(pxGO);
+				m_apxGOs.AddEntry(pxGO);
+			endfor;
+		endproc;
+
+		proc bool OnTimer( int p_iID )
+			if ( p_iID == m_iGameOverTimer ) then
+				m_iTick++;
+				var bool bReady = true;
+				if(m_iTick <= 100)then
+					bReady = false;
+					m_pxGameOver^.SetSize(5*m_iTick,110);
+					m_pxGameOver^.SetPos(150+(2.5f*(100-m_iTick).ToReal()).ToInt(), 20);
+				endif;
+				var ^CGOPlayer pxGO;
+				var int i,iC = m_apxGOs.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					pxGO = m_apxGOs[i];
+					if(!pxGO^.DoTick())then
+						bReady = false;
+					endif;
+				endfor;
+				if(bReady)then
+					UnsetTimer(m_iGameOverTimer);
+				endif;
+			endif;
+			return( true );
+		endproc;
+
+		proc bool PlayerBtn1()
+			PlayerBtn(0, true);
+			return true;
+		endproc;
+
+		proc bool PlayerBtn2()
+			PlayerBtn(1, true);
+			return true;
+		endproc;
+
+		proc bool PlayerBtn3()
+			PlayerBtn(2, true);
+			return true;
+		endproc;
+
+		proc bool PlayerBtn4()
+			PlayerBtn(3, true);
+			return true;
+		endproc;
+
+		proc bool ClickStart()
+			if(CanStart() && m_pxMemory^.GetState()==-1)then
+				var int iNumHumans = 1;
+				var int iNumAIs = 1;
+				var array bool abAIs;
+				var array string asNames;
+				var int i, iC = m_aiPlayerStates.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					if(m_aiPlayerStates[i]==0)then
+						abAIs.AddEntry(false);
+						asNames.AddEntry("Player #"+iNumHumans.ToString());
+						iNumHumans++;
+					elseif(m_aiPlayerStates[i]==1)then
+						abAIs.AddEntry(true);
+						asNames.AddEntry("AI #"+iNumAIs.ToString());
+						iNumAIs++;
+					endif;
+				endfor;
+				KillStartScreen();
+				m_pxMemory^.StartGame(abAIs, asNames);
+			endif;
+			return true;
+		endproc;
+
+		proc bool CanStart()
+			var int iNumPlayers = 0;
+			var int i, iC = m_aiPlayerStates.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(m_aiPlayerStates[i]!=2)then
+					return true;
+				endif;
+			endfor;
+			return false;
+		endproc;
+
+		proc void PlayerBtn(int p_iNr, bool p_bChange)
+			if(p_bChange)then
+				m_aiPlayerStates[p_iNr]++;
+				if(m_aiPlayerStates[p_iNr] >= 3)then
+					m_aiPlayerStates[p_iNr] = 0;
+				endif;
+			endif;
+			var string sName = "-";
+			if(m_aiPlayerStates[p_iNr] == 0)then
+				sName = "Human player";
+			elseif(m_aiPlayerStates[p_iNr] == 1)then
+				sName = "AI player";
+			endif;
+			m_apxBtnPlayers[p_iNr]^.SetText(sName);
+			m_pxBtnStart^.SetDisabled(!CanStart());
+		endproc;
+
+		class CGOPlayer inherit CStaticCtrlEx
+			var ^CStaticCtrl	m_pxRank;
+			var ^CStaticCtrl	m_pxName;
+			var ^CStaticCtrl	m_pxPoints;
+			var ^CStaticCtrl	m_pxStreak;
+			var string		m_sRank, m_sRankFull;
+			var string		m_sName, m_sNameFull;
+			var string		m_sPoints, m_sPointsFull;
+			var string		m_sStreak, m_sStreakFull;
+			var int			m_iTick, m_iAnimState;
+			const color RANK_COLOR = {{220,0,0,255}};
+			const color NAME_COLOR = {{200,200,200,255}};
+			const color POINTS_COLOR = {{255,255,255,255}};
+			const color STREAK_COLOR = {{50,50,255,255}};
+
+			export constructor(int p_iRank, string p_sName, int p_iPoints, int p_iStreak, int p_iStart)
+				if(!InitFromResource("UI/Paragames/Memory","GOPlayer")) then
+					return;
+				endif;
+				SetBitmap(CGameWrap.GetUrsRelPath() + "/Data/Base/UI/memory_goborder.tga");
+				m_pxRank=cast<CStaticCtrl>(GetControl("Rank"));
+				m_pxName=cast<CStaticCtrl>(GetControl("Name"));
+				m_pxPoints=cast<CStaticCtrl>(GetControl("Points"));
+				m_pxStreak=cast<CStaticCtrl>(GetControl("Streak"));
+				m_pxRank^.SetText("");
+				m_pxName^.SetText("");
+				m_pxPoints^.SetText("");
+				m_pxStreak^.SetText("");
+				m_pxRank^.SetTextColor(RANK_COLOR);
+				m_pxName^.SetTextColor(NAME_COLOR);
+				m_pxPoints^.SetTextColor(POINTS_COLOR);
+				m_pxStreak^.SetTextColor(STREAK_COLOR);
+				m_sRankFull = p_iRank.ToString()+".  ";
+				m_sNameFull = p_sName;
+				m_sPointsFull = "points: "+p_iPoints.ToString();
+				m_sStreakFull = "streak: "+p_iStreak.ToString();
+				m_iTick = p_iStart;
+				m_iAnimState = -1;
+				SetSize(0, 90);
+			endconstructor;
+
+			export destructor()
+			enddestructor;
+
+			export proc bool DoTick()
+				if(m_iAnimState == 5)then
+					return true;
+				endif;
+				switch(m_iAnimState)
+					case(-1)do
+						m_iTick++;
+						if(m_iTick>=0)then
+							m_iTick = 0;
+							m_iAnimState = 0;
+						endif;
+					endcase;
+					case(0)do
+						SetSize(3*m_iTick, 90);
+						m_iTick++;
+						if(m_iTick==100)then
+							m_iTick = 0;
+							m_iAnimState = 1;
+						endif;
+					endcase;
+					case(1)do
+						var int iMax = m_sRankFull.GetLength();
+						m_iTick++;
+						m_sRank = m_sRankFull.Left(m_iTick);
+						m_pxRank^.SetText(m_sRank);
+						if(m_iTick==iMax)then
+							m_iTick = 0;
+							m_iAnimState = 2;
+						endif;
+					endcase;
+					case(2)do
+						var int iMax = m_sNameFull.GetLength();
+						m_iTick++;
+						m_sName = m_sNameFull.Left(m_iTick);
+						m_pxName^.SetText(m_sName);
+						if(m_iTick==iMax)then
+							m_iTick = 0;
+							m_iAnimState = 3;
+						endif;
+					endcase;
+					case(3)do
+						var int iMax = m_sPointsFull.GetLength();
+						m_iTick++;
+						m_sPoints = m_sPointsFull.Left(m_iTick);
+						m_pxPoints^.SetText(m_sPoints);
+						if(m_iTick==iMax)then
+							m_iTick = 0;
+							m_iAnimState = 4;
+						endif;
+					endcase;
+					case(4)do
+						var int iMax = m_sStreakFull.GetLength();
+						m_iTick++;
+						m_sStreak = m_sStreakFull.Left(m_iTick);
+						m_pxStreak^.SetText(m_sStreak);
+						if(m_iTick==iMax)then
+							m_iTick = 0;
+							m_iAnimState = 5;
+						endif;
+					endcase;
+					case default do endcase;
+				endswitch;
+				return false;
+			endproc;
+		endclass;
+	endclass;
+
+	class CMemoryPlayer
+		var string		m_sName;
+		var int			m_iCard1, m_iCard2;
+		var int			m_iPoints, m_iPointsNew, m_iStreak;
+		var bool		m_bAI, m_bMyTurn;
+		var array string	m_asCardValues;
+		var ^CMPPanel		m_pxPanel;
+
+		export constructor(bool p_bAI, string p_sName)
+			m_bAI = p_bAI;
+			m_sName = p_sName;
+			m_pxPanel = new CMPPanel();
+			m_pxPanel^.SetCaption(p_sName);
+			m_iPoints = 0;
+			m_iPointsNew = 0;
+			m_iStreak = 0;
+			m_pxPanel^.SetPoints(m_iPoints, m_iPointsNew);
+			m_pxPanel^.SetStreak(m_iStreak);
+		endconstructor;
+
+		export destructor()
+			delete m_pxPanel;
+		enddestructor;
+
+		export proc ^CMemory.CMemoryPlayer.CMPPanel GetPanel()
+			return m_pxPanel;
+		endproc;
+
+		export proc void NotifyCardIs(int p_iID, string p_sName)
+			if(IsAI())then
+				// 1/2 chance if my turn, 1/4 chance if other turn
+				if((m_bMyTurn && (Random.GetInt()%2)==0) || (!m_bMyTurn && (Random.GetInt()%4)==0))then
+					m_asCardValues[p_iID] = p_sName;
+				endif;
+			endif;
+		endproc;
+
+		export proc void NotifyCardRemove(int p_iID1, int p_iID2)
+			if(IsAI())then
+				m_asCardValues[p_iID1] = "";
+				m_asCardValues[p_iID2] = "";
+			endif;
+		endproc;
+
+		export proc void AddPoints(int p_iNewPoints)
+			m_iPointsNew += p_iNewPoints;
+			m_iPoints += p_iNewPoints;
+			m_pxPanel^.SetPoints(m_iPoints, m_iPointsNew);
+		endproc;
+
+		export proc void UpdateStreak(int p_iNewStreak)
+			if(p_iNewStreak > m_iStreak)then
+				m_iStreak = p_iNewStreak;
+				m_pxPanel^.SetStreak(m_iStreak);
+			endif;
+		endproc;
+
+		export proc void StartTurn()
+			m_iCard1 = -1;
+			m_iCard2 = -1;
+			m_bMyTurn = true;
+			m_pxPanel^.SetThisTurn(true);
+		endproc;
+
+		export proc void EndTurn()
+			m_bMyTurn = false;
+		endproc;
+
+		export proc void EndMove()
+			m_iPointsNew = 0;
+			m_pxPanel^.SetPoints(m_iPoints, m_iPointsNew);
+			m_pxPanel^.SetThisTurn(false);
+		endproc;
+
+		export proc int SelectCard1()
+			Random.Seed();
+			// 1. search for pairs
+			// 2. if not, select random card we don't know yet
+			var array int aiUnknown;
+			var array int aiPairs1, aiPairs2;
+			var array int aiKnown;
+			var array string asKnown;
+			var string sValue;
+			// This is just "parsing"
+			var int iPrev,i,iC = m_asCardValues.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				sValue = m_asCardValues[i];
+				if(sValue!="")then
+					if(sValue=="?")then
+						aiUnknown.AddEntry(i);
+					else
+						// seek previous entries
+						iPrev = asKnown.FindEntry(sValue);
+						if(iPrev==-1)then
+							aiKnown.AddEntry(i);
+							asKnown.AddEntry(sValue);
+						else
+							aiPairs1.AddEntry(i);
+							aiPairs2.AddEntry(aiKnown[iPrev]);
+						endif;
+					endif;
+				endif;
+			endfor;
+
+			// if we got sure pairs, instantly choose them
+			iC = aiPairs1.NumEntries();
+			if(iC > 0)then
+				// if we know card1, use
+				if(m_iCard1 != -1)then
+					var int iIdx1 = aiPairs1.FindEntry(m_iCard1);
+					var int iIdx2 = aiPairs2.FindEntry(m_iCard1);
+					if(iIdx1 != -1)then
+						return aiPairs2[iIdx1];
+					elseif(iIdx2 != -1)then
+						return aiPairs1[iIdx2];
+					endif;
+				endif;
+				i = Random.GetInt()%iC;
+				if((Random.GetInt()%2)==0)then
+					m_iCard1 = aiPairs1[i];
+					m_iCard2 = aiPairs2[i];
+				else
+					m_iCard1 = aiPairs2[i];
+					m_iCard2 = aiPairs1[i];
+				endif;
+			else
+				// if card1 has been selected, remove it from the pot
+				if(m_iCard1 != -1)then
+					iC = aiUnknown.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						if(aiUnknown[i]==m_iCard1)then
+							aiUnknown.DeleteEntry(i);
+							break;
+						endif;
+					endfor;
+					iC = aiKnown.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						if(aiKnown[i]==m_iCard1)then
+							aiKnown.DeleteEntry(i);
+							asKnown.DeleteEntry(i);
+							break;
+						endif;
+					endfor;
+				endif;
+				// select a random, still unknown card
+				iC = aiUnknown.NumEntries();
+				if(iC==0)then
+					// well, select a known card then...
+					// is however impossible on normal ways because the number
+					// of cards must be dividable by 2. 2 known cards -> pair
+					iC = aiKnown.NumEntries();
+					i = Random.GetInt()%iC;
+					m_iCard1 = aiKnown[i];
+				else
+					i = Random.GetInt()%iC;
+					m_iCard1 = aiUnknown[i];
+				endif;
+			endif;
+
+			return m_iCard1;
+		endproc;
+
+		export proc int SelectCard2()
+			if(m_iCard2==-1)then
+				// Try to find a pair now
+				return SelectCard1();
+			else
+				return m_iCard2;
+			endif;
+		endproc;
+
+		export proc void Init(int p_iNumCards)
+			m_asCardValues = p_iNumCards;
+			var int i;
+			for(i=0)cond(i<p_iNumCards)iter(i++)do
+				m_asCardValues[i] = "?";
+			endfor;
+		endproc;
+
+		export proc bool IsAI()
+			return m_bAI;
+		endproc;
+
+		export proc string GetName()
+			return m_sName;
+		endproc;
+
+		export proc int GetPoints()
+			return m_iPoints;
+		endproc;
+
+		export proc int GetStreak()
+			return m_iStreak;
+		endproc;
+
+		class CMPPanel inherit CFrameWindow
+			var ^CStaticCtrl	m_pxPoints;
+			var ^CStaticCtrl	m_pxPointsAdd;
+			var ^CStaticCtrl	m_pxStreak;
+			var ^CStaticCtrl	m_pxMyTurn;
+			const color ADD_COLOR = {{0,255,0,255}};
+			const color CURRENT_COLOR = {{200,200,0,255}};
+
+			export constructor()
+				if(!InitFromResource("UI/Paragames/Memory","MPPanel")) then
+					return;
+				endif;
+				m_pxPoints=cast<CStaticCtrl>(GetControl("Points"));
+				m_pxPointsAdd=cast<CStaticCtrl>(GetControl("PointsAdd"));
+				m_pxStreak=cast<CStaticCtrl>(GetControl("Streak"));
+				m_pxMyTurn=cast<CStaticCtrl>(GetControl("MyTurn"));
+				m_pxPointsAdd^.SetTextColor(ADD_COLOR);
+				m_pxMyTurn^.SetTextColor(CURRENT_COLOR);
+				m_pxMyTurn^.SetVisible(false);
+			endconstructor;
+
+			export destructor()
+			enddestructor;
+
+			export proc void SetThisTurn(bool p_bThis)
+				m_pxMyTurn^.SetVisible(p_bThis);
+			endproc;
+
+			export proc void SetPoints(int p_iPoints, int p_iPointsAdd)
+				m_pxPoints^.SetText("Points:  "+(p_iPoints-p_iPointsAdd).ToString());
+				if(p_iPointsAdd==0)then
+					m_pxPointsAdd^.SetText("");
+				else
+					m_pxPointsAdd^.SetText("+ "+p_iPointsAdd.ToString());
+				endif;
+			endproc;
+
+			export proc void SetStreak(int p_iStreak)
+				m_pxStreak^.SetText("Max. Streak:  "+p_iStreak.ToString());
+			endproc;
+		endclass;
+	endclass;
+
+	class CCard
+		var ^CMemory	m_pxMemory;
+		var bool	m_bInvis, m_bOpen;
+		var ^CButton m_pxButton;
+		var string m_sName;
+		var int m_iID;
+
+		export constructor(^CMemory p_pxMemory, int p_iID)
+			m_pxMemory = p_pxMemory;
+			m_iID = p_iID;
+			m_bInvis = false;
+			m_pxButton = new CButton();
+			m_pxButton^.m_xOnClick=OnAction;
+			m_pxButton^.SetFrame(false);
+			m_pxButton^.SetText(""+m_iID.ToString());
+			m_pxButton^.SetPos(25+(m_iID%9)*80, 10+(m_iID/9)*80);
+			m_pxButton^.SetSize(64, 61);
+			HideCard();
+		endconstructor;
+
+		export destructor()
+			delete m_pxButton;
+		enddestructor;
+
+		export proc ^CButton GetButton()
+			return m_pxButton;
+		endproc;
+
+		export proc void SetValue(string p_sValue)
+			m_sName = p_sValue;
+		endproc;
+
+		export proc void HideCard()
+			m_pxButton^.SetDisabled(false);
+			m_bOpen = false;
+			m_pxButton^.SetVisible(!m_bInvis);
+			m_pxButton^.SetBitmap( CGameInst.GetBitmapMgr().GetBlendBitmap( "4, layer info_crdbg_std, layer info_crdframe_small" )^.GetBitmap());
+		endproc;
+
+		export proc void ShowCard()
+			m_pxButton^.SetDisabled(true);
+			m_bOpen = true;
+			m_pxButton^.SetVisible(!m_bInvis);
+
+			var string sUnitClass = m_sName;
+
+
+
+			var string sBlend = "4";
+			sBlend += ", layer "+sUnitClass+", layer info_crdframe_clear";
+			
+			if ( CGameInst.GetBitmapMgr().BlendSourceExists(sUnitClass)==true ) then
+				var ^CCardBitmap pxCardBitmap = CGameInst.GetBitmapMgr().GetBlendBitmap( sBlend );
+				if (pxCardBitmap != null) then
+					m_pxButton^.SetBitmap( pxCardBitmap^.GetBitmap());
+				else
+					sBlend = "4, layer info_crdbg_std, layer info_crdframe_small ";
+					m_pxButton^.SetBitmap( CGameInst.GetBitmapMgr().GetBlendBitmap( sBlend )^.GetBitmap());
+				endif;
+			else
+				sBlend = "4, layer info_crdbg_std, layer info_crdframe_small ";
+				m_pxButton^.SetBitmap( CGameInst.GetBitmapMgr().GetBlendBitmap( sBlend )^.GetBitmap());
+			endif;
+		endproc;
+
+		export proc void Remove()
+			m_bInvis = true;
+			HideCard();
+		endproc;
+
+		export proc string GetName()
+			return m_sName;
+		endproc;
+
+		proc bool OnAction()
+			if(!m_bInvis && !m_bOpen && m_pxMemory^.HumanCanClick())then
+				m_pxMemory^.ClickCard(m_iID);
+			endif;
+			return(true);
+		endproc;
+	endclass;
+
+	class CStats inherit CFrameWindow
+
+		var CTime		m_xStartTime;
+		var int			m_iSecsOld;
+		var int			m_iSeconds;
+		var int			m_iMinutes;
+		var int			m_iHours;
+		var ^CStaticCtrl	m_pxTimer;
+		var int			m_iTimer;
+		var int			m_iTurn;
+		var int			m_iStreak;
+
+		export constructor()
+			if(!InitFromResource("UI/Paragames/Memory","Stats")) then
+				return;
+			endif;
+			m_iSecsOld = -1;
+			m_iSeconds = 0;
+			m_iMinutes = 0;
+			m_iHours = 0;
+			m_pxTimer=cast<CStaticCtrl>(GetControl("Timer"));
+			m_iTurn = -1;
+			m_iStreak = 0;
+			Tick();
+		endconstructor;
+		
+		export destructor()
+			UnsetTimer(m_iTimer);
+		enddestructor;
+
+		export proc void OnGameStart()
+			m_xStartTime = CTime.CurrentTime();
+			m_iTimer = SetTimer( 1000, true );
+			m_iTurn = 1;
+			Tick();
+		endproc;
+
+		export proc void OnGameEnd()
+			UnsetTimer(m_iTimer);
+		endproc;
+
+		export proc void NextTurn()
+			m_iTurn++;
+		endproc;
+
+		proc void Tick()
+			var CTimeSpan xTime = CTime.CurrentTime()-m_xStartTime;
+			m_iSeconds = xTime.GetSeconds();
+			m_iMinutes = m_iSeconds/60;
+			m_iHours = m_iMinutes/60;
+			m_iSeconds -= m_iMinutes*60;
+			m_iMinutes -= m_iHours*60;
+			if(m_iSecsOld != m_iSeconds)then
+				BuildText();
+			endif;
+			m_iSecsOld = m_iSeconds;
+		endproc;
+
+		export proc void BuildText()
+			var string sText = "";
+			if(m_iTurn > -1)then
+				sText = m_iHours.ToString()+":"+Format(m_iMinutes)+":"+Format(m_iSeconds)+" - turn "+m_iTurn.ToString();
+				if(m_iStreak > 0)then
+					sText += " - streak: "+m_iStreak.ToString();
+				endif;
+			endif;
+			m_pxTimer^.SetText(sText);
+		endproc;
+
+		export proc void SetStreak(int p_iStreak)
+			m_iStreak = p_iStreak;
+			BuildText();
+		endproc;
+
+		proc string Format(int p_iTime)
+			if(p_iTime < 10)then
+				return "0"+p_iTime.ToString();
+			else
+				return p_iTime.ToString();
+			endif;
+		endproc;
+
+		proc bool OnTimer( int p_iID )
+			if ( p_iID == m_iTimer ) then
+				Tick();
+			endif;
+			return( true );
+		endproc;
+	endclass;
+endclass;

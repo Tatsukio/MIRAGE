@@ -1,0 +1,302 @@
+class CMainMenu inherit CFrameWindow
+	
+	var ^CDesktop				m_pxDesktop;
+	var array ^CMenuButton		m_apxButtons;
+	var int						m_iSelectedButton;	
+	var string					m_sLastCampaignLevel;
+	var int						m_iTimerID;
+	var bool					m_bMultiplayerEnable;
+	var bool					m_bSkirmishEnable;
+	var bool					m_bCampaignEnable;
+	var CUIStateMgr.CLoadScreenInfo	m_xContinueGameLoadScreenInfo;
+	
+	export constructor()		
+		if(!InitFromResource("UI/MainMenu","MainMenu")) then
+			return;
+		endif;
+		
+		m_pxDesktop=CClientWrap.GetDesktop();
+		
+		var bool bAServerIsStillRunning=CGameWrap.IsServerExeRunning();
+		if(bAServerIsStillRunning)then
+			m_iTimerID=SetTimer(200,true);
+		endif;
+		
+		SetSize(300,380);
+		SetPos(30,30);
+		
+		var ^CMenuButton pxTmp = cast<CMenuButton>(GetControl("Memory"));
+		pxTmp^.m_xOnClick=OnStartMemory;
+		m_apxButtons.AddEntry(pxTmp);
+		
+		pxTmp = cast<CMenuButton>(GetControl("TempleRun"));
+		pxTmp^.m_xOnClick=OnStartTempleRun;
+		pxTmp^.SetVisible(false); // not done!
+		m_apxButtons.AddEntry(pxTmp);
+		
+		pxTmp = cast<CMenuButton>(GetControl("Quit"));
+		pxTmp^.m_xOnClick=AskForQuit;
+		m_apxButtons.AddEntry(pxTmp);
+
+		//SetWindowTitle(CLocalizer.Get().Translate("_UI_MainMenu_Title_Menu"));
+		AddAccelerator("UP, NONE,Up");
+		AddAccelerator("DOWN, NONE,Down");
+		AddAccelerator("RETURN, NONE,Return");
+		SetCmd("Up",MenuUp);
+		SetCmd("Down",MenuDown);
+		SetCmd("Return",OnReturn);
+		m_iSelectedButton=0;		
+		//CLocalizer.Get().Translate("_CampaignMenuWnd_WndTitle")
+	endconstructor;
+	
+	destructor()
+		DeleteAccelerator("UP, NONE,Up");
+		DeleteAccelerator("DOWN, NONE,Down");
+		DeleteCmd("Up");
+		DeleteCmd("Down");
+		
+		UnsetTimer(m_iTimerID);
+	enddestructor;
+	
+	export proc bool Init()
+		m_sLastCampaignLevel.Empty();
+		var ^CMapInfoList.CMapInfo pxLCLMapInfo=null;		
+		var ^CUserProfileList pxList = ^(CClientWrap.GetUserProfileList());
+		var string sSaveGamePath=pxList^.GetSaveGamePath();
+		var CMapInfoList xMapInfoList;
+		CGameWrap.GetMapInfoList(sSaveGamePath,xMapInfoList,200,200);
+		var int i,iC=xMapInfoList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CMapInfoList.CMapInfo pxMapInfo=^(xMapInfoList.GetMapInfo(i));	
+			if(!pxMapInfo^.GetLevelInfo().IsMultiplayer())then
+				if(pxLCLMapInfo==null)then
+					pxLCLMapInfo=pxMapInfo;
+				else
+					if(pxMapInfo^.GetLastWriteTime()>pxLCLMapInfo^.GetLastWriteTime())then						
+						pxLCLMapInfo=pxMapInfo;
+					endif;
+				endif;				
+			endif;
+		endfor;
+		if(pxLCLMapInfo!=null)then
+			m_sLastCampaignLevel=pxLCLMapInfo^.GetFile();
+			m_xContinueGameLoadScreenInfo.Set(CUIStateMgr.CLoadScreenInfo.LOADSCR_SAVEGAME,pxLCLMapInfo^.GetMapName(),pxLCLMapInfo^.GetLevelInfo().GetLevelCheckSumme());
+		endif;
+		//m_pxContinueCampaignBtn^.SetDisabled(m_sLastCampaignLevel.IsEmpty());		
+		return(true);
+	endproc;
+
+	proc bool OnMultiplayer()
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_MULTIPLAYERSELECT);
+		return true;
+	endproc;
+	
+	export proc bool OnSkirmish()
+		CMultiPlayerClientMgr.Get().SetSkirmishMode(true); 
+		CMultiPlayerClientMgr.Get().SetDirectIPMode(false);
+		CGameWrap.SetGameSpyGame(false);
+		CGameWrap.SetInternetGame(false);
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_NEWMULTIPLAYERLOBBY,"LAN");
+	/*
+		//if(CGameWrap.GetClient().GetPlayerSlotID().IsValid())then
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_SKIRMISH);
+			CGameWrap.SetGameSpyGame(false);
+		/ *else
+			OnCheckForServer();	
+		endif;* /
+	*/
+		return true;
+	endproc;
+/*
+	proc bool OnCheckForServer()
+		CGameWrap.StopFindServers();
+		CGameWrap.m_xOnServerFound.Clear();		
+		if(!CClientWrap.HasServer())then
+			CUIStateMgr.Get().InvalidateLoadScreenInfo();
+			CUIStateMgr.Get().ShowLoadingScreen("StartingNetworkServer",CUIStateMgr.STATE_SKIRMISH);
+		else
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_SKIRMISH);
+		endif;
+		return(true);
+	endproc;
+*/
+	proc bool OnStartMemory()
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_PLAYMEMORY);
+		return(true);
+	endproc;
+
+	proc bool OnStartTempleRun()
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_PLAYTEMPLERUN);
+		return(true);
+	endproc;
+
+	proc bool OnStartNewCampaign()
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_STARTCAMPAIGN);
+		CGameWrap.SetGameSpyGame(false);		
+		return(true);
+	endproc;
+
+	proc bool OnContinueCampaign()
+		CGameWrap.SetGameSpyGame(false);
+
+		System.Assert(CClientWrap.HasServer()==false,"CClientWrap.HasServer()==false");
+		CUIStateMgr.Get().SetLoadScreenInfo(m_xContinueGameLoadScreenInfo);
+		CUIStateMgr.Get().ShowLoadingScreen("StartingServerAndStartingGame",-1,OnContinueCampaignEnd);
+		return(true);
+	endproc;
+	
+	proc bool OnContinueCampaignEnd()
+		CEvt_LoadLevelPreview.Send(m_sLastCampaignLevel);
+		CEvt_StartGame.Send();
+		return true;
+	endproc;
+	
+	proc bool OnLoadGame()
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_LOADGAMEMENU);
+		return true;
+	endproc;
+	
+	proc bool OnOptions()
+		CUIStateMgr.Get().SetState(CUIStateMgr.STATE_OPTIONSMENU);
+		return true;
+	endproc;
+	
+	proc bool OnCredits()
+		CClientWrap.PlayBink("credits.bik");
+		return true;
+	endproc;
+	
+	proc bool OnWebsite()
+		var CConfig xConf;
+		//var string sURL=xConf.GetS("Game/GUIOptions/PWHomeURL","http://www.paraworld.com");
+		m_pxDesktop^.OpenURLInBrowser("http://www.para-welt.com");
+		return true;
+	endproc;
+	
+	proc bool AskForQuit()
+		CMessageBox.MsgBox_YESNO(CLocalizer.Get().Translate("_UI_MainMenu_Title_QuitToWindows"),CLocalizer.Get().Translate("_UI_MainMenu_Label_QuitToWindows"),CMessageBox.SMB_ICONQUESTION,OnQuitMsgBox_CallBack);
+		return true;
+	endproc;
+	
+	proc ^CQuestionWindow CreateQuestionWindow(string p_sText)
+		var ^CQuestionWindow pxTmp= new CQuestionWindow(p_sText);
+		CClientWrap.GetDesktop()^.AddChild(pxTmp);
+		return pxTmp;
+	endproc;
+	
+	proc void OnQuitMsgBox_CallBack(int p_iResult)
+		var bitset dwResult = Math.IntToBitset(p_iResult);
+		if(dwResult==CMessageBox.SID_YES)then
+			CGameWrap.Quit();
+		endif;
+	endproc;
+
+	proc bool MenuDown()
+		if(m_iSelectedButton<m_apxButtons.NumEntries()-1)then
+			m_iSelectedButton++;
+		else
+			m_iSelectedButton=0;
+		endif;
+		//L KLog.LogWarn("Manni","Selected Button: "+m_iSelectedButton.ToString());
+		return(true);
+	endproc;
+	
+	proc bool MenuUp()
+		if(m_iSelectedButton>0)then
+			m_iSelectedButton--;
+		else
+			m_iSelectedButton=m_apxButtons.NumEntries()-1;
+		endif;
+		//L KLog.LogWarn("Manni","Selected Button: "+m_iSelectedButton.ToString());
+		return(true);
+	endproc;
+	
+	proc bool OnReturn()
+		m_apxButtons[m_iSelectedButton]^.m_xOnClick.Call();
+		return(true);
+	endproc;
+	
+	proc bool OnTimer(int p_iTimerID)
+		if(p_iTimerID==m_iTimerID)then
+			if(CGameWrap.IsServerExeRunning()==false)then
+				
+				var int i;				
+				for(i=0)cond(i<5)iter(i++)do
+					m_apxButtons[i]^.SetDisabled(false);
+					if((i==1))then // Continue Campaign Button
+						m_sLastCampaignLevel.Empty();
+						var ^CMapInfoList.CMapInfo pxLCLMapInfo=null;		
+						var ^CUserProfileList pxList = ^(CClientWrap.GetUserProfileList());
+						var string sSaveGamePath=pxList^.GetSaveGamePath();
+						var CMapInfoList xMapInfoList;
+						CGameWrap.GetMapInfoList(sSaveGamePath,xMapInfoList,200,200);
+						var int i,iC=xMapInfoList.NumEntries();
+						for(i=0)cond(i<iC)iter(i++)do
+							var ^CMapInfoList.CMapInfo pxMapInfo=^(xMapInfoList.GetMapInfo(i));	
+							if(!pxMapInfo^.GetLevelInfo().IsMultiplayer())then
+								if(pxLCLMapInfo==null)then
+									pxLCLMapInfo=pxMapInfo;
+								else
+									if(pxMapInfo^.GetLastWriteTime()>pxLCLMapInfo^.GetLastWriteTime())then						
+										pxLCLMapInfo=pxMapInfo;
+									endif;
+								endif;				
+							endif;
+						endfor;
+						if(pxLCLMapInfo!=null)then
+							m_sLastCampaignLevel=pxLCLMapInfo^.GetFile();
+						endif;
+						//m_pxContinueCampaignBtn^.SetDisabled(m_sLastCampaignLevel.IsEmpty());									
+					endif;
+					/*
+					if(i==3)then // Skirmish Button
+						m_apxButtons[i]^.SetDisabled(true);
+					endif;
+					*/
+				endfor;
+								
+				
+				UnsetTimer(m_iTimerID);								
+			endif;
+		endif;			
+		return(true);
+	endproc;
+
+
+endclass;
+
+class CMenuButton inherit CButton
+	
+	export constructor()		
+		SetTransparent(true);
+		SetBackground(false);
+		SetTextAlign(0);
+		SetTextIndent(6);
+	endconstructor;
+	
+	
+endclass;
+
+class CMMScreen inherit CStaticCtrl
+	
+	var ^CMainMenu m_pxMainMenu;
+	
+	export constructor()
+		var ^CDesktop pxDesktop=CClientWrap.GetDesktop();	
+		SetPos(0,0);
+		SetSize(pxDesktop^.GetWidth(),pxDesktop^.GetHeight());
+		m_pxMainMenu = new CMainMenu();
+		AddChild(m_pxMainMenu);
+	endconstructor;
+	
+	export destructor()
+	enddestructor;
+
+	export proc bool Init()
+		return m_pxMainMenu^.Init();
+	endproc;
+
+	export proc bool OnSkirmish()
+		return m_pxMainMenu^.OnSkirmish();
+	endproc;
+endclass;

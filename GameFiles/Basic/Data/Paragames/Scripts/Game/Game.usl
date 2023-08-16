@@ -1,0 +1,2946 @@
+class CGameInst inherit IEvtInterface
+
+	var ^CDesktop 					m_pxDesktop;
+
+	var ^CCamera 					m_pxCamera;
+
+	var int							m_iLevel;
+	var bool						m_bLinkedCam;
+	var int							m_iPathCam;
+	var bool						m_bSpecial;
+	var bool						m_bCapture;
+	var bool 						m_bProfiler;
+	var bool 						m_bShowRangeMarkers;
+	var bool						m_bShowInfoIcons;
+	var int							m_iRangeMarkerSeconds;
+	var bool						m_bGetGameSpyError;
+	export static var int			ms_iIdleWorkerIndex;
+	export static var int			ms_iHQIndex;
+	export static var string		ms_sTribe;	
+	static var ^CNewChatWindow		ms_pxChatWindow;
+	
+	export var procref<void, bitset>		m_xOnLvlInfoUpdate;
+
+	// -- constants for the p_iType parameter of all Play* variants
+	const int SOUNDEVT_TYPE_3D			= 1;
+	const int SOUNDEVT_TYPE_FAKE_3D	= 2;
+	const int SOUNDEVT_TYPE_GLOBAL	= 3;
+
+	const int WAIT_FOR_SERVER_SHUT_TIMER=301; 
+
+	export static var CSelectionInfo	ms_xSelectionInfo;
+	
+	static var bool					ms_bDoAutosave;
+	var bool						m_bIsPlayingSequence;
+	var bool						m_bIsLoadingGame;
+	var bool						m_bIsGameStarted;
+
+	/*export proc void Debug()
+		var Filesystem.CFile xFile;
+		if(xFile.OpenAppend("pwgames.txt"))then
+			xFile.PrintLn("---");
+			xFile.PrintLn("etzat!");
+			xFile.Close();
+		else
+			Windows.MessageBox("Debug","Jo ne",0h);
+		endif;
+	endproc;*/
+
+	export constructor()
+//Debug();
+		Random.Seed();
+
+		m_bSpecial=false;
+
+		m_bLinkedCam=false;
+		m_iPathCam=-1;
+		m_iLevel=(-1);
+		m_pxDesktop=CClientWrap.GetDesktop();
+
+		var procref<void> xProcRef=OnTick;
+		CClientWrap.SetProcRefTick(xProcRef);
+
+		
+		InitCommands();
+		
+		CMultiPlayerClientMgr.Get().Init();
+
+		m_pxCamera=CClientWrap.GetCamera();
+
+		//Load and init all cursors
+		CCursorMgr.Get().Init();
+
+		m_bCapture=true;
+
+		CWindowMgr.Get().SetShowTooltip(false);
+		CWindowMgr.Get().BringWindowToTop(m_pxDesktop,true);
+		CWindowMgr.Get().AddAutoscalePatternAbs("*loading_background*",m_pxDesktop^.GetWidth(),m_pxDesktop^.GetHeight());
+		CWindowMgr.Get().AddAutoscalePatternAbs("*loadbg*",m_pxDesktop^.GetWidth(),m_pxDesktop^.GetHeight());
+		
+
+		/*
+		CWindowMgr.Get().BringWindowToTop(m_pxDesktop,true);
+		CWindowMgr.Get().SetToolTipDelay(0);
+
+		//Gehört hier nicht hin, aber scheiss drauf
+		if(CSettings.NumSubs("Pest/Rendering/Gamma")==0)then
+			CSettings.Set("Pest/Rendering/Gamma/FullScreen","1.0");
+		endif;
+		var real fGamma;
+		CSettings.Get("Pest/Rendering/Gamma/FullScreen",fGamma);
+		CClientWrap.SetFullScreenGamma(fGamma);
+
+		if(CSettings.NumSubs("Game/GUIOptions/RangeMarker")==0)then
+			CSettings.Set("Game/GUIOptions/RangeMarker/Enable",1);
+			m_bShowRangeMarkers = true;
+		else
+			var int iTemp;
+			CSettings.Get("Game/GUIOptions/RangeMarker/Enable",iTemp);
+			m_bShowRangeMarkers = iTemp!=0;
+		endif;
+
+		if(CSettings.NumSubs("Game/GUIOptions/InfoIcons")==0)then
+			CSettings.Set("Game/GUIOptions/InfoIcons/Enable",1);
+		else
+			var int iTemp;
+			CSettings.Get("Game/GUIOptions/InfoIcons/Enable",iTemp);
+			CIconMgr.Get().SetEnabled(iTemp!=0);
+		endif;
+		*/
+		
+		// fix for RT 15386 (start)
+		begin Flatshades;
+			var string sTemp;
+			if(CSettings.Get("Game/GraphicOptions/ShowFlatshades",sTemp)==false)then
+				CSettings.Set("Game/GraphicOptions/ShowFlatshades","false");
+				sTemp = "false";
+			endif;
+			CClientWrap.EnableFlatshades(sTemp=="true");
+		end Flatshades;
+		// fix for RT 15386 (end)
+		
+		begin HitpointbarColoring;
+			var string sTemp;
+			if(CSettings.Get("Game/GraphicOptions/AlternativeColoringPFHP",sTemp)==false)then
+				CSettings.Set("Game/GraphicOptions/AlternativeColoringPFHP","false");
+				sTemp = "false";
+			endif;
+			CClientWrap.EnableAlternativeHitpointbarRendering(sTemp=="true");
+		end HitpointbarColoring;
+		
+		//Open Mainmenu
+		CUIStateMgr.Get().Init();
+		if(CClientWrap.GetDedicatedAutoConnect()=="")then
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_MAINMENU);
+		else;
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_MULTIPLAYERJOINIP);
+		endif;
+		
+		m_iRangeMarkerSeconds = 0;
+		m_bGetGameSpyError=false;
+		
+		ms_bDoAutosave=false;
+		m_bIsPlayingSequence=false;
+		m_bIsLoadingGame=false;
+		m_bIsGameStarted=false;
+	endconstructor;
+	
+	export proc void InitCommands()
+		var ^CWindow pxDesktop = CWindowMgr.Get().GetDesktop(0);
+		pxDesktop^.DeleteAllAccelerators();
+
+		m_pxDesktop^.DeleteCmd( "SwitchGrid" );
+		m_pxDesktop^.DeleteCmd( "SwitchRenderAllObjects" );
+		m_pxDesktop^.DeleteCmd("RotateObject");
+		m_pxDesktop^.SetCmd("LinkCameraToPath", LinkCam );
+		m_pxDesktop^.SetCmd("ShowHelp",ShowHelp);
+		m_pxDesktop^.SetCmd("FreeCamera", FreeCam );
+		m_pxDesktop^.SetCmd("ReloadGraphicSets", ReloadGraphicSets );
+
+		m_pxDesktop^.SetCmd("Special", Special );
+		m_pxDesktop^.SetCmd("DumpLayout", DumpLayout );
+		m_pxDesktop^.SetCmd("Kill", Kill );
+		m_pxDesktop^.SetCmd("KillAll", KillAll );
+		m_pxDesktop^.SetCmd("Exit", Exit );
+		m_pxDesktop^.SetCmd("ToggleCaptureVideo", ToggleCaptureVideo );
+		m_pxDesktop^.SetCmd("HideUI", HideUI );
+		m_pxDesktop^.SetCmd("ChatToAll", OnChatToAll );
+		m_pxDesktop^.SetCmd("ChatToAllies", OnChatToAllies );
+		m_pxDesktop^.SetCmd("ChatToEnemies", OnChatToEnemies );
+		
+		m_pxDesktop^.SetCmd("ZoomIn", ZoomIn );
+		m_pxDesktop^.SetCmd("ZoomOut", ZoomOut );
+		m_pxDesktop^.SetCmd("AutoZoomToggle", AutoZoomToggle );
+		m_pxDesktop^.SetCmd("CameraMatrixMove", CameraMatrixMove );
+		m_pxDesktop^.SetCmd("ResetCameraToDefaultView", ResetCameraToDefaultView );
+
+		m_pxDesktop^.SetCmd("AccTime", AccTime );
+		m_pxDesktop^.SetCmd("StopTime", StopTime );
+		m_pxDesktop^.SetCmd("TacticalPause", TogglePause);
+		m_pxDesktop^.SetCmd("DecTime", DecTime );
+		m_pxDesktop^.SetCmd("ResetTime", ResetTime );
+
+		m_pxDesktop^.SetCmd("SwitchClientShell", SwitchClientShell);
+		m_pxDesktop^.SetCmd("SwitchServerShell", SwitchServerShell);
+		m_pxDesktop^.SetCmd("ReloadSoundMapping", ReloadSoundMapping);
+		m_pxDesktop^.SetCmd("ShowSoundMonitor", ShowSoundMonitor);
+
+		m_pxDesktop^.SetCmd("SwitchProfiler", SwitchProfiler);
+		m_pxDesktop^.SetCmd("SwitchServerProfiler", SwitchServerProfiler);
+
+		m_pxDesktop^.SetCmd("PickIdleWorker", PickIdleWorker);
+		m_pxDesktop^.SetCmd("AddIdleWorker", AddIdleWorker);
+		m_pxDesktop^.SetCmd("AllIdleWorker", AllIdleWorker);
+		m_pxDesktop^.SetCmd("AllUnitsOnScreen", AllUnitsOnScreen);
+		m_pxDesktop^.SetCmd("SwitchPyramidForward", SwitchPyramidForward);
+		m_pxDesktop^.SetCmd("SwitchPyramidBackward", SwitchPyramidBackward);
+		m_pxDesktop^.SetCmd("JumpToHQ", JumpToHQ);
+		m_pxDesktop^.SetCmd("JumpToLastEvent", JumpToLastEvent);
+		m_pxDesktop^.SetCmd("PickNextHQ", PickNextHQ);
+		m_pxDesktop^.SetCmd("PickNextBarracks", PickNextBarracks);
+		m_pxDesktop^.SetCmd("PickNextHarbour", PickNextHarbour);
+		m_pxDesktop^.SetCmd("PickNextWeaponSmith", PickNextWeaponSmith);
+		m_pxDesktop^.SetCmd("PickNextTavern", PickNextTavern);
+		m_pxDesktop^.SetCmd("PickNextFarm", PickNextFarm);
+		m_pxDesktop^.SetCmd("PickNextTemple", PickNextTemple);
+		m_pxDesktop^.SetCmd("PickNextMachineMaker", PickNextMachineMaker);
+
+		m_pxDesktop^.SetCmd("SaveLevelAs", OnSaveAsLevel );
+		m_pxDesktop^.SetCmd("Quicksave", OnQuicksave );
+		m_pxDesktop^.SetCmd("RenderRegions", RenderRegions );
+		m_pxDesktop^.SetCmd("ShowObjectNames", ShowObjectNames );
+
+		m_pxDesktop^.SetCmd("ToggleRangeMarkersAttack", ToggleRangeMarkersAttack);
+		//CWindowMgr.Get().GetDesktop(0)^.LoadAcceleratorTableFromResFile("GameUI","options/DefKeys");
+		if(!CWindowMgr.Get().GetDesktop(0)^.LoadAcceleratorTableFromResFile("GameUI",CClientWrap.GetUserSettingsDir()+"Keys.srf"))then
+			CWindowMgr.Get().GetDesktop(0)^.LoadAcceleratorTableFromResFile("GameUI","options/Keys");
+		endif;
+	endproc;
+
+	export static proc ref CCardBitmapMgr GetBitmapMgr()
+		return CClientWrap.GetBitmapMgr();
+	endproc;
+
+	proc bool Special()
+		m_bSpecial=!m_bSpecial;
+		if(m_bSpecial)then
+			CMainController.Get().SetState(1);
+		else
+			CMainController.Get().SetState(0);
+		endif;
+		return(true);
+	endproc;
+
+	proc bool DumpLayout()
+		CPyramidRestrictionsMgr.Get().DumpDB("levelinfo_client.txt");
+		CPyramidRestrictionsMgr.GetPreview().DumpDB("levelinfopreview_client.txt");
+		CEvt_GenericEvent.Send("dumpDB");
+		return(true);
+	endproc;
+
+    export destructor()
+		CFeedback.Kill();
+		CUIStateMgr.Kill();
+		CWeatherMgr.Kill();		
+		CMusicMgr.Kill();
+		CCursorMgr.Kill();
+		CPyramidRestrictionsMgr.Kill();
+		CFormationMgr.Kill();
+		CIconMgr.Kill();
+		CIdleAnimMgr.Kill();
+		CGroupMgr.Kill();
+		CCampaignMgr.ShutStatic();
+		CMultiPlayerClientMgr.Kill();
+		CClientWrap.UpdateUserProfile();
+    enddestructor;
+
+    proc void Evt_OnShutInstance()
+    endproc;
+
+    proc bool ToggleCaptureVideo()
+		m_bCapture=CapVid(m_bCapture);
+		return(true);
+	endproc;
+
+	proc bool CapVid(bool p_bCapture)
+		if(p_bCapture)then
+			//L CGameWrap.LogInfo("Game","Capture Start");
+			m_pxDesktop^.CaptureStart("GameCapture.raw");
+		else
+			//L CGameWrap.LogInfo("Game","Capture Stop");
+			m_pxDesktop^.CaptureStop();
+		endif;
+		return(!p_bCapture);
+	endproc;
+
+	proc bool ZoomIn()
+		if(CClientWrap.HasServer())then
+			if(CClientWrap.GetScapeMgr().HasMap())then
+				CMultiCameraController.Get().GetGameCameraModule()^.ZoomIn();
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool ZoomOut()
+		if(CClientWrap.HasServer())then
+			if(CClientWrap.GetScapeMgr().HasMap())then
+				CMultiCameraController.Get().GetGameCameraModule()^.ZoomOut();
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool CameraMatrixMove()
+		if(CClientWrap.HasServer())then
+			if(CClientWrap.GetScapeMgr().HasMap())then
+				CMultiCameraController.Get().GetGameCameraModule()^.CameraMatrixMove();
+			endif;
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool ResetCameraToDefaultView()
+		if(CClientWrap.HasServer())then
+			if(CClientWrap.GetScapeMgr().HasMap())then
+				CMultiCameraController.Get().GetGameCameraModule()^.ResetCameraToDefaultView();
+			endif;
+		endif;
+		return(true);
+	endproc;		
+
+	proc bool AutoZoomToggle()
+		if(CClientWrap.HasServer())then
+			if(CClientWrap.GetScapeMgr().HasMap())then
+				CMultiCameraController.Get().GetGameCameraModule()^.AutoZoomToggle();
+			endif;
+		endif;
+		return(true);
+	endproc;
+
+	export static proc bool ShowHelp()
+		if(!CClientWrap.HasServer())then 			return false; endif;
+		if(!CClientWrap.GetScapeMgr().HasMap())then	return false; endif;
+
+		var ^CHelpMenu	pxHelpMenu=new CHelpMenu();
+		var ^CDesktop pxDesktop = CClientWrap.GetDesktop();
+		pxDesktop^.AddChild(pxHelpMenu);
+		CWindowMgr.Get().BringWindowToTop(pxHelpMenu,true);
+		CWindowMgr.Get().SetModal(pxHelpMenu);
+		return true;
+	endproc;
+
+	export static proc bool ShowHelpAndNav(string p_sUrl)
+		if(!CClientWrap.HasServer())then 			return false; endif;
+		if(!CClientWrap.GetScapeMgr().HasMap())then	return false; endif;
+
+		var ^CHelpMenu	pxHelpMenu=new CHelpMenu();
+		var ^CDesktop pxDesktop = CClientWrap.GetDesktop();
+		pxDesktop^.AddChild(pxHelpMenu);
+		pxHelpMenu^.Navigate(p_sUrl);
+		CWindowMgr.Get().BringWindowToTop(pxHelpMenu,true);
+		CWindowMgr.Get().SetModal(pxHelpMenu);		
+		return true;
+	endproc;
+
+	proc bool LinkCam()
+		if(CClientWrap.HasServer())then
+			if(CClientWrap.GetScapeMgr().HasMap())then
+				//L CGameWrap.LogInfo("Game","LinkCam");
+				var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+				if(pxSel^.NumEntries()>0)then
+					CMultiCameraController.Get().GetFollowGameCameraModule()^.SetTarget(pxSel^[0]);
+					CMultiCameraController.Get().SwitchToModule("FollowGameCamera");
+			        var CClntHndl xInvalid;
+					m_bLinkedCam=true;
+					return(true);
+				else
+					return(false);
+				endif;
+			else
+				CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Warning"),CLocalizer.Get().Translate("_Game_NoMap"));
+				return(false);
+			endif;
+		else
+			CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Warning"),CLocalizer.Get().Translate("_Game_NoServer"));
+			return(false);
+		endif;
+	endproc;
+
+	proc bool FreeCam()
+		m_pxDesktop^.CaptureStop();
+		if(CClientWrap.HasServer())then
+			if(CClientWrap.GetScapeMgr().HasMap())then
+				//L CGameWrap.LogInfo("Game","FreeCam");
+				m_bLinkedCam=false;
+				m_iPathCam=-1;
+
+				if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+					CUIStateMgr.Get().GetInGameScreen()^.SetVisible(true);
+				endif;
+
+				//CMainController.Get().GetCameraCtrl().ClearCam();
+				CMultiCameraController.Get().SwitchToModule("GameCamera");
+				return(true);
+			else
+				CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Warning"),CLocalizer.Get().Translate("_Game_NoMap"));
+				return(false);
+			endif;
+		else
+			CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Warning"),CLocalizer.Get().Translate("_Game_NoServer"));
+			return(false);
+		endif;
+	endproc;
+
+
+	proc void Evt_OnNewstickerEvent(CNewsTickerData p_xNTData)		
+		var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+		if(pxIngameScreen!=null)then
+			pxIngameScreen^.GetNewsTickerWindow()^.Print(p_xNTData);
+		endif;		
+	
+		begin TrySound;
+			var ^CSoundEventMgrClient pxSMEC=^(CGameWrap.GetSoundEventMgrClient());
+			var string sMsg="voice_"+ms_sTribe+"_newsticker"+p_xNTData.m_sMsg;
+			sMsg.MakeLower();
+			
+			var int iIndex=pxSMEC^.GetEventIndex(sMsg);
+			if(iIndex!=-1)then
+				pxSMEC^.PlayGlobalSound(sMsg,CSoundMgrCln.SOUND_VOLTRACK_GLOBAL,2);
+			endif;
+		end TrySound;
+
+		var array string asMsg;
+		p_xNTData.m_sMsg.Split(asMsg, ":", true);
+		var int iC=asMsg.NumEntries();
+		if(iC>=2)then
+			if(((asMsg[0]=="AI0")||(asMsg[0]=="AI1")||(asMsg[0]=="AI2")||(asMsg[0]=="AI3")||(asMsg[0]=="AI4")||(asMsg[0]=="AI5")||(asMsg[0]=="AI6")||(asMsg[0]=="AI7"))&&(p_xNTData.m_vPos!={0.0,0.0,0.0}))then
+				var array string asCall;
+				asCall=3;
+				asCall[0]=asMsg[0];
+				asCall[1]=p_xNTData.m_vPos.ToString();
+				asCall[2]="AIHelp";
+				MiniMapEvent(asCall);
+			endif;
+		endif;	
+	endproc;
+
+
+   	proc void Evt_OnServerStarted(bool p_bNetwork)
+		var string sTemp;
+		var ^CUserProfileList pxList=^(CClientWrap.GetUserProfileList());
+		if(pxList!=null)then
+			sTemp=pxList^.GetCurrentProfile()^.GetUserName();
+			if(sTemp=="")then
+				sTemp=Windows.GetUserName();
+				CSettings.Set("Game/PlayerName",sTemp);
+			endif;
+		endif;		
+		CEvt_AquirePlayerSlot.Send(sTemp,"human");
+	endproc;
+
+  	proc void Evt_OnProxyServerStarted()
+		var ^CButton pxTmpButton=CMultiPlayerClientMgr.Get().GetHostButton();
+		if(pxTmpButton!=null) then			
+			pxTmpButton^.SetDisabled(false);
+			CMultiPlayerClientMgr.Get().m_bProxyServerRunning=true;
+		endif;		
+	endproc;
+	
+	proc void Evt_OnGameSpyInitFailed()
+		var ^CButton pxTmpButton=CMultiPlayerClientMgr.Get().GetHostButton();		
+		if(pxTmpButton!=null) then			
+			pxTmpButton^.SetDisabled(true);			
+		endif;		
+		CMultiPlayerClientMgr.Get().OnGameSpyInitFailed();		
+		CMultiPlayerClientMgr.Get().m_bProxyServerRunning=false;
+	endproc;
+	
+	proc void Evt_OnGameSpyErrorReason(string p_sGameSpyError)		
+		if(!m_bGetGameSpyError) then
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_ACKSERVERLOST,p_sGameSpyError);
+			m_bGetGameSpyError=true;
+		endif;
+	endproc;
+
+	proc void Evt_OnServerNotFound()
+		// CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Error"),CLocalizer.Get().Translate("_Game_NoStart"));
+		//m_pxStartScreen^.CloseLastDialog();
+		CEvt_ClientDisconnect.Send();
+	endproc;
+
+	proc void Evt_OnGenericServerEvent(string p_sEvent)
+	
+		//L CGameWrap.LogInfo("Events","Evt_OnGenericServerEvent  "+p_sEvent);
+		var array string asVal;
+		p_sEvent.Replace("\\t", "\t");
+		p_sEvent.Split(asVal,"\t",false);
+		var int iCount=asVal.NumEntries();
+		if(iCount==0)then return;endif;
+		var string sCommand=asVal[0];
+		if((sCommand=="start_pos")&&(iCount>=3))then
+			var vec3 vPos=vec3.CreateFromString(asVal[1]);
+			var ^CMainController pxMainCtrl=^(CMainController.Get());
+			pxMainCtrl^.SetCamera(m_pxCamera);
+			CMultiCameraController.Get().SetCameraTarget(vPos,true);
+			CMultiCameraController.Get().GetGameCameraModule()^.ResetCamera();
+			CMultiCameraController.Get().SwitchToModule("GameCamera");
+			CMultiCameraController.Get().SnapOnGround();
+			var int iTmp=asVal[2].ToInt();
+			var real fAngle;
+			if(iTmp!=0)then
+				fAngle=(iTmp.ToReal()/1000.0f);
+			else
+				fAngle=0.785f;
+			endif;
+			CMultiCameraController.Get().GetGameCameraModule()^.m_fAngle=fAngle;
+			CMultiCameraController.Get().GetGameCameraModule()^.EyeFromAngles();
+			CMultiCameraController.Get().UpdateCamera();
+		elseif(sCommand=="Unselect" && iCount==2) then
+
+			var CGuid xObjG;
+			xObjG.FromString(asVal[1]);
+
+			var ^CObjSelection pxSel = ^(CClientWrap.GetSelection());
+			var int i, iC = pxSel^.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var ^CObj pxObj = pxSel^[i].GetObj();
+				if(pxObj==null)then continue; endif;
+				if(pxObj^.GetGuid()!=xObjG)then continue; endif;
+				pxSel^.DeleteEntry(i);
+				break;
+			endfor;
+		elseif(sCommand=="WeatherChg") then
+			if(asVal.NumEntries() == 2) then
+				if(!CWeatherMgr.Get().StartSpecificProgramm(asVal[1])) then
+					KLog.LogWarn("Game", "Failed to load Program " + asVal[1]);
+				endif;
+			else
+				CWeatherMgr.Get().GoToNextTrack();
+			endif;
+		elseif(sCommand=="MiniMapEvent")then
+			MiniMapEvent(asVal);
+			//CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("voice_"+ms_sTribe+"_mapping","",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+//		elseif(sCommand=="Evt_OnProcessFraction") then
+//			Evt_OnProcessFraction(asVal[1].ToInt().ToReal()*0.01,asVal[2]);
+		elseif(sCommand=="Feedback") then
+			if(asVal.NumEntries()>1)then
+				CFeedback.Print(asVal[1]);
+			else
+				//L CGameWrap.LogInfo("Game","CIngameChatOutput Msg=leer");
+			endif;
+		elseif(sCommand=="NoHousing") then
+			//CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("ui_no_housing","",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+			//CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("voice_"+ms_sTribe+"_no_housing","",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+		elseif(sCommand=="PopLimitReached")then
+			//CGameInputController.ms_xUISoundMgr.InvokeFeedbackSoundEvent("voice_"+ms_sTribe+"_poplimit_reached",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+			//CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("ui_no_housing","",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+		elseif(sCommand=="DivisionFull")then
+			//CGameInputController.ms_xUISoundMgr.InvokeFeedbackSoundEvent("voice_"+ms_sTribe+"_divfull_"+asVal[1],CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+			//CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("ui_no_housing","",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+		elseif(sCommand=="Placed") then
+			if(asVal.NumEntries()>1)then
+				var string sEventName="ui_"+asVal[1]+"_placed";
+				CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent(sEventName,"ui_placed",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+				sEventName="voice_"+asVal[1]+"_placed";
+				CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent(sEventName,"voice_placed",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+			endif
+		elseif(sCommand=="NextAge") then
+			if(asVal.NumEntries()>1)then
+				// by AyCe
+				if(asVal[1].Find("/age_2")!=-1) then
+					asVal[1] = "age_2";
+				elseif(asVal[1].Find("/age_3")!=-1) then
+					asVal[1] = "age_3";
+				elseif(asVal[1].Find("/age_4")!=-1) then
+					asVal[1] = "age_4";
+				else
+					asVal[1] = "age_5";
+				endif;
+				var string sEventName="ui_nextage";
+				CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent(sEventName,"",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+				sEventName="voice_"+ms_sTribe+"_nextage_"+asVal[1];
+				CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent(sEventName,"",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+			endif;
+		elseif(sCommand=="Invention") then
+			if(asVal.NumEntries()>1)then
+				var string sEventName="ui_invention";
+				CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent(sEventName,"",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+				sEventName="voice_invention";
+				CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent(sEventName,"",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+			endif;
+		elseif(sCommand=="Delivered") then
+			if(asVal.NumEntries()>1)then
+				var string sEventName="ui_"+asVal[1]+"_delivered";
+				CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent(sEventName,"ui_delivered",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+				sEventName="voice_"+asVal[1]+"_delivered";
+				CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent(sEventName,"voice_delivered",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+			endif;
+		elseif(sCommand=="WasAttacked") then
+			if(asVal.NumEntries()>1)then
+				var string sEventName="ui_"+asVal[1]+"_warn_under_attack";
+				CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent(sEventName,"ui_warn_under_attack",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
+				sEventName="voice_"+asVal[1]+"_warn_under_attack";
+				CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent(sEventName,"voice_warn_under_attack",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
+			endif;
+		elseif(sCommand=="ResetMsgReport")then
+			CGameWrap.ResetMsgReport();
+		elseif(sCommand=="DumpMsg")then
+			CGameWrap.DumpMsg();
+		elseif(sCommand=="ShowHelpAndNav") then
+			if(asVal.NumEntries()<=1) then
+				ShowHelp();
+			else
+				ShowHelpAndNav(asVal[1]);
+			endif;		
+		elseif(sCommand=="StartGame")then
+			CMultiPlayerClientMgr.Get().StartCountDown();
+		elseif(sCommand=="ReadyForGame")then
+			if(asVal[1]=="true")then
+				CMultiPlayerClientMgr.Get().SetReadyForGame(true);
+			else
+				CMultiPlayerClientMgr.Get().SetReadyForGame(false);
+			endif;
+		elseif(sCommand=="StopCountDown")then
+			CMultiPlayerClientMgr.Get().StopCountDown();
+		elseif(sCommand=="RequestAIAssistSetting")then
+			SendAIReqestSetting();
+		elseif(sCommand=="GameOver")then
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_GAMEEND,p_sEvent);
+		elseif(sCommand=="MainMenu")then
+			CSoundMgrCln.SetGameIsRunning(false);
+			CEvt_CloseGame.Send();
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_GAMEEND,"");
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_MAINMENU);
+		elseif(sCommand=="Chat_whisper")then
+			if(asVal.NumEntries()>3)then
+				if(ms_pxChatWindow!=null)then
+					ms_pxChatWindow^.OnWhisper(asVal[1],asVal[2], asVal[3].ToInt());
+				else
+					if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+						CUIStateMgr.Get().GetInGameScreen()^.OnWhisper(asVal[1],asVal[2], asVal[3].ToInt());
+					endif;
+				endif;
+			endif;
+		elseif(sCommand=="LoadGame")then
+			CGameWrap.LogError("Events","LoadGame not implemented");
+		elseif(sCommand=="PushCam") then
+			CMultiCameraController.Get().PushCamera();
+		elseif(sCommand=="PopCam") then
+			CMultiCameraController.Get().PopCamera(true);
+		elseif(sCommand=="SetCam") then
+			var vec3 vPos, vLook, vUp;
+			var int iN = asVal.NumEntries();
+			
+			if(iN >= 3)then
+				vPos.FromString(asVal[1]);
+				if(asVal[2] == "1")then
+					var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+					var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+					var real fTmp=pxBaseNode^.GetValueR("DefaultCamera",0.785f);
+					
+					CMultiCameraController.Get().GetGameCameraModule()^.ResetCamera();
+					CMultiCameraController.Get().GetGameCameraModule()^.m_fAngle=fTmp;
+					CMultiCameraController.Get().GetGameCameraModule()^.EyeFromAngles();
+					CMultiCameraController.Get().UpdateCamera();
+				endif;
+				CMultiCameraController.Get().SetCameraTarget(vPos);
+			endif;
+		elseif(sCommand=="LookAround") then
+			//disabled by ChPe
+			//1. buggy
+			//2. network traffic (could be solved without any network traffic!!!)
+			
+//			if(asVal.NumEntries()<5)then
+//				KLog.LogWarn("Game","LookAround: p_sEvent = "+p_sEvent);
+//				return;
+//			endif;
+//			var CGuid xObjG;
+//			xObjG.FromString(asVal[1]);
+//			var vec3 vDir;
+//			vDir.FromString(asVal[2]);
+//
+//			var ^CObjMgr pxOM = ^(CClientWrap.GetObjMgr());
+//			var ^CObj pxObj = pxOM^.GetObj(xObjG);
+//
+//			MakeLookAroundOverlays(pxObj,0,asVal[3],asVal[4]);
+		elseif(sCommand=="PlayMusic") then
+			if(asVal.NumEntries()>=2) then
+				var bool bLoop=false;
+				if(asVal.NumEntries()>=3) then bLoop = asVal[2]=="true"; endif;
+				CMusicMgr.Get().OnMusicEvent(asVal[1], bLoop);
+			endif;
+		elseif(sCommand=="Counter") then
+			if(asVal.NumEntries()>1) then
+				if(asVal[1]=="Start") then
+					if(asVal.NumEntries()>=6) then
+						var CGameTime xCurTime;
+						xCurTime.FromString(asVal[2]);						
+						var real fDuration = asVal[3].ToReal();
+						var real fRemDuration = asVal[4].ToReal();
+						var bool bCountUp=(asVal[5]=="true");
+						var bool bHold=false;
+						if(asVal.NumEntries()>=7) then
+							bHold = asVal[6]=="true";
+						endif;
+						var ^CInGameScreen pxInGameScreen = CUIStateMgr.Get().GetInGameScreen();
+						if(pxInGameScreen!=null)then
+							pxInGameScreen^.GetCounter()^.Start(xCurTime,fDuration,fRemDuration,bCountUp, bHold);
+						endif;
+					endif;				
+				elseif(asVal[1]=="Stop") then
+					var ^CInGameScreen pxInGameScreen = CUIStateMgr.Get().GetInGameScreen();
+					if(pxInGameScreen!=null)then
+						pxInGameScreen^.GetCounter()^.Stop();
+					endif;
+				elseif(asVal[1]=="SetNoHide") then
+					if(asVal.NumEntries()>=3) then
+						var ^CInGameScreen pxInGameScreen = CUIStateMgr.Get().GetInGameScreen();
+						if(pxInGameScreen!=null)then
+							pxInGameScreen^.GetCounter()^.SetTimerNoHide(asVal[2]=="true");
+						endif;
+					endif;
+				elseif(asVal[1]=="SetAdditionalText") then
+					if(asVal.NumEntries()>=3) then
+						var ^CInGameScreen pxInGameScreen = CUIStateMgr.Get().GetInGameScreen();
+						if(pxInGameScreen!=null)then
+							pxInGameScreen^.GetCounter()^.SetAdditionalText(asVal[2]);
+						endif;
+					else
+						var ^CInGameScreen pxInGameScreen = CUIStateMgr.Get().GetInGameScreen();
+						if(pxInGameScreen!=null)then
+							pxInGameScreen^.GetCounter()^.SetAdditionalText("");
+						endif;
+					endif;
+				endif;
+			endif;
+		elseif(p_sEvent.Left(10) == "DisplayMsg") then
+			p_sEvent.Delete(0,10);
+			CMessageBox.MsgBox("Sequence", p_sEvent);
+		elseif(p_sEvent.Left(13)=="SelectionSwap") then
+			var array string asTokens;
+			p_sEvent.Split(asTokens,"\n",true);
+			if (asTokens.NumEntries()!=3) then return; endif;
+
+			var CGuid xAnmlG, xCharG;
+			xAnmlG.FromString(asTokens[1]);
+			xCharG.FromString(asTokens[2]);
+
+			var ^CObjMgr pxOM = ^(CClientWrap.GetObjMgr());
+			var ^CObj pxAnml = pxOM^.GetObj(xAnmlG);
+			var ^CObj pxChar = pxOM^.GetObj(xCharG);
+
+			if(pxAnml==null || pxChar==null) then return; endif;
+
+			var ^CObjSelection pxSel = ^(CClientWrap.GetSelection());
+
+			if (pxSel^.FindEntry(pxChar^.GetHandle())>=0) then
+				pxSel^.RemEntry(pxChar^.GetHandle());
+			endif;
+
+			var int iA = pxSel^.FindEntry(pxAnml^.GetHandle());
+			if (iA>=0) then
+				pxSel^[iA] = pxChar^.GetHandle();
+			endif;
+			Evt_OnChangeSelection();
+		elseif(p_sEvent.Left(8)=="SoundEvt") then
+			var array string asTokens;
+			p_sEvent.Split(asTokens,"\t",true);
+			if(asTokens.NumEntries()!=4) then return; endif;
+
+			var string sSound = asTokens[1];
+			var int iType = asTokens[2].ToInt();
+			var vec3 vPos; vPos.FromString(asTokens[3]);
+
+			if(iType==SOUNDEVT_TYPE_3D)then
+				//L CGameWrap.LogSpam("Events","SoundEvt: 3D sound: " + sSound + " at " + vPos.ToString());
+				CGameWrap.GetSoundEventMgrClient().Play3DSound(sSound,vPos);
+			elseif(iType==SOUNDEVT_TYPE_FAKE_3D)then
+				//L CGameWrap.LogSpam("Events","SoundEvt: fake 3D sound: " + sSound + " at " + vPos.ToString());
+				CGameWrap.GetSoundEventMgrClient().PlayFake3DSound(sSound,vPos);
+			elseif(iType==SOUNDEVT_TYPE_GLOBAL)then
+				//L CGameWrap.LogSpam("Events","SoundEvt: Global sound: " + sSound);
+				CGameWrap.GetSoundEventMgrClient().PlayGlobalSound(sSound,CSoundMgrCln.SOUND_VOLTRACK_GLOBAL,0);
+			endif;
+		elseif(sCommand=="IPAddress")then
+			CUIStateMgr.Get().SetIPAddress(asVal[1]);
+		elseif(sCommand=="feedback_frame")then
+			if(asVal.NumEntries()>=3)then				
+				if(asVal[1]=="activate")then
+					var CGuid xObjGuid;xObjGuid.FromString(asVal[3]);
+					CUIFeedbackFrameMgr.Get().FeedbackFrameActivate(asVal[2],xObjGuid);
+				else
+					CUIFeedbackFrameMgr.Get().FeedbackFrameDeactivate(asVal[2]);
+				endif;
+			endif;			
+		elseif (p_sEvent.Left(6) == "SecInp") then
+			var array string asTokens;
+			p_sEvent.Split(asTokens,"\t",true);
+
+			var ^CSecondaryInputController pxSecInp = ^(CMainController.Get().GetSecInputCtrl());
+			pxSecInp^.SetCommand(asTokens[1]);
+			var ^CObjSelection pxSel = ^(CClientWrap.GetSelection());
+			if (pxSel^.NumEntries() > 0) then
+				pxSecInp^.SetRangeMarker(asTokens[1], pxSel^[0].GetObj());
+			endif;
+			var CGuid xG;xG.FromString(asTokens[2]);
+			pxSecInp^.SetItem(xG);
+			CMainController.Get().SetSecondaryInputController(true);
+		elseif (sCommand == "ocupy_unit" && asVal.NumEntries() == 3) then
+			var CGuid xGuid;
+			xGuid.FromString(asVal[1]);
+			var ^CObj pxObj = CClientWrap.GetObjMgr().GetObj(xGuid);
+			if (pxObj == null) then return; endif;
+			m_iRangeMarkerSeconds = asVal[2].ToInt();
+			CMainController.Get().GetRangeMgr().SetRangeMarker(pxObj, m_iRangeMarkerSeconds);
+		else
+			m_pxDesktop^.InvokeCmd(p_sEvent);
+			//L CGameWrap.LogSpam("Events","CMD invoked: "+p_sEvent);
+		endif;
+	endproc;
+
+
+	proc void MiniMapEvent(array string p_asVal)
+		var vec3 vPos;
+		if(p_asVal.NumEntries()>=3)then
+			vPos.FromString(p_asVal[1]);
+			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+//				KLog.LogSpam("UISound","MinimapEvent() Pos:"+p_asVal[1]+" Event "+p_asVal[2]);
+				if(p_asVal.NumEntries() >= 9)then
+					CUIStateMgr.Get().GetInGameScreen()^.GetMiniMapWindow()^.AddEvent(vPos, p_asVal[2], p_asVal[3] == "true", p_asVal[4] == "true", p_asVal[5], p_asVal[6].ToInt(), p_asVal[7].ToInt(), p_asVal[8].ToInt());
+				else
+					CUIStateMgr.Get().GetInGameScreen()^.GetMiniMapWindow()^.AddEvent(vPos, p_asVal[2]);
+				endif;
+				
+				if (p_asVal[2]=="Attack") then
+					CMusicMgr.Get().OnUnderAttack(vPos);
+				endif;
+			endif;
+		endif;
+	endproc;
+
+
+	proc void Evt_OnGenericLongStringEvent(string p_sEvent)
+		//L CGameWrap.LogInfo("Events","Evt_OnGenericLongStringEvent  "+p_sEvent);
+		var array string asVal;
+		p_sEvent.Split(asVal,"\t",true);
+		var string sCommand=asVal[0];
+		if(sCommand=="UpdateSelection") then
+			asVal.DeleteEntry(0);
+			UpdateSelection(asVal);
+		endif;
+	endproc;
+
+	export proc bool Init()
+		return true;
+	endproc;
+	
+	proc bool SendAIReqestSetting()
+		var string sEconomySupport;
+		if(!CSettings.Get("Game/ControllerOptions/EconomySupport",sEconomySupport))then
+			CSettings.Set("Game/ControllerOptions/EconomySupport","false");
+		endif;
+
+		var string sOffensiveSupport;
+		if(!CSettings.Get("Game/ControllerOptions/OffensiveSupport",sOffensiveSupport))then
+			CSettings.Set("Game/ControllerOptions/OffensiveSupport","false");
+		endif;
+		var string sDefensiveSupport;
+		if(!CSettings.Get("Game/ControllerOptions/DefensiveSupport",sDefensiveSupport))then
+			CSettings.Set("Game/ControllerOptions/DefensiveSupport","false");
+		endif;
+		var int iPlayerID=CGameWrap.GetClient().GetPlayerID();
+		CEvt_AiGenericStringEvent.Send(iPlayerID.ToString()+"&&"+sEconomySupport+"&&"+sOffensiveSupport+"&&"+sDefensiveSupport);
+		return(true);
+	endproc;
+
+	export proc void OnTick()
+		if(CWeatherMgr.Get().GetEnabled())then
+			CWeatherMgr.Get().Tick();
+		endif;		
+		
+		CMusicMgr.Get().Tick();							
+		
+		var ^CInGameScreen pxInGameScreen = CUIStateMgr.Get().GetInGameScreen();
+		if(pxInGameScreen!=null)then
+			pxInGameScreen^.GetDlgSceneMgr()^.Tick();
+		endif;
+		
+		CUIStateMgr.Get().OnTick();
+		
+		if(m_iRangeMarkerSeconds != 0) then
+			CMainController.Get().GetRangeMgr().TimeToDeleteRangeMarker(m_iRangeMarkerSeconds);
+		endif;
+		
+		// Autosave
+		if(
+			ms_bDoAutosave &&
+			m_bIsGameStarted &&
+			CGameWrap.GetClient().GetPlayerID()==0 &&
+			CTimeMgr.Get().GetFactor()!=0.0f &&
+			!m_bIsPlayingSequence
+		)then
+			OnAutosave();
+			ms_bDoAutosave=false;
+		endif;
+	endproc;
+
+	proc void UpdateSelection(array string p_asVal)
+
+		var CGuid xGuid;
+		var int i, iC = p_asVal.NumEntries();
+		var ^CObjSelection pxSelection = ^(CClientWrap.GetSelection());
+
+		if(iC > 0)then
+			xGuid.FromString(p_asVal[0]);
+			var ^CObj pxRider = CClientWrap.GetObjMgr().GetObj(xGuid);
+			if(pxRider!=null && pxSelection^.FindEntry(pxRider^.GetHandle())==-1)then
+				return;
+			endif;
+		endif;
+
+		for(i=1)cond(i<iC)iter(i++)do
+			xGuid.FromString(p_asVal[i]);
+			var ^CObj pxRider = CClientWrap.GetObjMgr().GetObj(xGuid);
+			if(pxRider==null)then continue; endif;
+			pxSelection^.Include(pxRider^.GetHandle());
+		endfor;
+
+	endproc;
+
+	export proc void Evt_OnChangeSelection()
+		// RT#16363 - Damit das "richtig" funktioniert, muss die SelectionInfo uptodate sein
+		ms_xSelectionInfo.Init(^(CClientWrap.GetSelection()));
+		
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			CUIStateMgr.Get().GetInGameScreen()^.OnChangeSelection();
+		endif;
+
+		if(CMainController.Get().GetPlacer().GetActive())then
+			// RT#16363 - Wir setzen den Placer erst auf Inactive wenn wir keinen Worker mehr haben
+			if ( CClientWrap.GetSelection().NumEntries() <= 0 || !ms_xSelectionInfo.Has( CSelectionInfo.WORKER ) ) then
+				CMainController.Get().GetPlacer().SetActive(false);
+			endif;
+		endif;
+		
+		if(!CMainController.Get().RallyUpdate())then
+			CMainController.Get().WalkTargetUpdate();
+		endif;
+		
+		
+		if(m_bShowRangeMarkers)then
+			CMainController.Get().GetRangeMgr().RangeMarkerUpdate();
+		endif;
+		ms_xSelectionInfo.Init(^(CClientWrap.GetSelection()));
+		
+		CMainController.Get().UpdateSpirits();
+	endproc;
+
+	proc void Evt_OnDialogSceneStart(string p_sScene)		
+		if(CUIStateMgr.Get().IsIngame()) then 
+			var ^CInGameScreen pxInGameScreen = CUIStateMgr.Get().GetInGameScreen();
+			if(pxInGameScreen!=null)then				
+				pxInGameScreen^.GetDlgSceneMgr()^.PushScene(p_sScene);
+			endif;
+		endif;
+	endproc;
+
+	proc void Evt_OnProjectileImpact(^CObj p_pxProjectile,^CObj p_pxTarget)
+		CFXHelper.OnProjectileImpact(p_pxProjectile,p_pxTarget);
+	endproc;
+	
+	proc void Evt_OnIcedEffect(^CObj p_pxTarget)
+		if(p_pxTarget^.GetIcedFlag()) then
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CIcedEffect";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		else
+		endif;
+	endproc;
+	
+	proc void Evt_OnPoisonedEffect(^CObj p_pxTarget)
+		if(p_pxTarget^.GetPoisonedFlag()) then
+			if(!p_pxTarget^.GetPoisonEffect().IsValid()&&CGameWrap.GetGfxMgr().FindGraphicSetEntry("fx_poison")) then
+				var ^CEffect pxObj=CEffect.CreateSimpleEffect(p_pxTarget,"CPoisonEffect");
+				if(pxObj!=null) then
+					pxObj^.SetPos(p_pxTarget^.GetPos());
+					pxObj^.SetRot(p_pxTarget^.GetRot());
+					p_pxTarget^.SetPoisonEffect(pxObj^.GetHandle());
+					pxObj^.LinkTo(p_pxTarget^.GetHandle());
+				endif;
+			endif;
+		else
+			if(p_pxTarget^.GetPoisonEffect().IsValid()) then
+				p_pxTarget^.GetPoisonEffect().GetObj()^.Delete();
+				var CClntHndl xDummy;
+				p_pxTarget^.SetPoisonEffect(xDummy);
+			endif;
+		endif;
+	endproc;
+
+	proc void Evt_OnGenericSCEvent(^CObj p_pxTarget,int p_iID)
+		//KLog.LogWarn("CHP","Inv Generic SC Evt @"+p_pxTarget^.GetName()+" with ID:"+p_iID.ToString());
+		if(p_iID==0) then
+			var CEffectInfo xFX;//Animal spawning
+			xFX.m_sEffectClass="CAnimalSpawnFX";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==1) then //Resource character spawning
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CResCharacterSpawnFX";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==2) then //Nature character spawning
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CNatCharacterSpawnFX";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==3) then //Technics character spawning
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CTecCharacterSpawnFX";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==4) then //Building placement
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CPlaceBuildingFX";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==5) then //Building ready
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CBuildingReadyFX";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==6) then //Rotting animal
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CMedAnimalRottingFX";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==7) then //Sleeping animal
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CAnimalSleepingFX";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==8) then //Building invent start
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CBuildingInventStartFX";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==9) then //Building invent start
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CBuildingInventEndFX";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==10) then //Deathping medium animal
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CMedAnimalDeathPingFX";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==11) then //trapped scale effect
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CTrappedScaleState";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==12) then //Brachio dying
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CBrachioDying";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==13) then //Molotov Impact
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CMolotovExplosion";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==14) then //LogCannonExplo Impact
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CDestructionHit";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==15) then //Vehicle explosion
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CVehicleExplosion";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==16) then //Deathping small animal
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CSmallAnimalDeathPingFX";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==17) then //Deathping big animal
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CBigAnimalDeathPingFX";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==18) then //Rotting animal
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CSmallAnimalRottingFX";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==19) then //Rotting animal
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CBigAnimalRottingFX";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==20) then //Conceal Big Animal
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CConcealStripBig";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==21) then //Conceal Medium Animal
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CConcealStripMed";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==22) then //Conceal Small Animal
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CConcealStripSmall";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==23) then //healing well anim
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CHealingWellState";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==24) then //Opens the doors of a Building
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CBuildingOpenDoors";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==25) then
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="AnimalHelpCryGeneric"; //this effect doesn't exist, but invoke sound event
+			CEffect.AddEffect(p_pxTarget,xFX);
+		//hier sind noch einige frei
+		elseif(p_iID==32) then //impact_01 livingstone
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CLivingstoneVanish";
+			CEffect.AddEffect(p_pxTarget,xFX);	
+		elseif(p_iID==33) then //Watermine Drop
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CDropNinigiWaterMine";
+			CEffect.AddEffect(p_pxTarget,xFX);	
+		elseif(p_iID==34) then //Watermine Explosion
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CExploNinigiWaterMine";
+			CEffect.AddEffect(p_pxTarget,xFX);		
+		elseif(p_iID==35) then //level up
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CLevelUpFX_Transport";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_iID==36)then
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CRocketLauncherSmoke";
+			CEffect.AddEffect(p_pxTarget,xFX);	
+		elseif(p_iID==37)then
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="_material_effect";
+			CEffect.AddEffect(p_pxTarget,xFX);	
+		elseif(p_iID==38)then
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CPickupItem";
+			CEffect.AddEffect(p_pxTarget,xFX);	
+		elseif(p_iID==39)then
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CAnimalUpgradePing";
+			CEffect.AddEffect(p_pxTarget,xFX);	
+		elseif(p_iID==40)then
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CDeathSound";
+			CEffect.AddEffect(p_pxTarget,xFX);	
+		endif;
+	endproc;
+	
+	proc bool Evt_OnDefaultSCEvent(^CObj p_pxTarget,bitset p_dwID)
+		if(p_dwID==CObjBase.TSCEvent.EID_HitReactionOVLAnim_F) then
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CBloodHit_F";
+			CEffect.AddEffect(p_pxTarget,xFX);
+			xFX.m_sEffectClass="CHitFlash_F";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_dwID==CObjBase.TSCEvent.EID_HitReactionOVLAnim_B) then
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CBloodHit_B";
+			CEffect.AddEffect(p_pxTarget,xFX);
+			xFX.m_sEffectClass="CHitFlash_B";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_dwID==CObjBase.TSCEvent.EID_HitReactionOVLAnim_L) then
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CBloodHit_L";
+			CEffect.AddEffect(p_pxTarget,xFX);
+			xFX.m_sEffectClass="CHitFlash_L";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_dwID==CObjBase.TSCEvent.EID_HitReactionOVLAnim_R) then
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CBloodHit_R";
+			CEffect.AddEffect(p_pxTarget,xFX);
+			xFX.m_sEffectClass="CHitFlash_R";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_dwID==CObjBase.TSCEvent.EID_HitReactionOVLAnim_BL) then
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CBloodHit_BL";
+			CEffect.AddEffect(p_pxTarget,xFX);
+			xFX.m_sEffectClass="CHitFlash_BL";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_dwID==CObjBase.TSCEvent.EID_HitReactionOVLAnim_BR) then
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CBloodHit_BR";
+			CEffect.AddEffect(p_pxTarget,xFX);
+			xFX.m_sEffectClass="CHitFlash_BR";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_dwID==CObjBase.TSCEvent.EID_HitReactionOVLAnim_FL) then
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CBloodHit_FL";
+			CEffect.AddEffect(p_pxTarget,xFX);
+			xFX.m_sEffectClass="CHitFlash_FL";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		elseif(p_dwID==CObjBase.TSCEvent.EID_HitReactionOVLAnim_FR) then
+			var CEffectInfo xFX;
+			xFX.m_sEffectClass="CBloodHit_FR";
+			CEffect.AddEffect(p_pxTarget,xFX);
+			xFX.m_sEffectClass="CHitFlash_FR";
+			CEffect.AddEffect(p_pxTarget,xFX);
+		endif;
+		//return true -> additional handling of this event will be continued
+		return true;
+	endproc;
+	
+	proc void Evt_OnDialogSceneEnd(string p_sScene)
+	endproc;
+
+	proc void Evt_OnProcessBegin(bitset p_dwProcessType)
+		//L CGameWrap.LogSpam("Game","- Evt_OnProcessBegin -"+p_dwProcessType.ToString());
+		if(p_dwProcessType==CGameBase.GPT_Load)then//GameLoad
+			m_bIsLoadingGame=true;
+			m_bIsGameStarted=false;
+			ms_bDoAutosave=false;
+			
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_INGAME);
+			
+ 			if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+ 				CUIStateMgr.Get().GetInGameScreen()^.GetPyramid()^.OnLoadStart();
+ 			endif; 			
+
+			//delete m_pxStartScreen;
+			//m_pxStartScreen = null;
+			//m_pxLoadScreen^.SetInfo(2);
+			//m_pxLoadScreen^.SetVisible(true);
+			//CWindowMgr.Get().BringWindowToTop(m_pxLoadScreen,true);
+		elseif(p_dwProcessType==CGameBase.GPT_Save)then
+
+		elseif(p_dwProcessType==CGameBase.GPT_StartServer)then
+			//m_pxLoadScreen^.SetInfo(1);
+			//m_pxLoadScreen^.SetVisible(true);
+			//m_pxStartScreen^.SetVisible(false);
+		elseif(p_dwProcessType==CGameBase.GPT_LoadMap)then
+			//L CGameWrap.LogSpam("Game","-------LoadMap Start---------");
+			CMusicMgr.ms_bGameLoading=true;
+		endif;
+	endproc;
+
+	proc void Evt_OnProcessFraction(real p_fPercentage, string p_sDescription)
+		CUIStateMgr.Get().SetLoadingProgress(p_fPercentage, p_sDescription);
+	endproc;
+
+	proc void Evt_OnProcessUpdate(bitset p_dwProcessType,string p_sUpdateString)
+	endproc;
+
+	proc void SetCloudSettings(string p_sSettingName)
+		//If you update this function, make similar changes in LevelEditor.usl
+
+		if(p_sSettingName=="Ashvalley")then
+				CClientWrap.GetSkyMgr().SetCloudSpeed(8.0, 90.0);
+				CClientWrap.GetSkyMgr().SetCloudLifeTime(10.0, 250.0);
+				CClientWrap.GetSkyMgr().SetCloudSize(120.0, 700.0);
+				CClientWrap.GetSkyMgr().SetCloudHeightOffset(110.0);
+				CClientWrap.GetSkyMgr().SetNrOfClouds(100, 10);
+		elseif(p_sSettingName=="Icewaste")then
+				CClientWrap.GetSkyMgr().SetCloudSpeed(8.0, 90.0);
+				CClientWrap.GetSkyMgr().SetCloudLifeTime(10.0, 250.0);
+				CClientWrap.GetSkyMgr().SetCloudSize(120.0, 700.0);
+				CClientWrap.GetSkyMgr().SetCloudHeightOffset(110.0);
+				CClientWrap.GetSkyMgr().SetNrOfClouds(100, 10);
+		elseif(p_sSettingName=="Savanna")then
+				CClientWrap.GetSkyMgr().SetCloudSpeed(8.0, 90.0);
+				CClientWrap.GetSkyMgr().SetCloudLifeTime(30.0, 250.0);
+				CClientWrap.GetSkyMgr().SetCloudSize(120.0, 300.0);
+				CClientWrap.GetSkyMgr().SetCloudHeightOffset(170.0);
+				CClientWrap.GetSkyMgr().SetNrOfClouds(50, 5);
+		elseif(p_sSettingName=="Jungle")then
+				CClientWrap.GetSkyMgr().SetCloudSpeed(8.0, 90.0);
+				CClientWrap.GetSkyMgr().SetCloudLifeTime(10.0, 250.0);
+				CClientWrap.GetSkyMgr().SetCloudSize(120.0, 700.0);
+				CClientWrap.GetSkyMgr().SetCloudHeightOffset(110.0);
+				CClientWrap.GetSkyMgr().SetNrOfClouds(100, 15);
+		else
+			//Northland default
+				CClientWrap.GetSkyMgr().SetCloudSpeed(8.0, 90.0);
+				CClientWrap.GetSkyMgr().SetCloudLifeTime(10.0, 150.0);
+				CClientWrap.GetSkyMgr().SetCloudSize(150.0, 300.0);
+				CClientWrap.GetSkyMgr().SetCloudHeightOffset(170.0);
+				CClientWrap.GetSkyMgr().SetNrOfClouds(100, 15);   //default settings
+		endif;
+		CClientWrap.GetSkyMgr().InitPostLevelLoaded();
+	endproc;
+
+	proc void Evt_OnProcessEnd(bitset p_dwProcessType)
+		//L CGameWrap.LogSpam("Game","- Evt_OnProcessEnd -"+p_dwProcessType.ToString());
+		if(p_dwProcessType==CGameBase.GPT_Load)then//GameLoad
+			//m_pxLoadScreen^.SetInfo(2);
+			var string sSetting;
+			if(CClientWrap.GetScapeMgr().GetTerrainSetting()==0000b)then
+				sSetting = "Northland";
+			elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==0001b)then
+				sSetting = "Savanna";
+			elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==0010b)then
+				sSetting = "Jungle";
+			elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==0011b)then
+				sSetting = "Icewaste";
+			elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==0100b)then
+				sSetting = "Ashvalley";
+			elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==0101b)then
+				sSetting = "Test";
+			elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==0110b)then
+				sSetting = "Cave1";
+			elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==0111b)then
+				sSetting = "Cave2";
+			elseif(CClientWrap.GetScapeMgr().GetTerrainSetting()==01000b)then
+				sSetting = "Cave3";
+			else
+				CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_ERROR"),CLocalizer.Get().Translate("_Game_Settings")+CClientWrap.GetScapeMgr().GetTerrainSetting().ToString());
+			endif;
+			CClientWrap.GetForestMgr().LoadForestConfig(CClientWrap.GetUrsRelPath()+"/Data/Base/Scripts/Server/Classes/Vegetation/Forest_"+sSetting+".txt");
+			SetCloudSettings(sSetting);
+			//L CGameWrap.LogSpam("Game","Setting hier ---->  "+sSetting);
+			CEvt_GenericEvent.Send("start_gameover_trigger&");
+			
+			var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+			if(pxIngameScreen!=null)then
+				pxIngameScreen^.GetPyramid()^.OnLoadEnd();
+				pxIngameScreen^.GetDlgSceneMgr()^.Reset();				
+				var ^CNewsTicker pxNTWindow=pxIngameScreen^.GetNewsTickerWindow();
+				if(pxNTWindow!=null)then
+					pxNTWindow^.Reset();
+				endif;
+			endif;
+			
+			CTTHelper.Get().InitFromTT();
+			ms_iIdleWorkerIndex=-1;
+			
+			m_bIsLoadingGame=false;
+
+		//----------------------------------------------------------
+		elseif(p_dwProcessType==CGameBase.GPT_Save)then
+
+		elseif(p_dwProcessType==CGameBase.GPT_StartServer)then//StartServer
+			//m_pxLoadScreen^.SetVisible(false);
+			//m_pxStartScreen^.SetVisible(true);
+		elseif(p_dwProcessType==CGameBase.GPT_LoadMap)then
+			//L CGameWrap.LogSpam("Game","-------LoadMap End---------");
+			//CMainController.Get().GetCameraCtrl().UpdateMapSize();
+		endif;
+	endproc;
+
+	proc void Evt_OnLevelInfoUpdate(bitset p_dwUpdateFlags)
+		CPyramidRestrictionsMgr.Get().Update();
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			CUIStateMgr.Get().GetInGameScreen()^.OnLevelInfoChanged();
+		endif;
+
+		CMultiPlayerClientMgr.Get().OnLevelInfoUpdate();
+
+		return;
+	endproc;
+	
+	proc void Evt_OnGameAttribsUpdate()
+		CMultiPlayerClientMgr.Get().OnGameAttribsUpdate();
+	endproc;
+
+	proc void Evt_OnFirstVisibleFrame()
+	endproc;
+	
+	proc void Evt_OnStartGame()
+		m_bIsPlayingSequence=false;
+		ms_bDoAutosave=false;
+		CPyramidRestrictionsMgr.Get().SetAjeBlockedSlot(false);		
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			CUIStateMgr.Get().GetInGameScreen()^.OnGameStart();
+		endif;
+		CNewPyramid.Get().UpdateAllBitmaps();
+		//CQuestMgrCln.Get().Shut();
+		
+		// MUSIC HACK
+		/* deactivated because param is a path to the file in /Data/Base/Audio/ 27.01.05
+		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		if(pxBaseNode!=null)then
+			var string sMapName=pxBaseNode^.GetValueS("LevelName");
+			if(sMapName=="Single 03"||sMapName=="Single 08"||sMapName=="The Rock")then
+				CMusicMgr.Get().PlayMusic(sMapName);
+				CMusicMgr.Get().SetEnabled(true);
+			endif;
+		endif;
+		*/
+		//END MUSIC HACK
+		var ^CMainController pxMainCtrl=^(CMainController.Get());
+		pxMainCtrl^.SetCamera(m_pxCamera);
+		m_pxDesktop^.SetInputController(pxMainCtrl);
+		pxMainCtrl^.SetActive(true);
+		pxMainCtrl^.GetMultiCameraCtrl().SwitchToModule("GameCamera");
+		SetEffectParams(m_iLevel);
+//		if(!CGameWrap.GetClient().GetPlayerSlotID().IsValid()) then
+//			KLog.LogSpam("PeKo","Playerslot is nich mehr valid");
+//		endif;
+		var ^CLevelInfo.CPlayerSlot pxSlot = ^(CGameWrap.GetClient().GetLevelInfo().GetPlayerSlot(CGameWrap.GetClient().GetPlayerSlotID()));
+		var ^CGameAttribs pxGIAttr = ^(CGameWrap.GetClient().GetLevelInfo().GetAttribs()^);
+		CWeatherMgr.Get().InitWeather();
+		//CQuestMgrCln.Get().Init();
+		ms_sTribe = pxSlot^.GetTribe();
+		ReInitInterface();
+		CMultiCameraController.Get().Init();
+		var CConfig xConf;
+		CMultiCameraController.Get().SetClampToWorld(xConf.GetB("Client/ClampCameraToWorld",true));
+		CEvt_GenericEvent.Send("ClientReady&"+pxSlot^.GetOwner().ToString());
+		
+		//Check if diplomacybutton has to be disabled
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			CUIStateMgr.Get().GetInGameScreen()^.CheckDiplomacyButton();
+		endif;
+		CMultiCameraController.Get().GetGameCameraModule()^.ResetCamera();
+
+		// init game camera module with default view		
+		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		CMultiCameraController.Get().GetGameCameraModule()^.m_fDefaultView=pxBaseNode^.GetValueR("DefaultCamera",0.785f);
+		
+		// set camera to position stored in savegame
+		// same functionality like in CGameClientApp::ProcessServerEvents, but this one is for GameCameraModule
+		var int iPlayerID=CGameWrap.GetClient().GetPlayerID();
+		if(iPlayerID<0) then iPlayerID=0; endif;
+		var string sPlayerID=iPlayerID.ToString();
+		var ^CPropDB.CNode pxClientCameraSettingsNode=pxLevelInfo^.GetGenericData().FindNode("ClientSettings/"+sPlayerID+"/Camera",false);
+		if(pxClientCameraSettingsNode!=null)then
+			var vec3 vE,vL;
+			vE.FromString(pxClientCameraSettingsNode^.GetValueS("Eye",""));
+			vL.FromString(pxClientCameraSettingsNode^.GetValueS("LookAt",""));
+			if((vE.Abs3M()>0.1f)&&(vL.Abs3M()>0.1f))then
+				CMultiCameraController.Get().GetGameCameraModule()^.m_vEye=vE;
+				CMultiCameraController.Get().GetGameCameraModule()^.m_vLookAt=vL;
+			endif;
+		endif;
+		m_bIsGameStarted=true;
+	endproc;
+
+	proc void Evt_OnPlayerChanged()
+
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			CUIStateMgr.Get().GetInGameScreen()^.OnChangeValues();
+		endif;
+		CPyramidRestrictionsMgr.Get().Update();
+		CNewPyramid.Get().Update();
+		CGroupMgr.Get().Update();
+	endproc;
+
+	proc void Evt_OnPlayerChangedTechTree(ref CStringArray p_rasChanges)
+// special debug infos for testing department, no fuctionality
+//		var int i,iC=p_rasChanges.NumEntries();
+//		var int iOwnOwner=CGameWrap.GetClient().GetPlayer().GetID();
+//		KLog.LogSpam("SFBug","Client->Owner "+iOwnOwner.ToString()+"->Evt_OnPlayerChangedTechTree->NumEntries->"+CTechTreeMgr.Get().NumEntries().ToString());
+//		var CTechTree xTechTree=CGameWrap.GetClient().GetPlayer().GetPlayerTechTree();
+//		for(i=0)cond(i<iC)iter(i++)do
+//			var string sValue="<off>";
+//			var ^CTechTree.CNode pxNode=xTechTree.FindNode(p_rasChanges[i]);
+//			if(pxNode!=null)then
+//				sValue=pxNode^.GetValue();
+//			endif;
+//			KLog.LogSpam("SFBug","Client->Owner "+iOwnOwner.ToString()+"->Evt_OnPlayerChangedTechTree->p_rasChanges["+i.ToString()+"]->"+p_rasChanges[i]+" -> "+sValue);
+//		endfor;
+
+		if(p_rasChanges.NumEntries()==0) then return; endif;
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			CUIStateMgr.Get().GetInGameScreen()^.OnChangeTechTree(p_rasChanges);
+		endif;
+	endproc;
+
+	proc void Evt_OnCloseGame()
+		m_bIsGameStarted=false;
+		ms_bDoAutosave=false;
+		//CInGameScreen.Get()^.GetDlgSceneMgr()^.ClearAllScenes();
+		var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+		if(pxIngameScreen!=null)then
+			pxIngameScreen^.OnGameEnd();
+		endif;	
+
+		//CQuestMgrCln.Get().Shut();
+		//CMusicMgr.Get().Stop();
+		CMusicMgr.ms_bGameLoading=false;
+		CSoundMgrCln.SetGameIsRunning(false);
+		
+		CClientWrap.GetSelection().Clear();
+		CClientWrap.GetObjMgr().ClearSelectionArrays();
+
+		var ^CMainController pxMainCtrl=^(CMainController.Get());
+		pxMainCtrl^.SetActive(false);
+		m_pxDesktop^.SetInputController(null);
+		/*
+		if(m_pxEndScreen!=null && m_pxEndScreen^.GetVisible())then
+			m_pxEndScreen^.OnCancel();
+		endif;
+		*/
+		CEvt_ClientDisconnect.Send();
+		CTTHelper.StaticShut();
+	endproc;
+
+	proc void Evt_OnConnectFailed()
+		//L CGameWrap.LogInfo("Game","Evt_OnConnectFailed");
+		CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_ERROR"),CLocalizer.Get().Translate("_Game_Connect"));
+		//m_pxStartScreen^.ShowLastDialog();
+		CEvt_ClientDisconnect.Send();
+	endproc;
+			
+	proc void Evt_OnServerClosed()
+		//L CGameWrap.LogInfo("Game","Evt_OnServerClosed");		
+		/*
+		if(m_pxInGameScreen!=null)then
+			m_pxInGameScreen^.SetVisible(false);
+		endif;
+		*/
+		CWeatherMgr.Get().StopWeatherProgram();
+		CWeatherMgr.Get().SetEnabled(false);
+		
+		// prepare the flags and UI for the change from multiplayerpregamescreen to multiplayerlobby, after the proxyserver is closed 
+		if((CGameWrap.IsWaitingForShutOfServer())&&(CGameWrap.RequestStartHostServer()))then																		
+			
+			var bool bShutSuccess=CGameWrap.WaitForServerShut();
+						
+			if(!CGameWrap.IsHostServerStarting())then
+				CUIStateMgr.Get().InvalidateLoadScreenInfo();											
+				CUIStateMgr.Get().ShowLoadingScreen("StartingNetworkServer",CUIStateMgr.STATE_NEWMULTIPLAYERLOBBY);
+				
+				CGameWrap.SetWaitingForShutOfServer(false);
+				CGameWrap.SetRequestStartHostServer(false);
+				CGameWrap.SetHostServerStarting(true);
+			else				
+				//L KLog.LogInfo("Game", "last server start was not finished, or flag of finish not set");
+			endif;													
+		endif;
+		
+		var int iUIState=CUIStateMgr.Get().GetState();
+ 		
+ 		// on a server a lost, handle the UIState depending where are in the UI
+ 		CUIStateMgr.Get().HandleServerLost();
+ 				
+		/*
+		if(m_pxEndScreen!=null && m_pxEndScreen^.GetVisible())then
+			m_pxEndScreen^.OnCancel();
+		endif;
+		*/
+		/*
+		if(m_pxStartScreen!=null)then
+			m_pxStartScreen^.SetVisible(true);
+		else
+			m_pxStartScreen=new CStartScreen(m_pxDesktop);
+			m_pxDesktop^.AddChild(m_pxStartScreen);
+		endif;
+		*/
+		m_bGetGameSpyError=false;
+	endproc;
+
+	proc void Evt_OnDeleteEntry(ref CClntHndl p_rxObj)
+		CClientWrap.GetSelection().RemEntry(p_rxObj);
+		CUIFeedbackFrameMgr.Get().OnDeleteObj(p_rxObj);
+	endproc;
+
+	proc void Evt_OnSortHitTestList(ref CHitTestList po_rxHitTestList)
+		var int i,iC=po_rxHitTestList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(i>0)then
+				var ^CHitTestObj pxCur=^(po_rxHitTestList[i]);
+				var ^CHitTestObj pxPrev=^(po_rxHitTestList[i-1]);
+				if(((pxPrev^.m_pxObj^.GetType()=="BLDG") || (pxPrev^.m_pxObj^.GetType()=="ANML")) && (pxCur^.m_pxObj^.GetType()=="CHTR" || pxCur^.m_pxObj^.GetType()=="SHIP" || pxCur^.m_pxObj^.GetType()=="FGHT"))then
+					if(pxCur^.m_fMinSq<pxPrev^.m_fMaxSq)then
+						po_rxHitTestList.Swap(i,i-1);
+						i--;
+					endif;
+				endif;
+			endif;
+		endfor;
+	endproc;
+
+	proc void Evt_OnFilterHoveredObjects(ref CObjList po_rxObjList,bitset p_dwCurModifier)
+		var bool bCtrl	= ((p_dwCurModifier&Msg.KM_CONTROL)!=0d);
+		var bool bShift	= ((p_dwCurModifier&Msg.KM_SHIFT)!=0d);
+		var bool bAlt	= ((p_dwCurModifier&Msg.KM_ALT)!=0d);
+
+		var ^CObjSelection pxSelection = ^(CClientWrap.GetSelection());
+		var CClntHndl xHitObj = CClientWrap.GetObjMgr().GetHitObj();
+		var CObjList xHovered;
+		var CObjList xWorkList;
+		var int i,iC;
+
+		// replace child object in hovered list with parent objs
+		iC=po_rxObjList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(po_rxObjList[i].IsValid())then
+				var ^CObj pxWalk = po_rxObjList[i].GetObj();
+				xHovered.Include(pxWalk^.GetGroupedRootParentObj()^.GetHandle());
+			endif;
+		endfor;
+		
+		// init work list with hovered objs
+		xWorkList=xHovered;
+
+		// temporary include current selection when Ctrl or Shift is pressed
+		if(bShift || bCtrl)then
+			xWorkList.Include(pxSelection^);
+		endif;
+
+		var CObjList xResultList;
+
+		var bool bHasUnits=false;
+		var bool bHasBuildings=false;
+		
+		var bool bHasOwnOwner=false;
+
+		var int iOwnOwner=CGameWrap.GetClient().GetPlayer().GetID();
+
+		// sort hovered objs by owner, own -> other
+		iC=xWorkList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CObj pxObj=xWorkList[i].GetObj();
+			if(pxObj==null)then continue; endif;
+			if(pxObj^.GetOwner()==iOwnOwner)then
+				bHasOwnOwner=true;
+			endif;
+			var CFourCC xType=pxObj^.GetType();
+			if(xType=="CHTR" || xType=="ANML" || xType=="VHCL" || xType=="SHIP" || pxObj^.GetClassName()=="aje_floating_harbour")then
+				bHasUnits=true;
+			elseif(xType=="BLDG")then
+				bHasBuildings=true;
+			endif;
+		endfor;
+
+		//sort hovered objs by type, units -> bldgs -> other
+		iC=xHovered.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+
+			var ^CObj pxObj=xHovered[i].GetObj();
+			if(pxObj==null)then continue; endif;
+
+			if(bHasOwnOwner && pxObj^.GetOwner()!=iOwnOwner)then continue; endif;
+
+			if(bHasUnits)then
+				var CFourCC xType=pxObj^.GetType();
+				if(xType=="CHTR" || xType=="ANML" || xType=="VHCL" || xType=="SHIP" || pxObj^.GetClassName()=="aje_floating_harbour")then
+					xResultList.Include(xHovered[i]);
+				endif;
+			elseif(bHasBuildings)then
+				if(pxObj^.GetType()=="BLDG")then
+					xResultList.Include(xHovered[i]);
+				endif;
+			else
+				xResultList.Include(xHovered[i]);
+			endif;
+			
+		endfor;
+
+		po_rxObjList=xResultList;
+
+//	OLD IMPLEMENTATION
+/*
+		// find out whether work list contains own units and update selection amount
+		
+		iC=xWorkList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!xWorkList[i].IsValid())then continue; endif;
+			var ^CObj pxWalk=xWorkList[i].GetObj();
+			if(pxWalk^.GetOwner()==iOwnOwner)then
+				bHasOwnOwner = true;
+			endif;
+
+			//update SelectionAmount for hovered objects
+			var ^CAttribs pxAttr = pxWalk^.GetAttribs();
+			if(pxAttr != null)then
+				var int iHitpoints = pxAttr^.GetValueInt("hitpoints");
+				var int iMaxHitpoints = pxAttr^.GetValueInt("maxhitpoints");
+				if(iMaxHitpoints>0)then
+					pxWalk^.SetSelectionAmount(iHitpoints.ToReal()/iMaxHitpoints.ToReal());
+				endif;
+			endif;
+		endfor;
+
+		// work list contains own units
+		// yes -> remove all other units from work list (no selection spawning multiple players should be possible)
+		if(bHasOwnOwner)then
+			var CObjList xTmpList;
+			var int i,iC=xWorkList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!xWorkList[i].IsValid())then continue; endif;
+				var ^CObj pxWalk=xWorkList[i].GetObj();
+				if(pxWalk^.GetOwner()==iOwnOwner)then
+					xTmpList.Include(xWorkList[i]);
+				endif;
+			endfor;
+			xWorkList=xTmpList;
+		endif;
+
+		// find out whether work list contains Chars, Animals, Vechicles, Ships, Buildings
+		var bool bHasChars=false;
+		var bool bHasAnimals=false;
+		var bool bHasVehicles=false;
+		var bool bHasShips=false;
+		var bool bHasBuildings=xWorkList.HaveObjOfType("BLDG");
+		iC=xWorkList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!xWorkList[i].IsValid())then continue; endif;
+			var ^CObj pxWalk=xWorkList[i].GetObj();
+			if (pxWalk^.GetAttribs()==null) then continue; endif;
+			var CFourCC xType=pxWalk^.GetType();
+			if(xType=="CHTR" || xType=="FGHT")then bHasChars=true; endif;
+			if(xType=="ANML")then
+				var int iCpt=pxWalk^.GetAttribs()^.GetValueInt("captain");
+				if(iCpt>=0)then
+					bHasChars=true;
+				else
+					bHasAnimals=true;
+				endif;
+			endif;
+			if(xType=="VHCL")then
+				var int iCpt=pxWalk^.GetAttribs()^.GetValueInt("captain");
+				if(iCpt>=0)then
+					bHasChars=true;
+				else
+					bHasVehicles=true;
+				endif;
+			endif;
+			if(xType=="SHIP")then
+				var int iCaptain = pxWalk^.GetAttribs()^.GetValueInt("captain");
+				if(iCaptain>=0)then
+					bHasChars=true;
+				else
+					bHasShips=true;
+				endif;
+			endif;
+		endfor;
+
+		// reset work list because we found out all we need to know
+		xWorkList = xHovered;
+		
+		// work list contains own units (once more because work list was reseted)
+		// yes -> remove all other units from work list (no selection should spawning multiple players be possible)
+		if(bHasOwnOwner)then
+			var CObjList xTmpList;
+			var int i,iC=xWorkList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!xWorkList[i].IsValid())then continue; endif;
+				var ^CObj pxWalk=xWorkList[i].GetObj();
+				if(pxWalk^.GetOwner()==iOwnOwner)then
+					xTmpList.Include(xWorkList[i]);
+				endif;
+			endfor;
+			xWorkList=xTmpList;
+		endif;
+
+		// order of hovering units from left to right Chars, Vehicles, Ships, Animals, Buildings
+		if(bHasChars)then
+			var CObjList xTmpList;
+			var int i,iC=xWorkList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!xWorkList[i].IsValid())then continue; endif;
+				var ^CObj pxWalk=xWorkList[i].GetObj();
+				var CFourCC xType=pxWalk^.GetType();
+				if(xType!="CHTR" && xType!="FGHT" && xType!="ANML" && xType!="VHCL" && xType!="SHIP")then
+					continue;
+				endif;
+				if(xType=="ANML" || xType=="VHCL")then
+					var int iCpt = -1;
+					if ( pxWalk^.GetAttribs() != null ) then
+						iCpt = pxWalk^.GetAttribs()^.GetValueInt("captain");
+					endif;
+					if (iCpt<0) then
+						continue;
+					endif;
+				endif;
+				if(xType=="SHIP")then
+					var int iCaptain;
+					if(pxWalk^.GetAttribs()!=null)then
+						iCaptain=pxWalk^.GetAttribs()^.GetValueInt("captain");
+					endif;
+					if(iCaptain<0)then
+						continue;
+					endif;
+				endif;
+				xTmpList.Include(xWorkList[i]);
+			endfor;
+			xWorkList=xTmpList;
+		elseif(bHasVehicles)then
+			var CObjList xTmpList;
+			var int i,iC=xWorkList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!xWorkList[i].IsValid())then continue; endif;
+				var ^CObj pxWalk=xWorkList[i].GetObj();
+				var CFourCC xType=pxWalk^.GetType();
+				if(xType!="VHCL")then continue;	endif;
+				if(xType=="VHCL")then
+					var int iCpt;
+					if(pxWalk^.GetAttribs()!=null) then
+						iCpt = pxWalk^.GetAttribs()^.GetValueInt("captain");
+					endif;
+					if(iCpt>=0)then
+						continue;
+					endif;
+				endif;
+				xTmpList.Include(xWorkList[i]);
+			endfor;
+			xWorkList=xTmpList;
+		elseif(bHasShips)then
+			var CObjList xTmpList;
+			var int i,iC=xWorkList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!xWorkList[i].IsValid())then continue; endif;
+				var ^CObj pxWalk=xWorkList[i].GetObj();
+				var CFourCC xType=pxWalk^.GetType();
+				if(xType!="SHIP")then continue;	endif;
+				if(xType=="SHIP")then
+					var int iCaptain;
+					if(pxWalk^.GetAttribs()!=null)then
+						iCaptain=pxWalk^.GetAttribs()^.GetValueInt("captain");
+					endif;
+					if(iCaptain>=0)then
+						continue;
+					endif;
+				endif;
+				xTmpList.Include(xWorkList[i]);
+			endfor;
+			xWorkList=xTmpList;
+		elseif(bHasAnimals)then
+			var CObjList xTmpList;
+			var int i,iC=xWorkList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!xWorkList[i].IsValid())then continue; endif;
+				var ^CObj pxWalk=xWorkList[i].GetObj();
+				var CFourCC xType=pxWalk^.GetType();
+				if(xType!="ANML")then continue;	endif;
+				if (xType=="ANML") then
+					xTmpList.Include(xWorkList[i]);
+					var int iCpt;
+					if (pxWalk^.GetAttribs()!=null) then
+						iCpt = pxWalk^.GetAttribs()^.GetValueInt("captain");
+					endif;
+					if (iCpt>=0) then
+						continue;
+					endif;
+				endif;
+			endfor;
+			xWorkList=xTmpList;
+		elseif(bHasBuildings)then
+			var CObjList xTmpList;
+			var int i,iC=xWorkList.NumEntries();
+			var string sClass;
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!xWorkList[i].IsValid())then continue; endif;
+				var ^CObj pxWalk=xWorkList[i].GetObj();
+				var CFourCC xType=pxWalk^.GetType();
+				if(xType!="BLDG")then continue;	endif;
+				sClass=pxWalk^.GetClassName();
+				i=iC;
+			endfor;
+			for(i=0)cond(i<iC)iter(i++)do
+				if(!xWorkList[i].IsValid())then continue; endif;
+				var ^CObj pxWalk=xWorkList[i].GetObj();
+				var CFourCC xType=pxWalk^.GetType();	
+				if(xType!="BLDG")then continue;	endif;
+				if(pxWalk^.GetClassName()==sClass)then
+					xTmpList.Include(xWorkList[i]);
+				endif;
+			endfor;
+			xWorkList=xTmpList;
+		endif;
+		
+		// return result
+		po_rxObjList=xWorkList;
+*/
+
+		//this is necessary, since the HitObj is only updated just before calling this Evt_method.
+		CMainController.Get().GetGameInputCtrl().UpdateMouseCursorCheck(bShift);
+	endproc;
+
+	proc void Evt_OnSequenceStart(string p_sSeqName)
+		m_bIsPlayingSequence=true;
+		CWindowMgr.Get().BringWindowToTop(m_pxDesktop,true);
+		CMultiCameraController.Get().EnterSequence();
+		CMainController.Get().SetActive(false);
+		CMainController.Get().GetGameInputCtrl().OnSequenceStart();
+		/*
+		CWindowMgr.Get().GetDesktop(0)^.DeleteAllAccelerators();
+		m_pxDesktop^.AddAccelerator("ESCAPE,NONE,Exit");
+		m_pxDesktop^.AddAccelerator("SPACE,NONE,PauseSequence");
+		m_pxDesktop^.SetCmd("Exit", Exit );
+		m_pxDesktop^.SetCmd("PauseSequence", PauseSequence );
+		*/
+	endproc;
+
+
+	proc void Evt_OnSequenceEnd(string p_sSeqName,string p_sCameraData,bool p_bQuitAfterSequence)
+		//CWindowMgr.Get().GetDesktop(0)^.DeleteAllAccelerators();
+		//CWindowMgr.Get().GetDesktop(0)^.LoadAcceleratorTableFromResFile("GameUI","options/Keys");
+		//ReloadCommands();
+		CMultiCameraController.Get().LeaveSequence();
+		CMainController.Get().SetActive(true);
+		
+		if(!p_sCameraData.IsEmpty())then
+			var ^CGameCameraModule pxCameraModule=CMultiCameraController.Get().GetGameCameraModule();		
+			if(pxCameraModule!=null)then		
+				//pxCameraModule^.FromString(p_sCameraData);
+				//pxCameraModule^.m_vLookAt.FromString(p_sCameraData);
+				var vec3 vPos;
+				vPos.FromString(p_sCameraData);
+				var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+				var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+				var real fTmp=pxBaseNode^.GetValueR("DefaultCamera",0.785f);
+				
+				CMultiCameraController.Get().GetGameCameraModule()^.ResetCamera();
+				CMultiCameraController.Get().GetGameCameraModule()^.m_fAngle=fTmp;
+				CMultiCameraController.Get().GetGameCameraModule()^.EyeFromAngles();
+				CMultiCameraController.Get().UpdateCamera();
+				CMultiCameraController.Get().SetCameraTarget(vPos);				
+			endif;		
+		endif;
+		if(p_bQuitAfterSequence)then
+			var string sPath="GameOver\tCampaign\tWin";
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_GAMEEND,sPath);	
+		endif;		
+		m_bIsPlayingSequence=false;
+	endproc;
+	
+	proc void Evt_OnUpdateQuest()
+		CQuestWindow.OnUpdateQuest();
+	endproc;
+	
+	proc void Evt_OnPause(int p_iPlayerID)
+		var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+		if(pxIngameScreen!=null)then			
+			var string sPlayerName="invalid";
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot = ^(CGameWrap.GetClient().GetLevelInfo().GetOwnerPlayerSlot(p_iPlayerID));
+			if(pxPlayerSlot!=null)then
+				sPlayerName=pxPlayerSlot^.GetName();
+			endif;
+			pxIngameScreen^.GetNewsTickerWindow()^.Print(CNewsTickerData.NTT_System,CLocalizer.Get().Translate("_NT_GamePausedByPlayer")+CLocalizer.Get().Translate("_NT_ACTOR_TEXT_SEPARATOR")+" "+sPlayerName);
+		endif;				
+	endproc;
+	
+	proc void Evt_OnUnpause(int p_iPlayerID)
+		//CNewsTicker.Print("Player: '"+p_iPlayerID.ToString()+"' unpaused");
+	endproc;
+	
+	proc void Evt_OnGameSpeedSet(int p_iPlayerID,real p_fGameSpeed)
+		var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+		if(pxIngameScreen!=null)then			
+			pxIngameScreen^.GetNewsTickerWindow()^.Print(CNewsTickerData.NTT_System,CLocalizer.Get().Translate("_NT_SpeedSet")+CLocalizer.Get().Translate("_NT_ACTOR_TEXT_SEPARATOR")+" "+p_fGameSpeed.ToString());
+		endif;		
+	endproc;
+
+	proc void ReInitInterface()
+		CClientWrap.GetSelection().Clear();
+
+		CMainController.Reset();
+
+		var string sTribe = ms_sTribe;
+		if(sTribe=="Random")then
+			sTribe = "SEAS";
+		endif;
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			CUIStateMgr.Get().GetInGameScreen()^.Init(sTribe);
+		endif;
+	endproc;
+
+	export static proc void JoinDB( ^CPropDB.CNode p_pxDB1, ^CPropDB.CNode p_pxDB2 )
+		var int i;
+		for(i=0)cond(i<p_pxDB2^.NumSubs())iter(i++)do
+			var string	sName	= (p_pxDB2^)[i].Name();
+			var string	sValue	= (p_pxDB2^)[i].Value();
+			var int		iIndex	= p_pxDB1^.Find( sName );
+			if( iIndex != -1 )then
+				if(sValue != p_pxDB1^.GetValueS(sName))then
+					p_pxDB1^.SetValue(sName,sValue);
+				endif;
+			else
+				p_pxDB1^.AddValue(sName, sValue);
+			endif;
+			CGameInst.JoinDB(p_pxDB1^.Get(sName), p_pxDB2^.Get(sName));
+		endfor;
+	endproc;
+
+	proc void SetEffectParams(int p_iLevel)
+		if(p_iLevel==0) then
+			CVisFXManager.FXBlooming.Enable(true);
+			CVisFXManager.FXBlooming.SetBlurValues(10);
+		elseif(m_iLevel==1) then
+			CVisFXManager.FXBlooming.Enable(true);
+			CVisFXManager.FXBlooming.SetBlurValues(10);
+		endif;
+	endproc;
+
+	proc bool PauseSequence()
+		var ^CSequence pxSequence=CGameWrap.GetClient().GetSequence();
+		if(pxSequence!=null)then
+			pxSequence^.Pause();
+			m_pxDesktop^.SetCmd("PauseSequence", ContinueSequence );
+			return true;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool ContinueSequence()
+		var ^CSequence pxSequence=CGameWrap.GetClient().GetSequence();
+		if(pxSequence!=null)then
+			pxSequence^.Play();
+			m_pxDesktop^.SetCmd("PauseSequence", PauseSequence );
+			return true;
+		endif;
+		return(true);
+	endproc;
+
+	proc bool Exit()
+		var ^CSequence pxSequence=CGameWrap.GetClient().GetSequence();
+		if(pxSequence!=null)then
+			pxSequence^.Stop();
+			return true;
+		endif;		
+		//if(CUIStateMgr.Get().GetState()!=CUIStateMgr.STATE_GAMEMENU)then
+		var bool bIngame=false;
+		var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
+		if(pxIngameScreen!=null)then
+			bIngame=pxIngameScreen^.GetGameActive();
+		endif;		
+		if(bIngame)then
+			CUIStateMgr.Get().SetState(CUIStateMgr.STATE_GAMEMENU);
+		endif;
+		return(true);
+	endproc;
+
+	proc bool SwitchClientShell()
+		CClientWrap.SwitchClientShell();
+		return(true);
+	endproc;
+
+	proc bool SwitchServerShell()
+		CClientWrap.SwitchServerShell();
+	return(true);
+	endproc;
+
+	proc bool ReloadSoundMapping()
+		//L CGameWrap.LogSpam("Game","Reloading sound mapping...");
+		//Just in case...
+		CGameWrap.ReloadSoundMapping();
+		return (true);
+	endproc;
+
+	proc bool ShowSoundMonitor()
+		CSoundMonitor.ToggleStatic();
+		return (true);
+	endproc;
+
+	proc bool SwitchProfiler()
+		if(m_bProfiler)then
+			CFeedback.Print("Client profiler stopped, check 'profiled_client.csv' for details.");
+			//L CGameWrap.LogInfo("Profiler","Client profiler stopped, check 'profiled_client.csv' for details.");
+			Profiler.Stop();
+			Profiler.ExportCSV("profiled_client.csv");
+			CClientWrap.ProfilingStop("profiled_client.kprof");
+			m_bProfiler = false;
+		else
+			CFeedback.Print("Client profiler started.");
+			//L CGameWrap.LogInfo("Profiler","Client profiler started.");
+			Profiler.Start();
+			CClientWrap.ProfilingStart();
+			m_bProfiler = true;
+		endif;
+	return(true);
+	endproc;
+
+	proc bool SwitchServerProfiler()
+		CEvt_GenericEvent.Send("SwitchServerProfiler");
+		return(true);
+	endproc;
+
+	proc bool JumpToLastEvent()
+		var ^CPlayer pxPlayer=^(CGameWrap.GetClient().GetPlayer());
+		var ^CAttribs pxAttribs=pxPlayer^.GetAttribs();
+		if(pxAttribs==null)then return(false);endif;
+		var vec3 vPos;
+		vPos.FromString(pxAttribs^.GetValue("lastevent"));
+		if(vPos!={0.0,0.0,0.0})then
+			CMultiCameraController.Get().SetCameraTarget(vPos,true);
+			CMultiCameraController.Get().SnapOnGround();
+		endif;
+		return(true);
+	endproc;
+
+	proc bool SwitchPyramidForward()
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			CUIStateMgr.Get().GetInGameScreen()^.TogglePyramidState(false);
+		endif;
+		return(true);
+	endproc;
+
+	proc bool SwitchPyramidBackward()
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			CUIStateMgr.Get().GetInGameScreen()^.TogglePyramidState(true);
+		endif;
+		return(true);
+	endproc;
+
+	proc bool AllUnitsOnScreen()
+		var CObjList	xCharList=CClientWrap.GetObjMgr().GetScreenObjs();
+		var int iOwner=CGameWrap.GetClient().GetPlayer().GetID();
+		var int i;
+		//CGameWrap.LogSpam("Game","AllUnitsOnScreen()");
+		for(i=0)cond(i<xCharList.NumEntries())iter(i++)do
+			if(xCharList[i].GetObj()^.GetOwner()!=iOwner)then
+				xCharList.RemEntry(xCharList[i]);
+				i--;
+			elseif((xCharList[i].GetObj()^.GetType()!="CHTR")&&(xCharList[i].GetObj()^.GetType()!="ANML")&&(xCharList[i].GetObj()^.GetType()!="VHCL"))then
+				xCharList.RemEntry(xCharList[i]);
+				i--;
+			endif;
+		endfor;
+		var ^CObjSelection	pxSelection= ^(CClientWrap.GetSelection());
+		pxSelection^.Clear();
+		pxSelection^.Include(xCharList);
+		return(true);
+	endproc;
+
+	/*
+		HQ				hu_fireplace				aje_resource_collector		ninigi_fireplace
+		Harbour			hu_harbour					aje_floating_harbour		ninigi_harbour
+		WeaponSmith		hu_weapon_smith				aje_weapons_builder			ninigi_weapon_maker
+		Barracks		hu_arena					aje_rodeo					ninigi_dojo
+		Tavern			hu_tavern					aje_cook_house				ninigi_teahouse
+		Farm			hu_small_animal_farm		aje_small_farm				ninigi_animal_farm
+		Temple			hu_temple					aje_temple					ninigi_temple
+		MachineMaker	hu_machine_maker										ninigi_engineer
+	*/
+
+	proc void PickNextFromObjQuery(ref CObjQueryCln p_rxQ)
+		var CObjList xList;
+		var CClntHndl xTarget;
+		var ^CObjSelection pxSelection=^(CClientWrap.GetSelection());
+		
+//		pxSelection^.Clear();
+		if(p_rxQ.Execute(xList))then
+			var vec3 vCurrent = CMultiCameraController.Get().GetGameCameraModule()^.m_vLookAt;
+			var vec3 vChosenPos;
+			var int i,iC=xList.NumEntries();
+		
+			var real fHaveDist=-1.0f;	
+			for(i=0)cond(i<iC)iter(i++)do
+				var CClntHndl xHndl = xList[i];
+				if(pxSelection^.FindEntry(xHndl)!=-1)then
+					var ^CObj pxObj = xHndl.GetObj();
+					var real fDist=(pxObj^.GetPos()-vCurrent).Abs();
+					if(fDist>fHaveDist)then fHaveDist=fDist;endif;					
+				endif;
+			endfor;
+			fHaveDist+=0.1f;
+
+			var real fMinDist=9999999.9;
+			for(i=0)cond(i<iC)iter(i++)do
+				var CClntHndl xHndl = xList[i];
+				if(!xHndl.IsValid())then continue; endif;
+				var ^CObj pxObj = xHndl.GetObj();
+				var real fDist=(pxObj^.GetPos()-vCurrent).Abs();
+				if((fMinDist>fDist)&&(fDist>fHaveDist))then
+					fMinDist=fDist;
+					xTarget=xHndl;
+					vChosenPos=pxObj^.GetPos();
+				endif;
+			endfor;
+			pxSelection^.Clear();
+			if(xTarget.IsValid())then
+				pxSelection^.Include(xTarget);
+				var ^CInGameScreen pxIngameScreen = CUIStateMgr.Get().GetInGameScreen();
+				if(pxIngameScreen!=null)then
+					var ^CMiniMapWindow2 pxMinimap= pxIngameScreen^.GetMiniMapWindow();
+					if(pxMinimap!=null) then
+						pxMinimap^.AddEvent(vChosenPos,"Finished");
+//						pxMinimap^.NewMarkerReuse("Select",vChosenPos,{{255,0,0,255}},80.0,false,3.2,1.3,true,true);
+					endif;
+				endif;
+			endif;
+		endif;
+	endproc;
+
+	proc bool PickNextHQ()
+		var CObjQueryCln xQuery;
+		xQuery.SetOwner(CGameWrap.GetClient().GetPlayer().GetID());
+		xQuery.SetClass("hu_fireplace");
+		xQuery.SetClass("aje_resource_collector",true);
+		xQuery.SetClass("ninigi_fireplace",true);
+		xQuery.SetClass("seas_headquarters",true);
+		xQuery.SetAttribsNeg("CurTask","BuildUpB");
+		PickNextFromObjQuery(xQuery);
+		return true;
+	endproc;
+
+	proc bool PickNextBarracks()
+		var CObjQueryCln xQuery;
+		xQuery.SetOwner(CGameWrap.GetClient().GetPlayer().GetID());
+		xQuery.SetClass("hu_arena");
+		xQuery.SetClass("aje_rodeo",true);
+		xQuery.SetClass("ninigi_dojo",true);
+                xQuery.SetClass("seas_barracks",true);
+		xQuery.SetAttribsNeg("CurTask","BuildUpB");
+		PickNextFromObjQuery(xQuery);
+		return true;
+	endproc;
+
+	proc bool PickNextHarbour()
+		var CObjQueryCln xQuery;
+		xQuery.SetOwner(CGameWrap.GetClient().GetPlayer().GetID());
+		xQuery.SetClass("hu_harbour");
+		xQuery.SetClass("aje_floating_harbour",true);
+		xQuery.SetClass("ninigi_harbour",true);
+                xQuery.SetClass("seas_carrier",true);
+		xQuery.SetAttribsNeg("CurTask","BuildUpB");
+		PickNextFromObjQuery(xQuery);
+		return true;
+	endproc;
+
+	proc bool PickNextWeaponSmith()
+		var CObjQueryCln xQuery;
+		xQuery.SetOwner(CGameWrap.GetClient().GetPlayer().GetID());
+		xQuery.SetClass("hu_weapons_smith");
+		xQuery.SetClass("aje_weapons_builder",true);
+		xQuery.SetClass("ninigi_weapon_maker",true);
+                xQuery.SetClass("seas_laboratory",true);
+		xQuery.SetAttribsNeg("CurTask","BuildUpB");
+		PickNextFromObjQuery(xQuery);
+		return true;
+	endproc;
+
+	proc bool PickNextTavern()
+		var CObjQueryCln xQuery;
+		xQuery.SetOwner(CGameWrap.GetClient().GetPlayer().GetID());
+		xQuery.SetClass("hu_tavern");
+		xQuery.SetClass("aje_cook_house",true);
+		xQuery.SetClass("ninigi_teahouse",true);
+                xQuery.SetClass("seas_khargclub",true);
+		xQuery.SetAttribsNeg("CurTask","BuildUpB");
+		PickNextFromObjQuery(xQuery);
+		return true;
+	endproc;
+
+	proc bool PickNextFarm()
+		var CObjQueryCln xQuery;
+		xQuery.SetOwner(CGameWrap.GetClient().GetPlayer().GetID());
+		xQuery.SetClass("hu_small_animal_farm");
+		xQuery.SetClass("aje_small_farm",true);
+		xQuery.SetClass("ninigi_animal_farm",true);
+                xQuery.SetClass("seas_garage",true);
+		xQuery.SetAttribsNeg("CurTask","BuildUpB");
+		PickNextFromObjQuery(xQuery);
+		return true;
+	endproc;
+
+	proc bool PickNextTemple()
+		var CObjQueryCln xQuery;
+		xQuery.SetOwner(CGameWrap.GetClient().GetPlayer().GetID());
+		xQuery.SetClass("hu_temple");
+		xQuery.SetClass("aje_temple",true);
+		xQuery.SetClass("ninigi_temple",true);
+                xQuery.SetClass("seas_laboratory",true);
+		xQuery.SetAttribsNeg("CurTask","BuildUpB");
+		PickNextFromObjQuery(xQuery);
+		return true;
+	endproc;
+
+	proc bool PickNextMachineMaker()
+		var CObjQueryCln xQuery;
+		xQuery.SetOwner(CGameWrap.GetClient().GetPlayer().GetID());
+		xQuery.SetClass("hu_machine_maker");
+		xQuery.SetClass("ninigi_engineer",true);
+                xQuery.SetClass("seas_garage",true);
+		xQuery.SetAttribsNeg("CurTask","BuildUpB");
+		PickNextFromObjQuery(xQuery);
+		return true;
+	endproc;
+
+	class CIdleWorkerSorter
+		export var int m_iSlotID;
+		export var CClntHndl m_xWorker;
+		export var bool m_bSelection;
+
+		export proc bool op_Greater(ref CGameInst.CIdleWorkerSorter p_rxOther)
+			return m_iSlotID>p_rxOther.m_iSlotID;
+		endproc;
+
+	endclass;
+	
+	proc bool PickIdleWorker()
+		ComputeIdleWorker(false, false);
+		return true;
+	endproc;
+
+	proc bool AddIdleWorker()
+		ComputeIdleWorker(false, true);
+		return true;
+	endproc;
+
+	proc bool AllIdleWorker()
+		ComputeIdleWorker(true, true);
+		return true;
+	endproc;
+
+	proc void ComputeIdleWorker(bool p_bSelectAll, bool p_bAdd)
+		var ^CObjSelection pxSelection=^(CClientWrap.GetSelection());
+		var CObjList xCharList=CGameWrap.GetClient().GetPlayer().GetCharacters();
+		var array CGameInst.CIdleWorkerSorter axSortArray;
+
+		var int i,iC=xCharList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CObj pxWorker=xCharList[i].GetObj();
+			if(pxWorker==null)then continue; endif;
+			var string sClassName=pxWorker^.GetClassName();
+			if(	sClassName!="hu_worker"
+			&&	sClassName!="aje_worker"
+			&&	sClassName!="ninigi_worker"
+			&&	sClassName!="seas_worker")then continue; endif;
+			var ^CAttribs pxAttr=pxWorker^.GetAttribs();
+			if(pxAttr==null)then continue; endif;
+			if(pxAttr^.GetValue("CurTask")!="Idle")then continue; endif;
+			var ^CGameInst.CIdleWorkerSorter pxSorter=^(axSortArray.NewEntryRef());
+			pxSorter^.m_iSlotID=pxAttr^.GetValueInt("clientpyramid_slotid");
+			pxSorter^.m_xWorker=xCharList[i];
+			pxSorter^.m_bSelection=pxSelection^.FindEntry(xCharList[i])>=0;
+		endfor;
+		
+		axSortArray.QSort();
+		
+		if(axSortArray.NumEntries()<=0)then
+			ms_iIdleWorkerIndex=-1;
+			return;
+		endif;
+
+		var vec3 vPos;
+
+		if(axSortArray[axSortArray.NumEntries()-1].m_iSlotID<=ms_iIdleWorkerIndex)then
+			ms_iIdleWorkerIndex=-1;
+		endif;
+
+		var int iNextWorkerSlotID=999;
+		var CClntHndl xNextWorker;
+		var CObjList xWorkerList;
+		
+		iC=axSortArray.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(p_bSelectAll)then
+				if(vPos=={0.0,0.0,0.0} && axSortArray[i].m_xWorker.IsValid())then
+					vPos=axSortArray[i].m_xWorker.GetObj()^.GetPos();
+				endif;
+				xWorkerList.Include(axSortArray[i].m_xWorker);
+				continue;
+			endif;
+			if(p_bAdd)then
+				if(axSortArray[i].m_bSelection)then
+					xWorkerList.Include(axSortArray[i].m_xWorker);
+					ms_iIdleWorkerIndex=axSortArray[i].m_iSlotID;
+					continue;
+				endif;
+			endif;
+			if(axSortArray[i].m_iSlotID<=ms_iIdleWorkerIndex)then continue; endif;
+			if(axSortArray[i].m_iSlotID>iNextWorkerSlotID)then continue; endif;
+
+			if(vPos=={0.0,0.0,0.0} && axSortArray[i].m_xWorker.IsValid())then
+				vPos=axSortArray[i].m_xWorker.GetObj()^.GetPos();
+			endif;
+			
+			iNextWorkerSlotID=axSortArray[i].m_iSlotID;
+			xNextWorker=axSortArray[i].m_xWorker;
+		endfor;
+
+		if(xNextWorker.IsValid())then
+			if(!p_bSelectAll)then
+				xWorkerList.Include(xNextWorker);
+			endif;
+			if(axSortArray.NumEntries()<=xWorkerList.NumEntries())then
+				ms_iIdleWorkerIndex=-1;
+			else
+				ms_iIdleWorkerIndex=iNextWorkerSlotID;
+			endif;
+		endif;
+
+		pxSelection^=xWorkerList;
+
+		if(vPos!={0.0,0.0,0.0})then
+			CMultiCameraController.Get().SetCameraTarget(vPos,true);
+			CMultiCameraController.Get().SnapOnGround();
+		endif;
+
+	endproc;
+	
+	proc void JumpToHQ()
+		var CObjQueryCln xQuery;
+		xQuery.SetOwner(CGameWrap.GetClient().GetPlayer().GetID());
+		xQuery.SetClass("hu_fireplace");
+		xQuery.SetClass("aje_resource_collector",true);
+		xQuery.SetClass("ninigi_fireplace",true);
+		xQuery.SetClass("seas_headquarters",true);
+		xQuery.SetAttribsNeg("CurTask","BuildUpB");
+		var CObjList xList;
+		
+		if(xQuery.Execute(xList))then
+
+			var bool bNextByName=false;
+			var bool bNextByDistance=false;
+
+			var ^CObjSelection	pxSelection= ^(CClientWrap.GetSelection());
+
+			var CClntHndl xTarget;
+
+			var array CGameInst.CIdleWorkerSorter axSortArray;
+
+			var int i,iC=xList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				var CClntHndl xHndl = xList[i];
+				if(!xHndl.IsValid())then continue; endif;
+				var ^CObj pxObj = xHndl.GetObj();
+				var ^CAttribs pxAttr=pxObj^.GetAttribs();
+				if(pxAttr==null)then continue; endif;
+				if(pxAttr^.GetValue("CurTask")=="BuildUp")then continue; endif;
+				var ^CGameInst.CIdleWorkerSorter pxSorter=^(axSortArray.NewEntryRef());
+				var int iID=pxAttr^.GetValueInt("clientpyramid_slotid");
+				if(iID==-1)then //bulding
+					iID=i+53;
+				endif;
+				pxSorter^.m_iSlotID=iID;
+				pxSorter^.m_xWorker=xHndl;
+			endfor;
+			
+			axSortArray.QSort();
+
+			if(pxSelection^.NumEntries()==1 && xList.FindEntry(pxSelection^[0])!=-1)then
+				//headquarter already selected
+	
+				ms_iHQIndex++;
+				if(ms_iHQIndex>=axSortArray.NumEntries())then
+					ms_iHQIndex=0;
+				endif;
+				if(axSortArray.NumEntries()>0)then
+					xTarget=axSortArray[ms_iHQIndex].m_xWorker;
+				endif;
+			else
+				bNextByDistance=true;
+			endif;
+
+			var vec3 vCurrent = CMultiCameraController.Get().GetGameCameraModule()^.m_vLookAt;
+
+			var real fMinDist=9999999.9;
+
+			if(bNextByDistance)then
+				var int i,iC=xList.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					var CClntHndl xHndl = xList[i];
+					if(!xHndl.IsValid())then continue; endif;
+					var ^CObj pxObj = xHndl.GetObj();
+					var real fDist=(pxObj^.GetPos()-vCurrent).Abs();
+					if(fMinDist>fDist)then
+						fMinDist=fDist;
+						xTarget=xHndl;
+					endif;
+				endfor;
+			endif;
+	
+			if(xTarget.IsValid())then
+				
+				var int i,iC=axSortArray.NumEntries();
+				for(i=0)cond(i<iC)iter(i++)do
+					if(axSortArray[i].m_xWorker==xTarget)then
+						ms_iHQIndex=i;
+					endif;
+				endfor;
+				
+				pxSelection^.Clear();
+				pxSelection^.AddEntry(xTarget);
+				CMultiCameraController.Get().SetCameraTarget(xTarget.GetObj()^.GetPos(),true);
+				CMultiCameraController.Get().SnapOnGround();
+			endif;
+
+		endif;
+
+	endproc;
+
+	proc bool IdleUnitsInWorld()
+		var ^CObjSelection	pxSelection= ^(CClientWrap.GetSelection());
+		var CObjList	xCharList=CGameWrap.GetClient().GetPlayer().GetCharacters();
+		var int i;
+		for(i=0)cond(i<xCharList.NumEntries())iter(i++)do
+			var ^CAttribs pxAttribs=xCharList[i].GetObj()^.GetAttribs();
+			if(pxAttribs!=null)then
+				if(pxAttribs^.GetValue("CurTask")!="Idle")then
+					xCharList.RemEntry(xCharList[i]);
+					i--;
+				endif;
+			endif;
+		endfor;
+		if(xCharList.NumEntries()>0)then
+			pxSelection^.Clear();
+			pxSelection^.Include(xCharList);
+		endif;
+		return(true);
+	endproc;
+
+	proc bool IdleUnitsOnScreen()
+		var ^CObjSelection	pxSelection= ^(CClientWrap.GetSelection());
+		var CObjList		xCharList=CClientWrap.GetObjMgr().GetScreenObjs();
+		var int i;
+		for(i=0)cond(i<xCharList.NumEntries())iter(i++)do
+			var ^CAttribs pxAttribs=xCharList[i].GetObj()^.GetAttribs();
+			if(xCharList[i].GetObj()^.GetType()!="CHTR")then
+				xCharList.RemEntry(xCharList[i]);
+				i--;
+			elseif(xCharList[i].GetObj()^.GetOwner()!=CGameWrap.GetClient().GetPlayer().GetID())then
+				xCharList.RemEntry(xCharList[i]);
+				i--;
+			elseif(pxAttribs!=null)then
+				if(pxAttribs^.GetValue("CurTask")!="Idle")then
+					xCharList.RemEntry(xCharList[i]);
+					i--;
+				endif;
+			endif;
+		endfor;
+		if(xCharList.NumEntries()>0)then
+			pxSelection^.Clear();
+			pxSelection^.Include(xCharList);
+		endif;
+		return(true);
+	endproc;
+
+	proc bool HideUI()
+		CUIStateMgr.Get().ShowUI(!CUIStateMgr.Get().GetUIShown());
+		return(true);
+	endproc;
+	
+	proc bool OnChatToAll()
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			CUIStateMgr.Get().GetInGameScreen()^.OnChatToAll();
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnChatToAllies()
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			CUIStateMgr.Get().GetInGameScreen()^.OnChatToAllies();
+		endif;
+		return(true);
+	endproc;
+	
+	proc bool OnChatToEnemies()
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			CUIStateMgr.Get().GetInGameScreen()^.OnChatToEnemies();
+		endif;
+		return(true);
+	endproc;
+	
+	export static proc void SetChatWindow(^CNewChatWindow p_pxChatWindow)
+		ms_pxChatWindow = p_pxChatWindow;
+	endproc;
+	
+	proc bool ShowUI(bool p_bParam)
+		if(CUIStateMgr.Get().GetInGameScreen()!=null)then
+			CUIStateMgr.Get().ShowUI(p_bParam);
+		endif;
+		return(true);
+	endproc;
+
+	proc bool KillAll()
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		var int i,iC=pxSel^.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CObj pxObj=(pxSel^)[i].GetObj();
+			if(pxObj!=null && pxObj^.GetOwner()==CGameWrap.GetClient().GetPlayerID())then
+				var CClntHndl xInvalid;
+				CEvt_GamePlayCommand.Send((pxSel^)[i],"Action",xInvalid,{0.0,0.0,0.0},"/Kill");
+			endif;
+		endfor;
+		pxSel^.Clear();
+		return(true);
+	endproc;
+
+	proc bool Kill()
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		var int i,iC=pxSel^.NumEntries();
+		if(iC<1) then return false; endif;
+		var ^CObj pxObj=(pxSel^)[0].GetObj();
+		if(pxObj!=null && pxObj^.GetOwner()==CGameWrap.GetClient().GetPlayerID())then
+			var CClntHndl xInvalid;
+			CEvt_GamePlayCommand.Send((pxSel^)[0],"Action",xInvalid,{0.0,0.0,0.0},"/Kill");
+		endif;
+		return(true);
+	endproc;
+
+	proc bool AccTime()
+		CGameWrap.GameSpeedIncr();
+		return(true);
+	endproc;
+
+	proc bool ReloadGraphicSets()
+		CEvt_GenericEvent.Send("ReloadGfxSets");
+		return(true);
+	endproc;
+
+	proc bool DecTime()
+		CGameWrap.GameSpeedDecr();
+		return(true);
+	endproc;
+
+	proc bool ResetTime()
+		CGameWrap.GameSpeedReset();
+		return(true);
+	endproc;
+
+	proc bool StopTime()
+		CGameWrap.TogglePause();
+		return(true);
+	endproc;
+
+	proc bool TogglePause()
+		CGameWrap.TogglePause();
+		return(true);
+	endproc;
+
+
+
+	export proc bool ToggleRangeMarkers()
+		m_bShowRangeMarkers = !m_bShowRangeMarkers;
+		if(m_bShowRangeMarkers)then
+			CMainController.Get().GetRangeMgr().RangeMarkerUpdate();
+		else
+			CMainController.Get().GetRangeMgr().ClearAll();
+		endif;
+		return true;
+	endproc;
+
+	export proc bool ToggleRangeMarkersAttack()
+		CMainController.Get().GetRangeMgr().ToggleAttackRanges();
+		return true;
+	endproc;
+
+	export proc bool ToggleInfoIcons()
+		CIconMgr.Get().SetEnabled(!CIconMgr.Get().GetEnabled());
+		return true;
+	endproc;
+
+	export proc bool Formation1()
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		CFormationMgr.Get().Form(pxSel,0,CClientWrap.GetScapeMgr().GetPickPoint(),{0.0,1.0,0.0});
+		return true;
+	endproc;
+
+	export proc bool Formation2()
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		CFormationMgr.Get().Form(pxSel,1,CClientWrap.GetScapeMgr().GetPickPoint(),{0.0,1.0,0.0});
+		return true;
+	endproc;
+
+	export proc bool Formation3()
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		CFormationMgr.Get().Form(pxSel,2,CClientWrap.GetScapeMgr().GetPickPoint(),{0.0,1.0,0.0});
+		return true;
+	endproc;
+
+	export proc bool OnQuicksave()
+		var CConfig xConf;
+		if(CGameWrap.GetClient().GetLevelInfo().GetNumHumanPlayers()==1 || xConf.GetB("Game/ButtonSaveMultiplayerEnable",false))then
+			var ^CUserProfileList pxList = ^(CClientWrap.GetUserProfileList());
+			var string sPath = pxList^.GetSaveGamePath()+"Quicksave.ula";;
+			CEvt_SaveLevel.Send(sPath);
+			CFeedback.Print("_NT_SavingGame");
+			return(true);
+		endif;
+		return(false);
+	endproc;
+
+	export proc bool OnAutosave()
+		var CConfig xConf;
+		if(CGameWrap.GetClient().GetLevelInfo().GetNumHumanPlayers()==1 || xConf.GetB("Game/ButtonSaveMultiplayerEnable",false))then
+			var ^CUserProfileList pxList = ^(CClientWrap.GetUserProfileList());
+			var string sPath = pxList^.GetSaveGamePath()+"Autosave.ula";;
+			CEvt_SaveLevel.Send(sPath);
+			CFeedback.Print("_NT_SavingGame");
+			return(true);
+		endif;
+		return(false);
+	endproc;
+	
+	export static proc void DoAutosave()
+		ms_bDoAutosave=true;	// see OnTick for real autosave
+	endproc;
+
+	export proc bool OnSaveAsLevel()
+		var ^CEnhancedLoadSaveDialog pxTmp = new CEnhancedLoadSaveDialog(1,"custom");
+		pxTmp^.ClearFilters();
+		pxTmp^.AddFilter("ULA Files","*.ula");
+		pxTmp^.m_xReturnFileString=OnReturnSaveString;
+		m_pxDesktop^.AddChild(pxTmp);
+		CWindowMgr.Get().BringWindowToTop(pxTmp, true);
+		CWindowMgr.Get().SetModal(pxTmp);
+		return(true);
+	endproc;
+
+	export proc bool RenderRegions()
+		CGameWrap.GetClient().SetShowRegions(!CGameWrap.GetClient().GetShowRegions());
+		return(true);
+	endproc;
+
+	export proc bool ShowObjectNames()
+		var CFourCC xTmp="CHTR";CGameWrap.GetObjMgr().ShowObjNamesSetType(xTmp,true,{{225,255,255,255}});
+		xTmp="BLDG";CGameWrap.GetObjMgr().ShowObjNamesSetType(xTmp,true,{{225,0,0,255}});
+		xTmp="ANML";CGameWrap.GetObjMgr().ShowObjNamesSetType(xTmp,true,{{0,255,0,255}});
+		xTmp="SLOC";CGameWrap.GetObjMgr().ShowObjNamesSetType(xTmp,true,{{225,255,255,255}});
+		xTmp="FGHT";CGameWrap.GetObjMgr().ShowObjNamesSetType(xTmp,true,{{225,255,255,255}});
+		xTmp="TRSP";CGameWrap.GetObjMgr().ShowObjNamesSetType(xTmp,true,{{225,255,255,255}});
+		xTmp="VHCL";CGameWrap.GetObjMgr().ShowObjNamesSetType(xTmp,true,{{225,255,255,255}});
+		xTmp="SHIP";CGameWrap.GetObjMgr().ShowObjNamesSetType(xTmp,true,{{225,255,255,255}});
+		xTmp="NEST";CGameWrap.GetObjMgr().ShowObjNamesSetType(xTmp,true,{{225,255,255,255}});
+		xTmp="RSRC";CGameWrap.GetObjMgr().ShowObjNamesSetType(xTmp,true,{{225,255,255,255}});
+		CClientWrap.GetObjMgr().ShowObjNamesEnable(!CClientWrap.GetObjMgr().ShowObjNamesIsEnabled());
+		return(true);
+	endproc;
+
+	proc bool OnReturnSaveString(string p_sFileString);
+		CEvt_SaveLevel.Send(p_sFileString);
+		return(true);
+	endproc;
+
+// HACK
+	proc void MakeLookAroundOverlays(^CObj p_pxObj,int p_iDir,string p_sLookLeft,string p_sLookRight)
+		if(p_pxObj==null)then return; endif;
+
+		var bool bStartLeft=(Random.MTRandF()<0.5f);
+
+		begin Left;
+			var CObj.CBlendAnimDesc xD;
+			xD.m_sAnim=p_sLookLeft;
+			xD.m_iUniqueID=243;
+			xD.m_iStartFrame=0;
+			xD.m_iEndFrame=0;
+			xD.m_dwAnimMode=CObj.CBlendAnimDesc.AM_Still;
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			var CObj.CBlendAnimDesc.CKey xKey;
+
+			if(bStartLeft)then
+				xKey.m_xTime=xNow;
+				xKey.m_fWeight=0.0f;
+				xD.AddKey(xKey);
+
+				xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*1.0f);
+				xKey.m_fWeight=1.0f;
+				xD.AddKey(xKey);
+
+				xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*1.2f);
+				xKey.m_fWeight=1.0f;
+				xD.AddKey(xKey);
+			endif;
+
+			xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*2.2f);
+			xKey.m_fWeight=0.0f;
+			xD.AddKey(xKey);
+
+			if(!bStartLeft)then
+				xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*3.2f);
+				xKey.m_fWeight=1.0f;
+				xD.AddKey(xKey);
+
+				xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*3.4f);
+				xKey.m_fWeight=1.0f;
+				xD.AddKey(xKey);
+
+				xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*4.4f);
+				xKey.m_fWeight=0.0f;
+				xD.AddKey(xKey);
+			endif;
+
+			p_pxObj^.SetBlendAnim(xD);
+		end Left;
+
+		begin Right;
+			var CObj.CBlendAnimDesc xD;
+			xD.m_sAnim=p_sLookRight;
+			xD.m_iUniqueID=244;
+			xD.m_iStartFrame=0;
+			xD.m_iEndFrame=0;
+			xD.m_dwAnimMode=CObj.CBlendAnimDesc.AM_Still;
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			var CObj.CBlendAnimDesc.CKey xKey;
+
+			if(!bStartLeft)then
+				xKey.m_xTime=xNow;
+				xKey.m_fWeight=0.0f;
+				xD.AddKey(xKey);
+
+				xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*1.0f);
+				xKey.m_fWeight=1.0f;
+				xD.AddKey(xKey);
+
+				xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*1.2f);
+				xKey.m_fWeight=1.0f;
+				xD.AddKey(xKey);
+			endif;
+
+			xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*2.2f);
+			xKey.m_fWeight=0.0f;
+			xD.AddKey(xKey);
+
+			if(bStartLeft)then
+				xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*3.2f);
+				xKey.m_fWeight=1.0f;
+				xD.AddKey(xKey);
+
+				xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*3.4f);
+				xKey.m_fWeight=1.0f;
+				xD.AddKey(xKey);
+
+				xKey.m_xTime=xNow+(CGameTimeSpan.OneSecond()*4.4f);
+				xKey.m_fWeight=0.0f;
+				xD.AddKey(xKey);
+			endif;
+
+			p_pxObj^.SetBlendAnim(xD);
+		end Right;
+	endproc;
+// END HACK
+endclass;
+
+
+class CCursorMgr
+
+	static var ^CCursorMgr ms_pxInst;
+	var array int m_aiCursorIndex;
+
+	export static proc ref CCursorMgr Get()
+		if(ms_pxInst==null)then
+			ms_pxInst=new CCursorMgr;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+	
+	export static proc void Kill()
+		if (ms_pxInst!=null)then
+			delete ms_pxInst;
+			ms_pxInst=null;
+		endif;
+	endproc;
+	
+	export proc void Init()
+		CClientWrap.DefineStandardCursor(1, CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Standard.cur");
+		CClientWrap.DefineStandardCursor(2, CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Standard.cur");
+		CClientWrap.DefineStandardCursor(3, CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Standard.cur");
+		CClientWrap.DefineStandardCursor(4, CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Standard.cur");
+		CClientWrap.DefineStandardCursor(5, CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Standard.cur");
+		CClientWrap.DefineStandardCursor(6, CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Busy.cur");
+		CClientWrap.DefineStandardCursor(7, CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Standard.cur");
+		CClientWrap.DefineStandardCursor(8, CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/No.cur");
+		CClientWrap.DefineStandardCursor(9, CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Beam.cur");
+		CClientWrap.DefineStandardCursor(10, CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Standard.cur");
+		CClientWrap.DefineStandardCursor(11, CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Standard.cur");
+		CClientWrap.DefineStandardCursor(12, CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Help.cur");
+		CClientWrap.DefineStandardCursor(13, CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Standard.cur");
+
+		m_aiCursorIndex = 27;
+
+		m_aiCursorIndex[0] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Standard.cur");
+		m_aiCursorIndex[1] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/harvest_food.cur");
+		m_aiCursorIndex[2] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/harvest_wood.cur");
+		m_aiCursorIndex[3] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/harvest_stone.cur");
+		m_aiCursorIndex[4] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/walk.cur");
+		m_aiCursorIndex[5] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/walk_aggro.cur");
+		m_aiCursorIndex[6] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Build.cur");
+		m_aiCursorIndex[7] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/No.cur");
+		m_aiCursorIndex[8] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/load.cur");
+		m_aiCursorIndex[9] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/unload.cur");
+		m_aiCursorIndex[10] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Attack.cur");
+		m_aiCursorIndex[11] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/attack_area_weapon.cur");
+		m_aiCursorIndex[12] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/attack_walk.cur");
+		m_aiCursorIndex[13] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/attack_harvest.cur");
+		m_aiCursorIndex[14] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/attack_area_weapon_walk.cur");
+		m_aiCursorIndex[15] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/trade.cur");
+		m_aiCursorIndex[16] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/Special.cur");
+		m_aiCursorIndex[17] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/sm_left.cur");
+		m_aiCursorIndex[18] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/sm_right.cur");
+		m_aiCursorIndex[19] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/sm_up.cur");
+		m_aiCursorIndex[20] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/sm_down.cur");
+		m_aiCursorIndex[21] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/sm_up_left.cur");
+		m_aiCursorIndex[22] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/sm_up_right.cur");
+		m_aiCursorIndex[23] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/sm_down_left.cur");
+		m_aiCursorIndex[24] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/sm_down_right.cur");
+		m_aiCursorIndex[25] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/attack_area_weapon_invalid.cur");
+		m_aiCursorIndex[26] = CClientWrap.LoadUserCursor(CClientWrap.GetUrsRelPath() + "/Data/Base/Cursors/mapping.cur");
+	endproc;
+
+	export proc int GetSpecialCursor(string p_sCursor,ref string po_rsTask)
+		var int iIndex = 0;
+		
+		var bitset dwScreenBorders = CMainController.Get().GetMultiCameraCtrl().GetGameCameraModule()^.GetBorderBitset();
+		
+		var bool bLeft		= (dwScreenBorders&00001b) != 0b;
+		var bool bRight		= (dwScreenBorders&00010b) != 0b;
+		var bool bUp		= (dwScreenBorders&00100b) != 0b;
+		var bool bDown		= (dwScreenBorders&01000b) != 0b;
+		
+		if(bUp && bLeft)then
+			iIndex = 21;
+		elseif(bUp && bRight)then
+			iIndex = 22;
+		elseif(bDown && bLeft)then
+			iIndex = 23;
+		elseif(bDown && bRight)then
+			iIndex = 24;
+		elseif(bLeft)then
+			iIndex = 17;
+		elseif(bRight)then
+			iIndex = 18;
+		elseif(bUp)then
+			iIndex = 19;
+		elseif(bDown)then
+			iIndex = 20;
+		elseif (p_sCursor=="harvest_food") then
+			iIndex = 1;
+			po_rsTask="task_get_food";
+		elseif (p_sCursor=="harvest_wood") then
+			iIndex = 2;
+			po_rsTask="task_get_wood";
+		elseif (p_sCursor=="harvest_stone") then
+			iIndex = 3;
+			po_rsTask="task_get_stone";
+		elseif (p_sCursor=="walk") then
+			iIndex = 4;
+			po_rsTask="task_goto";
+		elseif (p_sCursor=="walk_aggro") then
+			iIndex = 5;
+			po_rsTask="task_walk_aggro";
+		elseif (p_sCursor=="build") then
+			iIndex = 6;
+			po_rsTask="task_build";
+		elseif (p_sCursor=="no") then
+			iIndex = 7;
+			po_rsTask="task_no";
+		elseif (p_sCursor=="load") then
+			iIndex = 8;
+			po_rsTask="task_load";
+		elseif (p_sCursor=="unload") then
+			iIndex = 9;
+			po_rsTask="task_unload";
+		elseif (p_sCursor=="attack") then
+			iIndex = 10;
+			po_rsTask="task_attack";
+		elseif (p_sCursor=="attack_area_weapon") then
+			iIndex = 11;
+			po_rsTask="task_attack_area_weapon";
+		elseif (p_sCursor=="attack_walk") then
+			iIndex = 12;
+			po_rsTask="task_attack_walk";
+		elseif (p_sCursor=="attack_harvest") then
+			iIndex = 13;
+			po_rsTask="task_attack_harvest";
+		elseif (p_sCursor=="attack_area_weapon_walk") then
+			iIndex = 14;
+			po_rsTask="task_attack_area_weapon_walk";
+		elseif (p_sCursor=="trade") then
+			iIndex = 15;
+			po_rsTask="task_trade";
+		elseif (p_sCursor=="special") then
+			iIndex = 16;
+			po_rsTask="task_special";
+		elseif (p_sCursor=="healing") then
+			iIndex = 16;
+			po_rsTask="task_healing";
+		elseif (p_sCursor=="attack_area_weapon_invalid") then
+			iIndex = 25;
+			po_rsTask="task_attack_area_weapon_invalid";
+		elseif (p_sCursor=="mapping") then
+			iIndex = 26;
+			po_rsTask="task_mapping";  
+		else
+			iIndex = 0;
+			po_rsTask="task_goto";
+		endif;
+
+		//L CGameWrap.LogSpam("CursorMgr","Cursor index:"+iIndex.ToString());
+		return m_aiCursorIndex[iIndex];
+	endproc;
+
+endclass;
