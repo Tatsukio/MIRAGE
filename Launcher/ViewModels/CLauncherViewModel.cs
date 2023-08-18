@@ -17,7 +17,7 @@ namespace MIRAGE_Launcher.ViewModel
 {
     public class CLauncherViewModel : CViewModelBase
     {
-        static readonly MediaPlayer _mediaPlayer = new MediaPlayer();
+        public static readonly MediaPlayer _mediaPlayer = new MediaPlayer();
 
         public static string _paraworldDir = AppDomain.CurrentDomain.BaseDirectory + "../../";
         public static string _paraworldBinDir = _paraworldDir + "/bin";
@@ -178,7 +178,8 @@ namespace MIRAGE_Launcher.ViewModel
                 LauncherBackground = new BitmapImage(new Uri(backgroundDir + "background_" + backgroundIndex + ".jpg"));
             }
 
-            musicDir += CLauncher.GetMusicName(backgroundIndex) + ".mp3";
+            _mediaPlayer.Volume = 0.30;
+            musicDir += CLauncher.GetMusicInfo(backgroundIndex) + ".mp3";
 
             if (!File.Exists(musicDir))
             {
