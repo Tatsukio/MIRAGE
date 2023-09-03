@@ -9,6 +9,9 @@ namespace PWKiller
 {
     public partial class PWKillerMain : Form
     {
+        static readonly string _appDataDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        static readonly string _settingsDir = Path.GetFullPath(_appDataDir + "/SpieleEntwicklungsKombinat/Paraworld");
+        static string _currLang = "";
         public PWKillerMain(string[] args)
         {
             InitializeComponent();
@@ -22,13 +25,66 @@ namespace PWKiller
             }
             else
             {
+                _currLang = GetS("Root/Global/Language");
                 if (LoadLocale())
                 {
-                    PWKillerTitleText.Text = Translate("/PWKillerTitleText");
-                    PWKillerButtonText.Text = Translate("/PWKillerButtonText");
+                    PWKillerTitleText.Text = Translate("PWKillerTitleText");
+                    PWKillerButtonText.Text = Translate("PWKillerButtonText");
                 }
             }
         }
+
+        public static string GetS(string value)
+        {
+            string settingsPath = null;
+            if (!FileFound(_settingsDir, "Settings.cfg", ref settingsPath))
+            {
+                return null;
+            }
+            string path = null;
+            if (FileFound(_toolsDir, "CfgEditor.exe", ref path))
+            {
+                Process modConf = new Process();
+                modConf.StartInfo.FileName = path;
+                modConf.StartInfo.Arguments = "-g " + value;
+                modConf.StartInfo.CreateNoWindow = true;
+                modConf.StartInfo.UseShellExecute = false;
+                modConf.StartInfo.RedirectStandardOutput = true;
+                modConf.StartInfo.RedirectStandardError = true;
+                modConf.Start();
+                modConf.WaitForExit();
+                string outputDescription = modConf.StandardOutput.ReadToEnd();
+                if (modConf.ExitCode != 0)
+                {
+                    return null;
+                }
+                return outputDescription.Trim();
+            }
+            return null;
+        }
+
+        public static bool FileFound(string path, string filename, ref string outpath)
+        {
+            if (String.IsNullOrEmpty(path) || String.IsNullOrEmpty(filename))
+            {
+                return false;
+            }
+            if (Directory.Exists(path))
+            {
+                string file = Path.Combine(path, filename);
+                if (File.Exists(file))
+                {
+                    outpath = file;
+                    return true;
+                }
+                return false;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
 
         static readonly XmlDocument _locale = new XmlDocument();
 
@@ -44,17 +100,22 @@ namespace PWKiller
 
         public static bool LoadLocale()
         {
-            string _launcherDBPath = Path.GetFullPath(_toolsDir + "/Launcher/LauncherDB.xml");
-            if (File.Exists(_launcherDBPath))
+            if (String.IsNullOrEmpty(_currLang))
             {
-                _locale.Load(_launcherDBPath);
-                return true;
+                return false;
             }
-            return false;
+            string path = null;
+            if (!FileFound(_toolsDir + "/MIRAGE Launcher/", "LauncherDB.xml", ref path))
+            {
+                MessageBox.Show(path, "");
+                return false;
+            }
+            _locale.Load(path);
+            return true;
         }
         public static string Translate(string text)
         {
-            string textPath = "/LauncherDB/PWKillerLocalization";
+            string textPath = "/LauncherDB/Locale/" + _currLang + "/";
             return _locale.DocumentElement.SelectSingleNode(textPath + text).InnerText;
         }
         public static void CheckPW()
