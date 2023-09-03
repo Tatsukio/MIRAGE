@@ -187,6 +187,7 @@ namespace MIRAGE_Launcher.ViewModel
             }
             else
             {
+                _mediaPlayer.Volume = 0.25;
                 _mediaPlayer.MediaEnded += (sender, eventArgs) => LoadUI();
                 _mediaPlayer.Open(new Uri(musicDir, UriKind.Relative));
                 _mediaPlayer.Play();
