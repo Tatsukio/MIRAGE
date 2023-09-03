@@ -107,7 +107,6 @@ namespace PWKiller
             string path = null;
             if (!FileFound(_toolsDir + "/MIRAGE Launcher/", "LauncherDB.xml", ref path))
             {
-                MessageBox.Show(path, "");
                 return false;
             }
             _locale.Load(path);
