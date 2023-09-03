@@ -223,30 +223,24 @@ namespace MIRAGE_Launcher.ViewModels
             {
                 default:
                 case 1:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.15;
                     return "01_maintheme";
                 case 2:
                 case 41:
                 case 43:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.4;
                     return "13_plain_icewaste";
                 case 3:
                 case 65:
                 case 67:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.4;
                     return "11_plain_jungle_1";
                 case 4:
                 case 48:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.15;
                     return "23_location_arena";
                 case 5:
                 case 53:
                 case 74:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.15;
                     return "36_combat_aje_1";
                 case 6:
                 case 82:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.15;
                     return "43_combat_ninigi_2";
                 case 7:
                     return "10_plain_heroes";
@@ -254,27 +248,21 @@ namespace MIRAGE_Launcher.ViewModels
                 case 45:
                 case 54:
                 case 83:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.15;
                     return "35_combat_hu_1";
                 case 9:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.4;
                     return "04_plain_northland_1";
                 case 10:
                 case 60:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.15;
                     return "41_combat_hu_2";
                 case 11:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.4;
                     return "16_darkzone_3";
                 case 12:
                 case 56:
                 case 75:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.15;
                     return "42_combat_aje_2";
                 case 13:
                 case 36:
                 case 38:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.15;
                     return "48_var_combat_aje_1";
                 case 14:
                     return "15_darkzone_2";
@@ -285,29 +273,24 @@ namespace MIRAGE_Launcher.ViewModels
                 case 16:
                 case 50:
                 case 81:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.15;
                     return "47_var_combat_hu_2";
                 case 17:
                 case 61:
                 case 71:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.15;
                     return "50_var_combat_seas_1";
                 case 18:
                 case 66:
                 case 78:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.5;
                     return "12_plain_jungle_2";
                 case 19:
                 case 79:
                     return "51_location_seas_temple";
                 case 20:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.4;
                     return "30_location_scientist_hut";
                 case 21:
                 case 35:
                 case 55:
                 case 57:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.15;
                     return "39_combat_dinos";
                 case 22:
                 case 27:
@@ -320,7 +303,6 @@ namespace MIRAGE_Launcher.ViewModels
                     return "26_location_water_temple";
                 case 26:
                 case 29:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.2;
                     return "27_location_entry_to_walhalla";
                 case 28:
                     return "29_location_aeroplane";
@@ -334,42 +316,33 @@ namespace MIRAGE_Launcher.ViewModels
                     return "21_location_amazons";
                 case 34:
                 case 47:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.2;
                     return "18_maintheme_aje";
                 case 64:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.2;
                     return "45_var_plain_savannah_1";
                 case 37:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.2;
                     return "05_plain_northland_2";
                 case 52:
                 case 76:
                     return "07_plain_savannah_2";
                 case 39:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.15;
                     return "40_combat_heroes";
                 case 40:
                     return "08_plain_savannah_3";
                 case 42:
                     return "14_darkzone_1";
                 case 44:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.2;
                     return "34_location_prison_island";
                 case 46:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.15;
                     return "49_var_combat_ninigi_1";
                 case 49:
                     return "09_plain_savannah_4";
                 case 51:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.15;
                     return "37_combat_ninigi_1";
                 case 58:
                 case 70:
                 case 72:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.15;
                     return "38_combat_seas_1";
                 case 59:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.2;
                     return "19_maintheme_ninigi";
                 case 62:
                 case 63:
@@ -377,12 +350,10 @@ namespace MIRAGE_Launcher.ViewModels
                 case 68:
                     return "33_location_holycity_walls";
                 case 69:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.25;
                     return "24_location_temple";
                 case 77:
                     return "46_var_plain_heroes";
                 case 84:
-                    CLauncherViewModel._mediaPlayer.Volume = 0.2;
                     return "22_location_the_gate";
             }
         }
