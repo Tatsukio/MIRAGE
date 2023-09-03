@@ -178,7 +178,6 @@ namespace MIRAGE_Launcher.ViewModel
                 LauncherBackground = new BitmapImage(new Uri(backgroundDir + "background_" + backgroundIndex + ".jpg"));
             }
 
-            _mediaPlayer.Volume = 0.30;
             musicDir += CLauncher.GetMusicInfo(backgroundIndex) + ".mp3";
 
             if (!File.Exists(musicDir))
