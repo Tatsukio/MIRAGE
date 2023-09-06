@@ -1,8 +1,14 @@
 # MIRAGE
 
+<details>
+<summary><b>Overview (10mb)</b></summary>
+  
 ![overview_1](/overview/overview_1.png)
 ![overview_2](/overview/overview_2.png)
 [![overview_3](/overview/overview_3.png)](https://discord.com/invite/t45bgRnH4c)
+  
+</details>
+
 
 ## Build Requirements: vs, nsis
 
