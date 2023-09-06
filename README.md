@@ -1,8 +1,8 @@
 # MIRAGE
 
-![overview_1](https://github.com/Tatsukio/MIRAGE/assets/56200767/feaf2511-36f2-4669-be9e-20d290bbf033)
-![overview_2](https://github.com/Tatsukio/MIRAGE/assets/56200767/9dc25485-196c-47d0-8b7f-af9348754a81)
-[![overview_3](https://github.com/Tatsukio/MIRAGE/assets/56200767/b0e1f9ad-77a6-451d-abe6-b84b81bc04b7)](https://discord.com/invite/t45bgRnH4c)
+![overview_1](/overview/overview_1.png)
+![overview_2](/overview/overview_2.png)
+[![overview_3](/overview/overview_3.png)](https://discord.com/invite/t45bgRnH4c)
 
 ## Build Requirements: vs, nsis
 
