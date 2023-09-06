@@ -1,11 +1,12 @@
 # MIRAGE
-Requirements: vs, nsis
+
+![image](https://github.com/Tatsukio/MIRAGE/assets/56200767/b5bf72b5-cdf3-4454-8543-2d4b6ffe6ddb)
 
 
-Build order:
-1. Compile MIRAGE/CfgEditor/CfgEditor.hs and move it to MIRAGE/GameFiles/Basic/Tools
-2. Compile MIRAGE/Launcher/MIRAGE Launcher.sln
-3. Compile MIRAGE/ParaWorldStatus/ParaWorldStatus.sln
-4. Compile MIRAGE/PWKiller/PWKiller.sln
-5. Run MIRAGE/MIRAGE.nsi
-6. Wait for the new .exe
+## Build Requirements: vs, nsis
+
+## Build Order:
+- Compile MIRAGE/CfgEditor/CfgEditor.hs and move the generated binary file to MIRAGE/GameFiles/Basic/Tools
+- Build MIRAGE.sln (which will build and compile each of the subprojects: MIRAGE Launcher, ParaWorldStatus and PWKiller)
+- Run MIRAGE/MIRAGE.nsi
+- Wait for the new .exe
