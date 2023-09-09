@@ -1,7 +1,7 @@
 # MIRAGE
-
+## Overview & Discord link
 <details>
-<summary><b>Overview (10mb)</b></summary>
+<summary><b>(Click here to load content, 10MB)</b></summary>
   
 ![overview_1](/overview/overview_1.png)
 ![overview_2](/overview/overview_2.png)
