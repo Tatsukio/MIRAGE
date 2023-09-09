@@ -1,12 +1,16 @@
-﻿using MIRAGE_Launcher.ViewModel;
+﻿using Microsoft.Win32;
+using MIRAGE_Launcher.ViewModel;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Management;
 using System.Net;
+using System.Security.Principal;
 using System.Text;
 using System.Windows;
+using System.Windows.Documents;
 using System.Windows.Media;
 
 namespace MIRAGE_Launcher.ViewModels
@@ -355,6 +359,116 @@ namespace MIRAGE_Launcher.ViewModels
                     return "46_var_plain_heroes";
                 case 84:
                     return "22_location_the_gate";
+            }
+        }
+
+        public static bool IsRunAsAdmin()
+        {
+            try
+            {
+                using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
+                {
+                    return (new WindowsPrincipal(identity)).IsInRole(WindowsBuiltInRole.Administrator);
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static string IsTagesInstalled()
+        {
+            string result = "";
+
+            //Add 32 bit support?
+            var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+            var key = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\SharedDLLs");
+
+            try
+            {
+                string path = @"C:\Windows\system32\DRIVERS\";
+                string[] drivers = { "lirsgt.sys", "atksgt.sys" };
+
+                foreach (string driver in drivers)
+                {
+                    result += driver + " " + (key.GetValue(path + driver) != null ? " is installed\n" : "isnt installed\n");
+                }
+                return result;
+            }
+            catch
+            {
+                return "Tages check failed";
+            }
+        }
+
+        public static string IsWinFixInstalled()
+        {
+            string result = "Paraworld.exe not found";
+
+            string path = null;
+            if (FileFound(CLauncherViewModel._paraworldBinDir, $"Paraworld.exe", ref path))
+            {
+                long length = new FileInfo(path).Length;
+
+                result = "Win7fix " + (length < 3000000 ? "is" : "isnt") + " installed";
+            }
+            return result;
+        }
+
+        public static void ProcessDirectory(string targetDirectory)
+        {
+            string[] fileEntries = Directory.GetFiles(targetDirectory);
+            foreach (string fileName in fileEntries)
+            {
+                ProcessFile(fileName);
+            }
+
+            string[] subdirectoryEntries = Directory.GetDirectories(targetDirectory);
+            foreach (string subdirectory in subdirectoryEntries)
+            {
+                ProcessDirectory(subdirectory);
+            }
+        }
+
+        public static void ProcessFile(string path)
+        {
+            try
+            {
+                using (TextWriter hc = new StreamWriter(Environment.GetFolderPath(Environment.SpecialFolder.Desktop) + @"\PWHealthCheck.txt", true))
+                {
+                    hc.WriteLine(path);
+                }
+            }
+            catch
+            {
+
+            }
+        }
+
+        public static void HealthCheck()
+        {
+            try
+            {
+                string path = Environment.GetFolderPath(Environment.SpecialFolder.Desktop) + @"\PWHealthCheck.txt";
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+                using (TextWriter hc = new StreamWriter(path, true))
+                {
+                    hc.WriteLine("Launcher admin rights " + (IsRunAsAdmin() ? "are" : "arent") + " granted");
+                    hc.WriteLine("\nWin7fix check:");
+                    hc.WriteLine(IsWinFixInstalled());
+                    hc.WriteLine("\nTages drivers check:");
+                    hc.WriteLine(IsTagesInstalled());
+                }
+                ProcessDirectory(CLauncherViewModel._paraworldDir);
+                MessageBox.Show(path + " created", null, MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch
+            {
+                MessageBox.Show($"PWHealthCheck failed", null, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
     }

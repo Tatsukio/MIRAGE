@@ -45,6 +45,7 @@ namespace MIRAGE_Launcher.ViewModel
 
             UninstallCmd = new CCommand(OnUninstallCmd, UninstallCmdEnabled);
             ExitCmd = new CCommand(OnExitCmd, ExitCmdEnabled);
+            HealthCheckCmd = new CCommand(OnHealthCheckCmd, HealthCheckCmdEnabled);
 
             OpenUpdatePageCmd = new CCommand(OnOpenUpdatePageCmd, OpenUpdatePageCmdEnabled);
             OpenModdbCmd = new CCommand(OnOpenModdbCmd, OpenModdbCmdEnabled);
@@ -621,6 +622,13 @@ namespace MIRAGE_Launcher.ViewModel
         private void OnExitCmd(object p)
         {
             Application.Current.Shutdown();
+        }
+
+        public ICommand HealthCheckCmd { get; }
+        private bool HealthCheckCmdEnabled(object p) => true;
+        private void OnHealthCheckCmd(object p)
+        {
+            CLauncher.HealthCheck();
         }
 
         #region Social
