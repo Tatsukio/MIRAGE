@@ -5,6 +5,8 @@ set /a cfgFilesToParse=0
 set /a ttFilesToParse=0
 set errorlevel=
 echo Calculating pw cfg files in directory...
+chdir /d "c:\Program Files (x86)\Sunflowers\ParaWorld\"
+break>"Tools\parse_log.txt"
 for /r %%i in (*.txt, *.cfg) do (
 	set /a cfgFilesToParse+=1
 )
@@ -30,8 +32,8 @@ for /r %%i in (*.txt, *.cfg, *.ttree) do (
 	title Files left: !filesLeft!, progress: !percent!%%
 	
 	echo Parse file #!parseCount!: "%%i"
-	echo Parse file #!parseCount!: "%%i" >> parse_log.txt 2>&1
-	echo Y|start /w /b "" "CfgEditor.exe" "%%i" >> parse_log.txt 2>&1
+	echo Parse file #!parseCount!: "%%i" >> Tools\parse_log.txt 2>&1
+	echo Y|start /w /b "" "Tools\CfgEditor.exe" "%%i" >> Tools\parse_log.txt 2>&1
 	
 )
 echo ...done, see parse_log.txt
