@@ -34,7 +34,7 @@ namespace MIRAGE_Launcher.ViewModel
             SetLanguageCmd = new CCommand(OnSetLanguageCmd, SetLanguageCmdEnabled);
             ToggleMusicCmd = new CCommand(OnToggleMusicCmd, ToggleMusicCmdEnabled);
             PlayNextTrackCmd = new CCommand(OnPlayNextTrackCmd, PlayNextTrackCmdEnabled);
-            ClearCacheCmd = new CCommand(OnClearCacheCmd, ClearCacheCmdEnabled);
+            OpenScrFolderCmd = new CCommand(OnOpenScrFoldereCmd, OpenScrFolderCmdEnabled);
             OpenSettingsFolderCmd = new CCommand(OnOpenSettingsFolderCmd, OpenSettingsFolderCmdEnabled);
             StartPWKillerCmd = new CCommand(OnStartPWKillerCmd, StartPWKillerCmdEnabled);
             TogglePWToolCmd = new CCommand(OnTogglePWToolCmd, TogglePWToolCmdEnabled);
@@ -368,14 +368,14 @@ namespace MIRAGE_Launcher.ViewModel
             set => Set(ref _toggleMusicText, value);
         }
 
-        private string _clearCacheText = "Clear Cache";
-        public string ClearCacheText
+        private string _openScrFolderText = "Screenshots folder";
+        public string OpenScrFolderText
         {
-            get => _clearCacheText;
-            set => Set(ref _clearCacheText, value);
+            get => _openScrFolderText;
+            set => Set(ref _openScrFolderText, value);
         }
 
-        private string _openSettingsFolderText = "Open Settings Folder";
+        private string _openSettingsFolderText = "Settings Folder";
         public string OpenSettingsFolderText
         {
             get => _openSettingsFolderText;
@@ -534,11 +534,18 @@ namespace MIRAGE_Launcher.ViewModel
             ToggleMusic();
         }
 
-        public ICommand ClearCacheCmd { get; }
-        private bool ClearCacheCmdEnabled(object p) => true;
-        private void OnClearCacheCmd(object p)
+        public ICommand OpenScrFolderCmd { get; }
+        private bool OpenScrFolderCmdEnabled(object p) => true;
+        private void OnOpenScrFoldereCmd(object p)
         {
-            MessageBox.Show(CLauncher.ClearCache() ? _cacheDeleted : _noCacheFound, "ClearPWCache", MessageBoxButton.OK, MessageBoxImage.Information);
+            string docPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + @"\SpieleEntwicklungsKombinat\Paraworld\";
+            if (!Directory.Exists(docPath))
+            {
+                MessageBox.Show("Folder " + docPath + " not found", null, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            Process.Start("explorer", Path.GetDirectoryName(docPath));
+            //MessageBox.Show(CLauncher.ClearCache() ? _cacheDeleted : _noCacheFound, "ClearPWCache", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         public ICommand OpenSettingsFolderCmd { get; }
@@ -695,7 +702,7 @@ namespace MIRAGE_Launcher.ViewModel
                 CurrentLangText = TranslateS("CurrentLangText");
                 _turnMusicOnText = TranslateS("TurnMusicOnText");
                 _turnMusicOffText = TranslateS("TurnMusicOffText");
-                ClearCacheText = TranslateS("ClearCacheText");
+                OpenScrFolderText = TranslateS("OpenScrFolderText");
                 OpenSettingsFolderText = TranslateS("OpenSettingsFolderText");
                 StartPWKillerText = TranslateS("StartPWKillerText");
                 _openPWToolText = TranslateS("OpenPWToolText");
