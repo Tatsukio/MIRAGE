@@ -362,7 +362,7 @@ namespace MIRAGE_Launcher.ViewModels
             }
         }
 
-        public static bool IsRunAsAdmin()
+        private static bool IsRunAsAdmin()
         {
             try
             {
@@ -377,7 +377,7 @@ namespace MIRAGE_Launcher.ViewModels
             }
         }
 
-        public static string IsTagesInstalled()
+        private static string IsTagesInstalled()
         {
             string result = "";
 
@@ -402,7 +402,7 @@ namespace MIRAGE_Launcher.ViewModels
             }
         }
 
-        public static string IsWinFixInstalled()
+        private static string IsWinFixInstalled()
         {
             string result = "Paraworld.exe not found";
 
@@ -416,7 +416,7 @@ namespace MIRAGE_Launcher.ViewModels
             return result;
         }
 
-        public static void ProcessDirectory(string targetDirectory)
+        private static void ProcessDirectory(string targetDirectory)
         {
             string[] fileEntries = Directory.GetFiles(targetDirectory);
             foreach (string fileName in fileEntries)
@@ -431,13 +431,18 @@ namespace MIRAGE_Launcher.ViewModels
             }
         }
 
-        public static void ProcessFile(string path)
+        private static void ProcessFile(string path)
         {
             try
             {
                 using (TextWriter hc = new StreamWriter(Environment.GetFolderPath(Environment.SpecialFolder.Desktop) + @"\PWHealthCheck.txt", true))
                 {
                     hc.WriteLine(path);
+                    string ext = Path.GetExtension(path);
+                    if(ext == ".txt" || ext == ".cfg" || ext == ".ttree")
+                    {
+                        hc.WriteLine(CCfgEditor.Parse(path));
+                    }
                 }
             }
             catch
@@ -451,6 +456,7 @@ namespace MIRAGE_Launcher.ViewModels
             try
             {
                 string path = Environment.GetFolderPath(Environment.SpecialFolder.Desktop) + @"\PWHealthCheck.txt";
+                MessageBox.Show($"Wait fot {path} to be created", "PWHealthCheck", MessageBoxButton.OK, MessageBoxImage.Information);
                 if (File.Exists(path))
                 {
                     File.Delete(path);
@@ -464,7 +470,8 @@ namespace MIRAGE_Launcher.ViewModels
                     hc.WriteLine(IsTagesInstalled());
                 }
                 ProcessDirectory(CLauncherViewModel._paraworldDir);
-                MessageBox.Show(path + " created", null, MessageBoxButton.OK, MessageBoxImage.Information);
+
+                MessageBox.Show(path + " created", "PWHealthCheck", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch
             {

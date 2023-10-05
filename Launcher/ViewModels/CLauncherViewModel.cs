@@ -635,7 +635,8 @@ namespace MIRAGE_Launcher.ViewModel
         private bool HealthCheckCmdEnabled(object p) => true;
         private void OnHealthCheckCmd(object p)
         {
-            CLauncher.HealthCheck();
+            Task taskHealthCheck = new Task(CLauncher.HealthCheck);
+            taskHealthCheck.Start();
         }
 
         #region Social

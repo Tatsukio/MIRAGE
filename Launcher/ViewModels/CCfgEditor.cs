@@ -87,5 +87,37 @@ namespace MIRAGE_Launcher.ViewModels
             }
             return null;
         }
+
+        public static string Parse(string filepath)
+        {
+            string path = null;
+            if (CLauncher.FileFound(CLauncherViewModel._toolsDir, "CfgEditor.exe", ref path))
+            {
+                Process modConf = new Process();
+                modConf.StartInfo.FileName = path;
+                modConf.StartInfo.Arguments = "\"" + filepath + "\"";
+                modConf.StartInfo.CreateNoWindow = true;
+                modConf.StartInfo.UseShellExecute = false;
+                modConf.StartInfo.RedirectStandardOutput = true;
+                modConf.StartInfo.RedirectStandardError = true;
+                modConf.Start();
+                modConf.WaitForExit();
+                string errorDescription = modConf.StandardError.ReadToEnd();
+                string outputDescription = modConf.StandardOutput.ReadToEnd();
+
+                if (!String.IsNullOrEmpty(errorDescription))
+                {
+                    errorDescription += "failed " + errorDescription;
+                }
+
+                if (String.IsNullOrEmpty(outputDescription))
+                {
+                    outputDescription = "parsed successfully";
+                }
+
+                return ("CfgEditor.exe: " + outputDescription + " " + errorDescription).Trim();
+            }
+            return null;
+        }
     }
 }
