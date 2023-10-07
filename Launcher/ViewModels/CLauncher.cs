@@ -421,9 +421,9 @@ namespace MIRAGE_Launcher.ViewModels
             string[] fileEntries = Directory.GetFiles(targetDirectory);
             foreach (string fileName in fileEntries)
             {
-                ProcessFile(fileName);
+                ProcessFile(Path.GetFullPath(fileName));
             }
-
+            
             string[] subdirectoryEntries = Directory.GetDirectories(targetDirectory);
             foreach (string subdirectory in subdirectoryEntries)
             {
@@ -437,12 +437,19 @@ namespace MIRAGE_Launcher.ViewModels
             {
                 using (TextWriter hc = new StreamWriter(Environment.GetFolderPath(Environment.SpecialFolder.Desktop) + @"\PWHealthCheck.txt", true))
                 {
-                    hc.WriteLine(path);
+                    string result = "";
                     string ext = Path.GetExtension(path);
                     if(ext == ".txt" || ext == ".cfg" || ext == ".ttree")
                     {
-                        hc.WriteLine(CCfgEditor.Parse(path));
+                        result = CCfgEditor.Parse(path);
+                        int indexOfSteam = result.IndexOf(Environment.NewLine);
+
+                        if (indexOfSteam >= 0)
+                        {
+                            result = result.Remove(indexOfSteam);
+                        }
                     }
+                    hc.WriteLine(path + result);
                 }
             }
             catch
