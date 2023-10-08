@@ -421,14 +421,22 @@ namespace MIRAGE_Launcher.ViewModels
                 {
                     string result = "";
                     string ext = Path.GetExtension(path);
-                    if (ext == ".txt" || ext == ".cfg" || ext == ".ttree")
+                    if (ext == ".txt" || ext == ".cfg" || ext == ".ini" ||  ext == ".ttree")
                     {
-                        result = CCfgEditor.Parse(path);
-                        int indexOfSteam = result.IndexOf(Environment.NewLine);
-
-                        if (indexOfSteam >= 0)
+                        string peekRoot = File.ReadLines(path).FirstOrDefault();
+                        if (peekRoot.Contains("Root"))
                         {
-                            result = result.Remove(indexOfSteam);
+                            result = CCfgEditor.Parse(path);
+                            int indexOfSteam = result.IndexOf(Environment.NewLine);
+
+                            if (indexOfSteam >= 0)
+                            {
+                                result = result.Remove(indexOfSteam);
+                            }
+                        }
+                        else
+                        {
+                            result = " | not a pw cfg format";
                         }
                     }
                     outputFile.WriteLine(path + result);
