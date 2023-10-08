@@ -408,7 +408,7 @@ namespace MIRAGE_Launcher.ViewModels
             {
                 long length = new FileInfo(path).Length;
 
-                result = "Win7fix is" + (length < 3000000 ? " " : " not") + " installed";
+                result = "Win7fix is" + (length < 3000000 ? "" : " not") + " installed";
             }
             return result;
         }
@@ -464,7 +464,7 @@ namespace MIRAGE_Launcher.ViewModels
 
                 using (StreamWriter outputFile = new StreamWriter(outputPath, false))
                 {
-                    outputFile.WriteLine("Launcher admin rights are" + (IsRunAsAdmin() ? " " : " not") + " granted");
+                    outputFile.WriteLine("Launcher admin rights are" + (IsRunAsAdmin() ? "" : " not") + " granted");
                     outputFile.WriteLine("\nWin7fix check:");
                     outputFile.WriteLine(IsWinFixInstalled());
                     outputFile.WriteLine("\nTages drivers check:");
