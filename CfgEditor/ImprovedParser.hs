@@ -134,7 +134,7 @@ addPosition err zipper =
       left'    = showStr $ drop (length left - ctxLen) left
       right'   = showStr $ take ctxLen right
       line     = left' <> right'
-  in printf (err' <> "%s\n%s|")
+  in printf (err' <> "%s\n%s^")
             line
             (replicate (length err' + length left') ' ')
   where
@@ -234,7 +234,7 @@ spaces = safeLookahead >>= \case
   where
     isWhitespace c = c == ' ' || c == '\n' || c == '\r' || c == '\t'
 --dada
-set = ['a'..'z']++['A'..'Z']++[':','$','#','(',')','[',']','_','/','-']++['0'..'9']
+set = "Allowed symbols: "++['a'..'z']++['A'..'Z']++[':','$','#','(',')','[',']','_','/','-']++['0'..'9']
 varname:: Parser String String
 varname = do
   c <- lookahead `elseThrow` "Expected rest of a string"
@@ -278,7 +278,8 @@ fixlines [] = []
 fixlines str
  |elem '=' str && notElem '{' str && notElem '}' str && filtQuotes == 2 = str++" {}\n"
  |elem '=' str = str++"\n"
- |notElem '=' str && elem '{' str = filt ++" = "++"\'\'"++" {\n"
+ |notElem '=' str && elem '{' str && last (concat . words $ str) == '{'= filt ++" = "++"\'\'"++" {\n"
+ |notElem '=' str && elem '{' str && last str /= '{'= str ++" = "++"\'\'"++" {\n"
  |notElem '=' str && notElem '}' str && (all (`notElem` set) str) = "    \\n "
  |notElem '=' str && notElem '}' str = filt ++" = "++"\'\'"++" {}\n"
  |notElem '=' str  && notElem '{' str && notElem '}' str && filtQuotes == 1 = filt ++" {}\n"
@@ -309,7 +310,6 @@ empty1 :: String -> Bool
 empty1 "" = True
 empty1 _ = False
 format1 str =initN $ concat$ fixSeparation $ map (fixlines . removeLastN . filter (/='\r')) (lines str)
- where remTab = filter (/= '\t')
 (Just bom) =  TH.decodeHex $ DT.pack "efbbbf" --
 parsePath::FilePath->IO (Tree,Bool)
 parsePath path =
@@ -318,11 +318,17 @@ parsePath path =
      contents<-BSS.readFile path
      let c =  BSS.take 3 contents
      let isBom = bom == c
-     if isBom then--
-       do
+     if isBom then 
+        do
           contents1h <- openFile path ReadMode
           contents11 <- hGetContents contents1h
           let contents1 = drop 3 contents11
+          let root = concat . words $ take 4 contents1
+          if root /= "Root" then do
+             putStrLn $ "Invalid tree structure - Root node wrapper expected, instead got \"" ++ root ++  "\" at start"
+             hClose contents1h
+             return (Node ("грешка","") [],True)
+          else do
           let formated = format1 contents1
           let save = runParser parseTree formated
           case save of
@@ -335,12 +341,18 @@ parsePath path =
              _ -> do 
               putStrLn $show save
               return (Node ("грешка","") [],isBom)
-               else do
-       c2 <- openFile path ReadMode
+      else do
+       c2 <- openFile path ReadMode 
        contents3 <- hGetContents c2
        let numLines = length $ lines contents3
        let formated = format1 contents3
        let a= runParser parseTree formated
+       let root = concat . words $ take 4 contents3
+       if root /= "Root" then do
+            putStrLn $ "Invalid tree structure - Root node wrapper expected, instead got \"" ++ root ++  "\" at start"
+            hClose c2
+            return (Node ("грешка","") [],True)
+       else do
        case a of
         (Result (s,d)) ->if all (`elem` "\n\t\r ") s || null s 
           then do 
@@ -364,6 +376,6 @@ tests = do
      contents3 <- hGetContents c2
      let save1 = runParser parseTree $ format1 contents3
      let a= runParser parseTree (format1 contents3)
-     --putStrLn $  format1 contents3
+     putStrLn $  format1 contents3
      putStrLn  $show a
      return ()--

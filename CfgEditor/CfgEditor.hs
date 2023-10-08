@@ -290,15 +290,7 @@ mhm com  = die $"Set didn't have the right arguments"++concatMap ("\n"++) com
 main:: IO String
 main =
   do
-     hcodepath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld\\Settings.cfg"
-     tempPath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld"
-     check <- checkMonadSingle hcodepath 
-     if not check then die "No Settings file found in AppData:\n"
-     else do
-     args<-getArgs
-     (ptr,isBom) <- parsePath hcodepath
-    -- putStrLn $ show ptr
-     if not$ eqTree ptr (Node ("грешка","") []) then
+       args<-getArgs
        case args
           of
             com@[path] -> do 
@@ -313,6 +305,12 @@ main =
             com@[command,path,value]
              |com `elem` [["-s",path,value],["--set",path,value]] ->
              do
+               hcodepath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld\\Settings.cfg"
+               tempPath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld"
+               check <- checkMonadSingle hcodepath
+               if not check then die "No Settings file found in AppData:\n"
+               else do
+               (ptr,isBom) <- parsePath hcodepath --
                checks <- checkMonadSingleDangerous hcodepath
                if not checks then do die "" else do
                let carg1= convertSet (path,value)
@@ -351,6 +349,12 @@ main =
             com@[command,path]
              |com `elem` [["-r",path],["--remove",path]] ->
                do
+                 hcodepath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld\\Settings.cfg"
+                 tempPath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld"
+                 check <- checkMonadSingle hcodepath
+                 if not check then die "No Settings file found in AppData:\n"
+                 else do
+                 (ptr,isBom) <- parsePath hcodepath --
                  checks <- checkMonadSingleDangerous hcodepath
                  if not checks then do die "" else do
                  let carg2 = convertGet path
@@ -358,7 +362,12 @@ main =
                  if strongEqTree r ptr then
                   die "Exit with Code (201) - Nothing was changed" --Remove changed nothing
                  else do
-                 
+                  hcodepath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld\\Settings.cfg"
+                  tempPath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld"
+                  check <- checkMonadSingle hcodepath
+                  if not check then die "No Settings file found in AppData:\n"
+                  else do
+                  (ptr,isBom) <- parsePath hcodepath --
                   if isBom then do
                      BS.writeFile hcodepath bom
                      appendFile hcodepath $show r
@@ -371,10 +380,27 @@ main =
                      return "Deded"
              |com `elem` [["-g",path],["--get",path]] ->
               do
+                 hcodepath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld\\Settings.cfg"
+                 tempPath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld"
+                 check <- checkMonadSingle hcodepath
+                 if not check then die "No Settings file found in AppData:\n"
+                   else do
+                   (ptr,isBom) <- parsePath hcodepath --
+                   if not$ eqTree ptr (Node ("грешка","") []) then do
+                      putStrLn hcodepath
+                      iotest True hcodepath
+                      return "reworked"
+                   else return "lol"
                  check1 <- checkMonadSingle hcodepath
                  if not check1 then die "Exit with Error: "
                  else
                   do
+                  hcodepath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld\\Settings.cfg"
+                  tempPath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld"
+                  check <- checkMonadSingle hcodepath
+                  if not check then die "No Settings file found in AppData:\n"
+                  else do
+                  (ptr,isBom) <- parsePath hcodepath --
                   let carg = convertGet path
                   if getTree ptr carg == "Err:No value found" then die "Exit with Code (301) - Get returned nothing"-- !vfound
                   else do
@@ -382,13 +408,20 @@ main =
                    return "GetLow"
              |otherwise -> die "Exit with Code (102) - Wrong Command"
 
-            [] -> do
-                  putStrLn hcodepath
-                  iotest True hcodepath
+            [] -> do 
+                   hcodepath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld\\Settings.cfg"
+                   tempPath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld"
+                   check <- checkMonadSingle hcodepath
+                   if not check then die "No Settings file found in AppData:\n"
+                   else do
+                   (ptr,isBom) <- parsePath hcodepath --
+                   if not$ eqTree ptr (Node ("грешка","") []) then do
+                      putStrLn hcodepath
+                      iotest True hcodepath
+                      return "reworked"
+                   else return "lol"
             _ -> die "Exit with Code (666) No valid arguments"
-     else do
               --unparsedPart filt
-              die "Exit with Code (100) - Parse Error"
 
 
 
