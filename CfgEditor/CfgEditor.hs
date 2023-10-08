@@ -380,21 +380,6 @@ main =
                      return "Deded"
              |com `elem` [["-g",path],["--get",path]] ->
               do
-                 hcodepath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld\\Settings.cfg"
-                 tempPath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld"
-                 check <- checkMonadSingle hcodepath
-                 if not check then die "No Settings file found in AppData:\n"
-                   else do
-                   (ptr,isBom) <- parsePath hcodepath --
-                   if not$ eqTree ptr (Node ("грешка","") []) then do
-                      putStrLn hcodepath
-                      iotest True hcodepath
-                      return "reworked"
-                   else return "lol"
-                 check1 <- checkMonadSingle hcodepath
-                 if not check1 then die "Exit with Error: "
-                 else
-                  do
                   hcodepath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld\\Settings.cfg"
                   tempPath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld"
                   check <- checkMonadSingle hcodepath
