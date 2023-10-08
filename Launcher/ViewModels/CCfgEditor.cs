@@ -17,24 +17,24 @@ namespace MIRAGE_Launcher.ViewModels
             string path = null;
             if (CLauncher.FileFound(CLauncherViewModel._toolsDir, "CfgEditor.exe", ref path))
             {
-                Process modConf = new Process();
-                modConf.StartInfo.FileName = path;
-                modConf.StartInfo.Arguments = "-s " + value;
-                modConf.StartInfo.CreateNoWindow = true;
-                modConf.StartInfo.UseShellExecute = false;
-                modConf.StartInfo.RedirectStandardOutput = true;
-                modConf.StartInfo.RedirectStandardError = true;
-                modConf.Start();
-                modConf.WaitForExit();
+                Process cfgEditor = new Process();
+                cfgEditor.StartInfo.FileName = path;
+                cfgEditor.StartInfo.Arguments = "-s " + value;
+                cfgEditor.StartInfo.CreateNoWindow = true;
+                cfgEditor.StartInfo.UseShellExecute = false;
+                cfgEditor.StartInfo.RedirectStandardOutput = true;
+                cfgEditor.StartInfo.RedirectStandardError = true;
+                cfgEditor.Start();
+                cfgEditor.WaitForExit();
                 string errorText = CLauncherViewModel._cfgError + " CfgEditor.exe: ";
-                string errorDescription = modConf.StandardError.ReadToEnd();
+                string errorDescription = cfgEditor.StandardError.ReadToEnd();
 
                 if (!String.IsNullOrEmpty(errorDescription))
                 {
                     errorText += errorDescription;
                 }
 
-                if (modConf.ExitCode != 0)
+                if (cfgEditor.ExitCode != 0)
                 {
                     if (MessageBox.Show(errorText + "\n" + CLauncherViewModel._askSettingsBackup, null, MessageBoxButton.YesNo, MessageBoxImage.Error) == MessageBoxResult.Yes)
                     {
@@ -57,25 +57,25 @@ namespace MIRAGE_Launcher.ViewModels
             string path = null;
             if (CLauncher.FileFound(CLauncherViewModel._toolsDir, "CfgEditor.exe", ref path))
             {
-                Process modConf = new Process();
-                modConf.StartInfo.FileName = path;
-                modConf.StartInfo.Arguments = "-g " + value;
-                modConf.StartInfo.CreateNoWindow = true;
-                modConf.StartInfo.UseShellExecute = false;
-                modConf.StartInfo.RedirectStandardOutput = true;
-                modConf.StartInfo.RedirectStandardError = true;
-                modConf.Start();
-                modConf.WaitForExit();
+                Process cfgEditor = new Process();
+                cfgEditor.StartInfo.FileName = path;
+                cfgEditor.StartInfo.Arguments = "-g " + value;
+                cfgEditor.StartInfo.CreateNoWindow = true;
+                cfgEditor.StartInfo.UseShellExecute = false;
+                cfgEditor.StartInfo.RedirectStandardOutput = true;
+                cfgEditor.StartInfo.RedirectStandardError = true;
+                cfgEditor.Start();
+                cfgEditor.WaitForExit();
                 string errorText = CLauncherViewModel._cfgError + " CfgEditor.exe: ";
-                string errorDescription = modConf.StandardError.ReadToEnd();
-                string outputDescription = modConf.StandardOutput.ReadToEnd();
+                string errorDescription = cfgEditor.StandardError.ReadToEnd();
+                string outputDescription = cfgEditor.StandardOutput.ReadToEnd();
 
                 if (!String.IsNullOrEmpty(errorDescription))
                 {
                     errorText += errorDescription;
                 }
 
-                if (modConf.ExitCode != 0)
+                if (cfgEditor.ExitCode != 0)
                 {
                     if (MessageBox.Show(errorText + "\n" + CLauncherViewModel._askSettingsBackup, null, MessageBoxButton.YesNo, MessageBoxImage.Error) == MessageBoxResult.Yes)
                     {
@@ -121,7 +121,7 @@ namespace MIRAGE_Launcher.ViewModels
 
                 return (outputDescription + "\n" + errorDescription).TrimEnd();
             }
-            return "CfgEdior.exe was not found in Tools directory.";
+            return null;
         }
     }
 }
