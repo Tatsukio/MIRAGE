@@ -107,16 +107,16 @@ namespace MIRAGE_Launcher.ViewModels
 
                 if (!String.IsNullOrEmpty(errorDescription))
                 {
-                    errorDescription = " |-- CfgEditor.exe parse failed: \n" + errorDescription;
+                    errorDescription = " | CfgEditor.exe parse failed: \n" + errorDescription;
                 }
 
                 if (!String.IsNullOrEmpty(outputDescription))
                 {
-                    outputDescription = " |-- CfgEditor.exe parse failed: \n" + outputDescription;
+                    outputDescription = " | CfgEditor.exe parse failed: \n" + outputDescription;
                 }
                 else
                 {
-                    outputDescription = " |-- CfgEditor.exe parse success";
+                    outputDescription = " | CfgEditor.exe parse success";
                 }
 
                 return (outputDescription + "\n" + errorDescription).TrimEnd();
