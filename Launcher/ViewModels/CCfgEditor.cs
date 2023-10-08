@@ -93,35 +93,35 @@ namespace MIRAGE_Launcher.ViewModels
             string path = null;
             if (CLauncher.FileFound(CLauncherViewModel._toolsDir, "CfgEditor.exe", ref path))
             {
-                Process modConf = new Process();
-                modConf.StartInfo.FileName = path;
-                modConf.StartInfo.Arguments = "\"" + filepath + "\"";
-                modConf.StartInfo.CreateNoWindow = true;
-                modConf.StartInfo.UseShellExecute = false;
-                modConf.StartInfo.RedirectStandardOutput = true;
-                modConf.StartInfo.RedirectStandardError = true;
-                modConf.Start();
-                modConf.WaitForExit();
-                string errorDescription = modConf.StandardError.ReadToEnd();
-                string outputDescription = modConf.StandardOutput.ReadToEnd();
+                Process cfgEditor = new Process();
+                cfgEditor.StartInfo.FileName = path;
+                cfgEditor.StartInfo.Arguments = "\"" + filepath + "\"";
+                cfgEditor.StartInfo.CreateNoWindow = true;
+                cfgEditor.StartInfo.UseShellExecute = false;
+                cfgEditor.StartInfo.RedirectStandardOutput = true;
+                cfgEditor.StartInfo.RedirectStandardError = true;
+                cfgEditor.Start();
+                cfgEditor.WaitForExit();
+                string errorDescription = cfgEditor.StandardError.ReadToEnd();
+                string outputDescription = cfgEditor.StandardOutput.ReadToEnd();
 
                 if (!String.IsNullOrEmpty(errorDescription))
                 {
-                    errorDescription = "failed: " + errorDescription;
+                    errorDescription = " |-- CfgEditor.exe parse failed: \n" + errorDescription;
                 }
 
                 if (!String.IsNullOrEmpty(outputDescription))
                 {
-                    outputDescription = "failed: " + outputDescription;
+                    outputDescription = " |-- CfgEditor.exe parse failed: \n" + outputDescription;
                 }
                 else
                 {
-                    outputDescription = "success";
+                    outputDescription = " |-- CfgEditor.exe parse success";
                 }
 
-                return (" | CfgEditor.exe parse " + outputDescription + " " + errorDescription).TrimEnd();
+                return (outputDescription + "\n" + errorDescription).TrimEnd();
             }
-            return null;
+            return "CfgEdior.exe was not found in Tools directory.";
         }
     }
 }
