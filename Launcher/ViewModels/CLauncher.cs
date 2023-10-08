@@ -389,7 +389,7 @@ namespace MIRAGE_Launcher.ViewModels
 
                 foreach (string driver in drivers)
                 {
-                    result += driver + " " + (key.GetValue(path + driver) != null ? " is installed\n" : "isnt installed\n");
+                    result += driver + " " + (key.GetValue(path + driver) != null ? " is installed\n" : " is not installed\n");
                 }
                 return result;
             }
@@ -408,9 +408,36 @@ namespace MIRAGE_Launcher.ViewModels
             {
                 long length = new FileInfo(path).Length;
 
-                result = "Win7fix " + (length < 3000000 ? "is" : "isnt") + " installed";
+                result = "Win7fix is" + (length < 3000000 ? " " : " not") + " installed";
             }
             return result;
+        }
+
+        private static void ProcessFile(string path)
+        {
+            try
+            {
+                using (StreamWriter outputFile = new StreamWriter(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "PWHealthCheck.txt"), true))
+                {
+                    string result = "";
+                    string ext = Path.GetExtension(path);
+                    if (ext == ".txt" || ext == ".cfg" || ext == ".ttree")
+                    {
+                        result = CCfgEditor.Parse(path);
+                        int indexOfSteam = result.IndexOf(Environment.NewLine);
+
+                        if (indexOfSteam >= 0)
+                        {
+                            result = result.Remove(indexOfSteam);
+                        }
+                    }
+                    outputFile.WriteLine(path + result);
+                }
+            }
+            catch
+            {
+
+            }
         }
 
         private static void ProcessDirectory(string targetDirectory)
@@ -428,54 +455,24 @@ namespace MIRAGE_Launcher.ViewModels
             }
         }
 
-        private static void ProcessFile(string path)
-        {
-            try
-            {
-                using (TextWriter hc = new StreamWriter(Environment.GetFolderPath(Environment.SpecialFolder.Desktop) + @"\PWHealthCheck.txt", true))
-                {
-                    string result = "";
-                    string ext = Path.GetExtension(path);
-                    if(ext == ".txt" || ext == ".cfg" || ext == ".ttree")
-                    {
-                        result = CCfgEditor.Parse(path);
-                        int indexOfSteam = result.IndexOf(Environment.NewLine);
-
-                        if (indexOfSteam >= 0)
-                        {
-                            result = result.Remove(indexOfSteam);
-                        }
-                    }
-                    hc.WriteLine(path + result);
-                }
-            }
-            catch
-            {
-
-            }
-        }
-
         public static void HealthCheck()
         {
             try
             {
-                string path = Environment.GetFolderPath(Environment.SpecialFolder.Desktop) + @"\PWHealthCheck.txt";
-                MessageBox.Show($"Wait fot {path} to be created", "PWHealthCheck", MessageBoxButton.OK, MessageBoxImage.Information);
-                if (File.Exists(path))
+                string outputPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "PWHealthCheck.txt");
+                MessageBox.Show($"Wait fot {outputPath} to be created", "PWHealthCheck", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                using (StreamWriter outputFile = new StreamWriter(outputPath, false))
                 {
-                    File.Delete(path);
-                }
-                using (TextWriter hc = new StreamWriter(path, true))
-                {
-                    hc.WriteLine("Launcher admin rights " + (IsRunAsAdmin() ? "are" : "arent") + " granted");
-                    hc.WriteLine("\nWin7fix check:");
-                    hc.WriteLine(IsWinFixInstalled());
-                    hc.WriteLine("\nTages drivers check:");
-                    hc.WriteLine(IsTagesInstalled());
+                    outputFile.WriteLine("Launcher admin rights are" + (IsRunAsAdmin() ? " " : " not") + " granted");
+                    outputFile.WriteLine("\nWin7fix check:");
+                    outputFile.WriteLine(IsWinFixInstalled());
+                    outputFile.WriteLine("\nTages drivers check:");
+                    outputFile.WriteLine(IsTagesInstalled());
                 }
                 ProcessDirectory(CLauncherViewModel._paraworldDir);
 
-                MessageBox.Show(path + " created", "PWHealthCheck", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(outputPath + " created", "PWHealthCheck", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch
             {
