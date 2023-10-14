@@ -421,7 +421,7 @@ namespace MIRAGE_Launcher.ViewModels
                 {
                     string result = "";
                     string ext = Path.GetExtension(path);
-                    if (ext == ".txt" || ext == ".cfg" || ext == ".ini" ||  ext == ".ttree")
+                    if (ext == ".txt" || ext == ".cfg" || ext == ".ini" || ext == ".srf" || ext == ".ttree")
                     {
                         string peekRoot = File.ReadLines(path).FirstOrDefault();
 
