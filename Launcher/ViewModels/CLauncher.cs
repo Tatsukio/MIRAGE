@@ -91,7 +91,7 @@ namespace MIRAGE_Launcher.ViewModels
 
         public static bool ClearCache()
         {
-            string[] cacheExts = { "bin", "ubc", "swd" };
+            string[] cacheExts = { "bin", "ubc", "swd", "" };
             if (Directory.Exists(_cacheDir))
             {
                 IEnumerable<string> CacheFiles = Directory.EnumerateFiles(_cacheDir, "*.*").Where(file => cacheExts.Any(x => file.EndsWith(x, StringComparison.OrdinalIgnoreCase)));
