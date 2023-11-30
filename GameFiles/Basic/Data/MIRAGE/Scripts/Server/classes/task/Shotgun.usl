@@ -6,6 +6,7 @@ class CShotgun inherit CSpecialActionTask
 	const real	m_fDamageOnMainTarget=50.0f; 				// Damage in percent inflicted on the main target.
 	const real	m_fMinimalDamageOnMainTarget=200.0f; 		// Minimal damage in hitpoints the weapon inflicts on the main target.
 	const real	m_fMaximalDamageOnMainTarget=2000.0f; 		// Maximal damage in hitpoints the weapon inflicts on the main target.
+	const real  m_fDamageOnSpecialClasses=10.0f;			// Kr1s1m: Damage in percent inflicted to special classes from m_asSpeacialClasses
 
 	const real	m_fDamageOnCollateralTargets=50.0f; 		// Damage in percent inflicted on the collateral targets.
 	const real	m_fMinimalDamageOnCollateralTargets=200.0f;	// Minimal damage in hitpoints the weapon inflicts on the collateral targets.
@@ -15,22 +16,52 @@ class CShotgun inherit CSpecialActionTask
 	const real	m_fCollateralDamageRange=8.0f;				// Maximum distance from impact, collateral damage is inflicted.
 	////////////////////////////////////////////////////
 
-	var CObjHndl	m_xFighter;
-	var CObjHndl	m_xEnemy;
-	var string 		m_sState;
-	var bool		m_bGroundShot;
-	var vec3		m_vGroundShotPos;
-	var CObjList	m_xCollateralDamage;
+	var CObjHndl		m_xFighter;
+	var CObjHndl		m_xEnemy;
+	var string 			m_sState;
+	var bool			m_bGroundShot;
+	var vec3			m_vGroundShotPos;
+	var CObjList		m_xCollateralDamage;
+	//Kr1s1m: Added an array field to store the affected by the collateral damage types.
+	var array CFourCC	m_axCollateralAffectedTypes;
+	//Kr1s1m: Added an array field to store the special case classes.
+	var array string	m_asSpeacialClasses;
 
-	var CFourCC		m_xFCCRightHandLink;
-	var CFourCC		m_xFCCShieldLink;
-	var CFourCC		m_xFCCLeftHandLink;
-	var CFourCC		m_xFCCHeadLink;
-	var CFourCC		m_xFCCBackLink;
+	var CFourCC			m_xFCCRightHandLink;
+	var CFourCC			m_xFCCShieldLink;
+	var CFourCC			m_xFCCLeftHandLink;
+	var CFourCC			m_xFCCHeadLink;
+	var CFourCC			m_xFCCBackLink;
 
 	export constructor()
 		SetName("Shotgun");
 		SetCivil(false);
+		//Kr1s1m: The affected by the collateral damage types are set here.
+		//Kr1s1m: You need to use the four letter CFourCC type codes and add them as entries.
+		if(m_axCollateralAffectedTypes.NumEntries()==0)then
+			var CFourCC xCHTR = "CHTR";
+			var CFourCC xANML = "ANML";
+			var CFourCC xVHCL = "VHCL";
+			var CFourCC xNEST = "NEST";
+			var CFourCC xBLDG = "BLDG";
+			var CFourCC xFGHT = "FGHT";
+			m_axCollateralAffectedTypes.AddEntry(xCHTR);
+			m_axCollateralAffectedTypes.AddEntry(xANML);
+			m_axCollateralAffectedTypes.AddEntry(xVHCL);
+			m_axCollateralAffectedTypes.AddEntry(xNEST);
+			m_axCollateralAffectedTypes.AddEntry(xBLDG);
+			m_axCollateralAffectedTypes.AddEntry(xFGHT);
+		endif;
+		//Kr1s1m: The treated in a special way by the collateral damage exception CHTR units are set here.
+		//Kr1s1m: Add a class name of a CHTR unit as entry bellow to have that specific unit treated unlike the rest of CHTR.
+		//Kr1s1m: Comment the code bellow to remove exceptions and instead treat all CHTR units equally.
+		if(m_asSpeacialClasses.NumEntries()==0)then
+			m_asSpeacialClasses.AddEntry("hu_avatar");
+			m_asSpeacialClasses.AddEntry("hu_berserk_statue_01");
+			m_asSpeacialClasses.AddEntry("hu_berserk_statue_02");
+			m_asSpeacialClasses.AddEntry("hu_berserk_statue_03");
+			m_asSpeacialClasses.AddEntry("hu_berserk_statue_04");
+		endif;
 		m_xFCCShieldLink="Shld";
 		m_xFCCRightHandLink="HndR";
 		m_xFCCLeftHandLink="HndL";
@@ -200,7 +231,10 @@ class CShotgun inherit CSpecialActionTask
 					for(i=0)cond(i<m_xCollateralDamage.NumEntries())iter(i++)do
 						var ^CFightingObj pxCollateralDamageObj = cast<CFightingObj>(m_xCollateralDamage[i].GetObj());
 						if(pxCollateralDamageObj==null)then continue; endif;
-						if(pxCollateralDamageObj^.GetType()=="CHTR" && !pxCollateralDamageObj^.GetTransportObj().IsValid() && pxFighter^.m_iSizeClass>pxCollateralDamageObj^.m_iSizeClass && !pxCollateralDamageObj^.GetOnWall())then
+						if(pxCollateralDamageObj^.GetType()=="CHTR" 
+						  && !pxCollateralDamageObj^.GetTransportObj().IsValid() 
+						  && pxFighter^.m_iSizeClass>pxCollateralDamageObj^.m_iSizeClass
+						  && !pxCollateralDamageObj^.GetOnWall())then
 							Random.Seed();
 							var vec3 vVariation={0.0,0.0,0.0};
 							vVariation.SetX((Random.GetInt()%150).ToReal()/100.0f);
@@ -254,6 +288,10 @@ class CShotgun inherit CSpecialActionTask
 			if(!m_bGroundShot)then
 				if(pxEnemy^.GetType()=="BLDG" || pxEnemy^.GetType()=="NEST")then
 					fDamage=(pxEnemy^.GetHitpoints()/100.0)*10.0f;
+				//Kr1s1m: If the targeted enemy class name is one of those in the special case classes array...
+				elseif(m_asSpeacialClasses.FindEntry(pxEnemy^.GetClassName())>-1)then
+					//Kr1s1m: ...then perform a special calculation.
+					fDamage=(pxEnemy^.GetHitpoints()/100.0)*m_fDamageOnSpecialClasses;
 				else
 					fDamage=(pxEnemy^.GetHitpoints()/100.0)*m_fDamageOnMainTarget;
 				endif;
@@ -268,6 +306,10 @@ class CShotgun inherit CSpecialActionTask
 					if(pxCollateralDamageObj==null)then continue; endif;
 					if(pxCollateralDamageObj^.GetType()=="BLDG" || pxCollateralDamageObj^.GetType()=="NEST")then
 						fDamage=(pxCollateralDamageObj^.GetHitpoints()/100.0)*10.0f;
+					//Kr1s1m: If the current collateral object's class name is one of those in the special case classes array...
+					elseif(m_asSpeacialClasses.FindEntry(pxCollateralDamageObj^.GetClassName())>-1)then
+						//Kr1s1m: ...then perform a special calculation.
+						fDamage=(pxCollateralDamageObj^.GetHitpoints()/100.0)*m_fDamageOnSpecialClasses;
 					else
 						fDamage=(pxCollateralDamageObj^.GetHitpoints()/100.0)*m_fDamageOnCollateralTargets;
 					endif;
@@ -331,32 +373,43 @@ class CShotgun inherit CSpecialActionTask
 
 	//Determine collateral targets
 	proc bool GetCollateralDamage()
+		var CObjList xList;
 		var CObjQuery xCollateralQuery;
-		xCollateralQuery.SetType("CHTR");
-		xCollateralQuery.SetType("ANML",true);
-		xCollateralQuery.SetType("VHCL",true);
-		xCollateralQuery.SetType("NEST",true);
-		xCollateralQuery.SetType("BLDG",true);
-		xCollateralQuery.SetType("FGHT",true);
+		
+		var ^CFightingObj pxFighter=cast<CFightingObj>(m_xFighter.GetObj());
+		var int iOwner = pxFighter^.GetOwner();
+		
+		//Kr1s1m: First, setup the main query which will gather all objects of the desired affected types in a radius.
 		if(m_bGroundShot)then
 			xCollateralQuery.RegionCircle(m_vGroundShotPos,m_fCollateralDamageRange);
 		else
 			xCollateralQuery.RegionCircle(m_xEnemy.GetObj()^.GetPos(),m_fCollateralDamageRange);
 		endif;
-		CSrvWrap.GetDiplomacyMgr().AddMyEnemiesToSearch(m_xFighter.GetObj()^.GetOwner(), xCollateralQuery);
-		var CObjList xList;
-		var int i;
+		//Kr1s1m: Add the initial type to the query.
+		xCollateralQuery.SetType(m_axCollateralAffectedTypes[0], false);
+		//Kr1s1m: Continue by appending each consecutive type from inside the affected types array field.
+		var int i, iA = m_axCollateralAffectedTypes.NumEntries();
+		for(i=1)cond(i<iA)iter(i++)do xCollateralQuery.SetType(m_axCollateralAffectedTypes[i], true); endfor;
+		
+		//Kr1s1m: Disabled this line from original code so we can also get wild animals inside the list generated by the query.
+		//CSrvWrap.GetDiplomacyMgr().AddMyEnemiesToSearch(m_xFighter.GetObj()^.GetOwner(), xCollateralQuery);
+		
 		if(xCollateralQuery.Execute(xList))then
-			for(i=0)cond(i<xList.NumEntries())iter(i++)do
+			var int i, iC = xList.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
 				if(!m_bGroundShot && xList[i]==m_xEnemy)then continue; endif;
 				var ^CFightingObj pxObj = cast<CFightingObj>(xList[i].GetObj());
+				//Kr1s1m: Determine whether the CFightingObj has friendly diplomacy towards current Cole object.
+				var bool bIsFriendly = CSrvWrap.GetDiplomacyMgr().GetIsFriend(iOwner, pxObj^.GetOwner());
 				if(pxObj==null)then continue; endif;
+				if(bIsFriendly)then continue; endif; //Kr1s1m: Skip allies. Comment this line to test on them.
 				if(pxObj^.GetTransportObj().IsValid()||pxObj^.GetOnWall())then continue; endif;
 				m_xCollateralDamage.AddEntry(xList[i]);
 			endfor;
+			return true;
 		endif;
 		//L CSrvWrap.LogSpam("Shotgun","Bystander: "+m_xCollateralDamage.NumEntries().ToString());
-		return(true);
+		return false;
 	endproc;
 	
 	export proc void EndTask()

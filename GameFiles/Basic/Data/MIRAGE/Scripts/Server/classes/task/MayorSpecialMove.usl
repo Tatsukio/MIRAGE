@@ -1,12 +1,37 @@
 class CMayorSpecialMove inherit CSpecialActionTask
-
+	//Kr1s1m: Promoted these real number variables to be fields of the class, instead of local for USLOnTick function.
+	//Badgun Tuning: Mayor Special Move
+	const real m_fRange			= 12.0; // must NOT be 0.0; Kr1s1m: Original value was 6.0f. Buffed to 12.0f.
+	const real m_fDmgPercentage	= 25.0;
+	const real m_fMinDmg			= 300.0;
+	const real m_fMaxDmg			= 2000.0;
+	/////////////////////////////////
 	var CObjHndl 		m_xActor;
 	var string 			m_sState;
 	var string			m_sAnim;
 	
+	//Kr1s1m: Added an array of CFourCC field to store the affected by the whirlwind damage unit types.
+	var array CFourCC m_axAffectedTypes;
+	
 	export constructor()
 		SetName("MayorSM");
 		SetCivil(false);
+		//Kr1s1m: The affected by the whirlwind damage unit types are set here.
+		//Kr1s1m: You need to use the four letter CFourCC type codes and add them as entries.
+		if(m_axAffectedTypes.NumEntries()==0)then
+			var CFourCC xCHTR = "CHTR";
+			var CFourCC xANML = "ANML";
+			var CFourCC xVHCL = "VHCL";
+			var CFourCC xNEST = "NEST";
+			var CFourCC xBLDG = "BLDG";
+			var CFourCC xFGHT = "FGHT";
+			m_axAffectedTypes.AddEntry(xCHTR);
+			m_axAffectedTypes.AddEntry(xANML);
+			m_axAffectedTypes.AddEntry(xVHCL);
+			m_axAffectedTypes.AddEntry(xNEST);
+			m_axAffectedTypes.AddEntry(xBLDG);
+			m_axAffectedTypes.AddEntry(xFGHT);
+		endif;
 	endconstructor;
 	
 	export proc void Save(^CUOFWriterNode p_pxWriterNode)
@@ -67,33 +92,47 @@ class CMayorSpecialMove inherit CSpecialActionTask
 			SetUnStoppable(true);
 			var int iOwner = pxActor^.GetOwner();
 			if(iOwner>=0)then
-				//Badgun Tuning: Mayor Special Move
-				var real fRange			= 6.0; // must NOT be 0.0; 
-				var real fDmgPercentage	= 25.0;
-				var real fMinDmg		= 300.0;
-				var real fMaxDmg		= 2000.0;
+				if(m_axAffectedTypes.NumEntries()==0) then return; endif;
+				
 				var CObjList xList;
-				var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
-				if(pxEnemies==null) then return; endif;
-				pxEnemies^.CopySorted(xList, pxActor^.GetPos(), fRange);
+				var CObjQuery xQuery;
+				
+				//Kr1s1m: This was the original logic that used to fill up the list of objects to be damaged by the whirlwind.
+				//var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
+				//if(pxEnemies==null) then return; endif;
+				//pxEnemies^.CopySorted(xList, pxActor^.GetPos(), fRange);
+				
+				//Kr1s1m: Instead, setup a query which will gather all objects of the desired affected types in a radius.
+				xQuery.RegionCircle(pxActor^.GetPos(), m_fRange);
+				//Kr1s1m: Add the initial type to the query.
+				xQuery.SetType(m_axAffectedTypes[0], false);
+				//Kr1s1m: Continue by appending each consecutive type from inside the affected types array field.
+				var int i, iA = m_axAffectedTypes.NumEntries();
+				for(i=1)cond(i<iA)iter(i++)do xQuery.SetType(m_axAffectedTypes[i], true); endfor;
+				
+				//Kr1s1m: Start aoe damaging the list if the execution of the main query succeeds.
+				if(xQuery.Execute(xList))then
 				var int i, iC = xList.NumEntries();
-				for(i=0)cond(i<iC)iter(i++)do
-					var ^CFightingObj pxFight = cast<CFightingObj>(xList[i].GetObj());
-					if(pxFight!=null && !pxFight^.GetTransportObj().IsValid() && !pxFight^.GetOnWall())then
-						var real fDamageDone = Math.Clamp(pxFight^.GetHitpoints()*fDmgPercentage*0.01, fMinDmg, fMaxDmg);
-						pxFight^.TakeDirectMeleeDmg(fDamageDone,pxActor^.GetOwner(),m_xActor);
-						var ^CCharacter pxChar = cast<CCharacter>(pxFight);
-						if(pxChar!=null && !pxChar^.GetTransportObj().IsValid())then
-							var real fDiffTime=((Random.GetInt()%150).ToReal())/100.0f;
-							var real fDiffDistance=(Random.GetInt()%40).ToReal()/10.0;
-							var vec3 vDir = (pxChar^.GetPos() - pxActor^.GetPos());
-							vDir.Normalize();
-							vDir.SetZ(vDir.GetZ()+0.5);
-							vDir.Normalize();
-							pxChar^.SetHitReactionTimer(0.1+fDiffTime,vDir*(1.0f+fDiffDistance));
+					for(i=0)cond(i<iC)iter(i++)do
+						var ^CFightingObj pxFight = cast<CFightingObj>(xList[i].GetObj());
+						//Kr1s1m: Since the main query also picks up friendly objects we check that so we can skip damaging them
+						var bool bIsFriendly = CSrvWrap.GetDiplomacyMgr().GetIsFriend(iOwner, pxFight^.GetOwner());
+						if(pxFight!=null && !pxFight^.GetTransportObj().IsValid() && !pxFight^.GetOnWall() && !bIsFriendly)then
+							var real fDamageDone = Math.Clamp(pxFight^.GetHitpoints()*m_fDmgPercentage*0.01, m_fMinDmg, m_fMaxDmg);
+							pxFight^.TakeDirectMeleeDmg(fDamageDone,pxActor^.GetOwner(),m_xActor);
+							var ^CCharacter pxChar = cast<CCharacter>(pxFight);
+							if(pxChar!=null && !pxChar^.GetTransportObj().IsValid())then
+								var real fDiffTime=((Random.GetInt()%150).ToReal())/100.0f;
+								var real fDiffDistance=(Random.GetInt()%40).ToReal()/10.0;
+								var vec3 vDir = (pxChar^.GetPos() - pxActor^.GetPos());
+								vDir.Normalize();
+								vDir.SetZ(vDir.GetZ()+0.5);
+								vDir.Normalize();
+								pxChar^.SetHitReactionTimer(0.1+fDiffTime,vDir*(1.0f+fDiffDistance));
+							endif;
 						endif;
-					endif;
-				endfor;
+					endfor;
+				endif;
 			endif;
 			pxActor^.AnimAction(m_sAnim);
 			m_sState = "finished";
