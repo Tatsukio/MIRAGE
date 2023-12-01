@@ -2431,17 +2431,34 @@ endclass;
 
 class CTorpedoTurtle inherit CShip
 
-	const real LIFTIME										= 60.0f;
-	const real ALARM_RANGE_CHECK_INTERVAL	= 2.0f;
-	const real NEW_DEST_INTERVAL					= 3.0f;
+	const real 			LIFTIME						= 60.0f;
+	const real 			ALARM_RANGE_CHECK_INTERVAL	= 2.0f;
+	const real 			NEW_DEST_INTERVAL			= 3.0f;
+	//Kr1s1m: Created a constant field which represents the scan range of the torpedo
+	const real			RADAR_RANGE					= 60.0f; //Kr1s1m: Originally 120.0f
 
-	const int	LIFETIME_TIMER_ID=666;
-	const int	CHECK_ALARM_RANGE=667;
+	const int			LIFETIME_TIMER_ID			= 666;
+	const int			CHECK_ALARM_RANGE			= 667;
 
-	var bool m_bBooooomed;
+	var bool 			m_bBooooomed;
+	
+	//Kr1s1m: Added array to keep track of targeted unit types
+	var array CFourCC	m_axTargetedTypes;
 
 	export constructor()
 		m_bBooooomed=false;
+		//Kr1s1m: The targeted unit types to target and chase after are set here.
+		//Kr1s1m: You need to use the four letter CFourCC type codes and add them as entries.
+		if(m_axTargetedTypes.NumEntries()==0)then
+			var CFourCC xSHIP = "SHIP";
+			var CFourCC xANML = "ANML";
+			var CFourCC xVHCL = "VHCL";
+			var CFourCC xBLDG = "BLDG";
+			m_axTargetedTypes.AddEntry(xSHIP);
+			m_axTargetedTypes.AddEntry(xANML);
+			m_axTargetedTypes.AddEntry(xBLDG);
+			m_axTargetedTypes.AddEntry(xVHCL);
+		endif;
 	endconstructor;
 
 	export destructor()
@@ -2507,70 +2524,91 @@ class CTorpedoTurtle inherit CShip
 	endproc;
 	
 	proc bool CheckForNearbyEnemies()
-		var CObjQuery xQ;
-		xQ.RegionCircle(GetPos(), 120.0f);
-		xQ.SetType("SHIP", false);
-		xQ.SetType("ANML", true);
-		xQ.SetType("BLDG", true);
-		xQ.SetType("VHCL", true);
-		var int i, iC=8;
-		var int iMyOwner=GetOwner();
-		var bool bApp=false;
-		for (i=0) cond(i<iC) iter(++i)do
-			if(i!=iMyOwner && CSrvWrap.GetDiplomacyMgr().GetIsEnemy(iMyOwner, i))then
-				xQ.SetOwner(i, bApp);
-				if(!bApp)then bApp=true; endif;
-			endif;
-		endfor;
-		var ^CGameObj pxEnemy=null;
-		var ^CObjList pxList=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(GetOwner());
-		var CObjList xL, xT;
-		if(pxList!=null)then
-			pxList^.CopySorted(xT, GetPos(), 120.0f);
-			xQ.Execute(xT,xL);
+	
+		//Kr1s1m: If no type is being targeted then our job in this function is done.
+		if(m_axTargetedTypes.NumEntries()==0)then return false; endif;
+		
+		var CObjQuery xQuery;
+		
+		//Kr1s1m: First, prepare the main query which will gather all objects of the desired targeted types in a radius range.
+		xQuery.RegionCircle(GetPos(), RADAR_RANGE);
+		//Kr1s1m: Add the initial type to the query.
+		xQuery.SetType(m_axTargetedTypes[0], false);
+		//Kr1s1m: Continue by appending the query with each consecutive type from inside the targeted unit types array field.
+		var int i, iT = m_axTargetedTypes.NumEntries();
+		for(i=1)cond(i<iT)iter(i++)do xQuery.SetType(m_axTargetedTypes[i], true); endfor;
+		
+		//Kr1s1m: This code was part of the old query logic
+		//var int i, iOwner=GetOwner();
+		//for (i=0) cond(i<iC) iter(++i)do
+			//if(i!=iMyOwner && CSrvWrap.GetDiplomacyMgr().GetIsEnemy(iMyOwner, i))then
+				//xQ.SetOwner(i, bApp);
+				//if(!bApp)then bApp=true; endif;
+			//endif;
+		//endfor;
+		
+		//Kr1s1m: Prepare and initialize the variables needed for the logic bellow.
+		var int iOwner = GetOwner();
+		var ^CGameObj pxTarget=null;
+		var CObjList xList, xListSorted;
+		
+		//Kr1s1m: Create and initialize a bunch of variables to store indices of objects in radar that are of interest.
+		//Kr1s1m: Later these will help easily create priority targeting, without the need of booleans or O(n^2).
+		var int iCitywall=-1, iPirateBoss=-1;
+		var int iEnemyTribeSHIP=-1, iEnemyTribeVHCLorANML=-1, iEnemyTribeFloating=-1, iEnemyHarbour=-1;
+		var int iWildAggresive=-1, iWildNeutral=-1;
+	
+		//Kr1s1m: If the main query picks up anything valid in the radar range... 
+		if(xQuery.Execute(xList))then
+			//Kr1s1m: ...then sort the generated list by distance.
+			xList.CopySorted(xListSorted, GetPos(), RADAR_RANGE);
 		endif;
-		if(xL.NumEntries() > 0)then
-			var int i, iC=xL.NumEntries();
+		
+		//Kr1s1m: If anything at all was copied inside xListSorted continue with the main logic.
+		if(xListSorted.NumEntries() > 0)then
+			var int i, iC=xListSorted.NumEntries();
 			for(i=0) cond(i<iC) iter(++i)do
-				if(xL[i].IsValid())then
-					var ^CGameObj pxO=xL[i].GetObj();
-					if(pxO!=null)then
-						if(pxO^.GetType()=="ANML"||pxO^.GetType()=="VHCL")then
-							if(!(pxO^.IsInWater() && pxO^.CanSwim()))then
-								continue;
-							endif;
-						elseif(pxO^.GetType()=="BLDG")then
-							if(pxO^.GetClassName()=="pirate_boss_tail"
+				if(xListSorted[i].IsValid())then
+					//Kr1s1m: The next two lines allow the usage of the interface specific to child class CFightingObj.
+					var ^CGameObj pxO=xListSorted[i].GetObj();
+					var ^CFightingObj pxF=cast<CFightingObj>(xListSorted[i].GetObj());
+					var bool bIsFriendly = CSrvWrap.GetDiplomacyMgr().GetIsFriend(iOwner, pxF^.GetOwner());
+					//Kr1s1m: Only consider valid non-allied units which are not flying and not hidden like non-firing submarines.
+					if(pxO!=null && !bIsFriendly && !pxO^.CanFly() && !pxO^.GetIsVanished())then
+						if(pxO^.GetType()=="BLDG")then
+							//Kr1s1m: Check for specific buildings of interest, including campaign ojects and harbours.
+							//Kr1s1m: If there is a match save the index;
+							if((pxO^.GetClassName()=="pirate_boss_tail"
 								||pxO^.GetClassName()=="pirate_boss_sail"
-								||pxO^.GetClassName()=="pirate_boss_row")then
-								pxEnemy=pxO;
+								||pxO^.GetClassName()=="pirate_boss_row"))then
+								iPirateBoss=i;
 								break;
-							elseif(pxO^.GetClassName().Find("harbour")>=0)then
-								pxEnemy=pxO;
-								break;
-							elseif(pxO^.GetClassName()=="seas_carrier")then
-								pxEnemy=pxO;
-								break;
+							elseif((pxO^.GetClassName().Find("harbour")>=0 || pxO^.GetClassName()=="seas_carrier") && iEnemyHarbour==-1)then
+								iEnemyHarbour=i;
 							elseif(pxO^.GetClassName()=="PT_Citywall_Gate")then
-								pxEnemy=pxO;
+								iCitywall=i;
 								break;
 							else
-								continue;
+								continue;//Kr1s1m: Ignore all other buildings since they are probably on land or invalid.
 							endif;
 						endif;
-						if(pxO^.GetClassName()=="pirate_boss")then
-							var CObjQuery xQuery;
-							xQuery.RegionCircle(GetPos(), 100.0f);
-							xQuery.SetClass("pirate_boss_tail", false);
-							xQuery.SetClass("pirate_boss_sail", true);
-							xQuery.SetClass("pirate_boss_row", true);
-							var CObjList xList;
-							xQuery.Execute(xList);
-							if(xList.NumEntries()>0)then
-								pxEnemy=xList[0].GetObj();
-								break;
-							endif;
-							continue;
+						if(!(pxO^.IsInWater() && pxO^.CanSwim()))then
+							continue;//Kr1s1m: Skip anything that can't swim or is not in the water. De'Morgan's law.
+						endif;
+						//Kr1s1m: Commented old logic bellow.
+						//if(pxO^.GetClassName()=="pirate_boss")then
+							//var CObjQuery xQuery;
+							//xQuery.RegionCircle(GetPos(), 100.0f);
+							//xQuery.SetClass("pirate_boss_tail", false);
+							//xQuery.SetClass("pirate_boss_sail", true);
+							//xQuery.SetClass("pirate_boss_row", true);
+							//var CObjList xList;
+							//xQuery.Execute(xList);
+							//if(xList.NumEntries()>0)then
+								//pxTarget=xList[0].GetObj();
+								//break;
+							//endif;
+							//continue;
 //						elseif(pxO^.GetClassName()=="ninigi_pirate_boss_ship")then
 //							var CObjQuery xQuery;
 //							xQuery.RegionCircle(GetPos(), 100.0f);
@@ -2580,28 +2618,71 @@ class CTorpedoTurtle inherit CShip
 //							var CObjList xList;
 //							xQuery.Execute(xList);
 //							if(xList.NumEntries()>0)then
-//								pxEnemy=xList[0].GetObj();
+//								pxTarget=xList[0].GetObj();
 //								break;
 //							endif;
 //							continue;
+						//endif;
+						if(!pxF^.IsWildAnimal() && pxF^.GetType()=="SHIP" && iEnemyTribeSHIP==-1)then 
+							//Kr1s1m: If the CFightingObj is an enemy unit of type SHIP & such index is not yet stashed save that index.
+							iEnemyTribeSHIP=i;
 						endif;
-//						if(pxO^.GetIsVanished())then continue; endif;
-						pxEnemy=pxO;
-						break;
+						if(!pxF^.IsWildAnimal() && 
+						   (pxF^.GetType()=="VHCL" || pxF^.GetType()=="ANML") && iEnemyTribeVHCLorANML==-1)then
+						   //Kr1s1m: Same as comment above, except for type VHCL or ANML.
+							iEnemyTribeVHCLorANML=i;
+						endif;
+						if(!pxF^.IsWildAnimal() && 
+						   (pxF^.GetClassName()=="ninigi_mineship_mine" || pxF^.GetClassName()=="ninigi_water_turret") && iEnemyTribeFloating==-1)then
+						   //Kr1s1m: Same as previous, but tribe specific floating objects.
+							iEnemyTribeFloating=i;
+						endif;
+						if(pxF^.IsWildAnimal() && pxF^.IsAggressive() && iWildAggresive==-1)then
+							//Kr1s1m: If the CFightingObj is a wild aggressive creature and such index is not yet stashed save that index.
+							iWildAggresive=i;
+						endif;
+						if(pxF^.IsWildAnimal() && !pxF^.IsAggressive() && iWildNeutral==-1)then
+							//Kr1s1m: Same as comment above this one, but for non-agressive wild creatures (both green and yellow)...
+							//Kr1s1m: ...except if the current CFightingObj has "is_baby" attribute (<1.0f grow value) then skip it.
+							if(pxF^.GetGrowUpValue()<1.0f)then continue; endif;
+							iWildNeutral=i;
+						endif;
+						pxTarget=pxO;
 					endif;
 				endif;
 			endfor;
 		endif;
-		if(pxEnemy!=null)then
-			var vec3 vEPos=pxEnemy^.GetPos();
-			if( (vEPos-GetPos()).Abs2()<(pxEnemy^.GetRadius()+GetRadius()) )then
-				Explode(pxEnemy^.GetPos());
-			elseif(!(m_xCurEnemy==pxEnemy^.GetHandle()))then
-				OnDefend(pxEnemy);
+		//Kr1s1m: The if-elseif-....-elseif-endif chain bellow models the following order of prioritising targets
+		//iCitywall->iPirateBoss->
+		//->iEnemyTribeSHIP->iEnemyTribeVHCLorANML->iEnemyTribeFloating->iEnemyHarbour->
+		//->iWildAggresive->iWildNeutral
+		if(iCitywall > -1)then
+			pxTarget=xListSorted[iCitywall].GetObj();
+		elseif(iPirateBoss > -1)then
+			pxTarget=xListSorted[iPirateBoss].GetObj();
+		elseif(iEnemyTribeSHIP > -1)then
+			pxTarget=xListSorted[iEnemyTribeSHIP].GetObj();
+		elseif(iEnemyTribeVHCLorANML > -1)then
+			pxTarget=xListSorted[iEnemyTribeVHCLorANML].GetObj();
+		elseif(iEnemyTribeFloating > -1)then
+			pxTarget=xListSorted[iEnemyTribeFloating].GetObj();
+		elseif(iEnemyHarbour > -1)then
+			pxTarget=xListSorted[iEnemyHarbour].GetObj();
+		elseif(iWildAggresive > -1)then
+			pxTarget=xListSorted[iWildAggresive].GetObj();
+		elseif(iWildNeutral > -1)then
+			pxTarget=xListSorted[iWildNeutral].GetObj();
+		endif;
+		if(pxTarget!=null)then
+			var vec3 vEPos=pxTarget^.GetPos();
+			if( (vEPos-GetPos()).Abs2()<(pxTarget^.GetRadius()+GetRadius()) )then
+				Explode(pxTarget^.GetPos());
+			elseif(!(m_xCurEnemy==pxTarget^.GetHandle()))then
+				OnDefend(pxTarget);
 //				var bool bRot;
-//				AttackEnemy(pxEnemy, vEPos, bRot);
+//				AttackEnemy(pxTarget, vEPos, bRot);
 //				GoTo(vEPos, true, GetDefaultSpeed(), true, true, false, false, true);
-				m_xCurEnemy=pxEnemy^.GetHandle();
+				m_xCurEnemy=pxTarget^.GetHandle();
 			endif;
 			return true;
 		endif;
@@ -2610,7 +2691,7 @@ class CTorpedoTurtle inherit CShip
 	
 //	export proc void OnDefend(^CGameObj p_pxEnemy)
 //		if(!GetCurEnemy().IsValid())then
-//			OnDefend(pxEnemy);
+//			OnDefend(pxTarget);
 //		endif;
 //		return;
 //	endproc;

@@ -5,6 +5,7 @@ Change Log:
 
 MIRAGE 2.6.6
 ------------------
+
 Heroes:
 - Antony Cole Shotgun special now treats certain units (campaign avatar and statues) in a special way dealing only 10% hp bonus
 - Antony Cole Shotgun special now correctly collateraly damages all neutral units in the bullet cloud projectile path
