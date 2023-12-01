@@ -6,6 +6,22 @@ Change Log:
 MIRAGE 2.6.6
 ------------------
 
+General:
+- The game language can now be selected from the launcher
+- Screenshot format (jpg/tga) can now be selected in the menu
+- Some ui tweaks for fullhd resolution
+- New menu overlay images for fullhd resolution added
+- Switch server side scripts error fixed
+- Fixed inability for non-norsemen allies to build a gate in the reinforced walls
+- Fixed wrong icon for locked slot in the lobby point buy menu
+- Fixed syntax errors in files (Resources.txt, custom_buildups.txt, action_attrib_def.txt, player_attrib_def.txt, main_character.txt, all_animals.txt, Shortcuts.txt and others)
+- Fixed a bug in TT that didnt add DR bone walls and gates 500 HP after exploring the structures upgrade
+- Fixed a bug in TT that didnt add HP to the seas carrier when taking the admiral's hat or talisman artifacts
+- Restored intro playback for win 7 and higher (sometimes doesnt work)
+- Deleted unused weapon /Objects/Hu/Weapons/hu_falling_towers
+- Deleted unused weapon /Objects/SEAS/Weapons/seas_explosion
+- Enabled idle animations to all units that didn't use them (188 units)
+
 Heroes:
 - Antony Cole Shotgun special now treats certain units (campaign avatar and statues) in a special way dealing only 10% hp bonus
 - Antony Cole Shotgun special now correctly collateraly damages all neutral units in the bullet cloud projectile path
@@ -51,6 +67,14 @@ SEAS:
 - Character prison (special barracks) UI rearranged, added low tier versions of basic units
 - Marksman bullet damage values changed from 20/37/45/65/100 to 15/26/38/45/87
 - Guard weapon damage increased from 10/15/25/45/85 to 12/17/27/47/87
+
+AI:
+- AI now detects and threats the specific heroe units as Hero Classes: Babbage_mobile_suit (not campaign one), and Schliemann_zombie (custom map hero)
+- SEAS and Norsemen builds the stone mines from now on
+- SEAS researchs the babbage mobile suit mechanization from now on
+- SEAS using minigun ability for special_mobile_suite from now on
+- SEAS builds additional seas_great_cannon from now on
+- Dustriders should not produce aje_brachiosaurus_siege(s) anymore
 
 MIRAGE 2.6.5
 ------------------
