@@ -5,26 +5,52 @@ Change Log:
 
 MIRAGE 2.6.6
 ------------------
-Dustriders:
-- T-Rex titan Stunning Roar special now only affects animals, except tyrannosaurus based units, and characters
-- Brachiosaurus Brachio Stomp special now correctly deals more damage the closer you are instead the further
-- Tracker dino and Torpedo turtle now hunt wild animals and have priority targeting for enemies and neutrals
-- Allosaurus armor reduction aura range increased from 20 to 35
-- Scout eye vision aura increased from 20 to 35
-
-Dragon Clan:
-- Wardrums damage aura range increased from 50 to 60
-
-Norsemen:
-- Triceratops titan Paw special now only affects animals, except titans, and characters
-- Scout damage wardrum aura range increased from 20 to 35
-- Scout and Rhino armor pennant aura range increased from 20 to 35
 
 Heroes:
 - Antony Cole Shotgun special now treats certain units (campaign avatar and statues) in a special way dealing only 10% hp bonus
 - Antony Cole Shotgun special now correctly collateraly damages all neutral units in the bullet cloud projectile path
 - Governor Whirling Blade special now correctly deals area damage to all neutral units in range
 - Governor Whirling Blade special area effect range increased to double the previous value
+
+Dustriders:
+- Epoch 2 research cost updated from 200/200/100/15 to 300/300/0/10
+- Epoch 3 research cost updated from 700/700/350/45 to 1000/900/0/30
+- Epoch 4 research cost updated from 1000/1000/500/60 to 1500/1300/0/60
+- Epoch 5 research cost updated from 1500/1500/750/100 to 2200/1800/0/100
+- Epoch 6 research cost updated from 2000/2000/1000/150 to 3000/2200/0/150
+- Town Center hit points reduced from 2000/2250/2750/3500/4500/5500 to 2000/2200/2500/2900/3400/4000
+- T-Rex titan Stunning Roar special now only affects characters and animals, except other tyrannosaurus based units
+- T-Rex titan melee attack armor penetration value set to 30
+- Brachiosaurus Brachio Stomp special now correctly deals more damage the closer you are instead the further
+- Brachiosaurus catapult damage % modifiers decreased and are now once again equal to all other tribes
+- Ankylosaurus Ankylo Bash passive special bash damage now deals 25% less to animals and characters, but 25% more to machines
+- Ankylo catapult with dinno ammo Velociraptor attack now deals 25% less damage to machines and buildings, but 25% more to characters and animals
+- Ankylo catapult stone ammo now deals 25% more damage to machines and buildings
+- Stegosaurus melee attack now deals 25% less damage to machines and buildings, but 25% more to characters and animals
+- Tracker dino and Torpedo turtle now hunt wild animals and have priority targeting for enemies and neutrals
+- Allosaurus armor reduction aura range increased from 20 to 35
+- Scout eye vision aura increased from 20 to 35
+- Spearman spear damage values increased from 15/20/30/50/90 to 15/27/38/60/101
+- Spearman spear attack frequency passive barracks special now properly works with spear melee attacks
+- Archer bow damage values decreased from 20/37/45/65/100 to 12/23/34/42/83
+- Tier 1 (Infantry War enabled) Warriors attack value increased from 5 to 10
+
+Dragon Clan:
+- Wardrums damage aura range increased from 50 to 60
+- Archer bow damage values changed from 10/37/25/45/85 to 15/26/38/45/87
+- Tier 1 (Infantry War enabled) Samurai attack value increased from 5 to 10
+
+Norsemen:
+- Triceratops titan Paw special now only affects characters and animals, except other titans
+- Scout damage wardrum aura range increased from 20 to 35
+- Scout and Rhino armor pennant aura range increased from 20 to 35
+- Archer bow damage values changed from 5/37/25/45/85 to 10/20/30/40/80
+- Warriror axe damage incresed from 10/15/25/45/85 to 15/20/30/50/90
+
+SEAS:
+- Character prison (special barracks) UI rearranged, added low tier versions of basic units
+- Marksman bullet damage values changed from 20/37/45/65/100 to 15/26/38/45/87
+- Guard weapon damage increased from 10/15/25/45/85 to 12/17/27/47/87
 
 MIRAGE 2.6.5
 ------------------
