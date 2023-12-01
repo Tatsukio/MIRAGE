@@ -36,14 +36,17 @@ Dustriders:
 - Epoch 6 research cost updated from 2000/2000/1000/150 to 3000/2200/0/150
 - Town Center hit points reduced from 2000/2250/2750/3500/4500/5500 to 2000/2200/2500/2900/3400/4000
 - T-Rex titan Stunning Roar special now only affects characters and animals, except other tyrannosaurus based units
+- T-Rex titan Stunning Roar special now correctly affects all neutral units instead of only aggressive
 - T-Rex titan melee attack armor penetration value set to 30
 - Brachiosaurus Brachio Stomp special now correctly deals more damage the closer you are instead the further
+- Brachiosaurus Brachio Stomp special now correctly affects all neutral units instead of only aggressive
 - Brachiosaurus catapult damage % modifiers decreased and are now once again equal to all other tribes
 - Ankylosaurus Ankylo Bash passive special bash damage now deals 25% less to animals and characters, but 25% more to machines
 - Ankylo catapult with dinno ammo Velociraptor attack now deals 25% less damage to machines and buildings, but 25% more to characters and animals
 - Ankylo catapult stone ammo now deals 25% more damage to machines and buildings
 - Stegosaurus melee attack now deals 25% less damage to machines and buildings, but 25% more to characters and animals
 - Tracker dino and Torpedo turtle now hunt wild animals and have priority targeting for enemies and neutrals
+- James Warden nest Gallimimus now does 25% more damage to animals and characters but 25% less to machines and buildings
 - Allosaurus armor reduction aura range increased from 20 to 35
 - Scout eye vision aura increased from 20 to 35
 - Spearman spear damage values increased from 15/20/30/50/90 to 15/27/38/60/101
@@ -52,18 +55,23 @@ Dustriders:
 - Tier 1 (Infantry War enabled) Warriors attack value increased from 5 to 10
 
 Dragon Clan:
+- James Warden nest Dilophosaurus now correctly inflict poison from melee damage similar to Dustriders scout unit
+- James Warden nest Dilophosaurus now deals 25% more damage to characters and animals but 25% less to machines and buildings
 - Wardrums damage aura range increased from 50 to 60
 - Archer bow damage values changed from 10/37/25/45/85 to 15/26/38/45/87
 - Tier 1 (Infantry War enabled) Samurai attack value increased from 5 to 10
 
 Norsemen:
 - Triceratops titan Paw special now only affects characters and animals, except other titans
+- Triceratops titan Paw special now correctly affects all neutral units instead of only aggressive
+- James Warden kennel sabertooth cats now deal 25% more damage to animals and characters but 25% less to machines and buildings
 - Scout damage wardrum aura range increased from 20 to 35
 - Scout and Rhino armor pennant aura range increased from 20 to 35
 - Archer bow damage values changed from 5/37/25/45/85 to 10/20/30/40/80
 - Warriror axe damage incresed from 10/15/25/45/85 to 15/20/30/50/90
 
 SEAS:
+- James Warden nest Stygimoloch now deals 25% more damage to machines and characters but 25% less to animals and buildings
 - Character prison (special barracks) UI rearranged, added low tier versions of basic units
 - Marksman bullet damage values changed from 20/37/45/65/100 to 15/26/38/45/87
 - Guard weapon damage increased from 10/15/25/45/85 to 12/17/27/47/87
