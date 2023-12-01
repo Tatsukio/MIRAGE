@@ -19,6 +19,7 @@ Norsemen:
 - Triceratops titan Paw special now only affects animals, except titans, and characters
 - Scout damage wardrum aura range increased from 20 to 35
 - Scout and Rhino armor pennant aura range increased from 20 to 35
+- Triceratops titan Paw special now only affects animals, except titans, and characters
 
 Heroes:
 - Antony Cole Shotgun special now treats certain units (campaign avatar and statues) in a special way dealing only 10% hp bonus

@@ -259,17 +259,43 @@ endclass;
 
 class CStunningRoar inherit CActionTask
 
-	var CObjHndl		m_xHandle;
-	var string			m_sState;
+	var CObjHndl			m_xHandle;
+	var string				m_sState;
 	var real				m_fTime;
 	var real				m_fTimeOffSet;
 	var real				m_fAnimLength;
 	var real				m_fRadius;
-	var string			m_sAnim;
+	var string				m_sAnim;
+	
+	//Kr1s1m: We decided that T-Rex titan roar needs to be rebalanced, instead giving the titan penetration 
+	//Kr1s1m: So to give us control over the stun effect I added these two arrays as fields of the class
+	var array CFourCC		m_axAffectedTypes;
+	var array string 		m_asExceptionClasses;
+	
 
 	export constructor()
 		SetName("StunRoar");
 		m_fRadius = 10.0f;
+		
+		//Kr1s1m: The affected by the stun unit types are set here.
+		//Kr1s1m: You need to use the four letter CFourCC type codes and add them as entries.
+		if(m_axAffectedTypes.NumEntries()==0)then
+			var CFourCC xANML = "ANML";
+			var CFourCC xCHTR = "CHTR";
+			m_axAffectedTypes.AddEntry(xANML);
+			m_axAffectedTypes.AddEntry(xCHTR);
+		endif;
+		
+		//Kr1s1m: The exception units are set here.
+		//Kr1s1m: Add a class name of a unit from the affected types as entry bellow to have that specific unit ignored.
+		//Kr1s1m: Comment the code bellow to remove exceptions and instead stun all units from the affected types.
+		if(m_asExceptionClasses.NumEntries()==0)then
+			m_asExceptionClasses.AddEntry("aje_tyrannosaurus");
+			m_asExceptionClasses.AddEntry("aje_atroxosaurus");
+			m_asExceptionClasses.AddEntry("aje_catapult_rex");
+			m_asExceptionClasses.AddEntry("aje_catapult_rex_spear");
+			m_asExceptionClasses.AddEntry("seas_rex");
+		endif;
 	endconstructor;
 	
 	export proc void Save(^CUOFWriterNode p_pxWriterNode)
@@ -331,7 +357,7 @@ class CStunningRoar inherit CActionTask
 	export proc bool OnActionEnd(bool p_bBroken)
 		return false;
 	endproc;
-
+	
 	proc void USLOnTick(int p_iTime)
 		var ^CAnimal pxHandle = cast<CAnimal>(m_xHandle.GetObj());
 		if(pxHandle==null)then EndTask(); return; endif;
@@ -351,22 +377,61 @@ class CStunningRoar inherit CActionTask
 		elseif(m_sState == "do_stun")then
 			var int iOwner = pxHandle^.GetOwner();
 			if(iOwner>=0)then
-				var CObjList xList;
-				var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
-				if(pxEnemies==null) then EndTask(); return; endif;
-				pxEnemies^.CopySorted(xList, pxHandle^.GetPos(), fRange);
-				var int i, iC = xList.NumEntries();
-				for(i=0)cond(i<iC)iter(i++)do
-					var ^CFightingObj pxFight = cast<CFightingObj>(xList[i].GetObj());
-					if(pxFight!=null && !pxFight^.GetTransportObj().IsValid())then
-						var bool bTrappedAlready=pxFight^.IsTrapped();
-						pxFight^.SetTrappedTime(m_fTime);
-						if(!bTrappedAlready)then
-							pxFight^.SetAnim("standanim",3);
+				
+				//Kr1s1m: If no type is affected by the stun then we have nothing else to do in this function. End task.
+				if(m_axAffectedTypes.NumEntries()==0) then EndTask(); return; endif;
+				
+				var CObjQuery xQuery, xExceptionsQuery;
+				var CObjList xList, xExceptionsList;
+				
+				//Kr1s1m: This was the original logic that used to fill up the list of objects to be stunned.
+				//var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
+				//if(pxEnemies==null) then EndTask(); return; endif;
+				//pxEnemies^.CopySorted(xList, pxHandle^.GetPos(), fRange);
+				
+				//Kr1s1m: First, setup the main query which will gather all objects of the desired affected types in a radius.
+				xQuery.RegionCircle(pxHandle^.GetPos(), fRange);
+				//Kr1s1m: Add the initial type to the query.
+				xQuery.SetType(m_axAffectedTypes[0], false);
+				//Kr1s1m: Continue by appending each consecutive type from inside the affected types array field.
+				var int i, iA = m_axAffectedTypes.NumEntries();
+				for(i=1)cond(i<iA)iter(i++)do xQuery.SetType(m_axAffectedTypes[i], true); endfor;
+				
+				//Kr1s1m: Then, preapare a query which will help filter and exclude all exception classes in a radius...
+				var int j, iE = m_asExceptionClasses.NumEntries();
+				//Kr1s1m: ...only if there are any classes to exclude inside the exception classes field.
+				if(iE>0) then 
+					xExceptionsQuery.RegionCircle(pxHandle^.GetPos(), fRange);
+					//Kr1s1m: Set the initial class of the query.
+					xExceptionsQuery.SetClass(m_asExceptionClasses[0], false);
+					//Kr1s1m: Set and append to the query each subsequent class from the exception array field.
+					for(j=1)cond(j<iE)iter(j++)do xExceptionsQuery.SetClass(m_asExceptionClasses[j], true); endfor;
+					xExceptionsQuery.SetOwner(iOwner);
+					//Kr1s1m: We only care about units from enemy tribes in diplomacy.
+					CSrvWrap.GetDiplomacyMgr().AddMyEnemiesToSearch(iOwner, xExceptionsQuery);
+					//Kr1s1m: Finally, execute the exceptions query to generate the exceptions list.
+					//Kr1s1m: And then tell the main query to exclude the exceptions, appending that to the query.
+					xExceptionsQuery.Execute(xExceptionsList);
+					xQuery.Exclude(xExceptionsList, true);
+				endif;
+				
+				//Kr1s1m: Start stunning the non-friendly main list if the execution of the main query succeeds.
+				if(xQuery.Execute(xList))then
+					var int i, iC = xList.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						var ^CFightingObj pxFight = cast<CFightingObj>(xList[i].GetObj());
+						//Kr1s1m: Since the main query also picks up friendly objects we check that so we can skip stunning them
+						var bool bIsFriendly = CSrvWrap.GetDiplomacyMgr().GetIsFriend(iOwner, pxFight^.GetOwner());
+						if(pxFight!=null && !pxFight^.GetTransportObj().IsValid() && !bIsFriendly)then
+							var bool bTrappedAlready=pxFight^.IsTrapped();
+							pxFight^.SetTrappedTime(m_fTime);
+							if(!bTrappedAlready)then
+								pxFight^.SetAnim("standanim",3);
+							endif;
+							//pxFight^.SetAnim("standanim",3);
 						endif;
-//						pxFight^.SetAnim("standanim",3);
-					endif;
-				endfor;
+					endfor;
+				endif;
 			endif;
 			if(m_fAnimLength>m_fTimeOffSet)then
 				pxHandle^.WaitAction(m_fAnimLength-m_fTimeOffSet);
@@ -610,11 +675,15 @@ class CBrachioHarvest inherit CSpecialActionTask
 			var int iOwner = pxBrachio^.GetOwner();
 			if(iOwner>=0)then
 				var real fRange = 20.0; // must NOT be 0.0; 
-				var real fDmg = 100.0;
+				var real fDmg = 200.0;  //Kr1s1m: Original value 100.0 was changed due to new actual damage formula.
 				var real fEndDmg = 10.0;
-				var CObjList xList;
-				var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
-				if(pxEnemies==null) then return; endif;
+				
+				var CObjQuery xQuery;
+				var CObjList xList, xListSorted;
+				
+				//Kr1s1m: This was the original logic which used to collect the enemies from the world
+				//var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
+				//if(pxEnemies==null) then return; endif;
 				//Hack for testing BrachioStomp with own units
 				/*
 				var CObjQuery xQ;
@@ -622,22 +691,36 @@ class CBrachioHarvest inherit CSpecialActionTask
 				xQ.SetRegion(CSrvWrap.GetRegionMgr().GetWorldRgnHndl());
 				xQ.Execute(pxEnemies^);
 				/**/
-				pxEnemies^.CopySorted(xList, pxBrachio^.GetPos(), fRange);
-				var int i, iC = xList.NumEntries();
-				for(i=iC-1)cond(i>=0)iter(i--)do
-					var ^CFightingObj pxFight = cast<CFightingObj>(xList[i].GetObj());
-					if(pxFight==null)then continue; endif;
-					var real fDistance = (pxFight^.GetPos()-pxBrachio^.GetPos()).Abs2();
-					var real fActualDmg = ((fDmg-fEndDmg)*(fDistance/fRange)) + fEndDmg;
-					pxFight^.TakeDirectMeleeDmg(fActualDmg,m_xWorker);
-					if(pxFight^.GetTransportObj().IsValid())then continue; endif;
-					if(pxFight^.m_iSizeClass>0&&pxFight^.m_iSizeClass <= 7)then
-						var vec3 vDirection = pxFight^.GetPos() - pxBrachio^.GetPos();
-						vDirection.Normalize();
-						vDirection.SetZ(0.5);
-						pxFight^.SetHitReactionTimer(0.0,vDirection*10.0);
-					endif;
-				endfor;
+				
+				//Kr1s1m: Instead do a type query
+				xQuery.SetType("CHTR", false);
+				xQuery.SetType("ANML", true);
+				xQuery.SetType("VHCL", true);
+				//xQuery.SetType("SHIP", true);
+				xQuery.SetType("NEST", true);
+				xQuery.SetType("BLDG", true);
+				
+				if(xQuery.Execute(xList))then
+					xList.CopySorted(xListSorted, pxBrachio^.GetPos(), fRange);
+					var int i, iC = xListSorted.NumEntries();
+					for(i=iC-1)cond(i>=0)iter(i--)do
+						var ^CFightingObj pxFight = cast<CFightingObj>(xListSorted[i].GetObj());
+						//Kr1s1m: Check if pxFight is friendly so we can skip affecting it
+						var bool bIsFriendly = CSrvWrap.GetDiplomacyMgr().GetIsFriend(iOwner, pxFight^.GetOwner());
+						if(pxFight==null || bIsFriendly)then continue; endif;
+						var real fDistance = (pxFight^.GetPos()-pxBrachio^.GetPos()).Abs2();
+						//Kr1s1m: Distance is now correctly inversely proportional to the damage.
+						var real fActualDmg = ((fDmg-fEndDmg)*(1.0 - (fDistance/fRange))) + fEndDmg;
+						pxFight^.TakeDirectMeleeDmg(fActualDmg,m_xWorker);
+						if(pxFight^.GetTransportObj().IsValid())then continue; endif;
+						if(pxFight^.m_iSizeClass>0&&pxFight^.m_iSizeClass <= 7)then
+							var vec3 vDirection = pxFight^.GetPos() - pxBrachio^.GetPos();
+							vDirection.Normalize();
+							vDirection.SetZ(0.5);
+							pxFight^.SetHitReactionTimer(0.0,vDirection*10.0);
+						endif;
+					endfor;
+				endif;
 			endif;
 			var CGameTime xNow=CTimeMgr.Get().GetTime();
 			var real fRemAnimTime=m_fAnimL-(xNow-m_xAnimStart).GetSecondsF();
@@ -906,12 +989,36 @@ class CMammothTrumpet inherit CActionTask
 endclass;
 
 class CPaw inherit CActionTask
-
+	//Kr1s1m: Promoted variable used for the radius of the effect inside USLOnTick to be a field of the class
+	const real 			m_fRange = 30.0; // must NOT be 0.0;
+	///////////////////////////////////
 	var CObjHndl		m_xHandle;
 	var string			m_sState;
+	
+	//Kr1s1m: Added these two arrays as fields of the class to gain control over the damage reduction effect
+	var array CFourCC		m_axAffectedTypes;
+	var array string 		m_asExceptionClasses;
 
 	export constructor()
 		SetName("Paw");
+		
+		//Kr1s1m: The affected by the damage reduction "paw" effect unit types are set here.
+		//Kr1s1m: You need to use the four letter CFourCC type codes and add them as entries.
+		if(m_axAffectedTypes.NumEntries()==0)then
+			var CFourCC xANML = "ANML";
+			var CFourCC xCHTR = "CHTR";
+			m_axAffectedTypes.AddEntry(xANML);
+			m_axAffectedTypes.AddEntry(xCHTR);
+		endif;
+		
+		//Kr1s1m: The exception units are set here.
+		//Kr1s1m: Add a class name of a unit from the affected types as entry bellow to have that specific unit ignored.
+		//Kr1s1m: Comment the code bellow to remove exceptions and instead "paw" all units from the affected types.
+		if(m_asExceptionClasses.NumEntries()==0)then
+			m_asExceptionClasses.AddEntry("aje_atroxosaurus");
+			m_asExceptionClasses.AddEntry("ninigi_seismosaurus");
+			m_asExceptionClasses.AddEntry("seas_rex");
+		endif;
 	endconstructor;
 	
 	export proc void Save(^CUOFWriterNode p_pxWriterNode)
@@ -967,18 +1074,51 @@ class CPaw inherit CActionTask
 			//calc
 			var int iOwner = pxHandle^.GetOwner();
 			if(iOwner>=0)then
-				var real fRange = 30.0; // must NOT be 0.0; 
-				var CObjList xList;
-				var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
-				if(pxEnemies==null) then return; endif;
-				pxEnemies^.CopySorted(xList, pxHandle^.GetPos(), fRange);
-				var int i, iC = xList.NumEntries();
-				for(i=0)cond(i<iC)iter(i++)do
-					var ^CFightingObj pxFight = cast<CFightingObj>(xList[i].GetObj());
-					if(pxFight!=null)then
-						pxFight^.SetPawEffect();
-					endif;
-				endfor;
+				//Kr1s1m: If no type can be affected by the "paw" effect then we have nothing else to do in this function. End task.
+				if(m_axAffectedTypes.NumEntries()==0) then EndTask(); return; endif;
+				
+				var CObjList xList, xExceptionsList, xFriendlyList;
+				var CObjQuery xQuery, xExceptionsQuery, xFriendlyQuery;
+				
+				//Kr1s1m: This was the original logic that used to fill up the list of objects to be affected by Paw.
+				//var ^CObjList pxEnemies=CSrvWrap.GetObjMgr()^.GetOwnerEnemyList(iOwner);
+				//if(pxEnemies==null) then return; endif;
+				//pxEnemies^.CopySorted(xList, pxHandle^.GetPos(), m_fRange);
+				
+				//Kr1s1m: To understand the logic bellow please refer to the comments in USLOnTick function of CStunningRoar.
+				xQuery.RegionCircle(pxHandle^.GetPos(), m_fRange);
+				xQuery.SetType(m_axAffectedTypes[0], false);
+				var int i, iA = m_axAffectedTypes.NumEntries();
+				for(i=1)cond(i<iA)iter(i++)do xQuery.SetType(m_axAffectedTypes[i], true); endfor;
+				
+				var int j, iE = m_asExceptionClasses.NumEntries();
+				if(iE>0) then 
+					xExceptionsQuery.RegionCircle(pxHandle^.GetPos(), m_fRange);
+					xExceptionsQuery.SetClass(m_asExceptionClasses[0], false);
+					for(j=1)cond(j<iE)iter(j++)do xExceptionsQuery.SetClass(m_asExceptionClasses[j], true); endfor;
+					xExceptionsQuery.SetOwner(iOwner);
+					CSrvWrap.GetDiplomacyMgr().AddMyEnemiesToSearch(iOwner, xExceptionsQuery);
+					xExceptionsQuery.Execute(xExceptionsList);
+					xQuery.Exclude(xExceptionsList, true);
+				endif;
+				
+				//Kr1s1m: Generate a list of frindly units in radius of the ability so we can exclude them
+				//Kr1s1m: This is needed because we need to pass a correct list to ShakeZone().
+				xFriendlyQuery.RegionCircle(pxHandle^.GetPos(), m_fRange);
+				xFriendlyQuery.SetOwner(iOwner);
+				CSrvWrap.GetDiplomacyMgr().AddMyFriendsToSearch(iOwner, xFriendlyQuery);
+				xFriendlyQuery.Execute(xFriendlyList);
+				xQuery.Exclude(xFriendlyList);
+				
+				if(xQuery.Execute(xList))then
+					var int i, iC = xList.NumEntries();
+					for(i=0)cond(i<iC)iter(i++)do
+						var ^CFightingObj pxFight = cast<CFightingObj>(xList[i].GetObj());
+						if(pxFight!=null)then
+							pxFight^.SetPawEffect();
+						endif;
+					endfor;
+				endif;
 				if(pxHandle^.GetClassName()=="hu_triceratops"||pxHandle^.GetClassName()=="hu_ballista_titan")then
 					CFightingObj.ShakeZone(pxHandle^.GetPos(),xList);
 				endif;
