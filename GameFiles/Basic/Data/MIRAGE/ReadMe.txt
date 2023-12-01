@@ -8,7 +8,7 @@ MIRAGE 2.6.6
 Dustriders:
 - T-Rex titan Stunning Roar special now only affects animals, except tyrannosaurus based units, and characters
 - Brachiosaurus Brachio Stomp special now correctly deals more damage the closer you are instead the further
-- Tracker dino now hunts wild animals and has priority targeting (enemy units -> aggressive neutral -> other neutral)
+- Tracker dino and Torpedo turtle now hunt wild animals and have priority targeting for enemies and neutrals
 - Allosaurus armor reduction aura range increased from 20 to 35
 - Scout eye vision aura increased from 20 to 35
 
@@ -19,7 +19,6 @@ Norsemen:
 - Triceratops titan Paw special now only affects animals, except titans, and characters
 - Scout damage wardrum aura range increased from 20 to 35
 - Scout and Rhino armor pennant aura range increased from 20 to 35
-- Triceratops titan Paw special now only affects animals, except titans, and characters
 
 Heroes:
 - Antony Cole Shotgun special now treats certain units (campaign avatar and statues) in a special way dealing only 10% hp bonus
