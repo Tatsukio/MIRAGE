@@ -1,7 +1,16 @@
-MIRAGE 2.6.5 (May 09 2023)
+MIRAGE 2.6.6 (January 01 2024)
 ===============================================================
 
 Change Log:
+
+MIRAGE 2.6.6
+------------------
+Dustriders:
+- T-Rex titan Stunning Roar special now only affects animals, except tyrannosaurus based units, and characters
+- Brachiosaurus Brachio Stomp special now correctly deals more damage the closer you are instead the further
+
+Norsemen:
+- Triceratops titan Paw special now only affects animals, except titans, and characters
 
 MIRAGE 2.6.5
 ------------------
@@ -879,7 +888,7 @@ Heroes:
  - Babbit's minigun will deal armour piercing damage from now on
  - Increased max damage of Babbit's minigun from 2000 to 3000
  - Miyagi can now steal from trading units too (double of their last profit)
- - Miyagi can be unloaded from flying zeppelin, if it’s above water from now on
+ - Miyagi can be unloaded from flying zeppelin, if itï¿½s above water from now on
  - Increased ranged defence of Stina from 0 to 15
  - Bela's sniper shot doesn't slow down enemy movement speed from now on
  - Bela's sniper shot removes armour or target unit from now on
@@ -1108,7 +1117,7 @@ Norsemen:
  - Harvester mammoth can collect max 1000 food per trip as well from now on
  - Harvester mammoth can't harvest whole trees any more, only max 400 per trip (most trees had this value before)
  - NM Eusmilus rider has +250 hit points more on each level, resource costs changed from 210/50 to 200/150 (Food/Wood), production duration increased from 17 to 20, and it has an archer build-up too from now on
- - Epoch 6 increases corn field’s worker capacity by 2
+ - Epoch 6 increases corn fieldï¿½s worker capacity by 2
  - Rearranged icon positions of upgrades at NM Machine shop
  - NM Eusmilus rider's sight range is increased from 45 to 55
  - NM Zeppelin is moved from machine maker to warehouse
@@ -1166,7 +1175,7 @@ SEAS:
  - Speaker defence bonus has been increased from 15/15 to 20/20
  - Cannon turtle has only walk-speed 1 on land from now on
  - Explosive rounds have been weakened (e.g. it used to give mkii 50% armour piercing -> this has been reduced to 10, and damage bonus is decreased as well)
- - Explosive rounds should have been increasing MKII's attack frequency, but it was disabled -> now it’s enabled again
+ - Explosive rounds should have been increasing MKII's attack frequency, but it was disabled -> now itï¿½s enabled again
  - Reduced the hit points of stygimoloch nest from 1500 to 600
  - Increased ranged defence of seas flamethrower from 0 to 30
  - Regenerative Gene upgrade is replaced by Selective breeding, which increases hit points of seas animals
@@ -1298,11 +1307,11 @@ General:
  - Walls and gates can't be ignited anymore
  - Anti-building units (like long range catapults, rammer, battle ram) has ranged defence increase against buildings from now on (the actual values are different for the various units)
  - Shift-right clicking on any icon in the army controller will level up the corresponding unit to the highest level possible (if the requirements are fulfilled)
- - By Alt-clicking (if the object selection is empty!) on any icon in the army controller, will dismount the corresponding unit from its transporter(s) (even if it’s a passenger of allied object)
+ - By Alt-clicking (if the object selection is empty!) on any icon in the army controller, will dismount the corresponding unit from its transporter(s) (even if itï¿½s a passenger of allied object)
  - There is a new client option, to filter out tribes (like seas) from random tribe selection
  - Adder's Map editor-Symmetrie-Mod is included from now on
  - Map editor has been a bit modified (like nests) to make things easier...
- - Heterodontosaurus although being categorized as a small carnivore was neutral (fights back when attacked) -> it’s an aggressive animal from now on
+ - Heterodontosaurus although being categorized as a small carnivore was neutral (fights back when attacked) -> itï¿½s an aggressive animal from now on
  - Wild predators (carnivores) will hunt wild animals from now on
  - Teleport gates will release the units in front of the gate from now on
  - Teleport gates can have a rally point from now on, so that units released from them will go to the rally position
@@ -1497,7 +1506,7 @@ Dustriders:
  - Casting multiple tornadoes does not stack the damage anymore
  - Removed brachio transporter's +200 HP bonus, now it has the same amount as other forms
  - Assassin is invisible to the enemy (until he attacks) from now on
- - Increased scouts’ attack range of spit from 10.0 to 12.0 (that is basically for making scouts be able to use their ranged attack. With 10.0 they almost always used their melee attack once they got into combat range to the target)
+ - Increased scoutsï¿½ attack range of spit from 10.0 to 12.0 (that is basically for making scouts be able to use their ranged attack. With 10.0 they almost always used their melee attack once they got into combat range to the target)
  - Rammer is from now is good against everything (except for ships), has 300 hp more on each level, has 50 damage less on each level, 50-50 rc and cc armour, and gets the ability to knock over most enemy units
  - Increased brachio mobile camp's range from 25 to 45
 
@@ -1623,11 +1632,11 @@ SEAS:
  - Arch druid on level 4 gives seas the loud speaker instead of the healing well, and this building increases surrounding unit's defence values
  - Healing well in from now on an epoch 4 building
  - Giganoto rider/guardian was written wrong (Giganto) -> it has been fixed
- - SEAS finally got a siege construction to climb enemy walls (which is like Norsemen’s ladder) -> staircase
+ - SEAS finally got a siege construction to climb enemy walls (which is like Norsemenï¿½s ladder) -> staircase
  - Redesigned carrier: cost 75 wood only, it has 750 HP (level 1), and no armour, weapon deals 25 damage with an attack speed of 6 attacks/minute. On Epoch 3 it gets an upgrade (available for 150 wood and 150 stone), which gives all carriers 20 attacks per minute and a hit range of 15 (same size like the dr torpedo turtle has)
  - Submarine's damage is reduced to 70 (level 3) (from 100)
  - Cyborg Triceratopses: Each seas triceratops has 1500 HP (level 3) and 0 CC and RC armour. Attack speeds of CBT-500 and CBT-1000 are changed from 40 to 30 (attacks/minute) (level 3) and their attack damage to 40 (level 3). CBT-500 got armour piercing, so that it will be a good alternative to the CBT-1000 (which otherwise would be stronger per se, since it has 3 units to transport + the marksman riding it). The CBT-1500 has 60 attack speed and 20 damage (level 3).
- - Exo flamethrower: it’s an epoch 4 unit from now on
+ - Exo flamethrower: itï¿½s an epoch 4 unit from now on
  - Executioner: it has 3000 HP on level 4 and 3500 HP on level 5, 30 rc and cc armour and on level 4 90, on level 5 130 armour piercing attack
  - Minigun executioner: it has 4000 HP on level 4 and 4500 HP on level 5, with 80 dmg and 50 apm for range weapon on level 4, and 120 dmg and 50 apm for range weapon on level 5, 120 dmg for melee on level 4, 160 dmg for melee on level 5, it has no armour piercing attack by default.
  - Great cannon's HP is reduced from 10k to 5k, range reduced from 1000 to 600, damage increased from 250 to 500, deals only 30% damage against buildings (50% previously), increased attack frequency from 4 to 6 apm
@@ -1853,7 +1862,7 @@ General:
  - High level AI players are from now on way stronger
  - Resurrected units kill count won't be reset anymore
  - Unused (remaining) points from point buy will be given as skulls for the player (1 skull has a value of 100 points -> 100 points = 1 skull)
- - Units and buildings can't anymore attack a target, which is hidden by the fog of war to their owner (no matter whether it’s an object or position)
+ - Units and buildings can't anymore attack a target, which is hidden by the fog of war to their owner (no matter whether itï¿½s an object or position)
  - The construction costs of wall part deleted by gate placement are returned to the owner
  - The hero pool system is from now on a standard game play feature/mechanic
  - F11 is from now on a shortcut key for opening/closing diplomacy window
@@ -1910,7 +1919,7 @@ Dragonclan:
  - Removed units: SEAS flamethrower (sdk only)
  - Seismosaurus gets 2 transport slots (open basket), usable by infantry units
  - Seismosaurus close combat and range defence increased from 15 to 30
- - Smoke bomber’s effect doesn't work if it is in a transporter (like ship)
+ - Smoke bomberï¿½s effect doesn't work if it is in a transporter (like ship)
 
 Dustriders:
  - Shaman can also be produced on ac lvl2 tier
@@ -1992,7 +2001,7 @@ General:
  - Techtree antiactions (used in map editor) have been updated
  - Balanced Norsemen tank to suffer minimal damage from ranged attacks
  - Resource collecting buildings (HQs not) which were not assigned to any resource type (warehouses, bazaar, steelwork) and nm foresters lodge (which was assigned only to wood) are assigned to the closest resource
- - Leighton’s flamethrowers can attack from open transporters
+ - Leightonï¿½s flamethrowers can attack from open transporters
  - Winter mode is removed from mirage, can be downloaded separately
  - Added new launcher interface
  - Added new irc chat client
@@ -2013,7 +2022,7 @@ General:
  - Corpse of big animal units (titans for example) causes area damage upon falling to the ground
  - Improved harvesting and trading
  - Blood effects can be turned off/on via options menu
- - Treasure chests appear on the closest shore (approximately) if the owning unit drowns. If it’s not possible, then they respawn at their starting position.
+ - Treasure chests appear on the closest shore (approximately) if the owning unit drowns. If itï¿½s not possible, then they respawn at their starting position.
  - Warden nests spawn more animals after a while, as the help files suggest
  - Using the mouse wheel (with the new camera system) has been extended: holding the Ctrl key allows to use it like in normal version; holding the Shift key allows to zoom in and out faster
  - Animal units, whose primary weapon is a close combat one, but they also have weapon buildups (like triceratops titan), will show in info panel the power of the weapon-build-up at ranged damage -> units which have multiple weapon-buildups (like tric. titan again) show the combined power of their weapon buildups (this may be changed later on);
@@ -2084,10 +2093,10 @@ General:
  - Updated many buff icons, descriptions, sound sets
  - Added a new custom mp map, named Assassin's Creed ;) - thanks to Scrat
  - Added a new, optional game play feature -> most animals sleep during night time, while they can't do anything else
- - Probably more other small changes which I already forgot... if I remember then I’ll add them later on
+ - Probably more other small changes which I already forgot... if I remember then Iï¿½ll add them later on
 
 Heroes:
- - Barry and Harry have now Larry’s icon and soundest
+ - Barry and Harry have now Larryï¿½s icon and soundest
  - Warden doesn't attack wild animals on its own, even if his stance is aggressive
  - Units in Warden' level 2 aura don't attack wild animal on their own, even if their stance is aggressive
  - Darkmoon can eat fishes from now on
@@ -2231,7 +2240,7 @@ Dustriders:
  - Brachiosaurus mobile camp has been boosted: it can transport 10 infantry units (closed transporter, like Norsemen tank), can train also shamans, poisoners, and the special infantry units of heroes
  - Fixed resurrection bug, which additionally increased unit capacity (actually decreased free capacity)
  - Different versions of Brachiosaurus (mobile camp, catapult, transporter, siege), ankylo catapult and Stego transporter are now available in point buy menu, and their own sound set is enabled
- - Shamans camouflage ability has been renewed; it’s a target ability, so the animal form must be selected before the shaman can use it; only wild herbivores can be chosen; the shaman doesn't need to be close to the animal, the player only need vision to the animal (since animals are now hidden in fog of war)
+ - Shamans camouflage ability has been renewed; itï¿½s a target ability, so the animal form must be selected before the shaman can use it; only wild herbivores can be chosen; the shaman doesn't need to be close to the animal, the player only need vision to the animal (since animals are now hidden in fog of war)
  - Shamans camouflage ability also replaces his description and icon in info panel and reduces his speed to default: 2 and max: 2; in camouflaged state he receives the standard animation of the animal model he has
  - Triceratops transporter has been boosted: it can't be poisoned, frozen, targeted by Stina's Hypnosis, tamed by SEAS Trainers, and doesn't get negative effects from enemy units; it gets a new train animation at large dinofarm
  - Triceratops transporter dealt only 25% damage against animals and vehicles, this has been increased to 75% (form -- to +)
@@ -2349,7 +2358,7 @@ Dustriders:
  - Brachiosaurus catapult gfx bug fixed, which caused sometimes the catapult build-up hanging in the air without any base
  - Velociraptor handler has different dinos on each level, just as the help text says: "At higher levels the Raptor handler receives a larger dino that he can lead on a leash."
  - Mobile centres (HQ) gfx bug is fixed, which caused newly produced mobile centres wagon have the gfx of level 1 even on higher epochs
- - At epoch 5 the temple gets a new upgrade, which converts it into the Amazon temple itself, which serves as secondary HQ, as resource collection point, increases unit and resource limit, and workers can be trained there; it’s a local upgrade, must be individually researched at each temple
+ - At epoch 5 the temple gets a new upgrade, which converts it into the Amazon temple itself, which serves as secondary HQ, as resource collection point, increases unit and resource limit, and workers can be trained there; itï¿½s a local upgrade, must be individually researched at each temple
  - There is a new level 2 flying dino unit from epoch 3 in medium animal farm: the Observer (pteranodon rider) which is good to scout enemy movements and rushing workers
  - There is a new dino upgrade from epoch 5, which lets Dustriders dinos (mobile centre and pteradon riders are exceptions) pretend to be dead
  - Warden on level 4 gives Dustriders a new nest: the deinonychus nest: this nest spawns 4 deinonychus
@@ -2382,7 +2391,7 @@ Norsemen:
 
 SEAS:
  - Carrier can fish
- - Fixed triceratops transporters captain attack animation bug (it was bow_1; it’s used by archers)
+ - Fixed triceratops transporters captain attack animation bug (it was bow_1; itï¿½s used by archers)
  - Babbit's Exo enforcer can't be targeted by Taslow's vehicle destruction action anymore
  - Babbit's Exo gets a researchable special ability to use his jet packs to fly
  - Medic gets an animation for the traps searching ability
