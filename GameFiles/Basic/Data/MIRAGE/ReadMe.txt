@@ -12,6 +12,13 @@ Dustriders:
 Norsemen:
 - Triceratops titan Paw special now only affects animals, except titans, and characters
 
+CHTR-Specials-Rework
+Heroes:
+- Antony Cole Shotgun special now treats certain units (campaign avatar and statues) in a special way dealing only 10% hp bonus
+- Antony Cole Shotgun special now correctly collateraly damages all neutral units in the bullet cloud projectile path
+- Governor Whirling Blade special now correctly deals area damage to all neutral units in range
+- Governor Whirling Blade special area effect range increased to double the previous value
+
 MIRAGE 2.6.5
 ------------------
 General:
