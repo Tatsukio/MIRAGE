@@ -72,6 +72,7 @@ Dustriders:
 - Spearman spear attack frequency passive barracks special now properly works with spear melee attacks
 - Archer bow damage values decreased from 20/37/45/65/100 to 12/23/34/42/83
 - Tier 1 (Infantry War enabled) Warriors attack value increased from 5 to 10
+- Warrior tier 3 and higher aura range now increased from from 25/30/35 to 30/35/40
 
 Dragon Clan:
 - James Warden nest Dilophosaurus now correctly inflict poison from melee damage similar to Dustriders scout unit
@@ -79,6 +80,7 @@ Dragon Clan:
 - Wardrums damage aura range increased from 50 to 60
 - Archer bow damage values changed from 10/37/25/45/85 to 15/26/38/45/87
 - Tier 1 (Infantry War enabled) Samurai attack value increased from 5 to 10
+- Samurai tier 3 and higher aura range now increased from from 25/30/35 to 30/35/40
 
 Norsemen:
 - Triceratops titan Paw special now only affects characters and animals, except other titans
@@ -88,6 +90,7 @@ Norsemen:
 - Scout and Rhino armor pennant aura range increased from 20 to 35
 - Archer bow damage values changed from 5/37/25/45/85 to 10/20/30/40/80
 - Warriror axe damage incresed from 10/15/25/45/85 to 15/20/30/50/90
+- Warrior tier 3 and higher aura range now increased from from 25/30/35 to 30/35/40
 
 SEAS:
 - James Warden nest Stygimoloch now deals 25% more damage to machines and characters but 25% less to animals and buildings
