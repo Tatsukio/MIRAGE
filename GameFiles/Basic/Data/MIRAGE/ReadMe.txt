@@ -18,6 +18,7 @@ General:
 - Fixed a bug in TT that didnt add DR bone walls and gates 500 HP after exploring the structures upgrade
 - Fixed a bug in TT that didnt add HP to the seas carrier when taking the admiral's hat or talisman artifacts
 - Fixed non working wild animals selection sounds
+- Fixed similiar hotkey for aje-sensor_tower & aje_huge_farm
 - Reworked shortcuts for all units, added new ones
 - Restored intro playback for win 7 and higher (sometimes doesnt work)
 - Deleted unused weapon /Objects/Hu/Weapons/hu_falling_towers
@@ -31,6 +32,20 @@ Heroes:
 - Anthony Cole Shotgun special now correctly collateraly damages all neutral units in the bullet cloud projectile path
 - Governor Whirling Blade special now correctly deals area damage to all neutral units in range
 - Governor Whirling Blade special area effect range increased to double the previous value
+- Babbage lvl 2 aura radius increased from 20 to 30
+- Bela lvl 2 aura radius increased from 20 to 30
+- Cole lvl 2 aura radius increased from 20 to 30
+- Larry lvl 2 aura radius increased from 30 to 35
+- Livingstone lvl 2 aura radius increased from 20 to 30
+- Lovelace lvl 2 aura radius increased from 20 to 30
+- Mayor lvl 2 aura radius increased from 20 to 30
+- Schliemann zombie lvl 2 aura radius increased from 20 to 40
+- Stiina (infantry) lvl 2 aura radius increased from 20 to 30
+- Stina (animal) lvl 2 aura radius increased from 25 to 30
+- Miyagi lvl 2 aura radius increased from 25 to 30
+- Tarna lvl 2 aura radius increased from 20 to 30
+- Tesla lvl 2 aura radius increased from 20 to 30
+- Babbage mobile suit lvl 2 aura radius increased from 20 to 30
 
 Dustriders:
 - Epoch 2 research cost updated from 200/200/100/15 to 300/300/0/10
