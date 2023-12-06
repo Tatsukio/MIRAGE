@@ -31,6 +31,20 @@ Heroes:
 - Anthony Cole Shotgun special now correctly collateraly damages all neutral units in the bullet cloud projectile path
 - Governor Whirling Blade special now correctly deals area damage to all neutral units in range
 - Governor Whirling Blade special area effect range increased to double the previous value
+- Babbage radius increased from 20 to 30
+- Bela radius increased from 20 to 30
+- Cole radius increased from 20 to 30
+- Larry radius increased from 30 to 35
+- Livingstone radius increased from 20 to 30
+- Lovelace radius increased from 20 to 30
+- Mayor radius increased from 20 to 30
+- Schliemann zombie radius increased from 20 to 40
+- Stiina (infantry) radius increased from 20 to 30
+- Stina (animal) radius increased from 25 to 30
+- Miyagi eadius increased from 25 to 30
+- Tarna radius increased from 20 to 30
+- Tesla radius increased from 20 to 30
+- Babbage mobile suit radius increased from 20 to 30
 
 Dustriders:
 - Epoch 2 research cost updated from 200/200/100/15 to 300/300/0/10
@@ -70,7 +84,7 @@ Norsemen:
 - Triceratops titan Paw special now correctly affects all neutral units instead of only aggressive
 - James Warden kennel sabertooth cats now deal 25% more damage to animals and characters but 25% less to machines and buildings
 - Scout damage wardrum aura range increased from 20 to 35
-- Rhino armor pennant aura range increased from 20 to 35
+- Rhino and scout armor pennant and drums aura range increased from 20 to 35
 - Archer bow damage values changed from 5/37/25/45/85 to 10/20/30/40/80
 - Warriror axe damage incresed from 10/15/25/45/85 to 15/20/30/50/90
 
