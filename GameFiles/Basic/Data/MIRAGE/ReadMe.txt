@@ -17,14 +17,18 @@ General:
 - Fixed syntax errors in files (Resources.txt, custom_buildups.txt, action_attrib_def.txt, player_attrib_def.txt, main_character.txt, all_animals.txt, Shortcuts.txt and others)
 - Fixed a bug in TT that didnt add DR bone walls and gates 500 HP after exploring the structures upgrade
 - Fixed a bug in TT that didnt add HP to the seas carrier when taking the admiral's hat or talisman artifacts
+- Fixed non working wild animals selection sounds
+- Reworked shortcuts for all units, added new ones
 - Restored intro playback for win 7 and higher (sometimes doesnt work)
 - Deleted unused weapon /Objects/Hu/Weapons/hu_falling_towers
 - Deleted unused weapon /Objects/SEAS/Weapons/seas_explosion
 - Enabled idle animations to all units that didn't use them (188 units)
+- Added custom cosmetic TT filter for campaign objects
+- Added additional info for the epoch 6 Dustrider's amazon temple description
 
 Heroes:
-- Antony Cole Shotgun special now treats certain units (campaign avatar and statues) in a special way dealing only 10% hp bonus
-- Antony Cole Shotgun special now correctly collateraly damages all neutral units in the bullet cloud projectile path
+- Anthony Cole Shotgun special now treats certain units (campaign avatar and statues) in a special way dealing only 10% hp bonus
+- Anthony Cole Shotgun special now correctly collateraly damages all neutral units in the bullet cloud projectile path
 - Governor Whirling Blade special now correctly deals area damage to all neutral units in range
 - Governor Whirling Blade special area effect range increased to double the previous value
 
@@ -66,7 +70,7 @@ Norsemen:
 - Triceratops titan Paw special now correctly affects all neutral units instead of only aggressive
 - James Warden kennel sabertooth cats now deal 25% more damage to animals and characters but 25% less to machines and buildings
 - Scout damage wardrum aura range increased from 20 to 35
-- Scout and Rhino armor pennant aura range increased from 20 to 35
+- Rhino armor pennant aura range increased from 20 to 35
 - Archer bow damage values changed from 5/37/25/45/85 to 10/20/30/40/80
 - Warriror axe damage incresed from 10/15/25/45/85 to 15/20/30/50/90
 
@@ -75,14 +79,20 @@ SEAS:
 - Character prison (special barracks) UI rearranged, added low tier versions of basic units
 - Marksman bullet damage values changed from 20/37/45/65/100 to 15/26/38/45/87
 - Guard weapon damage increased from 10/15/25/45/85 to 12/17/27/47/87
+- Workers are capable to deliver stones directly into stone mine from now on
+- Big cannon has a build animation from now on
 
 AI:
-- AI now detects and threats the specific heroe units as Hero Classes: Babbage_mobile_suit (not campaign one), and Schliemann_zombie (custom map hero)
+- AI now detects and threats the specific heroe units as Hero Classes: Babbage mobile suit, and Schliemann zombie (custom map hero)
+- Norsemen builds mud pits from now on
 - SEAS and Norsemen builds the stone mines from now on
+- SEAS builds a scorpion as a building from now on
+- SEAS builds jails from now on
 - SEAS researchs the babbage mobile suit mechanization from now on
-- SEAS using minigun ability for special_mobile_suite from now on
+- SEAS using minigun ability for babbage mobile suit from now on
 - SEAS builds additional seas_great_cannon from now on
 - Dustriders should not produce aje_brachiosaurus_siege(s) anymore
+- Dustriders builds the sensor tower from now on
 
 MIRAGE 2.6.5
 ------------------
