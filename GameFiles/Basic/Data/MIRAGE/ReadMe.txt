@@ -18,7 +18,7 @@ General:
 - Fixed a bug in TT that didnt add DR bone walls and gates 500 HP after exploring the structures upgrade
 - Fixed a bug in TT that didnt add HP to the seas carrier when taking the admiral's hat or talisman artifacts
 - Fixed non working wild animals selection sounds
-- Fixed similiar hotkey for aje-sensor_tower & aje_huge_farm
+- Fixed similiar hotkey for Watchtower and Large dino farm
 - Reworked shortcuts for all units, added new ones
 - Restored intro playback for win 7 and higher (sometimes doesnt work)
 - Deleted unused weapon /Objects/Hu/Weapons/hu_falling_towers
@@ -36,15 +36,15 @@ Heroes:
 - Bela lvl 2 aura radius increased from 20 to 30
 - Cole lvl 2 aura radius increased from 20 to 30
 - Larry lvl 2 aura radius increased from 30 to 35
-- Livingstone lvl 2 aura radius increased from 20 to 30
-- Lovelace lvl 2 aura radius increased from 20 to 30
-- Mayor lvl 2 aura radius increased from 20 to 30
-- Schliemann zombie lvl 2 aura radius increased from 20 to 40
-- Stiina (infantry) lvl 2 aura radius increased from 20 to 30
+- Leighton lvl 2 aura radius increased from 20 to 30
+- Loven lvl 2 aura radius increased from 20 to 30
+- Governor lvl 2 aura radius increased from 20 to 30
+- Kleeman zombie lvl 2 aura radius increased from 20 to 40
+- Stina (infantry) lvl 2 aura radius increased from 20 to 30
 - Stina (animal) lvl 2 aura radius increased from 25 to 30
 - Miyagi lvl 2 aura radius increased from 25 to 30
 - Tarna lvl 2 aura radius increased from 20 to 30
-- Tesla lvl 2 aura radius increased from 20 to 30
+- Taslow lvl 2 aura radius increased from 20 to 30
 - Babbage mobile suit lvl 2 aura radius increased from 20 to 30
 
 Dustriders:
@@ -84,8 +84,8 @@ Norsemen:
 - Triceratops titan Paw special now only affects characters and animals, except other titans
 - Triceratops titan Paw special now correctly affects all neutral units instead of only aggressive
 - James Warden kennel sabertooth cats now deal 25% more damage to animals and characters but 25% less to machines and buildings
-- Scout damage wardrum aura range increased from 20 to 35
-- Rhino armor pennant aura range increased from 20 to 35
+- Scout and Rhino damage wardrum aura range increased from 20 to 35
+- Scout and Rhino armor pennant aura range increased from 20 to 35
 - Archer bow damage values changed from 5/37/25/45/85 to 10/20/30/40/80
 - Warriror axe damage incresed from 10/15/25/45/85 to 15/20/30/50/90
 
@@ -105,9 +105,9 @@ AI:
 - SEAS builds jails from now on
 - SEAS researchs the babbage mobile suit mechanization from now on
 - SEAS using minigun ability for babbage mobile suit from now on
-- SEAS builds additional seas_great_cannon from now on
-- Dustriders should not produce aje_brachiosaurus_siege(s) anymore
-- Dustriders builds the sensor tower from now on
+- SEAS builds additional Big Cannon from now on
+- Dustriders should not produce Siege Brachio anymore
+- Dustriders builds the Watchtower from now on
 
 MIRAGE 2.6.5
 ------------------
