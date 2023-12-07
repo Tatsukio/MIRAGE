@@ -26,6 +26,8 @@ General:
 - Enabled idle animations to all units that didn't use them (188 units)
 - Added custom cosmetic TT filter for campaign objects
 - Added additional info for the epoch 6 Dustrider's amazon temple description
+- All tribe workers now deal additional +200% damage to wild animal nests once you ve researched building damage upgrade
+- All tribe workers now deal additional +1000% ranged damage to buildings once you ve researched building damage upgrade
 
 Heroes:
 - Anthony Cole Shotgun special now treats certain units (campaign avatar and statues) in a special way dealing only 10% hp bonus
@@ -99,6 +101,7 @@ SEAS:
 - Guard weapon damage increased from 10/15/25/45/85 to 12/17/27/47/87
 - Workers are capable to deliver stones directly into stone mine from now on
 - Big cannon has a build animation from now on
+- Fixed not displaying icon of dragon clan accuracy in production menu at main jail
 
 AI:
 - AI now detects and threats the specific heroe units as Hero Classes: Babbage mobile suit, and Schliemann zombie (custom map hero)
