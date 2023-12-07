@@ -106,6 +106,7 @@ SEAS:
 AI:
 - AI now detects and threats the specific heroe units as Hero Classes: Babbage mobile suit, and Schliemann zombie (custom map hero)
 - Norsemen builds mud pits from now on
+- Norsemen upgrades steam tank cannon from now on
 - SEAS and Norsemen builds the stone mines from now on
 - SEAS builds a scorpion as a building from now on
 - SEAS builds jails from now on
