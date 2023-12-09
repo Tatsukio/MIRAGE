@@ -19,6 +19,7 @@ General:
 - Fixed a bug in TT that didnt add HP to the seas carrier when taking the admiral's hat or talisman artifacts
 - Fixed non working wild animals selection sounds
 - Fixed similiar hotkey for Watchtower and Large dino farm
+- Fixed missing pirate boss ship dest textures
 - Reworked shortcuts for all units, added new ones
 - Restored intro playback for win 7 and higher (sometimes doesnt work)
 - Deleted unused weapon /Objects/Hu/Weapons/hu_falling_towers
