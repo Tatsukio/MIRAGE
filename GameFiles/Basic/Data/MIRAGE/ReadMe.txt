@@ -7,6 +7,7 @@ MIRAGE 2.6.6
 ------------------
 
 General:
+- Chinese text localization added (full base game and partly mirage)
 - The game language can now be selected from the launcher
 - Screenshot format (jpg/tga) can now be selected in the menu
 - Some ui tweaks for fullhd resolution
