@@ -104,6 +104,8 @@ SEAS:
 - Workers are capable to deliver stones directly into stone mine from now on
 - Big cannon has a build animation from now on
 - Fixed not displaying icon of dragon clan accuracy in production menu at main jail
+- Fixed bugs with reactor cores for headquarters and jais
+- Fixed poison ammo laboratory upgrade icon overlay
 
 AI:
 - AI now detects and threats the specific heroe units as Hero Classes: Babbage mobile suit, and Schliemann zombie (custom map hero)
@@ -235,11 +237,11 @@ General:
 - Added filter which enabling producing babbage_mobile_suit instead of seas_scorpion in seas_garage
 - Aje_Tent_Dem_Fx class redefinition fix
 - hu_zombie_killer class redefinition fix
-- Canged "value" attrib type from "real" to "float" (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
-- Canged "duration" attrib type from "real" to "float" (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
-- Canged "damage_value" attrib type from "real" to "float" (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
-- Canged "GROUP" to "GROU" since it should be maximal 4 character long (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
-- Canged "maxenergy" to "maxenergyamount" (FightingObj.usl lines 8720, 10370)
+- Changed "value" attrib type from "real" to "float" (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
+- Changed "duration" attrib type from "real" to "float" (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
+- Changed "damage_value" attrib type from "real" to "float" (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
+- Changed "GROUP" to "GROU" since it should be maximal 4 character long (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
+- Changed "maxenergy" to "maxenergyamount" (FightingObj.usl lines 8720, 10370)
 - Fixed no type for attrib Root\HELP\attribs\player (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
 - Fixed "is_sequence" attrib type mismatch (MIRAGE\Scripts\Server\misc\action_attrib_def.txt & StartLocation.usl lines 43, 346)
 - Fixed "ignore_pointbuy" attrib type mismatch (MIRAGE\Scripts\Server\misc\action_attrib_def.txt & StartLocation.usl line 428)
