@@ -106,6 +106,7 @@ SEAS:
 - Fixed not displaying icon of dragon clan accuracy in production menu at main jail
 - Fixed bugs with reactor cores for headquarters and jais
 - Fixed poison ammo laboratory upgrade icon overlay
+- Fixed description for Headquarters on epoch 6 in russian localization
 
 AI:
 - AI now detects and threats the specific heroe units as Hero Classes: Babbage mobile suit, and Schliemann zombie (custom map hero)
