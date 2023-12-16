@@ -982,6 +982,7 @@ class CFightingObj inherit CGameObj
 	const int			TIMER_MAMMOTH_TRUMPET		=460;
 	const int			TIMER_TRICERATOPS_PAW		=461;
 	const int			TIMER_INVUL					=10;
+	const int			TIMER_WEAPON_REMOVE			=15; //Kr1s1m: Added unique timer id for WeaponRemove ACDO
 	const int			TIMER_STONED				=23;
 	const int			TIMER_FROST					=24;
 	const int			TIMER_FROSTIMMUNITY			=25;
@@ -1210,6 +1211,7 @@ class CFightingObj inherit CGameObj
 	var bool				m_bBLDGResBack;
 	var bool				m_bSHIPResBack;
 	var bool				m_bWeaponHasChanged;
+	var bool				m_bWeaponRemoved;
 	var bool				m_bOwnWeaponHasChanged;
 	var bool				m_bHelpShoutDefend;
 	var CObjHndl			m_xHelpShoutEnemy;
@@ -1496,6 +1498,7 @@ class CFightingObj inherit CGameObj
 		pxArc^ << m_bBLDGResBack;
 		pxArc^ << m_bSHIPResBack;
 		pxArc^ << m_bWeaponHasChanged;
+		//pxArc^ << m_bWeaponRemoved;
 		pxArc^ << m_bOwnWeaponHasChanged;
 		m_xLastHelpShout.DoKArc(pxArc^);
 		pxArc^ << m_bIsHelpShout;
@@ -1870,6 +1873,7 @@ class CFightingObj inherit CGameObj
 				pxArc^ << m_bIceImmunity;
 				pxArc^ << m_bPoisonImmunity;
 				pxArc^ << m_bIncapacitated;
+				//pxArc^ << m_bWeaponRemoved;
 				pxArc^ << m_iSupplyCount;
 				pxArc^ << m_fTmpMeAttackBoni;
 				pxArc^ << m_fTmpRaAttackBoni;
@@ -2954,6 +2958,7 @@ class CFightingObj inherit CGameObj
 		m_bNoHitReaction=false;
 		m_bTitanDefense=false;
 		m_bBrokenLegs=false;
+		m_bWeaponRemoved=false;//Kr1s1m: initialized newly added boolean for weapon removal - by default unit is not disarmed
 		m_bLocked=false;
 		m_bThrowImmune=false;
 		m_bDarkSwarm=false;
@@ -3482,6 +3487,9 @@ class CFightingObj inherit CGameObj
 			elseif(iTimerID==TIMER_INVUL )then
 				DeleteTimer(TIMER_INVUL);
 				SetLDInvulnerable(false);
+			elseif(iTimerID==TIMER_WEAPON_REMOVE )then
+				DeleteTimer(TIMER_WEAPON_REMOVE);
+				RemoveAllWeapons(false); //Kr1s1m: After the timer has finished, the WeaponRemove effect is reversed
 			elseif(iTimerID==TIMER_STONED)then
 				DeleteTimer(TIMER_STONED);
 				SetEffectFlag(EFFECT_ITEM_STONED, false);
@@ -5777,6 +5785,8 @@ class CFightingObj inherit CGameObj
 			SetEffectFlag(EFFECT_AJE_CAMOUFLAGE, false);
 		endif;
 		if(p_pxEnemy==null)then return 0.0; endif;
+		//Kr1s1m: invulnerable units should not take damage:
+		//if(p_pxEnemy^.GetInvulnerable() > 0 || p_pxEnemy^.GetLDInvulnerable())then return 0.0; endif;
 		if(GetOnWall())then return 0.0; endif;
 		//Henry: flying unit won't suffer damage by units which can't fight air (TODO: make a bigger and better list of those units...)
 		if((m_bFlyingUnit&&!p_pxEnemy^.CanShootAir())||GetTransportObj().IsValid())then
@@ -6390,9 +6400,15 @@ class CFightingObj inherit CGameObj
 	///////
 	// TriggerTimer
 	//////
-	export proc void TriggerTimer(real p_fSecs)
-		CreateTimer(TIMER_INVUL, CGameTimeSpan.OneSecond() * p_fSecs, false);
-		SetLDInvulnerable(true);
+	export proc void TriggerTimer(string p_sAction, real p_fSecs)
+		//Kr1s1m: Added a switch by p_sAction and WeaponRemove case to it
+		if(p_sAction == "WeaponRemove")then
+			CreateTimer(TIMER_WEAPON_REMOVE, CGameTimeSpan.OneSecond() * p_fSecs, false);
+			RemoveAllWeapons(true);
+		elseif(p_sAction == "Invulnerability")then
+			CreateTimer(TIMER_INVUL, CGameTimeSpan.OneSecond() * p_fSecs, false);
+			SetLDInvulnerable(true);
+		endif;
 	endproc;
 	
 	///////
@@ -9504,6 +9520,10 @@ class CFightingObj inherit CGameObj
 		m_bOwnWeaponHasChanged=true;
 	endproc;
 	
+	export proc bool Disarmed()
+		return m_bWeaponRemoved;
+	endproc;
+	
 	export proc bool WeaponHasChanged()
 		if(m_bWeaponHasChanged)then
 			m_bWeaponHasChanged=false;
@@ -12189,6 +12209,57 @@ class CFightingObj inherit CGameObj
 		return m_bBloodInfect;
 	endproc;
 	
+	//Kr1s1m: We wanted to have the functionality to disarm a fighting object, for example a tower, or unit, through a trigger
+	export proc void RemoveAllWeapons(bool p_bEnable)
+		//Kr1s1m: operation is reversible, trying to enable or disable twice in a row does nothing (on-off switch)
+		if(p_bEnable == m_bWeaponRemoved)then return; endif;
+		if(!p_bEnable)then //Kr1s1m: If we want to reverse the disarm effect...
+			ForceGeneralUpdate(); //Kr1s1m: ...we restore all weapon data from TT and reload the caches and the weapon manager
+	        //UpdateFightFactors();
+		else //Kr1s1m: In case that we want to apply the disarm effect:
+			//Kr1s1m: First we stop the attack animations
+			ClearFightAnims();
+			//Kr1s1m: Second, we set all weapon related fields to their null value
+			begin ClearWeapons;
+				SetProjectile("");
+				SetProjectileGfx("");
+				SetDmg(0.0f);
+				SetMinDmg(0.0f);
+				SetEndDmg(0.0f);
+				SetProtection(0.0f);
+				SetRangedProtection(0.0f);
+				SetHitRange(0.0f);
+				SetRealHitRange(0.0f);
+				SetAttackRange(0.0f);
+				SetWeaponDuration(0.0f);
+				SetPenetrationAngle(0.0f);
+				SetPenetrationFactor(0.0f);
+				SetMinAttackRange(0.0f);
+				SetRealMinAttackRange(0.0f);
+				SetArmorPiercing(0.0f);
+				SetPoisonDmg(0.0f);
+				SetFireDmg(0.0f);
+				SetPenetration(false);
+				SetCanFightAir(false);
+				SetPoisonMaxTickCount(0);
+				SetBurnTime(0);
+				SetWeaponSizeClass(0);
+				m_pxWeaponMgr^.ClearAllWeapons();
+				ClearWeaponCache();
+				ClearDamageCache();
+			end ClearWeapons;
+			//Kr1s1m: Third, we erase the cleared weapon manager from the heap memory, and re-allocate it
+			begin RestoreWeaponMgr;
+				delete m_pxWeaponMgr;
+				m_pxWeaponMgr = new CWeaponMgr(this);
+			end RestoreWeaponMgr;
+		endif;
+		//Kr1s1m: Last, we raise up the necessary flags
+		m_bWeaponHasChanged = true;
+		m_bOwnWeaponHasChanged = true;
+		m_bWeaponRemoved = p_bEnable;
+	endproc;
+	
 	export proc void ForceGeneralUpdate()
 		m_pxWeaponMgr^.UpdateAll();
 		UpdateEquipment();
@@ -14078,6 +14149,8 @@ class CFightingObj inherit CGameObj
 	export proc void PoisonDamage(real p_fDamage, CObjHndl p_xEnemy, int p_iEnemy)
 		if(m_bGodMode)then return;endif;
 		if(m_bSlaveInvincible)then return;endif;
+		//Kr1s1m: units which have invulnerable flag set by ACDO trigger used to be damaged by poison ticks
+		if(m_iInvulnerable > 0 || m_bLDInvulnerable)then return; endif;
 		if(m_bLevelUpInvulnerable)then return; endif;
 		if(m_bStolen||IsFeignDeath())then return; endif;
 		if(m_bFountainHealed||m_bResurrectSafety)then return; endif;
@@ -14099,6 +14172,8 @@ class CFightingObj inherit CGameObj
 	export proc void BurnDamage(real p_fDamage, CObjHndl p_xEnemy, int p_iEnemy)
 		if(m_bGodMode)then return;endif;
 		if(m_bSlaveInvincible)then return;endif;
+		//Kr1s1m: buildings which have invulnerable flag set by ACDO trigger used to be damaged by fire ticks
+		if(m_iInvulnerable > 0 || m_bLDInvulnerable)then return; endif;
 		if(m_bLevelUpInvulnerable)then return; endif;
 		m_xLastEnemy=p_xEnemy;
 		m_iLastDamage=p_iEnemy;
