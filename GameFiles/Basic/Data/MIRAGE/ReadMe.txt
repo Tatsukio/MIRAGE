@@ -104,6 +104,7 @@ SEAS:
 - Guard weapon damage increased from 10/15/25/45/85 to 12/17/27/47/87
 - Workers are capable to deliver stones directly into stone mine from now on
 - Big cannon has a build animation from now on
+- Big cannon will no longer target wild animals on its own
 - Fixed not displaying icon of dragon clan accuracy in production menu at main jail
 - Fixed bugs with reactor cores for headquarters and jais
 - Fixed poison ammo laboratory upgrade icon overlay
