@@ -31,6 +31,7 @@ General:
 - Added additional info for the epoch 6 Dustrider's amazon temple description
 - All tribe workers now deal additional +200% damage to wild animal nests once you ve researched building damage upgrade
 - All tribe workers now deal additional +1000% ranged damage to buildings once you ve researched building damage upgrade
+- TT-Stealing effects are now globally present allowing the usage of foreign specials but it still allows/prohibts foreign building placement when switched on/off in mirage server settings
 
 Maps:
 - Multitribe option not available on all singleplayer campaign missions
