@@ -33,6 +33,18 @@ General:
 - All tribe workers now deal additional +1000% ranged damage to buildings once you ve researched building damage upgrade
 
 Maps:
+- Fixed disabled SEAS on "North Road", "Ruins", "The Island", "Zwillingsinseln" maps
+- Fixed not deleted techTree filters for some players, some unpassable areas on "The Deserted land" map
+- Fixed unpickable artifact items on the players sides on "Massenschlacht" map
+- Fixed floating in the sea props, and unpickable artifact item on "Alive Wasteland" map
+- Fixed destructible decorative buildings on "Gebirgsauslauf" map
+- Fixed targetable buildings on player's bases, now they belong to the base owner from start on "Fummelmap" map
+- Fixed multiple issues on map "Day77"
+- Fixed AI using big cannons before timer expiration on "Crisis" map
+- Fixed map "Blood Island" with invisible nests having infinity amounts of wild animals
+- Fixed teamcolour of some decorative objects on player's HQs on maps "Jungle Rush"
+
+Campaign maps:
 - Multitribe option not available on all singleplayer campaign missions
 - Campaing story related units and buildings unavailable for player on most of missions
 - Rebalanced difficulty levels on all singleplayer campaign missions
