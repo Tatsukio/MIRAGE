@@ -73,6 +73,8 @@ Dustriders:
 - James Warden nest Gallimimus now does 25% more damage to animals and characters but 25% less to machines and buildings
 - Allosaurus armor reduction aura range increased from 20 to 35
 - Scout eye vision aura increased from 20 to 35
+- Raptor handler (oviraptor) production cost increased from 50/0/0/0 to 60/0/0/0
+- Tyranno guardian production cost changed from 900/800/400 to 900/900/300
 - Spearman spear damage values increased from 15/20/30/50/90 to 15/27/38/60/101
 - Spearman spear attack frequency passive barracks special now properly works with spear melee attacks
 - Archer bow damage values decreased from 20/37/45/65/100 to 12/23/34/42/83
@@ -105,6 +107,9 @@ SEAS:
 - Workers are capable to deliver stones directly into stone mine from now on
 - Big cannon has a build animation from now on
 - Big cannon will no longer target wild animals on its own
+- Bombardier (cannon turtle) base weapon frequency changed from 20 to 15, but it sometimes fires double projectiles (critical)
+- Bombardier (cannon turtle) production cost changed from 70/200/100/0 to 400/200/100/0
+- Bombardier (cannon turtle) base skull reward when killed changed from 39 to 69
 - Fixed not displaying icon of dragon clan accuracy in production menu at main jail
 - Fixed bugs with reactor cores for headquarters and jais
 - Fixed poison ammo laboratory upgrade icon overlay
