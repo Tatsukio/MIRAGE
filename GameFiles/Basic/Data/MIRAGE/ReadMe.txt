@@ -203,6 +203,11 @@ SEAS:
 - Fixed bugs with reactor cores for headquarters and jais
 - Fixed poison ammo laboratory upgrade icon overlay
 - Fixed description for Headquarters on epoch 6 in russian localization
+- Campaign Babbage mobile suit from now on has a range attack upgrade just like terminator, range increased on 10
+- Campaign Babbage mobile suit from now on has range attack damage upgrade just like terminator, damage multiplied on 1.1
+- Campaign Babbage mobile suit from now on has an armorpiercing range attack upgrade, armorpiercing is 100
+- Campaign Babbage mobile suit from now on has a poison upgrade for range attack just like terminator, poison damage is 100/125/150/180/200 per 15 ticks
+- Regular Babbage mobile suit from now on has a poison upgrade for range attack just like terminator, poison damage is same as for terminator
 
 AI:
 - AI now detects and threats the specific heroe units as Hero Classes: Babbage mobile suit, and Schliemann zombie (custom map hero)
