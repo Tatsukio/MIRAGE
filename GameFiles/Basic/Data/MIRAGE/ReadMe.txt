@@ -32,6 +32,95 @@ General:
 - All tribe workers now deal additional +200% damage to wild animal nests once you ve researched building damage upgrade
 - All tribe workers now deal additional +1000% ranged damage to buildings once you ve researched building damage upgrade
 
+Maps:
+- Multitribe option not available on all singleplayer campaign missions
+- Campaing story related units and buildings unavailable for player on most of missions
+- Rebalanced difficulty levels on all singleplayer campaign missions
+- Improved multiple triggers to exclude the possible rarely encountred bugs on all singleplayer campaign maps
+- Updated classis boosterpack missions "Single_b42: Cold Day in Hell" and "Single_b41: The Devil's Advocate" for MIRAGE features
+- Fixed decorative ruins tower issues on all singleplayer campaign maps
+- Fixed decorative ruins production building usage for AI on all singleplayer campaign maps
+- Fixed that first seas carier squad was reaching the defend area too quickly
+- Fixed decorative mayor corpse on mission 11
+- Fixed incorrect or missing teamcolour on various buildings, dekos and units on all singleplayer campaign missions
+- Fixed incorrect unit or building positions on all singleplayer campaign missions
+- Fixed pointbuy locks on missions: "single_02", "single_03", "single_12", "single_b42", "single_b42_seas", "single_b43", "single_b43_seas"
+- Fixed started units on missions: "single_02", "single_03", "single_12"
+- Fixed holy city artifact—showing citizen on mission 5
+- Fixed bugged druid dialogue once the player pick ups Bony amulett item on mission 2
+- Fixed bug with mammoth's quest on mission 2
+- Fixed bug that seas attacks player camp instead of telescope tower on mission 12
+- Fixed bug that first seas carrier stuck at position near defend area
+- Fixed bug with wrong diplomacy relations on mission 13
+- Fixed bug that new heroes not being teleported in missions 8 and 9
+- Fixed bug with not playing diloague scene in mission 5 on "Medium" and "Hard" difficulties
+- Fixed bug when mentor informs about not collected quest yet on mission 5
+- Fixed bug with ninjas appearing earlier than quest being collected on mission 5
+- Fixed bug that runes not dissapears after being collected on missions: "single_b42", "single_b42_seas"
+- Fixed bug with pentacle rays not being dispalyed while player stands on correct spot on missions: "single_b42", "single_b42_seas"
+- Fixed bug with easter egg display in FOW on missions: "single_b42", "single_b42_seas"
+- Fixed bug that new MIRAGE heroes not being able to capture SEAS towers in mission 16
+- Recreated the cutscene stone blockage in mission 1 before stina encounter on mission 1
+- Recreated seas mainbase from ending cutscene in mission 13
+- Recreated main barbarian base from ending cutscene on mission 4
+- Recreated barbarian mainbase from ending cutscene on mission 1
+- Recreated SEAS crater entrance on mission 15 similiar to the entrance like it was on mission 16
+- Imprisoned norsemen infantry doesnt have weapons in their hands until they will be freed on mission 1
+- Replaced dragon clan walls on the pirate ones in mission 6
+- Replaced mother model from cutscene to dustrider archer on mission 5
+- Dustriders base being reconstructed from ending cutscene on mission 2
+- Mammoths cannot be killed or attacked after completing quest on their protection on mission 2
+- Ada's jail can be destroyed only if 2 her additional parts will be hard damaged on mission 14
+- Dustriders turtle squad near mammoth nest being same as in cutscene from now on at mission 2
+- Pirate squad near first foutain the same as in cutscene from now on at mission 5
+- Pirate squad near third dustrider base same as in cutscene from now on at mission 5
+- Pirate minelayer and guarding fireboat now located near first minefield from now on at mission 6
+- First SEAS black widow squad being dispatched in player camp like in cutscene from now on at mission 7
+- First barbarian squad that unboards on shore to attack launchpad are now same as in cutscene on mission 9
+- The remaining seas troops that were attacking telescope tower will assault player base after cutscene from now on at mission 12
+- The trader's landing spot seas guards assault the player base from now on if qust being failed at mission 13
+- Replaced seas gunners on marksmans for seas support on missions: "single_b42", "single_b42_seas"
+- On missions: "single_03", "single_06", "single_13", "single_14" main enemy bases can build hero leaders
+- Added barbarian demomans that blew up the bridge on mission 10
+- Added additional dustrider protectors from cutscene on mission 13
+- Added dustriders archers mounted on holy city walls in mission 13
+- Added seas harbour squad from starting cutscene on mission 13
+- Added additional seas temple guards on mission 10
+- Added additional amazon main base protectors from cutscene on mission 3
+- Added decorative leighton inside temple on mission 10
+- Added decorative telescope tower ruins on mission 12
+- Added transport ship on which heroes arrived on mission 12
+- Added druid and warrior with who heroes arrived on mission 2
+- Added druid and two warriors with who heroes arrived on mission 3
+- Added heroes ship from cutscene on mission 3
+- Added norsemen village leader on mission 1
+- Added 3 dustrider tents near amazon temple from the edning cutscene on mission 3
+- Added monk holy citizen group in mission 5
+- Added dustrider citizen worker near aje third base on mission 5
+- Added additional row of mines in first minefield from cutscene on mission 6
+- Added decorative pirate transport ships near prison on mission 6
+- Added pirate corsairs from cutscenes on missions: "single_05", "single_06"
+- Added pirate ships from cutscene on mission 7
+- Added monks to pirate squad on mission 7
+- Added decorative eusmilus on mission 1, near the smilodon nest on mission 1
+- Added two Bela's prison guards, that being distracted by stina's thrown stone on mission 1
+- Added more guards to barbarian mainbase on mission 1
+- Added decorative mammoth in the player's camp on mission 2
+- Added additional SEAS squad that dispatches to help barbarian mainbase on mission 4
+- Added background figth of Pirates vs Dustriders squad that arrived with heroe on mission 5
+- Added pirate captain on missions: "single_05" "single_06", "single_07", "single_b42", "single_b42_seas", "single_b43"
+- Added bunkercrew to coast bunkers on mission 15
+- Added starting SEAS enemy squad from beginning cutscene on mission 16
+- Added decorative leighton's hovercraft at the seas mainbase on mission 14
+- Added leighton's submarine from starting cutscene on mission 14
+- Added SEAS lieutenant near the warpgates on mission 4
+- Added cutscene parasaurolophus, psittacosaurus and apatosaurus on mission 9
+- Added barbarian chieftain in the dragon clan village on mission 9
+- Added additional protectors to the Dustriders and Norsemen bases from the cutscene on missions: "single_b41", "single_b41_seas"
+- Added additional protectors to the Dragon clan and Norsemen bases from the cutscene on missions: "single_b43", "single_b43_seas"
+- Added additional buildings from cutscenes to Dustriders and Norsemen bases on missions: "single_b41", "single_b41_seas"
+- Added additional buildings from cutscenes to Dragon clan and Norsemen bases on missions: "single_b43", "single_b43_seas"
+
 Heroes:
 - Anthony Cole Shotgun special now treats certain units (campaign avatar and statues) in a special way dealing only 10% hp bonus
 - Anthony Cole Shotgun special now correctly collateraly damages all neutral units in the bullet cloud projectile path
