@@ -213,9 +213,11 @@ SEAS:
 - Bombardier (cannon turtle) production cost changed from 70/200/100/0 to 400/200/100/0
 - Bombardier (cannon turtle) base skull reward when killed changed from 39 to 69
 - Fixed not displaying icon of dragon clan accuracy in production menu at main jail
-- Fixed bugs with reactor cores for headquarters and jais
+- Fixed bugs with reactor cores for headquarters and jails
 - Fixed poison ammo laboratory upgrade icon overlay
 - Fixed description for Headquarters on epoch 6 in russian localization
+- Seas jail 01 produced units special abilities now always work due to TT Stealing change from General
+- Seas jail 02 temporarily disabled in order to be reworked into artefact (item) storage and enabled again in upcoming builds
 - Campaign Babbage mobile suit from now on has a range attack upgrade just like terminator, range increased on 10
 - Campaign Babbage mobile suit from now on has range attack damage upgrade just like terminator, damage multiplied on 1.1
 - Campaign Babbage mobile suit from now on has an armorpiercing range attack upgrade, armorpiercing is 100
