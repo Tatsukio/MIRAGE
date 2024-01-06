@@ -32,6 +32,7 @@ General:
 - All tribe workers now deal additional +200% damage to wild animal nests once you ve researched building damage upgrade
 - All tribe workers now deal additional +1000% ranged damage to buildings once you ve researched building damage upgrade
 - TT-Stealing effects are now globally present allowing the usage of foreign specials but it still allows/prohibts foreign building placement when switched on/off in mirage server settings
+- Improved cutscenes for Boosterpack1 singleplayer campaign for classis and SEAS versions
 
 Maps:
 - Fixed disabled SEAS on "North Road", "Ruins", "The Island", "Zwillingsinseln" maps
