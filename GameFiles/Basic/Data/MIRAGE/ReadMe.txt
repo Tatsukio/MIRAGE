@@ -139,6 +139,7 @@ Heroes:
 - Anthony Cole Shotgun special now correctly collateraly damages all neutral units in the bullet cloud projectile path
 - Governor Whirling Blade special now correctly deals area damage to all neutral units in range
 - Governor Whirling Blade special area effect range increased to double the previous value
+- Larry, Barry and Harry are affected by Dustriders Town Center Resource tool upgrades 1,2,3 and 4
 - Babbage lvl 2 aura radius increased from 20 to 30
 - Bela lvl 2 aura radius increased from 20 to 30
 - Cole lvl 2 aura radius increased from 20 to 30
@@ -161,6 +162,7 @@ Dustriders:
 - Epoch 5 research cost updated from 1500/1500/750/100 to 2200/1800/0/100
 - Epoch 6 research cost updated from 2000/2000/1000/150 to 3000/2200/0/150
 - Town Center hit points reduced from 2000/2250/2750/3500/4500/5500 to 2000/2200/2500/2900/3400/4000
+- Town Center Resource tool upgrades 1,2,3, and 4 now correctly increase harvest speed but no longer affect build up and repair
 - T-Rex titan Stunning Roar special now only affects characters and animals, except other tyrannosaurus based units
 - T-Rex titan Stunning Roar special now correctly affects all neutral units instead of only aggressive
 - T-Rex titan melee attack armor penetration value set to 30
