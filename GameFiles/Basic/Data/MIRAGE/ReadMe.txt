@@ -141,6 +141,8 @@ Heroes:
 - Governor Whirling Blade special now correctly deals area damage to all neutral units in range
 - Governor Whirling Blade special area effect range increased to double the previous value
 - Larry, Barry and Harry are affected by Dustriders Town Center Resource tool upgrades 1,2,3 and 4
+- Ada Loven musket range per level changed from 35/35/35/35/35 to 35/37/38/40/42
+- Ada Loven from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
 - Babbage lvl 2 aura radius increased from 20 to 30
 - Bela lvl 2 aura radius increased from 20 to 30
 - Cole lvl 2 aura radius increased from 20 to 30
@@ -225,7 +227,15 @@ SEAS:
 - Campaign Babbage mobile suit from now on has range attack damage upgrade just like terminator, damage multiplied on 1.1
 - Campaign Babbage mobile suit from now on has an armorpiercing range attack upgrade, armorpiercing is 100
 - Campaign Babbage mobile suit from now on has a poison upgrade for range attack just like terminator, poison damage is 100/125/150/180/200 per 15 ticks
-- Regular Babbage mobile suit from now on has a poison upgrade for range attack just like terminator, poison damage is same as for terminator
+- Regular Babbage mobile suit from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
+- Regular Babbage mobile suit now properly shows Poison Rounds upgrade icon when Kleeman is tier 4
+- Regular Babbage mobile suit now properly shows Maelstorm Rounds upgrade icon
+- Regular Babbage mobile suit now properly shows Robot Plating upgrade icon
+- Regular Babbage mobile suit now properly shows Hi Sec Auto Tracking upgrade icon
+- Improved repair and Advanced tools upgrades swapped - from now on their names and descriptions match
+- Improved repair costs 0/500/300/0 and increases repair speed (double repair ticks like before)
+- Advanced tools costs 200/200/200/0 and increases build up speed (+25% build speed like before)
+- Improved repair and Advanced tools now properly both affect Taslow and display upgrade icons
 
 AI:
 - AI now detects and threats the specific heroe units as Hero Classes: Babbage mobile suit, and Schliemann zombie (custom map hero)
