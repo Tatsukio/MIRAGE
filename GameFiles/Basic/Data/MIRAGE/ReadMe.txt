@@ -141,8 +141,11 @@ Heroes:
 - Governor Whirling Blade special now correctly deals area damage to all neutral units in range
 - Governor Whirling Blade special area effect range increased to double the previous value
 - Larry, Barry and Harry are affected by Dustriders Town Center Resource tool upgrades 1,2,3 and 4
-- Ada Loven musket range per level changed from 35/35/35/35/35 to 35/37/38/40/42
+- Bela composite bow range per level changed from 40/42/44/46/50 to 50/50/50/50/50
+- Ada Loven musket range per level changed from 35/35/35/35/35 to 45/45/45/45/45
 - Ada Loven from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
+- Babbage lvl 5 now correctly no longer gives global +50% buildup speed, instead giving +20 melee and ranged defense to all infantry
+- Taslow lvl 5 now correctly grants +33% buildup speed globally
 - Babbage lvl 2 aura radius increased from 20 to 30
 - Bela lvl 2 aura radius increased from 20 to 30
 - Cole lvl 2 aura radius increased from 20 to 30
