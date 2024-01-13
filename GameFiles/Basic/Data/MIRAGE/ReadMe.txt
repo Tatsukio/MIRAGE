@@ -1,7 +1,34 @@
-MIRAGE 2.6.6 (January 01 2024)
+MIRAGE 2.6.7 (January 01 2024)
 ===============================================================
 
 Change Log:
+
+MIRAGE 2.6.7
+------------------
+
+Special:
+
+General:
+- Holy city gates on skirmish maps and in mission 13 are playing "Open" animation from now on
+- Pirate ship chain on skirmish maps and in mission 6 are playing "Open" & "Close" animation from now on
+- Fixed bug with Holy City gates destruction animation wasnt playing
+
+Maps:
+
+Campaign maps:
+
+Heroes:
+
+Dustriders:
+
+Dragon Clan:
+
+Norsemen:
+
+SEAS:
+
+AI:
+
 
 MIRAGE 2.6.6
 ------------------
