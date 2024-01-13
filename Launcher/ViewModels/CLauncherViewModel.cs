@@ -677,7 +677,7 @@ namespace MIRAGE_Launcher.ViewModel
         static readonly XmlDocument _launcherDB = new XmlDocument();
 
         static string LauncherDBPath = null;
-        public static string[] supportedLangs = { "uk", "us", "de", "es", "fr", "hu", "it", "pl", "ru", "zh" };  //TODO get supportedLangs from the LauncherDB.xml
+        public static string[] supportedLangs = { "uk", "us", "de", "es", "fr", "hu", "it", "pl", "ru", "zh", "cz" };  //TODO get supportedLangs from the LauncherDB.xml
         static string langCurrentOrUk = "uk";
 
         private void LoadDB()
