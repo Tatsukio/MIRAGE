@@ -9,6 +9,7 @@ MIRAGE 2.6.7
 Special:
 
 General:
+- Improved cutscenes for Boosterpack1 singleplayer campaign for classis and SEAS versions
 - Holy city gates on skirmish maps and in mission 13 are playing "Open" animation from now on
 - Pirate ship chain on skirmish maps and in mission 6 are playing "Open" & "Close" animation from now on
 - Fixed bug with Holy City gates destruction animation wasnt playing
@@ -18,14 +19,30 @@ Maps:
 Campaign maps:
 
 Heroes:
+- Larry, Barry and Harry are affected by Dustriders Town Center Resource tool upgrades 1,2,3 and 4
+- Bela composite bow range per level changed from 40/42/44/46/50 to 50/50/50/50/50
+- Ada Loven musket range per level changed from 35/35/35/35/35 to 45/45/45/45/45
+- Ada Loven from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
+- Babbage lvl 5 now correctly no longer gives global +50% buildup speed, instead giving +20 melee and ranged defense to all infantry
+- Taslow lvl 5 now correctly grants +33% buildup speed globally
 
 Dustriders:
+- Town Center Resource tool upgrades 1,2,3, and 4 now correctly increase harvest speed but no longer affect build up and repair
 
 Dragon Clan:
 
 Norsemen:
 
 SEAS:
+- Regular Babbage mobile suit from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
+- Regular Babbage mobile suit now properly shows Poison Rounds upgrade icon when Kleeman is tier 4
+- Regular Babbage mobile suit now properly shows Maelstorm Rounds upgrade icon
+- Regular Babbage mobile suit now properly shows Robot Plating upgrade icon
+- Regular Babbage mobile suit now properly shows Hi Sec Auto Tracking upgrade icon
+- Improved repair and Advanced tools upgrades swapped - from now on their names and descriptions match
+- Improved repair costs 0/500/300/0 and increases repair speed (double repair ticks like before)
+- Advanced tools costs 200/200/200/0 and increases build up speed (+25% build speed like before)
+- Improved repair and Advanced tools now properly both affect Taslow and display upgrade icons
 
 AI:
 
@@ -59,7 +76,6 @@ General:
 - All tribe workers now deal additional +200% damage to wild animal nests once you ve researched building damage upgrade
 - All tribe workers now deal additional +1000% ranged damage to buildings once you ve researched building damage upgrade
 - TT-Stealing effects are now globally present allowing the usage of foreign specials but it still allows/prohibts foreign building placement when switched on/off in mirage server settings
-- Improved cutscenes for Boosterpack1 singleplayer campaign for classis and SEAS versions
 
 Maps:
 - Fixed disabled SEAS on "North Road", "Ruins", "The Island", "Zwillingsinseln" maps
@@ -167,12 +183,6 @@ Heroes:
 - Anthony Cole Shotgun special now correctly collateraly damages all neutral units in the bullet cloud projectile path
 - Governor Whirling Blade special now correctly deals area damage to all neutral units in range
 - Governor Whirling Blade special area effect range increased to double the previous value
-- Larry, Barry and Harry are affected by Dustriders Town Center Resource tool upgrades 1,2,3 and 4
-- Bela composite bow range per level changed from 40/42/44/46/50 to 50/50/50/50/50
-- Ada Loven musket range per level changed from 35/35/35/35/35 to 45/45/45/45/45
-- Ada Loven from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
-- Babbage lvl 5 now correctly no longer gives global +50% buildup speed, instead giving +20 melee and ranged defense to all infantry
-- Taslow lvl 5 now correctly grants +33% buildup speed globally
 - Babbage lvl 2 aura radius increased from 20 to 30
 - Bela lvl 2 aura radius increased from 20 to 30
 - Cole lvl 2 aura radius increased from 20 to 30
@@ -195,7 +205,6 @@ Dustriders:
 - Epoch 5 research cost updated from 1500/1500/750/100 to 2200/1800/0/100
 - Epoch 6 research cost updated from 2000/2000/1000/150 to 3000/2200/0/150
 - Town Center hit points reduced from 2000/2250/2750/3500/4500/5500 to 2000/2200/2500/2900/3400/4000
-- Town Center Resource tool upgrades 1,2,3, and 4 now correctly increase harvest speed but no longer affect build up and repair
 - T-Rex titan Stunning Roar special now only affects characters and animals, except other tyrannosaurus based units
 - T-Rex titan Stunning Roar special now correctly affects all neutral units instead of only aggressive
 - T-Rex titan melee attack armor penetration value set to 30
@@ -257,15 +266,6 @@ SEAS:
 - Campaign Babbage mobile suit from now on has range attack damage upgrade just like terminator, damage multiplied on 1.1
 - Campaign Babbage mobile suit from now on has an armorpiercing range attack upgrade, armorpiercing is 100
 - Campaign Babbage mobile suit from now on has a poison upgrade for range attack just like terminator, poison damage is 100/125/150/180/200 per 15 ticks
-- Regular Babbage mobile suit from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
-- Regular Babbage mobile suit now properly shows Poison Rounds upgrade icon when Kleeman is tier 4
-- Regular Babbage mobile suit now properly shows Maelstorm Rounds upgrade icon
-- Regular Babbage mobile suit now properly shows Robot Plating upgrade icon
-- Regular Babbage mobile suit now properly shows Hi Sec Auto Tracking upgrade icon
-- Improved repair and Advanced tools upgrades swapped - from now on their names and descriptions match
-- Improved repair costs 0/500/300/0 and increases repair speed (double repair ticks like before)
-- Advanced tools costs 200/200/200/0 and increases build up speed (+25% build speed like before)
-- Improved repair and Advanced tools now properly both affect Taslow and display upgrade icons
 
 AI:
 - AI now detects and threats the specific heroe units as Hero Classes: Babbage mobile suit, and Schliemann zombie (custom map hero)
