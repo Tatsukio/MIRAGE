@@ -11611,6 +11611,188 @@ class CSeasWell inherit CBuilding
 	endproc;
 	
 endclass;
+
+class CSeasLaboratory inherit CRallyBuilding
+	
+	var bool					m_bEquipped;
+	var CObjList			m_xAddons;
+	var array vec3		m_avAddonOffsets;
+	
+	constructor()
+		m_bEquipped=false;
+	endconstructor;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="RlyB")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			if(iVersion>=1)then
+				(pxArc^) << m_bEquipped;
+				var int i,iC;
+				(pxArc^) << iC;
+				m_avAddonOffsets=iC;
+				for(i=0) cond(i<iC) iter(i++)do
+					(pxArc^) << m_avAddonOffsets[i];
+				endfor;
+				m_xAddons.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xBase="RlyB";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		(pxArc^) << m_bEquipped;
+		var int i,iC=m_avAddonOffsets.NumEntries();
+		(pxArc^) << iC;
+		for(i=0) cond(i<iC) iter(i++)do
+			(pxArc^) << m_avAddonOffsets[i];
+		endfor;
+		m_xAddons.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void SetReady()
+		super.SetReady();
+		if(m_bBuildingReady)then
+			BuildAddons();
+		endif;
+	endproc;
+	
+	proc void BuildAddons()
+		if(!m_bEquipped)then
+			m_bEquipped=true;
+			var CFourCC xLink="NOPE";
+			var ^CMirageDeco pxA;
+			//m_avAddonOffsets.AddEntry({-1.0,3.05,-0.3}); // ParaworldFan: chimney
+			//m_avAddonOffsets.AddEntry({5.17,2.28,3.34}); // ParaworldFan: chimney_steam
+			var int i, iC=m_avAddonOffsets.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				pxA=cast<CMirageDeco>(CSrvWrap.GetObjMgr()^.CreateObj("seas_laboratory_misc_"+i.ToString(),GetOwner(),GetPos(),GetRotation()));
+				if(pxA!=null)then
+					m_xAddons.AddEntry(pxA^.GetHandle());
+					AddGroupedChildren(pxA^.GetGuid());
+					if(i==2)then
+						var vec3 vDir=pxA^.GetPos()-GetPos();
+						var Quat qRot;
+						qRot.FromXYDir(vDir.GetX(),vDir.GetY());
+						qRot.RotateZ(Math.Pi());
+						pxA^.SecRotAction(qRot,0.01);
+					endif;
+					pxA^.LinkAction(GetHandle(),xLink,m_avAddonOffsets[i]);
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	export proc void OnPostLoad()
+		super.OnPostLoad();
+		var CFourCC xLink="NOPE";
+		var int i, iC=m_xAddons.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxA=m_xAddons[i].GetObj();
+			if(pxA!=null)then
+				pxA^.LinkAction(GetHandle(),xLink,m_avAddonOffsets[i]);
+			endif;
+		endfor;
+	endproc;
+	
+	export proc void TransferLinkedObjs(CObjHndl p_xC)
+		if(!p_xC.IsValid())then return; endif;
+		var CFourCC xLink="NOPE";
+		while(m_xAddons.NumEntries()>0)do
+			var ^CGameObj pxA = m_xAddons[0].GetObj();
+			if(pxA==null)then
+				m_xAddons.DeleteEntry(0);
+				m_avAddonOffsets.DeleteEntry(0);
+				continue;
+			endif;
+			RemGroupedChildren(pxA^.GetGuid());
+			pxA^.TerminateAction();
+			pxA^.LinkAction(p_xC,xLink,m_avAddonOffsets[0]);
+			m_xAddons.DeleteEntry(0);
+			m_avAddonOffsets.DeleteEntry(0);
+		endwhile;
+		m_xAddons.Clear();
+	endproc;
+	
+	export proc CObjList GetAddons();
+		return m_xAddons;
+	endproc;
+
+	//////////////////////// WORK FAKE ANIMS ////////////////////////////////
+	export proc void OnWork()
+		DeleteTimer(WORK_ANIM_TIMER_ID);
+		CreateTimer(WORK_ANIM_TIMER_ID,CGameTimeSpan.OneSecond()*WORK_ANIM_TIMEOUT,false);
+		//KLog.LogWarn("CHP","OnWork:"+GetCurrentAnimName()+" "+HasAnim(WORK_ANIM_NAME).ToString());
+		if((GetCurrentAnimName()!=WORK_ANIM_NAME||GetCurrentAnimMode()!=3)&&HasAnim(WORK_ANIM_NAME))then
+			SetAnim(WORK_ANIM_NAME,3);
+//			SetVisible(true)	//set visible addon chimney_steam
+//			SetVisible(false)	//set invisible addon chimney
+		endif;
+	endproc;
+	
+	export proc void OnWorkFinished()
+		if(HasAnim(WORK_FINISHED_ANIM_NAME_1))then
+			if(HasAction())then
+//				SetVisible(false)	//set invisible addon chimney_steam
+//				SetVisible(true)	//set visible addon chimney
+			else
+//				SetVisible(true)	//set visible addon chimney_steam
+//				SetVisible(false)	//set invisible addon chimney
+			endif;
+		elseif(HasAnim(WORK_FINISHED_ANIM_NAME_2))then
+			if(HasAction())then
+//				SetVisible(false)	//set invisible addon chimney_steam
+//				SetVisible(true)	//set visible addon chimney
+			else
+//				SetVisible(true)	//set visible addon chimney_steam
+//				SetVisible(false)	//set invisible addon chimney
+			endif;
+		else
+			super.OnWorkFinished();
+//			SetIdleAnim();
+		endif;
+	endproc;
+
+/*?	
+	export proc void OnWorkFinishedSimple()
+		SetIdleAnim();
+	endproc;
+?*/
+	
+	export proc void StartWorkAnim()
+		DeleteTimer(WORK_ANIM_TIMER_ID);
+		CreateTimer(WORK_ANIM_TIMER_ID,CGameTimeSpan.OneSecond()*WORK_ANIM_TIMEOUT,false);
+		if(GetCurrentAnimName()!=WORK_ANIM_NAME&&HasAnim(WORK_ANIM_NAME))then
+			SetAnim(WORK_ANIM_NAME,3);
+//			SetVisible(true)	//set visible addon chimney_steam
+//			SetVisible(false)	//set invisible addon chimney
+		endif;
+	endproc;
+
+/*?	
+	export proc void DoWorkAnim()
+		if((GetCurrentAnimName()!=WORK_ANIM_NAME||GetCurrentAnimMode()!=3)&&HasAnim(WORK_ANIM_NAME))then
+			SetAnim(WORK_ANIM_NAME,3);
+//			SetVisible(true)	//set visible addon chimney_steam
+//			SetVisible(false)	//set invisible addon chimney
+		endif;
+	endproc;
+?*/
+	
+	export proc void StopWorkAnim()
+		if(GetCurrentAnimName()==WORK_ANIM_NAME)then
+//			SetVisible(false)	//set invisible addon chimney_steam
+//			SetVisible(true)	//set visible addon chimney
+		endif;
+	endproc;
+	
+endclass;
 	
 class CSpecialBox inherit CBuilding
 	
