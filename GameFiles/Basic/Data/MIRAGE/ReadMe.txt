@@ -14,6 +14,7 @@ General:
 - Pirate ship chain on skirmish maps and in mission 6 are playing "Open" & "Close" animation from now on
 - Fixed bug with Holy City gates destruction animation wasnt playing
 - Campaing avatar on mission "Single B42: COld Day in Hell" has a corpse damage, and death animation from now on
+- Fixed missing stances icons
 
 Maps:
 
