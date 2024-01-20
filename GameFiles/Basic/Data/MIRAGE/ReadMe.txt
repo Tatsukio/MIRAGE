@@ -20,6 +20,7 @@ General:
 Maps:
 
 Campaign maps:
+- Amazon Warrior have female voiceover instead of male one from now on
 
 Heroes:
 - Larry, Barry and Harry are affected by Dustriders Town Center Resource tool upgrades 1,2,3 and 4
