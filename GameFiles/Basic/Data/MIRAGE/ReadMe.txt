@@ -13,10 +13,14 @@ General:
 - Holy city gates on skirmish maps and in mission 13 are playing "Open" animation from now on
 - Pirate ship chain on skirmish maps and in mission 6 are playing "Open" & "Close" animation from now on
 - Fixed bug with Holy City gates destruction animation wasnt playing
+- Campaing avatar on mission "Single B42: Cold Day in Hell" has a corpse damage, corpse resources and death animation from now on
+- Fixed missing stances icons
+- Fixed non working corpse resources values for campaign valhalla stone statues and campaign avatar
 
 Maps:
 
 Campaign maps:
+- Amazon Warrior have female voiceover instead of male one from now on
 
 Heroes:
 - Larry, Barry and Harry are affected by Dustriders Town Center Resource tool upgrades 1,2,3 and 4
