@@ -9,6 +9,7 @@ MIRAGE 2.6.7
 Special:
 
 General:
+- New game-mechanics server setting added: "Ally controll" - if enabled you can control your ally's units, and they can control yours
 - Improved cutscenes for Boosterpack1 singleplayer campaign for classis and SEAS versions
 - Holy city gates on skirmish maps and in mission 13 are playing "Open" animation from now on
 - Pirate ship chain on skirmish maps and in mission 6 are playing "Open" & "Close" animation from now on
