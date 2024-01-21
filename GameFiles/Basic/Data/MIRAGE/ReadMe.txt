@@ -17,6 +17,7 @@ General:
 - Campaing avatar on mission "Single B42: Cold Day in Hell" has a corpse damage, corpse resources and death animation from now on
 - Fixed missing stances icons
 - Fixed non working corpse resources values for campaign valhalla stone statues and campaign avatar
+- Various fixes in the options menu
 
 Maps:
 
