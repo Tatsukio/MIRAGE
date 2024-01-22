@@ -18,6 +18,7 @@ General:
 - Fixed missing stances icons
 - Fixed non working corpse resources values for campaign valhalla stone statues and campaign avatar
 - Various fixes in the options menu
+- Wild animals will play selection sounds when selected
 
 Maps:
 
