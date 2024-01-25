@@ -9,6 +9,8 @@ MIRAGE 2.6.7
 Special:
 
 General:
+- All menus are centered now
+- New game-mechanics server setting added: "Ally controll" - if enabled you can control your ally's units, and they can control yours
 - Improved cutscenes for Boosterpack1 singleplayer campaign for classis and SEAS versions
 - Holy city gates on skirmish maps and in mission 13 are playing "Open" animation from now on
 - Pirate ship chain on skirmish maps and in mission 6 are playing "Open" & "Close" animation from now on
@@ -16,6 +18,8 @@ General:
 - Campaing avatar on mission "Single B42: Cold Day in Hell" has a corpse damage, corpse resources and death animation from now on
 - Fixed missing stances icons
 - Fixed non working corpse resources values for campaign valhalla stone statues and campaign avatar
+- Various fixes in the options menu
+- Wild animals will play selection sounds when selected
 
 Maps:
 
