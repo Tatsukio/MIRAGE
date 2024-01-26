@@ -18,6 +18,10 @@ General:
 - Campaing avatar on mission "Single B42: Cold Day in Hell" has a corpse damage, corpse resources and death animation from now on
 - Fixed missing stances icons
 - Fixed non working corpse resources values for campaign valhalla stone statues and campaign avatar
+- Fixed incorrect heroes tooltips in all languages
+- Fixed missing tooltips in some languages
+- Fixed missing translation in some languages
+- Fixed syntax errors in russain language tooltips
 - Various fixes in the options menu
 - Wild animals will play selection sounds when selected
 
