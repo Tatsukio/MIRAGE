@@ -1585,16 +1585,21 @@ class CPlaceMgr
 	export proc CObjHndl PlaceObj(int p_iOwner,string p_sClass,vec3 p_vPos,vec3 p_vRot,ref CObjList p_rxWorker,bool p_bQueued,bool p_bWall)
 		var string sBldg=p_sClass;
 		var CObjHndl xInvalid;
-		if(p_iOwner<0)then return xInvalid; endif;
+		var int iOwner = p_iOwner;
+		//TODO: possible bug if different players workers selected
+		var int iRealOwner = p_rxWorker[0].GetObj()^.GetOwner();
+		if(iRealOwner<0)then return xInvalid; endif;
+		iOwner = iRealOwner;
+		if(iOwner<0)then return xInvalid; endif;
 		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
 		if(pxLevel==null)then return xInvalid; endif;
-		var ^CPlayer pxPlayer=pxLevel^.GetPlayer(p_iOwner);
+		var ^CPlayer pxPlayer=pxLevel^.GetPlayer(iOwner);
 		if(pxPlayer==null)then return xInvalid; endif;
 		var ^CAttribs pxPlAttr=pxPlayer^.GetAttribs();
 		if(pxPlAttr==null)then return xInvalid; endif;
 		var ^CLevelInfoHost pxLevelInfo=CSrvWrap.GetLevelInfo(false);
 		if(pxLevelInfo==null)then return xInvalid; endif;
-		var ^CLevelInfo.CPlayerSlot pxPlSlot=pxLevelInfo^.GetOwnerPlayerSlot(p_iOwner);
+		var ^CLevelInfo.CPlayerSlot pxPlSlot=pxLevelInfo^.GetOwnerPlayerSlot(iOwner);
 		if(pxPlSlot==null)then return xInvalid; endif;
 		//KLog.LogSpam("RoSt", "function params are valid");
 		var string sTribe=pxPlSlot^.GetTribe();
@@ -1680,17 +1685,17 @@ class CPlaceMgr
 				endif;
 			endif;
 		endif;
-		if(!CBLDGMgr.Get().CanAddBuilding(p_iOwner,sTribe,sClass))then
+		if(!CBLDGMgr.Get().CanAddBuilding(iOwner,sTribe,sClass))then
 			return xInvalid;
 		endif;
 		var CAction.CResourceCosts xCosts;
-		if(!CRequirementsMgr.Get().CheckConditionsAndPayForObjPlacer(p_iOwner,sBuildingPath,false,xCosts,sTribe))then
-			CBLDGMgr.Get().UnregisterClass(sClass,sTribe,p_iOwner);
+		if(!CRequirementsMgr.Get().CheckConditionsAndPayForObjPlacer(iOwner,sBuildingPath,false,xCosts,sTribe))then
+			CBLDGMgr.Get().UnregisterClass(sClass,sTribe,iOwner);
 			return xInvalid;
 		endif;
 		var int iLevel=CRequirementsMgr.Get().GetBuildActionLevel(sBuildingPath)-1;
 		//L KLog.LogSpam("TechTree","CreateObj("+sClass+","+p_iOwner.ToString()+","+p_vPos.ToString()+","+p_vRot.ToString());
-		var ^CGameObj pxNewObj=pxObjMgr^.CreateObj(sClass,p_iOwner,p_vPos,p_vRot);
+		var ^CGameObj pxNewObj=pxObjMgr^.CreateObj(sClass,iOwner,p_vPos,p_vRot);
 		if(pxNewObj==null)then
 			//KLog.LogSpam("RoSt", "return 4");
 			return xInvalid;
@@ -1706,9 +1711,9 @@ class CPlaceMgr
 			endif;
 		endif;
 		if(p_bWall)then
-			m_axPlayerWalls[p_iOwner].Include(pxNewObj^.GetHandle());
-			m_axPlayerBuilders[p_iOwner].Include(p_rxWorker);
-			m_apxTimer[p_iOwner]^.SetTimer(0.15);
+			m_axPlayerWalls[iOwner].Include(pxNewObj^.GetHandle());
+			m_axPlayerBuilders[iOwner].Include(p_rxWorker);
+			m_apxTimer[iOwner]^.SetTimer(0.15);
 		endif;
 		if(!p_bWall && !bGate)then
 //		if(!p_bWall&&!bGate&&!bCoastal)then
@@ -1730,11 +1735,15 @@ class CPlaceMgr
 			xVegetationQuery.SetType("VGTN",true);
 			xVegetationQuery.SetType("WOOD",true); //RT#17429
 			xVegetationQuery.SetType("STON",true);
+			xVegetationQuery.SetType("FRUI",true);
+			xVegetationQuery.SetAttribsNeg("fish",1);
+			/*
 			//Henry: to remove fruit brushes too
 			if(CMirageSrvMgr.Get().FruitsRemovement())then
 				xVegetationQuery.SetType("FRUI",true);
 				xVegetationQuery.SetAttribsNeg("fish",1);
 			endif;
+			*/
 			var CObjList xVegetationList;
 			if(xVegetationQuery.Execute(xVegetationList))then
 				var int i,iC=xVegetationList.NumEntries();
@@ -1743,6 +1752,10 @@ class CPlaceMgr
 					var ^CGameObj pxObj=xTemp.GetObj();
 					if(pxObj!=null)then
 						if(pxObj^.GetType()=="STON" && cast<CStone_Corpse>(pxObj)==null)then
+							continue;
+						endif;
+						if(pxObj^.GetType()=="FRUI")then
+							//pxObj^.SetPlaceBlocker(false);
 							continue;
 						endif;
 						pxObj^.Delete();
