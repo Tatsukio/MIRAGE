@@ -904,7 +904,7 @@ class CActionMenu
 					endif;
 				endif;
 				if((m_dwFlags&FLAG_SHOW_KILLBTN)==0b)then
-					if(pxO^.GetType()=="BLDG")then
+					if(pxO^.GetType()=="BLDG" || !CGameInst.ms_bDisableDelete)then
 //					if(pxO^.GetType()=="BLDG"&&!CGameInst.ms_bDisableDelete)then
 						m_dwFlags |= FLAG_SHOW_KILLBTN;
 					endif;
@@ -1443,13 +1443,13 @@ class CActionMenu
 					var ^CAttribs pxA=pxObj^.GetAttribs();
 					if(pxA==null)then continue; endif;
 					var string sPasGuids=pxA^.GetValue("passenger_guids");
-					//----< DaHo - Leere Plätze anzeigen >--- Die untere Zeile wieder einkommentieren
+					//----< DaHo - Leere PlÃ¤tze anzeigen >--- Die untere Zeile wieder einkommentieren
 //					if(sPasGuids.IsEmpty())then continue; endif;
 					//----------------------------------------
 					var array string asToks;
 					sPasGuids.Split(asToks, "\n", true);
 					if(++iTrspCnt>=CFlyout.MAX_CATEGORIES)then return; endif;
-					//----< DaHo - Leere Plätze anzeigen >---
+					//----< DaHo - Leere PlÃ¤tze anzeigen >---
 					var CTechTree xTT=pxObj^.GetTechTree();
 					var string sTT = pxA^.GetValue("ObjPath");
 					var ^CTechTree.CNode pxN = xTT.FindNode(sTT+"/max_passengers");
@@ -1466,7 +1466,7 @@ class CActionMenu
 					//----------------------------------------
 					var int i, iC=asToks.NumEntries();
 					var int iAdditional=0; //Einheiten in Einheiten in Einheiten
-					//----< DaHo - Leere Plätze anzeigen >---
+					//----< DaHo - Leere PlÃ¤tze anzeigen >---
 					//----------------------------------------
 					for(i=0) cond(i<iC) iter(++i) do
 						var CGuid xG; xG.FromString(asToks[i]);
@@ -1497,7 +1497,7 @@ class CActionMenu
 					if(iCM > 0)then
 						iCM=iCM - (iC+iAdditional);
 					endif;
-					//----< DaHo - Leere Plätze anzeigen >---
+					//----< DaHo - Leere PlÃ¤tze anzeigen >---
 					for(i=0)cond(i<iCM)iter(++i) do
 						var ^CCmdButton pxBtn=^(m_axCmdButtons.NewEntryRef());
 						var string sCmd="/Unboard|"+sSubCat+"|none";
@@ -3770,9 +3770,19 @@ class CCommandBar inherit CWindow
 			// ENDHACK
 			var string sType=pxO^.GetType().AsString();
 			var string sClass=pxO^.GetClassName();
+			var string sRealTribe=sPlayerTribe;
+			var ^CLevelInfoClient pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+			if(pxLevelInfo!=null)then
+				var ^CLevelInfo.CPlayerSlot pxRealOwnerSlot=pxLevelInfo^.GetOwnerPlayerSlot(pxO^.GetOwner());
+				if(pxRealOwnerSlot!=null)then
+					sRealTribe=pxRealOwnerSlot^.GetTribe();
+				endif;
+			endif;
 			sTribe=sPlayerTribe;
 			var string sObjTribe=GetObjTribe(pxO);
+			var bool bWorker=false;
 			if(pxO^.GetType()=="CHTR" && (pxO^.GetClassName()=="aje_worker"||pxO^.GetClassName()=="hu_worker"||pxO^.GetClassName()=="ninigi_worker"||pxO^.GetClassName()=="seas_worker") && (p_rasCategory.FindEntry(GetMenuFromTribe(pxO))>=0||p_rasCategory.FindEntry("TRAP")>=0))then
+				bWorker=true;
 				sTribe=sObjTribe;
 				sClass=sTribe;
 				sClass+="_worker";
@@ -3798,10 +3808,15 @@ class CCommandBar inherit CWindow
 				sClass.MakeLower();
 			endif;
 			// ENDHACK ...
-
+			
+			var bool bTesla=false;
 			// HACK!!! tesla can build stuff too ...
 			if(sClass=="tesla_s0"&&(p_rasCategory.FindEntry(GetMenuFromTribe(pxO))>=0||p_rasCategory.FindEntry("TRAP")>=0))then
+				bTesla = true;
+				sTribe=sRealTribe;
 				sClass=sTribe;
+				//KLog.LogSpam("Kr1s1m", "line 3719, tesla_s0: sTribe = "+sTribe);
+				//KLog.LogSpam("Kr1s1m", "line 3720, tesla_s0: sClass = "+sClass);
 				sClass+="_worker";
 				sClass.MakeLower();
 			endif;
@@ -3814,9 +3829,11 @@ class CCommandBar inherit CWindow
 //				sClass.MakeLower();
 //			endif;
 //			// ENDHACK ...
-
-				//Henry: HACK!!! trader can build something ... ;)
+			var bool bTrader = false;
+			//Henry: HACK!!! trader can build something ... ;)
 			if((sClass=="Barry_s0"||sClass=="Harry_s0"||sClass=="Larry_s0")&&(p_rasCategory.FindEntry(GetMenuFromTribe(pxO))>=0))then
+				bTrader = true;
+				sTribe=sRealTribe;
 				sClass=sTribe;
 				sClass+="_trader";
 				sClass.MakeLower();
@@ -3828,6 +3845,19 @@ class CCommandBar inherit CWindow
 				continue;
 			endif;
 			// ENDHACK ...
+			
+			//Kr1s1m: If TT-Stealing is off and obj has a foreign build menu bHideBUIL flag becomes raised
+			var bool bHideBUIL = false;
+			if(!CMirageClnMgr.Get().CheckTechtreeSteal() && sRealTribe!=sObjTribe)then
+				var bool bAjeCHTR = pxO^.GetType()=="CHTR" && sClass.Find("aje_")!=-1 && p_rasCategory.FindEntry("BUIL")>=0;
+				if(bAjeCHTR || bWorker)then
+					bHideBUIL = true;
+					sClass=sObjTribe;
+					sClass+="_worker";
+					sClass.MakeLower();
+				endif;
+			endif;
+			
 			var array string asJupp;
 			asJupp.AddEntry(sClass);
 			asJupp.AddEntry(sType);
@@ -3849,6 +3879,7 @@ class CCommandBar inherit CWindow
 				var string sTribe=GetObjTribe(pxO);
 				var int iAction, iNumActions=pxLocation^.m_axActions.NumEntries();
 				for(iAction=0)cond(iAction<iNumActions)iter(++iAction)do
+					if(bHideBUIL)then continue; endif; //Kr1s1m: if the bHideBUIL flag was raised, skip filling the BUIL action menu
 					var ^CTTHelper.CActionPath pxActionInfo=^(pxLocation^.m_axActions[iAction]);
 					if(p_pasNodes!=null && p_pasNodes^.FindEntry(pxActionInfo^.m_sPath)>=0)then continue; endif;
 					if(p_rasCategory.FindEntry(pxActionInfo^.m_sCategory)<0)then continue; endif;
@@ -3906,7 +3937,7 @@ class CCommandBar inherit CWindow
 									break;
 								endif;
 							endfor;
-							if(!bValidTribe)then continue; endif;
+							if(!bValidTribe && !bTesla)then continue; endif;
 						endif;
 					endif;
 					*/
@@ -4191,6 +4222,15 @@ class CCommandBar inherit CWindow
 						sTribe=pxPlayer^.GetPlayerSlot()^.GetTribe();
 						bIsHero=true;
 					endif;
+					var ^CLevelInfoClient pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+					if(pxLevelInfo!=null)then
+						var ^CLevelInfo.CPlayerSlot pxRealOwnerSlot=pxLevelInfo^.GetOwnerPlayerSlot(p_pxO^.GetOwner());
+						if(pxRealOwnerSlot!=null)then
+							sTribe=pxRealOwnerSlot^.GetTribe();
+						endif;
+					endif;
+					//if(bIsHero)then KLog.LogSpam("Kr1s1m", "bIsHero = true"); endif;
+					//KLog.LogSpam("Kr1s1m", "line 4116: sTribe = "+sTribe);
 				endif;
 				// ENDHACK
 				var int i, iC=p_rasActTypes.NumEntries();
