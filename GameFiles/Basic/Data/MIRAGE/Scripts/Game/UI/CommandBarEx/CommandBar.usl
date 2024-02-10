@@ -876,7 +876,7 @@ class CActionMenu
 					endif;
 				endif;
 				if((m_dwFlags&FLAG_SHOW_KILLBTN)==0b)then
-					if(pxO^.GetType()=="BLDG")then
+					if(pxO^.GetType()=="BLDG" || !CGameInst.ms_bDisableDelete)then
 //					if(pxO^.GetType()=="BLDG"&&!CGameInst.ms_bDisableDelete)then
 						m_dwFlags |= FLAG_SHOW_KILLBTN;
 					endif;
@@ -3685,7 +3685,9 @@ class CCommandBar inherit CWindow
 			endif;
 			sTribe=sPlayerTribe;
 			var string sObjTribe=GetObjTribe(pxO);
+			var bool bWorker=false;
 			if(pxO^.GetType()=="CHTR" && (pxO^.GetClassName()=="aje_worker"||pxO^.GetClassName()=="hu_worker"||pxO^.GetClassName()=="ninigi_worker"||pxO^.GetClassName()=="seas_worker") && (p_rasCategory.FindEntry("BUIL")>=0||p_rasCategory.FindEntry("TRAP")>=0))then
+				bWorker=true;
 				sTribe=sObjTribe;
 				sClass=sTribe;
 				sClass+="_worker";
@@ -3711,9 +3713,11 @@ class CCommandBar inherit CWindow
 				sClass.MakeLower();
 			endif;
 			// ENDHACK ...
-
+			
+			var bool bTesla=false;
 			// HACK!!! tesla can build stuff too ...
 			if(sClass=="tesla_s0"&&(p_rasCategory.FindEntry("BUIL")>=0||p_rasCategory.FindEntry("TRAP")>=0))then
+				bTesla = true;
 				sTribe=sRealTribe;
 				sClass=sTribe;
 				//KLog.LogSpam("Kr1s1m", "line 3719, tesla_s0: sTribe = "+sTribe);
@@ -3730,9 +3734,12 @@ class CCommandBar inherit CWindow
 //				sClass.MakeLower();
 //			endif;
 //			// ENDHACK ...
-
-				//Henry: HACK!!! trader can build something ... ;)
+			
+			var bool bTrader = false;
+			//Henry: HACK!!! trader can build something ... ;)
 			if((sClass=="Barry_s0"||sClass=="Harry_s0"||sClass=="Larry_s0")&&(p_rasCategory.FindEntry("BUIL")>=0))then
+				bTrader = true;
+				sTribe=sRealTribe;
 				sClass=sTribe;
 				sClass+="_trader";
 				sClass.MakeLower();
@@ -3744,6 +3751,19 @@ class CCommandBar inherit CWindow
 				continue;
 			endif;
 			// ENDHACK ...
+			
+			//Kr1s1m: If TT-Stealing is off and obj has a foreign build menu bHideBUIL flag becomes raised
+			var bool bHideBUIL = false;
+			if(!CMirageClnMgr.Get().CheckTechtreeSteal() && sRealTribe!=sObjTribe)then
+				var bool bAjeCHTR = pxO^.GetType()=="CHTR" && sClass.Find("aje_")!=-1 && p_rasCategory.FindEntry("BUIL")>=0;
+				if(bAjeCHTR || bWorker)then
+					bHideBUIL = true;
+					sClass=sObjTribe;
+					sClass+="_worker";
+					sClass.MakeLower();
+				endif;
+			endif;
+			
 			var array string asJupp;
 			asJupp.AddEntry(sClass);
 			asJupp.AddEntry(sType);
@@ -3765,6 +3785,7 @@ class CCommandBar inherit CWindow
 				var string sTribe=GetObjTribe(pxO);
 				var int iAction, iNumActions=pxLocation^.m_axActions.NumEntries();
 				for(iAction=0)cond(iAction<iNumActions)iter(++iAction)do
+					if(bHideBUIL)then continue; endif; //Kr1s1m: if the bHideBUIL flag was raised, skip filling the BUIL action menu
 					var ^CTTHelper.CActionPath pxActionInfo=^(pxLocation^.m_axActions[iAction]);
 					if(p_pasNodes!=null && p_pasNodes^.FindEntry(pxActionInfo^.m_sPath)>=0)then continue; endif;
 					if(p_rasCategory.FindEntry(pxActionInfo^.m_sCategory)<0)then continue; endif;
@@ -3821,7 +3842,7 @@ class CCommandBar inherit CWindow
 									break;
 								endif;
 							endfor;
-							if(!bValidTribe)then continue; endif;
+							if(!bValidTribe && !bTesla)then continue; endif;
 						endif;
 					endif;
 					if(m_bSkipOldTraps&&pxAction^.GetSubValueI("trap", 0)==1)then
