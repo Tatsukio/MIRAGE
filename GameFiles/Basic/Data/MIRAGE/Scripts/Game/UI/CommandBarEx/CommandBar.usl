@@ -708,6 +708,14 @@ class CActionMenu
 		endif;
 	endproc;
 	
+	proc bool HaveTribeBuildMenu(string p_sClass)
+		if(p_sClass.Find("aje_") != -1 || p_sClass == "hu_worker" || p_sClass == "ninigi_worker" || p_sClass == "seas_worker" || p_sClass == "tesla_s0") then
+			return true;
+		else
+			return false;
+		endif;
+	endproc;
+	
 	export proc void UpdateMenu(bool p_bSelChg)
 		var CObjList xSel=m_pxParent^.m_xCurSelection;
 		var CObjList xSelEx=m_pxParent^.m_xOldSelection;
@@ -715,17 +723,7 @@ class CActionMenu
 			m_axButtons=0;
 			return;
 		endif;
-// special debug infos for testing department, no fuctionality
-//		if(p_bSelChg)then
-//			var ^CTechTreeDef pxDef=^(CGameWrap.GetClient().GetPlayer().GetPlayerTechTreeDef());
-//			if(pxDef!=null)then
-//				KLog.LogSpam("SFBug","Client->Owner "+CGameWrap.GetClient().GetPlayerID().ToString()+"->CProgressButton->Initialize->Object Filters:");
-//				var int i,iC=pxDef^.NumEntries();
-//				for(i=0)cond(i<iC)iter(i++)do
-//					KLog.LogSpam("SFBug","\t\t- "+pxDef^.GetFilter(i));
-//				endfor;
-//			endif;
-//		endif;
+
 		var CObjList xTemp;
 		var bool bIsCurrentlyBuild=true; //m_pxParent^.IsBuildingBuild();
 		m_pxParent^.PreprocessObjects(xSelEx, xTemp, bIsCurrentlyBuild);
@@ -739,11 +737,12 @@ class CActionMenu
 				endif;
 			endfor;
 		endif;
-		var string sClass="";
-		var bool bMultiSel=xSel.NumEntries()>1;
-		//var	CObjList	xSelEx		= CClientWrap.GetSelection();
-		var bool bMultiSelEx	=	xSelEx.NumEntries() > 1;
-		var int iPlayerID		=	CGameWrap.GetClient().GetPlayerID();
+		
+		var string sClass			= "";
+		var bool bMultiSel			= xSel.NumEntries()>1;
+		var bool bMultiSelEx		= xSelEx.NumEntries() > 1;
+		var bool bAllyCommands 		= CMirageClnMgr.Get().CheckAlienCommands();	
+		var int iPlayerID			= CGameWrap.GetClient().GetPlayerID();
 		
 		var bitset dwSelectedTribes = 0b;
 		var bitset dwHU				= 01b;
@@ -757,13 +756,21 @@ class CActionMenu
 			var int i, iC=xSel.NumEntries();
 			for(i=0) cond(i<iC) iter(++i) do
 				if(!xSel[i].IsValid())then xSel.DeleteEntry(i--); --iC; continue; endif;
-				var ^CObj pxO=xSel[i].GetObj();
-				var int iOwner = pxO^.GetOwner();
 				
+				var ^CObj pxO=xSel[i].GetObj();
+				var ^CAttribs pxA=pxO^.GetAttribs();
+				var CFourCC sObjType=pxO^.GetType();
 				var string sCN=pxO^.GetClassName();
-				if(sCN.Find("worker")!=(-1))then
-					var ^CAttribs pxAttr=pxO^.GetAttribs();
-					var string sTribe=pxAttr^.GetValue("tribe");
+				var int iOwner = pxO^.GetOwner();
+				var int iDiploStatus = CGameWrap.GetDiplomacyMgr().GetTheirOpinion(iOwner);
+				
+				if(pxA==null)then xSel.DeleteEntry(i--); --iC; continue; endif;
+				if(!pxA^.GetValue("transporter_guid").IsEmpty())then continue; endif;
+				if((iOwner!=iPlayerID) && !(bAllyCommands==true && iDiploStatus==2))then xSel.DeleteEntry(i--); --iC; continue; endif;
+				if(sCN == "aje_torpedo_turtle" || sCN == "aje_gallimimus" || sCN == "aje_tracker_dino" || sCN == "hu_kennel_smilodon" || sCN == "ninigi_dilophosaurus" || sCN == "seas_stygimoloch" || sCN == "ninigi_mineship_mine" || sCN == "mrg_sprt")then continue; endif;
+				
+				if(sObjType == "CHTR" && HaveTribeBuildMenu(sCN))then
+					var string sTribe=pxA^.GetValue("tribe");
 					if(sTribe == "Hu")then
 						dwSelectedTribes |= dwHU;
 					elseif(sTribe == "Aje")then
@@ -781,24 +788,14 @@ class CActionMenu
 					endif;
 				endif;
 
-				var int iDiploStatus = CGameWrap.GetDiplomacyMgr().GetTheirOpinion(iOwner);
-				var bool bAllyCommands = CMirageClnMgr.Get().CheckAlienCommands();
-				if((iOwner!=iPlayerID) && !(bAllyCommands==true && iDiploStatus==2))then xSel.DeleteEntry(i--); --iC; continue; endif;
-				if(sCN=="aje_torpedo_turtle"||sCN=="aje_gallimimus"||sCN=="aje_tracker_dino"||sCN=="hu_kennel_smilodon"||sCN=="ninigi_dilophosaurus"||sCN=="seas_stygimoloch")then continue; endif;
-				//RT#14694 deactivation of command buttons for ninigi water mines
-				if(sCN=="ninigi_mineship_mine")then continue; endif;
-				if(sCN=="mrg_sprt")then continue; endif;
-				var ^CAttribs pxA=pxO^.GetAttribs();
-				if(pxA==null)then xSel.DeleteEntry(i--); --iC; continue; endif;
-				if(!pxA^.GetValue("transporter_guid").IsEmpty())then continue; endif;
-				var string sObjPath=pxA^.GetValue("ObjPath");
 				if(sClass.IsEmpty())then
-					sClass=pxO^.GetClassName();
-				elseif(sClass!=pxO^.GetClassName())then
+					sClass=sCN;
+				elseif(sClass!=sCN)then
 					sClass="diff";
 				endif;
+				
 				if((m_dwFlags&FLAG_CAN_MOVE)==0b)then
-					if(pxO^.GetType()!="BLDG"|| (pxA^.GetValueInt("MovingBuilding")>0))then
+					if(sObjType !="BLDG" || (pxA^.GetValueInt("MovingBuilding")>0))then
 						m_dwFlags |= FLAG_CAN_MOVE;
 					endif;
 				endif;
@@ -806,7 +803,7 @@ class CActionMenu
 					var CTechTree xTechTree=pxO^.GetTechTree();
 					var ^CTechTree.CNode pxTTNode=xTechTree.FindNode(m_pxParent^.GetObjPath(pxO));
 					if(pxTTNode!=null)then
-						if(pxTTNode^.GetSubValueI("can_harvest",0)!=0 && (pxO^.GetType()=="ANML"||pxO^.GetType()=="CHTR"||pxO^.GetType()=="VHCL"))then
+						if(pxTTNode^.GetSubValueI("can_harvest",0)!=0 && (sObjType == "ANML" || sObjType == "CHTR" || sObjType == "VHCL"))then
 							m_dwFlags |= FLAG_CAN_HARVEST;
 						endif;
 					endif;
@@ -825,19 +822,12 @@ class CActionMenu
 				if((m_dwFlags&FLAG_HOLD_UNITS)==0b)then
 					var array string asToks;
 					var int iMaxPassengers=0;
-/*
-					if(pxO^.GetClassName().Find("bunker") != -1)then
-						iMaxPassengers=4;
-					else
-*/
-					//by Henry: removed because bunker upgrade has been boosted
 					iMaxPassengers=pxA^.GetValueInt("max_passengers");
-					//endif;
 					pxA^.GetValue("passenger_guids").Split(asToks, "\n", true);
-					if((asToks.NumEntries()>0 && pxO^.GetClassName().Find("harbour")<0)||(iMaxPassengers > 0))then
+					if((asToks.NumEntries()>0 && sCN.Find("harbour")<0)||(iMaxPassengers > 0))then
 						m_dwFlags |= FLAG_HOLD_UNITS;
 					endif;
-					if(pxO^.GetType()=="BLDG")then
+					if(sObjType =="BLDG")then
 						m_dwFlags |= FLAG_DISMOUNT_NO_SEC;
 					endif;
 				endif;
@@ -853,8 +843,8 @@ class CActionMenu
 				var bool bFight=pxA^.GetValueBool("can_attack");
 				var bool bAttckBldg=pxA^.GetValueBool("AttackBuilding");
 				if((m_dwFlags&FLAG_CAN_FIGHT)==0b)then
-					if(pxA^.GetValueInt("damage")>0 && (pxO^.GetType()!="BLDG"||bAttckBldg) && !bIsCurrentlyBuild && bFight)then
-						if(bAttckBldg && (pxO^.GetClassName().Find("bunker")>=0||pxO^.GetClassName().Find("fortress")>=0))then
+					if(pxA^.GetValueInt("damage")>0 && (sObjType != "BLDG" || bAttckBldg) && !bIsCurrentlyBuild && bFight)then
+						if(bAttckBldg && (sCN.Find("bunker")>=0 || sCN.Find("fortress")>=0))then
 							if((m_dwFlags&FLAG_HOLD_UNITS)!=0b)then
 								m_dwFlags |= FLAG_CAN_FIGHT;
 								m_dwFlags |= FLAG_CAN_HUNT;
@@ -866,19 +856,13 @@ class CActionMenu
 					endif;
 				endif;
 				if((m_dwFlags&FLAG_SHOW_STANCES)==0b)then
-					if	(bFight &&
-						(pxO^.GetType()!="BLDG"||bAttckBldg||pxO^.GetClassName()=="seas_carrier") &&
-						(pxO^.GetClassName()!="aje_resource_collector" || pxA^.GetValueInt("damage")>0) &&
-						pxO^.GetClassName()!="aje_shaman" &&
-						pxO^.GetClassName()!="hu_druid" &&
-						pxO^.GetClassName()!="ninigi_monk" &&
-						pxO^.GetClassName()!="seas_medic")then
+					if (bFight && (sObjType != "BLDG" || bAttckBldg || sCN =="seas_carrier") && (sCN != "aje_resource_collector" || pxA^.GetValueInt("damage")>0) && sCN !="aje_shaman" && sCN !="hu_druid" && sCN !="ninigi_monk" && sCN !="seas_medic")then
 						m_dwFlags |= FLAG_SHOW_STANCES;
 					endif;
 				endif;
 				if((m_dwFlags&FLAG_SHOW_LEVEL_UP)==0b)then
 					//by Henry: fix for seas carrier to have levelup button
-					if((pxO^.GetType()!="BLDG"||pxO^.GetClassName()=="aje_floating_harbour"||pxO^.GetClassName()=="seas_carrier") && pxO^.GetClassName()!="ninigi_water_turret")then
+					if((sObjType != "BLDG" || sCN == "aje_floating_harbour" || sCN =="seas_carrier") && sCN !="ninigi_water_turret")then
 						m_dwFlags |= FLAG_SHOW_LEVEL_UP;
 					endif;
 				endif;
@@ -894,20 +878,13 @@ class CActionMenu
 						m_dwFlags |= FLAG_GATE;
 					endif;
 				endif;
-				/* Deprecated ... det jibbet nich mehr
-				if((m_dwFlags&FLAG_SHOW_TRADE)==0b)then
-					if(pxA^.GetValueInt("TradeBuilding")>0)then
-						m_dwFlags |= FLAG_SHOW_TRADE;
-					endif;
-				endif;*/
 				if((m_dwFlags&FLAG_SHOW_RALLY)==0b)then
 					if(pxA^.GetValueInt("IsRallySite")>0)then
 						m_dwFlags |= FLAG_SHOW_RALLY;
 					endif;
 				endif;
 				if((m_dwFlags&FLAG_SHOW_KILLBTN)==0b)then
-					if(pxO^.GetType()=="BLDG" || !CGameInst.ms_bDisableDelete)then
-//					if(pxO^.GetType()=="BLDG"&&!CGameInst.ms_bDisableDelete)then
+					if(sObjType == "BLDG" || !CGameInst.ms_bDisableDelete)then
 						m_dwFlags |= FLAG_SHOW_KILLBTN;
 					endif;
 				endif;
