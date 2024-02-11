@@ -716,6 +716,22 @@ class CActionMenu
 		endif;
 	endproc;
 	
+	proc string GetMenuFromTribe(string p_sTribe)
+		var string sMenu = "BLD";
+		if(p_sTribe == "Hu")then
+			sMenu += "H";
+		elseif(p_sTribe == "Aje")then
+			sMenu += "A";
+		elseif(p_sTribe == "Ninigi")then
+			sMenu += "N";
+		elseif(p_sTribe == "SEAS")then
+			sMenu += "S";
+		else
+			sMenu += "X";
+		endif;
+		return sMenu;
+	endproc;
+	
 	export proc void UpdateMenu(bool p_bSelChg)
 		var CObjList xSel=m_pxParent^.m_xCurSelection;
 		var CObjList xSelEx=m_pxParent^.m_xOldSelection;
@@ -753,6 +769,7 @@ class CActionMenu
 		var bitset dwSPECIAL		= 0100000b;
 		
 		if(m_dwFlags==0b)then
+			//TODO: xSel does not count units of the same type, but different tribes so it wont work if you select different tribe taslows
 			var int i, iC=xSel.NumEntries();
 			for(i=0) cond(i<iC) iter(++i) do
 				if(!xSel[i].IsValid())then xSel.DeleteEntry(i--); --iC; continue; endif;
@@ -768,9 +785,17 @@ class CActionMenu
 				if(!pxA^.GetValue("transporter_guid").IsEmpty())then continue; endif;
 				if((iOwner!=iPlayerID) && !(bAllyCommands==true && iDiploStatus==2))then xSel.DeleteEntry(i--); --iC; continue; endif;
 				if(sCN == "aje_torpedo_turtle" || sCN == "aje_gallimimus" || sCN == "aje_tracker_dino" || sCN == "hu_kennel_smilodon" || sCN == "ninigi_dilophosaurus" || sCN == "seas_stygimoloch" || sCN == "ninigi_mineship_mine" || sCN == "mrg_sprt")then continue; endif;
-				
 				if(sObjType == "CHTR" && HaveTribeBuildMenu(sCN))then
 					var string sTribe=pxA^.GetValue("tribe");
+					if((sTribe == "Special"))then
+						var ^CLevelInfoClient pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+						if(pxLevelInfo!=null)then
+							var ^CLevelInfo.CPlayerSlot pxRealOwnerSlot=pxLevelInfo^.GetOwnerPlayerSlot(pxO^.GetOwner());
+							if(pxRealOwnerSlot!=null)then
+								sTribe = pxRealOwnerSlot^.GetTribe();
+							endif;
+						endif;
+					endif;
 					if(sTribe == "Hu")then
 						dwSelectedTribes |= dwHU;
 					elseif(sTribe == "Aje")then
@@ -984,12 +1009,11 @@ class CActionMenu
 			var string sTTTitle;
 			var string sTTText=CClientWrap.GetUIMgr().GetToopTipText("cb_build",sTTTitle);
 			
-			//TODO: if you select a hero and any worker and they share same tribe, bOneMenu should be true
-			if(dwSelectedTribes == dwHU || dwSelectedTribes == dwAJE || dwSelectedTribes == dwNINIGI || dwSelectedTribes == dwSEAS || dwSelectedTribes == dwWORLD || dwSelectedTribes == dwSPECIAL)then
+			if(dwSelectedTribes == dwHU || dwSelectedTribes == dwAJE || dwSelectedTribes == dwNINIGI || dwSelectedTribes == dwSEAS || dwSelectedTribes == dwWORLD)then
 				bOneMenu = true;
 			endif;
 
-			if((dwSelectedTribes&dwHU)!=0b||(dwSelectedTribes&dwWORLD)!=0b||(dwSelectedTribes&dwSPECIAL)!=0b)then
+			if((dwSelectedTribes&dwHU)!=0b)then
 				var string sAdd = "";
 				if(!bOneMenu)then
 					sAdd = "_hu";
@@ -3515,11 +3539,27 @@ class CCommandBar inherit CWindow
 		elseif(sTribe == "SEAS")then
 			sMenu += "S";
 		else
-			sMenu += "H";
+			sMenu += "X";
 		endif;
 		return sMenu;
 	endproc;
-
+	
+	proc string GetMenuFromTribe(string p_sTribe)
+		var string sMenu = "BLD";
+		if(p_sTribe == "Hu")then
+			sMenu += "H";
+		elseif(p_sTribe == "Aje")then
+			sMenu += "A";
+		elseif(p_sTribe == "Ninigi")then
+			sMenu += "N";
+		elseif(p_sTribe == "SEAS")then
+			sMenu += "S";
+		else
+			sMenu += "X";
+		endif;
+		return sMenu;
+	endproc;
+	
 	proc void OpenFlyout()
 		var bool bOnlyWorker=true;
 		var bool bBuildings=false;
@@ -3724,124 +3764,72 @@ class CCommandBar inherit CWindow
 	endproc;
 
 	export proc bool GetAvailableActions(ref CObjList p_rxObjects, ^array string p_pasNodes, ^array int p_paiLocIdx, ref array string p_rasCategory, ^array bool p_pabDeny)
+	
 		if(p_rasCategory.NumEntries()==1 && p_rasCategory[0]=="NONE")then return false; endif;
+		
 		var CTechTree xTT;
-		var string sTribe="";
+		
+		var int i, iC=p_rxObjects.NumEntries();
+		
+		var string sOwnTribe="";
 		var ^CPlayer pxPlayer=^(CGameWrap.GetClient().GetPlayer());
 		if(pxPlayer!=null)then
 			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=pxPlayer^.GetPlayerSlot();
 			if(pxPlayerSlot!=null)then
-				sTribe=pxPlayerSlot^.GetTribe();
+				sOwnTribe=pxPlayerSlot^.GetTribe();
 			endif;
 		endif;
-		var string sPlayerTribe=sTribe;
-		var bool bStances=p_rasCategory.FindEntry("STNC")>=0;
-		var bool bBuilding=false;
-		var int i, iC=p_rxObjects.NumEntries();
+		
 		for(i=0)cond(i<iC)iter(++i)do
 			if(!p_rxObjects[i].IsValid())then continue; endif;
 			var ^CObj pxO=p_rxObjects[i].GetObj();
-			xTT=pxO^.GetTechTree();
-			if((pxO^.GetType()=="BLDG" && pxO^.GetClassName()!="seas_carrier") && bBuilding)then
-				continue;
-			else
-				bBuilding=true;
-			endif;
-			// HACK for TorpedoTurtle (RT#12583)
-			if(pxO^.GetClassName()=="aje_torpedo_turtle")then continue; endif;
-			if(pxO^.GetClassName()=="mrg_sprt")then continue; endif;
-			// ENDHACK
-			var string sType=pxO^.GetType().AsString();
-			var string sClass=pxO^.GetClassName();
-			var string sRealTribe=sPlayerTribe;
-			var ^CLevelInfoClient pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
-			if(pxLevelInfo!=null)then
-				var ^CLevelInfo.CPlayerSlot pxRealOwnerSlot=pxLevelInfo^.GetOwnerPlayerSlot(pxO^.GetOwner());
-				if(pxRealOwnerSlot!=null)then
-					sRealTribe=pxRealOwnerSlot^.GetTribe();
-				endif;
-			endif;
-			sTribe=sPlayerTribe;
+			var string sClass = pxO^.GetClassName();
+			var string sType = pxO^.GetType().AsString();
 			var string sObjTribe=GetObjTribe(pxO);
-			var bool bWorker=false;
-			if(pxO^.GetType()=="CHTR" && (pxO^.GetClassName()=="aje_worker"||pxO^.GetClassName()=="hu_worker"||pxO^.GetClassName()=="ninigi_worker"||pxO^.GetClassName()=="seas_worker") && (p_rasCategory.FindEntry(GetMenuFromTribe(pxO))>=0||p_rasCategory.FindEntry("TRAP")>=0))then
-				bWorker=true;
-				sTribe=sObjTribe;
-				sClass=sTribe;
-				sClass+="_worker";
-				sClass.MakeLower();
-			endif;
-			
-//			if(pxO^.GetType()=="CHTR"&&pxO^.GetClassName()!="ninigi_worker"&&(p_rasCategory.FindEntry("TRAP")>=0))then
-//				sTribe=sObjTribe;
-//				sClass=sTribe;
-//				sClass+="_worker";
-//				sClass.MakeLower();
-//			endif;
-			
-			//Henry: HACK!!! so that Trader Triplets can't build dustriders stuff...
-//			if(pxO^.GetType()=="CHTR" && sTribe=="Aje" && pxO^.GetClassName()!="aje_worker" && (sClass!="Barry_s0"&&sClass!="Harry_s0"&&sClass!="Larry_s0") && (p_rasCategory.FindEntry("BUIL")>=0))then
-			if(pxO^.GetType()=="CHTR" && (sTribe=="Aje"||sObjTribe=="Aje") && (pxO^.GetClassName()!="aje_worker" && pxO^.GetClassName()!="hu_worker" && pxO^.GetClassName()!="ninigi_worker" && pxO^.GetClassName()!="seas_worker") && (sClass!="Barry_s0"&&sClass!="Harry_s0"&&sClass!="Larry_s0"&&sClass!="tesla_s0") && (p_rasCategory.FindEntry(GetMenuFromTribe(pxO))>=0))then
-				if(sTribe=="Aje")then
-					sClass=sTribe;
-				else
-					sClass=sObjTribe;
-				endif;
-				sClass+="_worker";
-				sClass.MakeLower();
-			endif;
-			// ENDHACK ...
-			
-			var bool bTesla=false;
-			// HACK!!! tesla can build stuff too ...
-			if(sClass=="tesla_s0"&&(p_rasCategory.FindEntry(GetMenuFromTribe(pxO))>=0||p_rasCategory.FindEntry("TRAP")>=0))then
-				bTesla = true;
-				sTribe=sRealTribe;
-				sClass=sTribe;
-				//KLog.LogSpam("Kr1s1m", "line 3719, tesla_s0: sTribe = "+sTribe);
-				//KLog.LogSpam("Kr1s1m", "line 3720, tesla_s0: sClass = "+sClass);
-				sClass+="_worker";
-				sClass.MakeLower();
-			endif;
-			// ENDHACK ...
+			var bool bStances=p_rasCategory.FindEntry("STNC")>=0;
 
-//			// HACK!!! for suced dr infantry...
-//			if(pxO^.GetType()=="CHTR" && sClass.Find("aje_")!=-1 && sClass!=("aje_worker") && p_rasCategory.FindEntry("BUIL")>=0)then
-//				sClass=sObjTribe;
-//				sClass+="_worker";
-//				sClass.MakeLower();
-//			endif;
-//			// ENDHACK ...
-			var bool bTrader = false;
-			//Henry: HACK!!! trader can build something ... ;)
-			if((sClass=="Barry_s0"||sClass=="Harry_s0"||sClass=="Larry_s0")&&(p_rasCategory.FindEntry(GetMenuFromTribe(pxO))>=0))then
-				bTrader = true;
-				sTribe=sRealTribe;
-				sClass=sTribe;
-				sClass+="_trader";
-				sClass.MakeLower();
+			if((sObjTribe == "Special"))then
+				var ^CLevelInfoClient pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+				if(pxLevelInfo!=null)then
+					var ^CLevelInfo.CPlayerSlot pxRealOwnerSlot=pxLevelInfo^.GetOwnerPlayerSlot(pxO^.GetOwner());
+					if(pxRealOwnerSlot!=null)then
+						sObjTribe = pxRealOwnerSlot^.GetTribe();
+					endif;
+				endif;
 			endif;
-			// ENDHACK ...
-			//HACK!!! illusion does not have any special moves
+			
+			var bool bHaveTribeBuildMenu = p_rasCategory.FindEntry(GetMenuFromTribe(sObjTribe))>=0;
+			var bool bHaveTrapsBuildMenu = p_rasCategory.FindEntry("TRAP")>=0;
+			
+			if(sClass == "aje_torpedo_turtle")then continue; endif;
+			if(sClass == "mrg_sprt")then continue; endif;
+
+			if(sType=="CHTR" && sObjTribe=="Aje" && bHaveTribeBuildMenu)then
+				sClass=sObjTribe;
+				sClass+="_worker";
+			endif;
+			
+			if(sClass=="tesla_s0" && (bHaveTribeBuildMenu || bHaveTrapsBuildMenu))then
+				sClass=sObjTribe;
+				sClass+="_worker";
+			endif;
+
 			var ^CAttribs pxAttr=pxO^.GetAttribs();
 			if(p_rasCategory.FindEntry("SPEC")>=0 && pxAttr!=null && pxAttr^.GetValueBool("illusion"))then
 				continue;
 			endif;
-			// ENDHACK ...
 			
 			//Kr1s1m: If TT-Stealing is off and obj has a foreign build menu bHideBUIL flag becomes raised
 			var bool bHideBUIL = false;
-			if(!CMirageClnMgr.Get().CheckTechtreeSteal() && sRealTribe!=sObjTribe)then
-				var bool bAjeCHTR = pxO^.GetType()=="CHTR" && sClass.Find("aje_")!=-1 && p_rasCategory.FindEntry(GetMenuFromTribe(pxO))>=0;
-				if(bAjeCHTR || bWorker)then
+			if(!CMirageClnMgr.Get().CheckTechtreeSteal())then
+				if(sObjTribe != sOwnTribe)then
 					bHideBUIL = true;
-					sClass=sObjTribe;
-					sClass+="_worker";
-					sClass.MakeLower();
 				endif;
 			endif;
 			
+			xTT=pxO^.GetTechTree();
 			var array string asJupp;
+			sClass.MakeLower();
 			asJupp.AddEntry(sClass);
 			asJupp.AddEntry(sType);
 			var int iA, iAC=2;
@@ -3862,7 +3850,6 @@ class CCommandBar inherit CWindow
 				var string sTribe=GetObjTribe(pxO);
 				var int iAction, iNumActions=pxLocation^.m_axActions.NumEntries();
 				for(iAction=0)cond(iAction<iNumActions)iter(++iAction)do
-					if(bHideBUIL)then continue; endif; //Kr1s1m: if the bHideBUIL flag was raised, skip filling the BUIL action menu
 					var ^CTTHelper.CActionPath pxActionInfo=^(pxLocation^.m_axActions[iAction]);
 					if(p_pasNodes!=null && p_pasNodes^.FindEntry(pxActionInfo^.m_sPath)>=0)then continue; endif;
 					if(p_rasCategory.FindEntry(pxActionInfo^.m_sCategory)<0)then continue; endif;
@@ -3943,6 +3930,10 @@ class CCommandBar inherit CWindow
 					var ^CTechTree.CNode pxUIPos=pxLocNode^.GetSub("uiposition");
 					if(pxUIPos!=null)then
 						var string sCat=pxUIPos^.GetSubValue("cat","");
+						//Kr1s1m: if the bHideBUIL flag was raised, skip filling the BUIL action menu
+						if(bHideBUIL)then
+							if(sCat == "BLDH" || sCat == "BLDA" || sCat == "BLDN" || sCat == "BLDS" || sCat == "TRAP")then continue; endif;
+						endif;
 						if(p_rasCategory.FindEntry(sCat)<0)then continue; endif;
 					endif;
 					var ^CTechTree.CNode pxLocalFlags=pxLocNode^.GetSub("localflags");
