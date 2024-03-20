@@ -6,12 +6,15 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Xml;
+using System.Xml.Linq;
 
 namespace MIRAGE_Launcher.ViewModel
 {
@@ -23,6 +26,7 @@ namespace MIRAGE_Launcher.ViewModel
         public static string _paraworldBinDir = _paraworldDir + "/bin";
         public static string[] _pwProcesses = { "Paraworld", "PWClient", "PWServer" };
         public static string _toolsDir = _paraworldDir + "/Tools";
+        public static string _currLang = "";
 
         public CLauncherViewModel()
         {
@@ -129,8 +133,9 @@ namespace MIRAGE_Launcher.ViewModel
         {
             LangCollection.Clear();
 
-            string currLang = CCfgEditor.GetS("Root/Global/Language");
-            if (String.IsNullOrEmpty(currLang))
+            _currLang = CCfgEditor.GetS("Root/Global/Language");
+
+            if (String.IsNullOrEmpty(_currLang))
             {
                 LangCollection.Add(new LangInfo() { FullName = null, LangID = "uk" });
                 SelectedLang = LangCollection.FirstOrDefault(i => i.LangID == "uk");
@@ -142,16 +147,16 @@ namespace MIRAGE_Launcher.ViewModel
             {
                 LangCollection.Add(new LangInfo() { FullName = langs[i].ToUpper(), LangID = langs[i] });
             }
-            if (!langs.Contains(currLang))
+            if (!langs.Contains(_currLang))
             {
-                string error = currLang.Length != 2 ? $"Root/Global/Language \"{currLang}\" must be 2 characters long." : $"Localization \"{currLang}\" not supported or not found.";
+                string error = _currLang.Length != 2 ? $"Root/Global/Language \"{_currLang}\" must be 2 characters long." : $"Localization \"{_currLang}\" not supported or not found.";
                 MessageBox.Show(error + "Language set to uk. See Settings.cfg", null, MessageBoxButton.OK, MessageBoxImage.Warning);
                 LangCollection.Clear();
                 LangCollection.Add(new LangInfo() { FullName = null, LangID = "uk" });
                 SelectedLang = LangCollection.FirstOrDefault(i => i.LangID == "uk");
                 return;
             }
-            SelectedLang = LangCollection.FirstOrDefault(i => i.LangID == currLang);
+            SelectedLang = LangCollection.FirstOrDefault(i => i.LangID == _currLang);
         }
 
 
@@ -229,13 +234,16 @@ namespace MIRAGE_Launcher.ViewModel
                 return false;
             }
 
-            CLauncher.ClearCache();
+            if (!CLauncher.CheckVideoLocale())
+            {
+                MessageBox.Show($"You have selected a {_currLang} localization, but it does not have translated videos", null, MessageBoxButton.OK, MessageBoxImage.Error);
+            }
 
+            CLauncher.ClearCache();
             if (MusicPlaying)
             {
                 ToggleMusic();
             }
-
             Directory.SetCurrentDirectory(_paraworldBinDir);
 
             return true;
@@ -281,7 +289,11 @@ namespace MIRAGE_Launcher.ViewModel
                 LoadDB();
                 value.FullName = (value.FullName != null ? CurrentLangText : "Locale not found: ") + value.LangID.ToUpper();
                 LangCollection = UpdatedLangCollection(value.LangID);
-                CCfgEditor.SetS("Root/Global/Language " + value.LangID);
+
+                if (CCfgEditor.SetS("Root/Global/Language " + value.LangID))
+                {
+                    _currLang = value.LangID;
+                }
             }
         }
 

@@ -413,7 +413,7 @@ namespace MIRAGE_Launcher.ViewModels
             return result;
         }
 
-        private static void ProcessFile(string path)
+        private static void HealthCheckFile(string path)
         {
             try
             {
@@ -454,7 +454,7 @@ namespace MIRAGE_Launcher.ViewModels
             string[] fileEntries = Directory.GetFiles(targetDirectory);
             foreach (string fileName in fileEntries)
             {
-                ProcessFile(Path.GetFullPath(fileName));
+                HealthCheckFile(Path.GetFullPath(fileName));
             }
             
             string[] subdirectoryEntries = Directory.GetDirectories(targetDirectory);
@@ -487,6 +487,49 @@ namespace MIRAGE_Launcher.ViewModels
             {
                 MessageBox.Show($"PWHealthCheck failed", null, MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        public static bool CheckVideoLocale()
+        {
+            string currLangVideoFolder = Path.Combine(CLauncherViewModel._paraworldDir, "Data", "Locale", CLauncherViewModel._currLang, "Video");
+            if (!Directory.Exists(currLangVideoFolder))
+            {
+                return false;
+            }
+
+            string[] BaseGameVideo = {  "1000",
+                                        "1000a",
+                                        "1010",
+                                        "1090",
+                                        "1120",
+                                        "2005",
+                                        "2020",
+                                        "2045",
+                                        "2046", //not included yet
+                                        "2090",
+                                        "2560",
+                                        "2580",
+                                        "3010",
+                                        "3040",
+                                        "4010",
+                                        "4015",
+                                        "6020",
+                                        "7020",
+                                        "7026",
+                                        "7060",
+                                        "7060b",
+                                        "8090_2" };
+
+            foreach (string videoName in BaseGameVideo)
+            {
+                string file = Path.Combine(currLangVideoFolder, "hs_" + videoName + ".bik");
+                if (File.Exists(file))
+                {
+                   continue;
+                }
+                else return false;
+            }
+            return true;
         }
     }
 }
