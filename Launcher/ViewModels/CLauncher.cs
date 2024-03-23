@@ -449,7 +449,7 @@ namespace MIRAGE_Launcher.ViewModels
             }
         }
 
-        private static void ProcessDirectory(string targetDirectory)
+        private static void HealthCheckDirectory(string targetDirectory)
         {
             string[] fileEntries = Directory.GetFiles(targetDirectory);
             foreach (string fileName in fileEntries)
@@ -460,7 +460,7 @@ namespace MIRAGE_Launcher.ViewModels
             string[] subdirectoryEntries = Directory.GetDirectories(targetDirectory);
             foreach (string subdirectory in subdirectoryEntries)
             {
-                ProcessDirectory(subdirectory);
+                HealthCheckDirectory(subdirectory);
             }
         }
 
@@ -479,7 +479,7 @@ namespace MIRAGE_Launcher.ViewModels
                     outputFile.WriteLine("\nTages drivers check:");
                     outputFile.WriteLine(IsTagesInstalled());
                 }
-                ProcessDirectory(CLauncherViewModel._paraworldDir);
+                HealthCheckDirectory(CLauncherViewModel._paraworldDir);
 
                 MessageBox.Show(outputPath + " created", "PWHealthCheck", MessageBoxButton.OK, MessageBoxImage.Information);
             }
@@ -489,9 +489,9 @@ namespace MIRAGE_Launcher.ViewModels
             }
         }
 
-        public static bool CheckVideoLocale()
+        public static bool CheckVideoLocale(string currLang)
         {
-            string currLangVideoFolder = Path.Combine(CLauncherViewModel._paraworldDir, "Data", "Locale", CLauncherViewModel._currLang, "Video");
+            string currLangVideoFolder = Path.Combine(CLauncherViewModel._paraworldDir, "Data", "Locale", currLang, "Video");
             if (!Directory.Exists(currLangVideoFolder))
             {
                 return false;
@@ -530,6 +530,20 @@ namespace MIRAGE_Launcher.ViewModels
                 else return false;
             }
             return true;
+        }
+        public static bool[] GetVideoLocale()
+        {
+            int supportedLangsNum = CLauncherViewModel._supportedLangs.Length;
+            bool[] locales = new bool[supportedLangsNum];
+
+            for (int langId = 0; langId < supportedLangsNum; langId++)
+            {
+                if (CheckVideoLocale(CLauncherViewModel._supportedLangs[langId]))
+                {
+                    locales[langId] = true;
+                }
+            }
+            return locales;
         }
     }
 }
