@@ -131,7 +131,6 @@ namespace MIRAGE_Launcher.ViewModel
             LangCollection.Clear();
 
             _currLang = CCfgEditor.GetS("Root/Global/Language");
-
             if (String.IsNullOrEmpty(_currLang))
             {
                 LangCollection.Add(new LangInfo() { FullName = null, LangID = "uk" });
@@ -231,16 +230,18 @@ namespace MIRAGE_Launcher.ViewModel
                 return false;
             }
 
-            if (!CLauncher.CheckVideoLocale())
+            if (!CLauncher.CheckVideoLocale(_currLang))
             {
                 MessageBox.Show($"You have selected a {_currLang} localization, but it does not have translated videos", null, MessageBoxButton.OK, MessageBoxImage.Error);
             }
 
             CLauncher.ClearCache();
+
             if (MusicPlaying)
             {
                 ToggleMusic();
             }
+
             Directory.SetCurrentDirectory(_paraworldBinDir);
 
             return true;
@@ -282,14 +283,17 @@ namespace MIRAGE_Launcher.ViewModel
                 if (_selectedLang == value)
                     return;
 
-                _selectedLang = value;
-                LoadDB();
-                value.FullName = (value.FullName != null ? CurrentLangText : "Locale not found: ") + value.LangID.ToUpper();
-                LangCollection = UpdatedLangCollection(value.LangID);
-
                 if (CCfgEditor.SetS("Root/Global/Language " + value.LangID))
                 {
+                    _selectedLang = value;
+                    LoadDB();
+                    value.FullName = (value.FullName != null ? CurrentLangText : "Locale not found: ") + value.LangID.ToUpper();
+                    LangCollection = UpdatedLangCollection(value.LangID);
                     _currLang = value.LangID;
+                }
+                else
+                {
+                    MessageBox.Show($"Failed to update locale in Settings.cfg", null, MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
@@ -685,20 +689,20 @@ namespace MIRAGE_Launcher.ViewModel
 
         static readonly XmlDocument _launcherDB = new XmlDocument();
 
-        static string LauncherDBPath = null;
-        public static string[] supportedLangs = { "uk", "us", "de", "es", "fr", "hu", "it", "pl", "ru", "zh", "cz" };  //TODO get supportedLangs from the LauncherDB.xml
-        static string langCurrentOrUk = "uk";
+        static string _launcherDBPath = null;
+        public static string[] _supportedLangs = { "uk", "us", "de", "es", "fr", "hu", "it", "pl", "ru", "zh", "cz" };  //TODO get supportedLangs from the LauncherDB.xml
+        static string _langCurrentOrUk = "uk";
 
         private void LoadDB()
         {
-            if (CLauncher.FileFound(_toolsDir, "MIRAGE Launcher/LauncherDB.xml", ref LauncherDBPath))
+            if (CLauncher.FileFound(_toolsDir, "MIRAGE Launcher/LauncherDB.xml", ref _launcherDBPath))
             {
-                _launcherDB.Load(LauncherDBPath);
+                _launcherDB.Load(_launcherDBPath);
                 string ModVersion = GetS("ModVersion");
                 string LatestVersionURL = GetS("VersionURL");
-                if (supportedLangs.Contains(SelectedLang.LangID))
+                if (_supportedLangs.Contains(SelectedLang.LangID))
                 {
-                    langCurrentOrUk = SelectedLang.LangID;
+                    _langCurrentOrUk = SelectedLang.LangID;
                 }
 
                 Task taskVersionCheck = new Task(() => CheckMirageVersion(ModVersion, LatestVersionURL));
@@ -748,13 +752,13 @@ namespace MIRAGE_Launcher.ViewModel
         {
             _launcherDB.DocumentElement.SelectSingleNode("/LauncherDB/Misc/" + name).InnerText = value;
 
-            if (String.IsNullOrEmpty(LauncherDBPath))
+            if (String.IsNullOrEmpty(_launcherDBPath))
             {
                 MessageBox.Show($"SetS to LauncherDB.xml failed - no LauncherDB.xml found");
             }
             else
             {
-                _launcherDB.Save(LauncherDBPath);
+                _launcherDB.Save(_launcherDBPath);
             }
         }
 
@@ -771,7 +775,7 @@ namespace MIRAGE_Launcher.ViewModel
 
         private static string TranslateS(string text)
         {
-            return _launcherDB.DocumentElement.SelectSingleNode("/LauncherDB/Locale/" + langCurrentOrUk + "/" + text).InnerText;
+            return _launcherDB.DocumentElement.SelectSingleNode("/LauncherDB/Locale/" + _langCurrentOrUk + "/" + text).InnerText;
         }
 
         public void CheckMirageVersion(string version, string latestVersionURL)
