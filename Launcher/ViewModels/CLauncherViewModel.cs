@@ -129,29 +129,33 @@ namespace MIRAGE_Launcher.ViewModel
         private void LoadLang()
         {
             LangCollection.Clear();
+            LangCollection.Add(new LangInfo() { FullName = null, LangID = "uk" });
 
             _currLang = CCfgEditor.GetS("Root/Global/Language");
             if (String.IsNullOrEmpty(_currLang))
             {
-                LangCollection.Add(new LangInfo() { FullName = null, LangID = "uk" });
-                SelectedLang = LangCollection.FirstOrDefault(i => i.LangID == "uk");
-                return;
+                MessageBox.Show("Failed to get language from Settings.cfg. Language set to uk", null, MessageBoxButton.OK, MessageBoxImage.Warning);
+                _currLang = "uk";
             }
+
             string[] langs = Directory.GetDirectories(_paraworldDir + "/Data/MIRAGE/Locale").Select(Path.GetFileName).ToArray();
+
+            if (!langs.Contains(_currLang))
+            {
+                string error = _currLang.Length != 2 ? $"Root/Global/Language \"{_currLang}\" must be 2 characters long. " : $"Localization \"{_currLang}\" not supported or not found. ";
+                MessageBox.Show(error + "Language set to uk. See Settings.cfg", null, MessageBoxButton.OK, MessageBoxImage.Warning);
+                _currLang = "uk";
+            }
 
             for (int i = 0; i < langs.Length; i++)
             {
+                if (langs[i] == "uk")
+                {
+                    continue;
+                }
                 LangCollection.Add(new LangInfo() { FullName = langs[i].ToUpper(), LangID = langs[i] });
             }
-            if (!langs.Contains(_currLang))
-            {
-                string error = _currLang.Length != 2 ? $"Root/Global/Language \"{_currLang}\" must be 2 characters long." : $"Localization \"{_currLang}\" not supported or not found.";
-                MessageBox.Show(error + "Language set to uk. See Settings.cfg", null, MessageBoxButton.OK, MessageBoxImage.Warning);
-                LangCollection.Clear();
-                LangCollection.Add(new LangInfo() { FullName = null, LangID = "uk" });
-                SelectedLang = LangCollection.FirstOrDefault(i => i.LangID == "uk");
-                return;
-            }
+
             SelectedLang = LangCollection.FirstOrDefault(i => i.LangID == _currLang);
         }
 
