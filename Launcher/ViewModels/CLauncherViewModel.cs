@@ -51,7 +51,7 @@ namespace MIRAGE_Launcher.ViewModel
             OpenUpdatePageCmd = new CCommand(OnOpenUpdatePageCmd, OpenUpdatePageCmdEnabled);
             OpenModdbCmd = new CCommand(OnOpenModdbCmd, OpenModdbCmdEnabled);
             OpenDiscordCmd = new CCommand(OnOpenDiscordCmd, OpenDiscordCmdEnabled);
-            OpenPatreonCmd = new CCommand(OnOpenPatreonCmd, OpenPatreonCmdEnabled);
+            OpenGitCmd = new CCommand(OnOpenGitCmd, OpenGitCmdEnabled);
 
             #endregion
 
@@ -158,7 +158,6 @@ namespace MIRAGE_Launcher.ViewModel
 
             SelectedLang = LangCollection.FirstOrDefault(i => i.LangID == _currLang);
         }
-
 
         private void LoadUI()
         {
@@ -678,12 +677,11 @@ namespace MIRAGE_Launcher.ViewModel
             Process.Start("https://discord.com/invite/uPT3T39Epc");
         }
 
-        public ICommand OpenPatreonCmd { get; }
-        private bool OpenPatreonCmdEnabled(object p) => true;
-        private void OnOpenPatreonCmd(object p)
+        public ICommand OpenGitCmd { get; }
+        private bool OpenGitCmdEnabled(object p) => true;
+        private void OnOpenGitCmd(object p)
         {
-            MessageBox.Show("WIP =P", "WIP", MessageBoxButton.OK, MessageBoxImage.Information);
-            //Process.Start("https://www.patreon.com/parawelt");
+            Process.Start("https://github.com/Tatsukio/MIRAGE");
         }
 
         #endregion
