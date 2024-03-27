@@ -24,6 +24,7 @@ General:
 - Fixed syntax errors in russain language tooltips
 - Various fixes in the options menu
 - Wild animals will play selection sounds when selected
+- Neutral buildings and resources will play selection sounds when selected
 
 Maps:
 
