@@ -2276,45 +2276,46 @@ endclass;
 
 class CSelectionInfo
 
-	export const bitset WORKER							= 001h;
-	export const bitset ANML								= 002h;
-	export const bitset VHCL								= 004h;
-	export const bitset SHIP								= 008h;
-	export const bitset BLDG								= 010h;
-	export const bitset CHTR								= 020h;
+	export const bitset WORKER						= 001h;
+	export const bitset ANML						= 002h;
+	export const bitset VHCL						= 004h;
+	export const bitset SHIP						= 008h;
+	export const bitset BLDG						= 010h;
+	export const bitset CHTR						= 020h;
 	export const bitset CAN_HARVEST					= 040h;
-	export const bitset CAN_FISH						= 080h;
-	export const bitset CAN_HARVEST_FOOD		= 0100h;
-	export const bitset CAN_HARVEST_WOOD		= 0200h;
-	export const bitset CAN_HARVEST_STONE		= 0400h;
+	export const bitset CAN_FISH					= 080h;
+	export const bitset CAN_HARVEST_FOOD			= 0100h;
+	export const bitset CAN_HARVEST_WOOD			= 0200h;
+	export const bitset CAN_HARVEST_STONE			= 0400h;
 	export const bitset AREA_WEAPON					= 0800h;
-	export const bitset TRADE								= 01000h;
+	export const bitset TRADE						= 01000h;
 	export const bitset CAN_ATTACK					= 02000h;
-	export const bitset CAN_HEAL						= 04000h;
-	export const bitset CAN_MOVE						= 08000h;
-	export const bitset CAN_BUILD						= 010000h;
+	export const bitset CAN_HEAL					= 04000h;
+	export const bitset CAN_MOVE					= 08000h;
+	export const bitset CAN_BUILD					= 010000h;
 	//Henry: addition to animal eating, etc
-	export const bitset EAT_PLANT						= 020000h;
-	export const bitset EAT_MEAT						= 040000h;
-	export const bitset CAN_DOCK						= 080000h;
+	export const bitset EAT_PLANT					= 020000h;
+	export const bitset EAT_MEAT					= 040000h;
+	export const bitset CAN_DOCK					= 080000h;
 	export const bitset IS_DOCKING					= 0100000h;
 	export const bitset ALLY_SPIRITS				= 0200000h;
 	export const bitset ENEMY_SPIRITS				= 0400000h;
+	export const bitset HAS_OWN_UNITS				= 0800000h;
 
 	var bitset m_dwFlags;
 
-	export var array string	m_asClasses;
-	export var string				m_sFocus;
-	export var real					m_fAreaRange;
-	export var real					m_fMinRange;
-	export var real					m_fMaxRange;
-	export var real					m_fMinRangeM;
-	export var real					m_fMaxRangeM;
-	export var real					m_fMinRangeS;
-	export var real					m_fMaxRangeS;
+	export var array string		m_asClasses;
+	export var string			m_sFocus;
+	export var real				m_fAreaRange;
+	export var real				m_fMinRange;
+	export var real				m_fMaxRange;
+	export var real				m_fMinRangeM;
+	export var real				m_fMaxRangeM;
+	export var real				m_fMinRangeS;
+	export var real				m_fMaxRangeS;
 	export var CClntHndl		m_xMaxRangeObj;
-	export var int					m_iMinTransportClass;
-	export var int					m_iMaxTransportClass;
+	export var int				m_iMinTransportClass;
+	export var int				m_iMaxTransportClass;
 	export var CObjList			m_xTraderList;
 	export var CObjList			m_xHealerList;
 	export var CObjList			m_xSiegeUnits;
@@ -2364,35 +2365,46 @@ class CSelectionInfo
 		m_xSiegeUnits=0;
 		m_xDockingUnits=0;
 		m_aiPassengers=0;
-		var CFourCC xT;
+		var bool bAllyCommands = CMirageClnMgr.Get().CheckAlienCommands();	
+		var int iPlayerId = CGameWrap.GetClient().GetPlayerID();
 		var int i, iC=p_pxSel^.NumEntries();
 		for(i=0) cond(i<iC) iter(++i) do
 			var CClntHndl xHndl=p_pxSel^[i];
 			if(xHndl.IsValid())then
 				var ^CObj pxO=xHndl.GetObj();
+				var CFourCC xT = pxO^.GetType();
+				var int iOwner = pxO^.GetOwner();
+				var int iMyOpinion = CGameWrap.GetDiplomacyMgr().GetMyOpinion(iOwner);
+				var int iTheirOpinion = CGameWrap.GetDiplomacyMgr().GetTheirOpinion(iOwner);
+				var string sClass = pxO^.GetClassName();
+				var CTechTree xTT=pxO^.GetTechTree();
+				var ^CAttribs pxA=pxO^.GetAttribs();
 				if((m_dwFlags&ALLY_SPIRITS)==0b)then
-					if(pxO^.GetType()=="SPRT"||pxO^.GetType()=="NMST")then
+					if(xT=="SPRT"||xT=="NMST")then
 						m_dwFlags|=ALLY_SPIRITS;
 					endif;
 				endif;
-				if(pxO^.GetOwner()!=CGameWrap.GetClient().GetPlayerID())then
+				if(iOwner != iPlayerId)then
 					if((m_dwFlags&ENEMY_SPIRITS)==0b)then
-						if(pxO^.GetType()=="NMST"&& (CGameWrap.GetDiplomacyMgr().GetMyOpinion(pxO^.GetOwner())!=2 || CGameWrap.GetDiplomacyMgr().GetTheirOpinion(pxO^.GetOwner())!=2))then
+						if(xT=="NMST"&& (iMyOpinion != 2 || iTheirOpinion != 2))then
 							m_dwFlags|=ENEMY_SPIRITS;
 						endif;
 					endif;
-					continue;
+					if(iMyOpinion == 0 || iTheirOpinion == 0 || bAllyCommands == false)then
+						//Skip enemy units and ally units (if AllyCommands disabled)
+						continue;
+					endif;
+				else
+					m_dwFlags|=HAS_OWN_UNITS;
 				endif;
-				m_asClasses.AddEntry(pxO^.GetClassName());
+				m_asClasses.AddEntry(sClass);
 				if(m_sFocus.IsEmpty())then
-					m_sFocus=pxO^.GetClassName();
+					m_sFocus=sClass;
 				endif;
-//				var string sClass=pxO^.GetClassName();
-				xT=pxO^.GetType();
 				if(xT=="CHTR")then
 					m_dwFlags |= CHTR;
 					if((m_dwFlags&WORKER)==0b)then
-						if(pxO^.GetClassName().Find("worker")>=0||pxO^.GetClassName().Find("tesla_s0")!=-1||pxO^.GetClassName().Find("arry_s0")!=-1)then
+						if(sClass.Find("worker")>=0||sClass.Find("tesla_s0")!=-1||sClass.Find("arry_s0")!=-1)then
 							m_dwFlags|=WORKER;
 						endif;
 					endif;
@@ -2407,7 +2419,6 @@ class CSelectionInfo
 					m_dwFlags |= SHIP;
 					m_dwFlags |= CAN_MOVE;
 					if((m_dwFlags&CAN_FISH)==0b)then
-						var ^CAttribs pxA=pxO^.GetAttribs();
 						if(pxA!=null)then
 							if(pxA^.GetValueInt("fishingBoat")==1)then
 								m_dwFlags|=CAN_FISH;
@@ -2417,30 +2428,27 @@ class CSelectionInfo
 				elseif(xT=="BLDG")then
 					m_dwFlags |= BLDG;
 					if((m_dwFlags&CAN_FISH)==0b)then
-						var ^CAttribs pxA=pxO^.GetAttribs();
 						if(pxA!=null)then
 							//Henry: fix for seas carrier
-							if(pxO^.GetClassName().Find("floating_harbour")>=0||pxO^.GetClassName().Find("seas_carrier")!=-1)then
+							if(sClass.Find("floating_harbour")>=0||sClass.Find("seas_carrier")!=-1)then
 								m_dwFlags |= CAN_FISH;
 								m_dwFlags |= CAN_MOVE;
 							endif;
 							//Henry: HACK for seas scorpion, to have the walk button in the commandb
-							if(pxO^.GetClassName().Find("seas_final_boss")>=0)then
+							if(sClass.Find("seas_final_boss")>=0)then
 								m_dwFlags |= CAN_MOVE;
 							endif;
 						endif;
 					endif;
 				endif;
-				var CTechTree xTT=pxO^.GetTechTree();
-				var ^CAttribs pxA=pxO^.GetAttribs();
 				if(pxA!=null)then
 					if((m_dwFlags&ALLY_SPIRITS)==0b)then
-						if((pxO^.GetClassName()=="aje_shaman"||pxO^.GetClassName()=="Tarna_s0")&&pxA^.GetValueInt("level")>1)then
+						if((sClass=="aje_shaman"||sClass=="Tarna_s0")&&pxA^.GetValueInt("level")>1)then
 							m_dwFlags|=ALLY_SPIRITS;
 						endif;
 					endif;
 					if((m_dwFlags&ENEMY_SPIRITS)==0b)then
-						if(pxO^.GetClassName()=="Tarna_s0"&&pxA^.GetValueInt("level")>1)then
+						if(sClass=="Tarna_s0"&&pxA^.GetValueInt("level")>1)then
 							m_dwFlags|=ENEMY_SPIRITS;
 						endif;
 					endif;
