@@ -1004,7 +1004,7 @@ class CGameInputController inherit CInputController
 		var ^CAttribs pxAttr=p_pxObj^.GetAttribs();
 		if(pxAttr!=null)then
 			if(p_pxObj^.GetConstructLevel()<4)then
-				if(!CMirageClnMgr.Get().CheckAllyBuildup()&&(p_pxObj^.GetOwner()!=CGameWrap.GetClientID()))then
+				if(CGameInst.CanBeControlled(p_pxObj^.GetOwner())&&!CMirageClnMgr.Get().CheckAllyBuildup())then
 					bSkip = true;
 					sOrder="Dock";
 				else
@@ -1116,9 +1116,7 @@ class CGameInputController inherit CInputController
 				pxSubject=xSubject.GetObj();
 				if(pxSubject!=null)then
 					//disable for AlienCommands
-					var int iOwner = pxSubject^.GetOwner();
-					var int iDiploStatus = CGameWrap.GetDiplomacyMgr().GetTheirOpinion(iOwner);
-					if(iOwner==CGameWrap.GetClient().GetPlayer().GetID() || (CMirageClnMgr.Get().CheckAlienCommands() && iOwner != -1 && iDiploStatus==2))then
+					if(CGameInst.CanBeControlled(pxSubject^.GetOwner()))then
 						xOwner.AddEntry(xSubject);
 						bOwn=true;
 					else
@@ -1208,16 +1206,17 @@ class CGameInputController inherit CInputController
 			if(pxA==null)then
 				return "";
 			endif;
-			var string sHitClass=pxHitObj^.GetClassName();
-			var int iHitOwner=pxHitObj^.GetOwner();
-			var bool bSkip = (iHitOwner!=CGameWrap.GetClientID())&&!CMirageClnMgr.Get().CheckAllyBuildup();
+			var string sHitClass = pxHitObj^.GetClassName();
+			var int iHitOwner = pxHitObj^.GetOwner();
+			var bool bCanBeControlled = CGameInst.CanBeControlled(iHitOwner);
+			var bool bSkip = bCanBeControlled&&!CMirageClnMgr.Get().CheckAllyBuildup();
 			var bool bNinjaSkip = (p_rxSel.m_sFocus=="ninigi_ninja" && !IsItATrap(sHitClass));
 			if(xT=="QMRK")then
 				return "";
 			endif;
 			//Henry: to give selected infantry a different cursor, if the hovered object is a sieging unit in siege task
 //			if(CGameWrap.GetDiplomacyMgr().GetMyOpinion(iHitOwner)==2&&pxA^.GetValueInt("IsSiegeUnit")==1&&pxA^.GetValueInt("IsDockingWall")==1)then
-			if(CGameWrap.GetDiplomacyMgr().GetMyOpinion(iHitOwner)==2&&pxA^.GetValueInt("IsSiegeUnit")==1&&pxA^.GetValueInt("IsDockingWall")==1)then
+			if(bCanBeControlled&&pxA^.GetValueInt("IsSiegeUnit")==1&&pxA^.GetValueInt("IsDockingWall")==1)then
 				if(p_rxSel.Has(CSelectionInfo.CHTR))then
 					if(sHitClass=="aje_brachiosaurus")then
 						return "climb_brachio";
@@ -1253,7 +1252,7 @@ class CGameInputController inherit CInputController
 				endif;
 			endif;
 			//Henry: gives selected workers different cursor when hovering the seas well, depending on the wells state (if its builded up or not)
-			if(CGameWrap.GetDiplomacyMgr().GetMyOpinion(iHitOwner)==2&&CGameWrap.GetDiplomacyMgr().GetTheirOpinion(iHitOwner)==2&&sHitClass=="seas_outpouring")then
+			if(bCanBeControlled&&sHitClass=="seas_outpouring")then
 				if(pxHitObj^.GetConstructLevel()<4)then
 					if(p_rxSel.Has(CSelectionInfo.CAN_BUILD)&&!bSkip)then
 						if(bNinjaSkip)then return ""; endif;
@@ -1411,7 +1410,7 @@ class CGameInputController inherit CInputController
 						if(!bAllyBoarding)then
 							var ^CDiplomacyClnMgr pxDiplMgr = ^(CGameWrap.GetDiplomacyMgr());
 							if(pxDiplMgr!=null)then
-								if(CGameInputController.ms_bAllyBoarding&&CMirageClnMgr.Get().DiploLocked()&&pxDiplMgr^.GetMyOpinion(iHitOwner)==2&&pxDiplMgr^.GetTheirOpinion(iHitOwner)==2)then
+								if(CGameInputController.ms_bAllyBoarding&&CMirageClnMgr.Get().DiploLocked()&&bCanBeControlled)then
 									bAllyBoarding=true;
 								endif;
 							endif;
@@ -1974,9 +1973,7 @@ class CGameInputController inherit CInputController
 						if(pxObj==null)then continue; endif;
 						//disable for AlienCommands
 						var int iOwner = pxObj^.GetOwner();
-						var int iDiploStatus = CGameWrap.GetDiplomacyMgr().GetTheirOpinion(iOwner);
-						if(bHasOwnOwner && iOwner!=iOwnOwner || (CMirageClnMgr.Get().CheckAlienCommands() && (iDiploStatus==2 || iOwner==-1)))then continue; endif;
-						
+						if(!CGameInst.CanBeControlled(iOwner))then continue; endif;
 						if(bHasUnits)then
 							//Henry: fix for seas carrier
 							if(pxObj^.GetType()=="CHTR" || pxObj^.GetType()=="ANML" || pxObj^.GetType()=="VHCL" || pxObj^.GetType()=="SHIP" || pxObj^.GetClassName()=="aje_floating_harbour" || pxObj^.GetClassName()=="seas_carrier")then
@@ -2365,7 +2362,6 @@ class CSelectionInfo
 		m_xSiegeUnits=0;
 		m_xDockingUnits=0;
 		m_aiPassengers=0;
-		var bool bAllyCommands = CMirageClnMgr.Get().CheckAlienCommands();	
 		var int iPlayerId = CGameWrap.GetClient().GetPlayerID();
 		var int i, iC=p_pxSel^.NumEntries();
 		for(i=0) cond(i<iC) iter(++i) do
@@ -2390,7 +2386,7 @@ class CSelectionInfo
 							m_dwFlags|=ENEMY_SPIRITS;
 						endif;
 					endif;
-					if(iMyOpinion == 0 || iTheirOpinion == 0 || bAllyCommands == false)then
+					if(!CGameInst.CanBeControlled(iOwner))then
 						//Skip enemy units and ally units (if AllyCommands disabled)
 						continue;
 					endif;
