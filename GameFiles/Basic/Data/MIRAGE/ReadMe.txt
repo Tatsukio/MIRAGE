@@ -24,11 +24,13 @@ General:
 - Fixed syntax errors in russain language tooltips
 - Various fixes in the options menu
 - Wild animals will play selection sounds when selected
+- Neutral buildings and resources will play selection sounds when selected
 
 Maps:
 
 Campaign maps:
 - Amazon Warrior have female voiceover instead of male one from now on
+- Fixed floating buildings, units and incorrect camera's angles on mission 13 in three cutscenes
 
 Heroes:
 - Larry, Barry and Harry are affected by Dustriders Town Center Resource tool upgrades 1,2,3 and 4
