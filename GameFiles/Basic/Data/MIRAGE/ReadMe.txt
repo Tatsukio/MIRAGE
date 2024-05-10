@@ -57,6 +57,8 @@ SEAS:
 - Improved repair costs 0/500/300/0 and increases repair speed (double repair ticks like before)
 - Advanced tools costs 200/200/200/0 and increases build up speed (+25% build speed like before)
 - Improved repair and Advanced tools now properly both affect Taslow and display upgrade icons
+- Improved big cannon build sequnece. The base platform are not placed by default, it appears during construction process, as well as the rotator.
+- Fixed bug, where not fully built big cannon were playing destruction animation, if it was killed
 
 AI:
 
