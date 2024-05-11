@@ -59,7 +59,8 @@ SEAS:
 - Improved repair and Advanced tools now properly both affect Taslow and display upgrade icons
 - Improved big cannon build sequnece. The base platform are not placed by default, it appears during construction process, as well as the rotator.
 - Fixed bug, where not fully built big cannon were playing destruction animation, if it was killed
-
+- Added SEAS laboratory work animation, that plays when building produces unit or research upgrade
+- Restored SEAS laboratory crane, that was deleted long time ago
 AI:
 
 

@@ -11628,9 +11628,13 @@ endclass;
 
 class CSeasLaboratory inherit CRallyBuilding
 	
-	var bool					m_bEquipped;
+	var bool				m_bEquipped;
 	var CObjList			m_xAddons;
-	var array vec3		m_avAddonOffsets;
+	var array vec3			m_avAddonOffsets;
+	const string			FAKE_WORK_ANIM_NAME="build";
+	const string			FAKE_WORK_FINISHED_ANIM_NAME="none";
+	const real				FAKE_WORK_ANIM_TIMEOUT=6.0;
+	const int				FAKE_WORK_ANIM_TIMER_ID=724;
 	
 	constructor()
 		m_bEquipped=false;
@@ -11682,21 +11686,27 @@ class CSeasLaboratory inherit CRallyBuilding
 			m_bEquipped=true;
 			var CFourCC xLink="NOPE";
 			var ^CMirageDeco pxA;
-			//m_avAddonOffsets.AddEntry({-1.0,3.05,-0.3}); // ParaworldFan: chimney
-			//m_avAddonOffsets.AddEntry({5.17,2.28,3.34}); // ParaworldFan: chimney_steam
+			m_avAddonOffsets.AddEntry({-3.4,-7.0,11.51}); // ParaworldFan: chimney
+			m_avAddonOffsets.AddEntry({-3.4,-7.0,11.51}); // ParaworldFan: chimney_steam
+			m_avAddonOffsets.AddEntry({-9.2,-8.4,-0.4}); // ParaworldFan: crane pos
 			var int i, iC=m_avAddonOffsets.NumEntries();
 			for(i=0)cond(i<iC)iter(i++)do
 				pxA=cast<CMirageDeco>(CSrvWrap.GetObjMgr()^.CreateObj("seas_laboratory_misc_"+i.ToString(),GetOwner(),GetPos(),GetRotation()));
 				if(pxA!=null)then
 					m_xAddons.AddEntry(pxA^.GetHandle());
 					AddGroupedChildren(pxA^.GetGuid());
-					if(i==2)then
-						var vec3 vDir=pxA^.GetPos()-GetPos();
-						var Quat qRot;
-						qRot.FromXYDir(vDir.GetX(),vDir.GetY());
-						qRot.RotateZ(Math.Pi());
-						pxA^.SecRotAction(qRot,0.01);
+					var vec3 vDir=pxA^.GetPos()-GetPos();
+					var Quat qRot;
+					qRot.FromXYDir(vDir.GetX(),vDir.GetY());
+					if(i<2)then
+						qRot.RotateZ(-0.4538);
+						if(i==1)then
+							pxA^.SetVisible(false);
+						endif;
+					else
+						qRot.RotateZ(1.047);
 					endif;
+					pxA^.SecRotAction(qRot,0.01);
 					pxA^.LinkAction(GetHandle(),xLink,m_avAddonOffsets[i]);
 				endif;
 			endfor;
@@ -11740,71 +11750,114 @@ class CSeasLaboratory inherit CRallyBuilding
 
 	//////////////////////// WORK FAKE ANIMS ////////////////////////////////
 	export proc void OnWork()
-		DeleteTimer(WORK_ANIM_TIMER_ID);
-		CreateTimer(WORK_ANIM_TIMER_ID,CGameTimeSpan.OneSecond()*WORK_ANIM_TIMEOUT,false);
-		//KLog.LogWarn("CHP","OnWork:"+GetCurrentAnimName()+" "+HasAnim(WORK_ANIM_NAME).ToString());
-		if((GetCurrentAnimName()!=WORK_ANIM_NAME||GetCurrentAnimMode()!=3)&&HasAnim(WORK_ANIM_NAME))then
-			SetAnim(WORK_ANIM_NAME,3);
-//			SetVisible(true)	//set visible addon chimney_steam
-//			SetVisible(false)	//set invisible addon chimney
+		DeleteTimer(FAKE_WORK_ANIM_TIMER_ID);
+		CreateTimer(FAKE_WORK_ANIM_TIMER_ID,CGameTimeSpan.OneSecond()*FAKE_WORK_ANIM_TIMEOUT,false);
+		//KLog.LogWarn("ParaworldFan","OnWork:"+m_xAddons[2].GetObj()^.GetCurrentAnimName()+" "+HasAnim(FAKE_WORK_ANIM_NAME).ToString());
+		if(m_xAddons[0].GetObj()!=null && m_xAddons[1].GetObj()!=null && m_xAddons[2].GetObj()!=null)then
+			if((m_xAddons[2].GetObj()^.GetCurrentAnimName()!=FAKE_WORK_ANIM_NAME||m_xAddons[2].GetObj()^.GetCurrentAnimMode()!=3)&&m_xAddons[2].GetObj()^.HasAnim(FAKE_WORK_ANIM_NAME))then
+				m_xAddons[2].GetObj()^.SetAnim(FAKE_WORK_ANIM_NAME,3);
+				m_xAddons[1].GetObj()^.SetVisible(true);	//set visible addon chimney_steam
+				m_xAddons[0].GetObj()^.SetVisible(false);	//set invisible addon chimney
+				KLog.LogWarn("ParaworldFan","OnWork()");
+			endif;
 		endif;
 	endproc;
 	
 	export proc void OnWorkFinished()
-		if(HasAnim(WORK_FINISHED_ANIM_NAME_1))then
-			if(HasAction())then
-//				SetVisible(false)	//set invisible addon chimney_steam
-//				SetVisible(true)	//set visible addon chimney
+		if(m_xAddons[0].GetObj()!=null && m_xAddons[1].GetObj()!=null && m_xAddons[2].GetObj()!=null)then
+			if(m_xAddons[2].GetObj()^.HasAnim(FAKE_WORK_FINISHED_ANIM_NAME))then
+				if(HasAction())then
+					m_xAddons[2].GetObj()^.SetAnim(FAKE_WORK_FINISHED_ANIM_NAME,1);
+					m_xAddons[1].GetObj()^.SetVisible(false);	//set invisible addon chimney_steam
+					m_xAddons[0].GetObj()^.SetVisible(true);	//set visible addon chimney
+					KLog.LogWarn("ParaworldFan","OnWorkFinished(1)");
+				else
+/*					//m_xAddons[2].GetObj()^.AnimAction(FAKE_WORK_FINISHED_ANIM_NAME);	//for unknown reason resets the addon's position
+					m_xAddons[1].GetObj()^.SetVisible(false);	//set invisible addon chimney_steam
+					m_xAddons[0].GetObj()^.SetVisible(true);	//set visible addon chimney		*/
+					m_xAddons[2].GetObj()^.SetAnim("none",1);	//temporary added, until upper code will be fixed
+					KLog.LogWarn("ParaworldFan","OnWorkFinished(2)");	
+				endif;
 			else
-//				SetVisible(true)	//set visible addon chimney_steam
-//				SetVisible(false)	//set invisible addon chimney
+				SetIdleAnim();
+				KLog.LogWarn("ParaworldFan","OnWorkFinished(3)");
 			endif;
-		elseif(HasAnim(WORK_FINISHED_ANIM_NAME_2))then
-			if(HasAction())then
-//				SetVisible(false)	//set invisible addon chimney_steam
-//				SetVisible(true)	//set visible addon chimney
-			else
-//				SetVisible(true)	//set visible addon chimney_steam
-//				SetVisible(false)	//set invisible addon chimney
-			endif;
-		else
-			super.OnWorkFinished();
-//			SetIdleAnim();
 		endif;
 	endproc;
 
-/*?	
-	export proc void OnWorkFinishedSimple()
+
+	export proc void OnWorkFinishedSimple()	//being called up when building used with Tesla machine
 		SetIdleAnim();
+		KLog.LogWarn("ParaworldFan","OnWorkFinishedSimple()");
 	endproc;
-?*/
+
 	
 	export proc void StartWorkAnim()
-		DeleteTimer(WORK_ANIM_TIMER_ID);
-		CreateTimer(WORK_ANIM_TIMER_ID,CGameTimeSpan.OneSecond()*WORK_ANIM_TIMEOUT,false);
-		if(GetCurrentAnimName()!=WORK_ANIM_NAME&&HasAnim(WORK_ANIM_NAME))then
-			SetAnim(WORK_ANIM_NAME,3);
-//			SetVisible(true)	//set visible addon chimney_steam
-//			SetVisible(false)	//set invisible addon chimney
+		DeleteTimer(FAKE_WORK_ANIM_TIMER_ID);
+		CreateTimer(FAKE_WORK_ANIM_TIMER_ID,CGameTimeSpan.OneSecond()*FAKE_WORK_ANIM_TIMEOUT,false);
+		if(m_xAddons[0].GetObj()!=null && m_xAddons[1].GetObj()!=null && m_xAddons[2].GetObj()!=null)then
+			if(m_xAddons[2].GetObj()^.GetCurrentAnimName()!=FAKE_WORK_ANIM_NAME&&m_xAddons[2].GetObj()^.HasAnim(FAKE_WORK_ANIM_NAME))then
+				m_xAddons[2].GetObj()^.SetAnim(FAKE_WORK_ANIM_NAME,3);
+				m_xAddons[1].GetObj()^.SetVisible(true);	//set visible addon chimney_steam
+				m_xAddons[0].GetObj()^.SetVisible(false);	//set invisible addon chimney
+				KLog.LogWarn("ParaworldFan","StartWorkAnim()");
+			endif;
 		endif;
 	endproc;
-
-/*?	
-	export proc void DoWorkAnim()
-		if((GetCurrentAnimName()!=WORK_ANIM_NAME||GetCurrentAnimMode()!=3)&&HasAnim(WORK_ANIM_NAME))then
-			SetAnim(WORK_ANIM_NAME,3);
-//			SetVisible(true)	//set visible addon chimney_steam
-//			SetVisible(false)	//set invisible addon chimney
-		endif;
-	endproc;
-?*/
 	
 	export proc void StopWorkAnim()
-		if(GetCurrentAnimName()==WORK_ANIM_NAME)then
-//			SetVisible(false)	//set invisible addon chimney_steam
-//			SetVisible(true)	//set visible addon chimney
+		if(m_xAddons[0].GetObj()!=null && m_xAddons[1].GetObj()!=null && m_xAddons[2].GetObj()!=null)then
+			if(m_xAddons[2].GetObj()^.GetCurrentAnimName()==FAKE_WORK_ANIM_NAME)then
+				m_xAddons[2].GetObj()^.EndCurrentLoopAnim();
+				m_xAddons[1].GetObj()^.SetVisible(false);	//set invisible addon chimney_steam
+				m_xAddons[0].GetObj()^.SetVisible(true);	//set visible addon chimney
+				KLog.LogWarn("ParaworldFan","StopWorkAnim()");
+			endif;
 		endif;
 	endproc;
+	
+	export proc void SetIdleAnim()
+		if(!m_bEquipped)then return; endif;
+		if(m_xAddons[0].GetObj()!=null && m_xAddons[1].GetObj()!=null && m_xAddons[2].GetObj()!=null)then
+			if(m_xAddons[2].GetObj()^.HasAnim("none"))then
+				if(m_xAddons[2].GetObj()^.GetCurrentAnimName()!="none")then
+					m_xAddons[2].GetObj()^.SetAnim("none",1);	//works bad (slow)
+					m_xAddons[1].GetObj()^.SetVisible(false);	//set invisible addon chimney_steam
+					m_xAddons[0].GetObj()^.SetVisible(true);	//set visible addon chimney
+					KLog.LogWarn("ParaworldFan","SetIdleAnim(1)");
+				else
+					m_xAddons[2].GetObj()^.EndCurrentLoopAnim();
+					m_xAddons[1].GetObj()^.SetVisible(false);	//set invisible addon chimney_steam
+					m_xAddons[0].GetObj()^.SetVisible(true);	//set visible addon chimney
+					KLog.LogWarn("ParaworldFan","SetIdleAnim(2)");
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			if(p_rxEvtPtr.GetInt(0)==FAKE_WORK_ANIM_TIMER_ID)then
+				StopWorkAnim();
+				KLog.LogWarn("ParaworldFan","HandleEvent()");
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		else
+			super.HandleEvent(p_rxEvtPtr);
+		endif;
+	endproc;
+	
+/*	export proc void Die()
+		if(!IsDead())then
+			if(m_xAddons[0].GetObj()!=null && m_xAddons[1].GetObj()!=null && m_xAddons[2].GetObj()!=null)then
+				m_xAddons[2].GetObj()^.SetAnim("none",1);	//works bad (slow)
+				m_xAddons[1].GetObj()^.SetVisible(false);	//set invisible addon chimney_steam
+				m_xAddons[0].GetObj()^.SetVisible(true);	//set visible addon chimney
+			endif;
+			super.Die();
+		endif;
+	endproc;	*/
 	
 endclass;
 	
