@@ -11236,7 +11236,129 @@ endclass;
 class CItemStorage inherit CBuilding
 
 	var CObjList 	m_xItems;
+	//var ^CInventory m_xInventory;
+	var int			m_iCapacity;
 	var bool 		m_bAboutToDie;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xBase="ISba"; //Kr1s1m: Item storage base
+		var int iVersion=1;
+		if(CMirageSrvMgr.SDK())then
+			iVersion=1;
+		endif;
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,iVersion);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xItems.DoKArc(pxArc^);
+		if(iVersion>=1)then
+			pxArc^ << m_iCapacity;
+			pxArc^ << m_bAboutToDie;
+		endif;
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="ISba")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			if(iVersion>=1)then
+				m_xItems.DoKArc(pxArc^);
+				pxArc^ << m_iCapacity;
+				pxArc^ << m_bAboutToDie;
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		SetCanWalk(false);
+		SetCanSwim(false);
+		SetCanFly(false);
+		SetRallySite(false);
+		m_bAboutToDie = false;
+		//if(!p_bLoad)then
+			//SetTransportClass(1);
+		//endif;
+		var int iCapacityBackup = 1;
+		m_iCapacity = m_xTechTree.GetValueI(GetObjPath()+"/item_capacity", iCapacityBackup);
+		var ^CAttribs pxAttr=GetAttribs();
+		if(pxAttr!=null)then
+			KLog.LogSpam("Kr1s1m", "pxAttr is not null");
+			pxAttr^.SetValue("max_passengers", m_iCapacity);
+		endif;
+		KLog.LogSpam("Kr1s1m", "pxAttr^.GetValueInt(max_passengers):");
+		KLog.LogSpam("Kr1s1m", pxAttr^.GetValueInt("max_passengers").ToString());
+	endproc;
+	
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		//if(p_sMiscParams.Find("/DismountAll")!=-1)then
+			//DismountAll();
+			//return;
+		//elseif(p_sMiscParams.Find("/Dismount")>=0)then
+			//if(p_pxObject!=null)then
+				//RemChar(p_pxObject^.GetHandle());
+			//endif;
+		//endif;
+		super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+	endproc;
+	
+	export proc void DepositItem(CObjHndl p_xItem)
+		if(m_bAboutToDie)then return; endif;
+		if(p_xItem.IsValid() && m_xItems.NumEntries() < m_iCapacity && m_xItems.FindEntry(p_xItem) < 0)then
+			m_xItems.Include(p_xItem);
+			AddItem(p_xItem);
+			//AddItemSilent(p_xItem);
+			//UpdateCharsAttr();
+		endif;
+	endproc;
+	
+	export proc void WithdrawItem(CObjHndl p_xItem)
+		if(m_bAboutToDie)then return; endif;
+		if(m_xItems.RemEntry(p_xItem))then
+			LoseItem(p_xItem);
+			//RemoveItemSilent(p_xItem);
+		endif;
+	endproc;
+	
+	export proc void DropItem(CObjHndl p_xItem)
+		if(m_xItems.RemEntry(p_xItem))then
+			//LoseItem(p_xItem);
+			var ^CItem pxI=cast<CItem>(p_xItem.GetObj());
+			if(pxI!=null)then
+				//pxC^.SetTransportObj(CObjHndl.Invalid());
+				var vec3 vPos=GetPos();
+				vPos.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vPos.GetX(),vPos.GetY()));
+				var vec3 vI;
+				CSrvWrap.GetObjMgr()^.GetFreePos(vI,this,GetPos(),null,true,false,false);
+				pxI^.SetPos(vI);
+				pxI^.SetVisible(true);
+				pxI^.SetSelectable(true);
+//				pxC^.GoTo(vP,true,pxC^.GetDefaultSpeed(),true,true);
+				//var CFourCC xWalkSet = pxC^.GetWalkSet();
+				//pxC^.WalkAction(vP, pxC^.GetMaxSpeed(), true, true, null, xWalkSet, true);
+			endif;
+			//UpdateCharsAttr();
+		endif;
+	endproc;
+	
+	export proc void DropAll()
+		while(m_xItems.NumEntries() > 0)do
+			DropItem(m_xItems[0]);
+		endwhile;
+		DropAllItems(); //Kr1s1m: Security. Redundant and does nothing in most cases (if previous while did its job).
+	endproc;
+	
+	export proc void Die()
+		DropAll();
+		super.Die();
+	endproc;
+	
+	export proc void DiePerHarakiri()
+		m_bAboutToDie = true;
+		super.DiePerHarakiri();
+	endproc;
 
 endclass;
 

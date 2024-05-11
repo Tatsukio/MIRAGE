@@ -1,0 +1,118 @@
+class CWithdraw inherit CTask
+
+	var CObjHndl 		m_xChar;
+	var CObjHndl		m_xBunker;
+	var int	 			m_iState;
+	var int				m_iRetryCounter;
+	
+	const int			STATE_QUIT	= 0;
+	const int			STATE_GOTO 	= 1;
+	const int			STATE_ON_THE_WAY = 2;
+	const int			STATE_ENTER	= 3;
+	const int			STATE_THINK	= 4;
+	const int			STATE_WAIT	= 5;
+	var   string        m_s1;
+	export constructor()
+		SetName("EntrBnkr");
+		SetCivil(false);
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="EnBu";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,2);
+		var ^CArc pxArc=^(pxWalk^.GetArc());		
+		m_xChar.DoKArc(pxArc^);
+		m_xBunker.DoKArc(pxArc^);
+		(pxArc^) << m_iState;
+		(pxArc^) << m_iRetryCounter;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="EnBu")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xChar.DoKArc(pxArc^);
+			m_xBunker.DoKArc(pxArc^);
+			(pxArc^) << m_iState;
+			if(pxArc^.GetVersion()>=2) then (pxArc^) << m_iRetryCounter; endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;	
+
+	export proc bool Init(CObjHndl p_xChar, CObjHndl p_xBunker)
+	    m_s1 = p_xChar.GetObj()^.GetClassName();
+		if(!p_xChar.IsValid()||!p_xBunker.IsValid()|| m_s1=="hu_avatar" || m_s1=="hu_berserk_statue_01" || m_s1=="hu_berserk_statue_02" || m_s1=="hu_berserk_statue_03" || m_s1=="hu_berserk_statue_04" || m_s1=="hu_stone_statue")then return false; endif;
+		m_xChar = p_xChar;
+		m_xBunker = p_xBunker;
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(!m_xChar.IsValid() || !m_xBunker.IsValid()) then EndTask(); return; endif;
+		m_iState = STATE_GOTO;
+		m_iRetryCounter=5;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxC = cast<CCharacter>(m_xChar.GetObj());
+		var ^CBunker	pxB = cast<CBunker>(m_xBunker.GetObj());
+		if(pxC!=null && pxB!=null) then
+			if(m_iState==STATE_GOTO) then
+				var vec3 vP;
+				var real fMinDis = 1.0f;
+				if(pxB^.GetClassName()!="hu_bunker")then fMinDis = 3.0f; endif;
+				pxC^.AdvanceAction(m_xBunker, fMinDis, pxC^.GetMaxSpeed());
+				m_iState = STATE_ON_THE_WAY;
+				return;
+			elseif(m_iState==STATE_ON_THE_WAY) then
+				var real fMaxDis = 3.0f;
+				var real fMaxDiff = 12.0f;
+				if(pxB^.GetClassName()!="hu_bunker")then
+					fMaxDis = pxB^.GetCollisionRadius();
+					fMaxDiff = pxB^.GetCollisionRadius()+10.0f;
+				endif;
+				var bool bLOS=pxC^.CheckLineOfSightFight(pxB,fMaxDis);
+				if(bLOS&&(pxB^.GetPos()-pxC^.GetPos()).Abs2() < fMaxDiff) then 
+					m_iState=STATE_ENTER; 
+				else
+					if(m_iRetryCounter--<=0) then m_iState=STATE_QUIT; return; endif;
+					pxC^.WaitAction(0.8f);
+					m_iState=STATE_GOTO; //retry
+				endif;
+				return;
+			elseif(m_iState==STATE_ENTER) then
+				pxB^.AddChar(m_xChar);
+				m_iState=STATE_QUIT;
+				return;
+			else
+				EndTask();
+				return;
+			endif;
+		else
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		super.USLOnLeave(p_pxFrom, p_pxTo);
+	endproc;
+
+	export proc bool Break()
+		if(m_xChar.IsValid()) then m_xChar.GetObj()^.TerminateAction(); endif;
+		EndTask();
+		return false;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+	export proc void EndTask()
+		UpdateAggressionPos(m_xChar);
+		super.EndTask();
+	endproc;
+	
+	
+endclass;
