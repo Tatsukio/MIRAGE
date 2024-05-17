@@ -25,6 +25,7 @@ General:
 - Various fixes in the options menu
 - Wild animals will play selection sounds when selected
 - Neutral buildings and resources will play selection sounds when selected
+- Added proper workers positions during building construction for all custom buildings without Bl_ links 
 
 Maps:
 
