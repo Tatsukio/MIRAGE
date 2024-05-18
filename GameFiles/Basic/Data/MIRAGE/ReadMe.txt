@@ -28,6 +28,7 @@ General:
 - Added proper workers positions during building construction for all custom buildings without Bl_ links 
 
 Maps:
+- Northland version of Yggdrasil map added
 
 Campaign maps:
 - Amazon Warrior have female voiceover instead of male one from now on
@@ -62,7 +63,11 @@ SEAS:
 - Fixed bug, where not fully built big cannon were playing destruction animation, if it was killed
 - Added SEAS laboratory work animation, that plays when building produces unit or research upgrade
 - Restored SEAS laboratory crane, that was deleted long time ago
+
 AI:
+
+SDK:
+- Northland setting textures for icewaste vegetation added
 
 
 MIRAGE 2.6.6
