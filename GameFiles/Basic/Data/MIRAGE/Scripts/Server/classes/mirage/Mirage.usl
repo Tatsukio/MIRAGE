@@ -7733,6 +7733,7 @@ class CPirateShip inherit CBigSizeShip
 	
 	export proc void Die()
 		if(!IsDead())then
+			CreateShipCorpse();
 			if(m_xKanone.IsValid())then
 				RemGroupedChildren(m_xKanone.GetObj()^.GetGuid());
 				m_xKanone.GetObj()^.Delete();
@@ -7757,15 +7758,32 @@ class CPirateShip inherit CBigSizeShip
 			m_xBug=CObjHndl.Invalid();
 			m_xKanone=CObjHndl.Invalid();
 			*/
-			CreateShipCorpse();
 		endif;
 		super.Die();
 	endproc;
 	
 	export proc ^CGameObj CreateShipCorpse()
-		var ^CShipCorpse pxGameObj=cast<CShipCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_dest",GetOwner(),GetPos(),GetRotation()));
+		var CObjList xDummies;
+		var ^CPirateShipCorpse pxPart;
+		var ^CPirateShipCorpse pxCannons;
+		var ^CPirateShipCorpse pxGameObj=cast<CPirateShipCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_dest",GetOwner(),GetPos(),GetRotation()));
+		var int i,iC=m_xParts.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxPartObj=m_xParts[i].GetObj();
+			pxPart=cast<CPirateShipCorpse>(CSrvWrap.GetObjMgr()^.CreateObj(pxPartObj^.GetClassName()+"_dest",GetOwner(),pxPartObj^.GetPos(),pxPartObj^.GetRotation()));
+			pxPart^.SetDestructLevel(2);
+			xDummies.Include(pxPart^.GetHandle());
+		endfor;
+		var vec3 vPos = m_xKanone.GetObj()^.GetPos();
+		var vec3 vRot = m_xKanone.GetObj()^.GetRotation();
+		pxCannons=cast<CPirateShipCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_cannons_dest",GetOwner(),vPos,vRot));
+		xDummies.Include(pxCannons^.GetHandle());
+		pxCannons=cast<CPirateShipCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_cannons_reduced_dest",GetOwner(),vPos,vRot));
+		pxCannons^.SetVisible(false);
+		xDummies.Include(pxCannons^.GetHandle());
 		if(pxGameObj!=null)then
-			pxGameObj^.Init("ninigi_pirate_ship_dest",m_sSinkAnim,GetName(), 10.0);
+			pxGameObj^.SetVisible(false);
+			pxGameObj^.Init("ninigi_pirate_ship_dest",GetName(), 17.0, xDummies);
 			pxGameObj^.SetDestructLevel(2);
 		endif;
 		return pxGameObj;
@@ -8212,7 +8230,7 @@ class CPirateShipBuildUp inherit CFightingObj
 	endproc;
 	
 	export proc void Die()
-		if(!IsDead())then
+/*		if(!IsDead())then
 			var ^CGameObj pxParent = m_xParent.GetObj();
 			if(pxParent!=null)then
 				pxParent^.RemGroupedChildren(GetGuid());
@@ -8222,7 +8240,8 @@ class CPirateShipBuildUp inherit CFightingObj
 			pxBoss^.ReplacePart(GetClassName()+"_dest",m_xLink);
 //			m_bBuildingReady=false;
 		endif;
-		super.Die();
+		super.Die();	*/
+		return;
 	endproc;
 	
 	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
@@ -8235,12 +8254,14 @@ class CPirateShipBuildUp inherit CFightingObj
 			endif;
 		endif;
 		if(GetIncapacitated()&&(p_sMiscParams.Find("/Kill")!=-1||p_sCommand=="Kill")&&!(p_sCommand=="Cancel"))then return; endif;
-		if(p_sCommand=="Delete")then
-			Delete();
+		if(p_sCommand=="Delete"||p_sCommand=="Kill")then
+			return;
 		elseif(p_sCommand=="Action")then
 			if(p_sMiscParams.Find("/Attack")==-1&&p_sMiscParams.Find("/GoAway")==-1&&p_sMiscParams.Find("/AttackSrv")==-1&&p_sMiscParams.Find("/Walk")==-1 
 				&& p_sMiscParams.Find("/Stop")==-1&&p_sMiscParams.Find("/LevelUp")==-1&&p_sMiscParams.Find("/AggressiveTarget")==-1&&p_sMiscParams.Find("/AggroState_")==-1)then
 				super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+			elseif(p_sMiscParams.Find("/Kill")!=-1)then
+				return;
 			else
 				if(bShip)then
 					pxShip^.ReactToGamePlayCommand(p_sCommand, p_pxObject, p_vPos, p_sMiscParams, p_bQ, p_bS, p_bA);
@@ -8315,6 +8336,135 @@ class CPirateShipCannons inherit CPirateShipBuildUp
 		return "";
 	endproc;
 	
+endclass;
+
+class CPirateShipCorpse inherit CUniversalCorpse
+
+	var string		m_sGfxName;
+	var string		m_sName;
+	var real		m_fDuration;
+	var ^CGameObj	m_pxCannons;
+	var ^CGameObj	m_pxCannonsTail;
+	var ^CGameObj	m_pxRow;
+	var ^CGameObj	m_pxSail;
+	var CObjList 	m_xParts;
+	const string	CANNONS="ninigi_pirate_ship_cannons_dest";
+	const string	CANNONS_TAIL="ninigi_pirate_ship_cannons_reduced_dest";
+	const string	SHIP_TAIL="ninigi_pirate_ship_tail_dest";
+	const string	SHIP_SAIL="ninigi_pirate_ship_sail_dest";
+	const string	SHIP_ROW="ninigi_pirate_ship_row_dest";
+	const int 		TIMER_DELETE_MAIN=40037;
+	const int 		TIMER_DELETE_CANNONS=40038;
+	const int 		TIMER_PLAY_SAIL=40039;
+	const int 		TIMER_PLAY_ROW=40040;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+	endproc;
+
+	export proc bool Init(string p_sGfxName, string p_sName, real p_fDuration, CObjList p_xList)
+		m_sGfxName = p_sGfxName;
+		m_sName = p_sName;
+		m_fDuration = p_fDuration;
+		m_xParts = p_xList;
+		DieTail();
+		return(true);
+	endproc;
+
+	export proc void Init(string p_sGfxName, string p_sName, real p_fDuration)
+		super.Init(p_sGfxName,p_sName,p_fDuration);
+		return();
+	endproc;
+	
+	proc void DieTail()
+		var real fDuration=0.0;
+		var int i,iC=m_xParts.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_xParts[i].IsValid())then
+				var ^CGameObj pxGameObj=m_xParts[i].GetObj();
+				if(pxGameObj^.GetClassName()==SHIP_TAIL)then
+					var ^CPirateShipCorpse pxPart=cast<CPirateShipCorpse>(pxGameObj);
+					pxGameObj^.SetGFX(pxGameObj^.GetGfxName());
+					pxGameObj^.SetName(pxGameObj^.GetName());
+					pxGameObj^.InvokeGenericSCEvent(40,4.0);
+					pxPart^.PlayAnim(m_iPlayMode);
+					fDuration=(pxGameObj^.GetCurrentAnimLength().ToInt()/1).ToReal();
+				elseif(pxGameObj^.GetClassName()==SHIP_SAIL)then
+					m_pxSail = pxGameObj;
+				elseif(pxGameObj^.GetClassName()==SHIP_ROW)then
+					m_pxRow = pxGameObj;
+				elseif(pxGameObj^.GetClassName()==CANNONS)then
+					m_pxCannons = pxGameObj;
+				elseif(pxGameObj^.GetClassName()==CANNONS_TAIL)then
+					m_pxCannonsTail = pxGameObj;
+				endif;
+			endif;
+		endfor;
+		CreateTimer(TIMER_PLAY_SAIL, CGameTimeSpan.OneSecond()*2.15,false);
+		CreateTimer(TIMER_PLAY_ROW, CGameTimeSpan.OneSecond()*1.33,false);
+		CreateTimer(TIMER_DELETE_CANNONS, CGameTimeSpan.OneSecond()*4.2,false);
+		if(fDuration>0.0)then
+			CreateTimer(TIMER_DELETE_MAIN, CGameTimeSpan.OneSecond()*(fDuration-5.0),false);
+		endif;
+	endproc;
+	
+	proc void DieSail()
+		var ^CPirateShipCorpse pxPart=cast<CPirateShipCorpse>(m_pxSail);
+		m_pxSail^.SetGFX(m_pxSail^.GetGfxName());
+		m_pxSail^.SetName(m_pxSail^.GetName());
+		m_pxSail^.InvokeGenericSCEvent(40,4.0);
+		pxPart^.PlayAnim(m_iPlayMode);
+	endproc;
+	
+	proc void DieRow()
+		var ^CPirateShipCorpse pxPart=cast<CPirateShipCorpse>(m_pxRow);
+		m_pxRow^.SetGFX(m_pxRow^.GetGfxName());
+		m_pxRow^.SetName(m_pxRow^.GetName());
+		m_pxRow^.InvokeGenericSCEvent(40,4.0);
+		pxPart^.PlayAnim(m_iPlayMode);
+	endproc;
+	
+	proc void DeleteParts()
+		var int i,iC=m_xParts.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_xParts[i].IsValid())then
+				m_xParts[i].GetObj()^.Delete();
+			endif;
+		endfor;
+	endproc;
+	
+	proc void DeleteCannons()
+		m_pxCannonsTail^.SetVisible(true);
+		m_pxCannons^.Delete();
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass() == ms_xTimerClass)then
+			var int iTimerID = p_rxEvtPtr.GetInt(0);
+			if(iTimerID == TIMER_PLAY_ROW)then
+				DeleteTimer(TIMER_PLAY_ROW);
+				DieRow();
+			elseif(iTimerID == TIMER_PLAY_SAIL)then
+				DeleteTimer(TIMER_PLAY_SAIL);
+				DieSail();
+			elseif(iTimerID == TIMER_DELETE_CANNONS)then
+				DeleteTimer(TIMER_DELETE_CANNONS);
+				DeleteCannons();
+			elseif(iTimerID == TIMER_DELETE_MAIN)then
+				DeleteTimer(TIMER_DELETE_MAIN);
+				DeleteParts();
+				SetVisible(true);
+				super.Init(m_sGfxName,m_sName,m_fDuration);
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		endif;
+	endproc;
+
+	proc void PlayAnim(int p_iPlayMode)
+		SetAnim("destroy",1);
+	endproc;
+
 endclass;
 	
 	//========================================================================================
