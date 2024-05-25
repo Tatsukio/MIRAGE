@@ -72,6 +72,7 @@ AI:
 - Fixed bug, that AI were able to detect pirate ship parts as attack target and kill them by splash damage, which lead to animation break up. Now, no longer.
 
 SDK:
+- Level terrain can be saved as .obj mesh with "Export to .obj" button at icons bar
 - Northland setting textures for icewaste vegetation added
 
 
