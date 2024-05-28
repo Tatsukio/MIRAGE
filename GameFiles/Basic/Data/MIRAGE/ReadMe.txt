@@ -9,7 +9,7 @@ MIRAGE 2.6.7
 Special:
 
 General:
-- All menus are centered now
+- All menus are centered now (can be reverted by disabling "center menu" checkbox in the options menu)
 - New game-mechanics server setting added: "Ally controll" - if enabled you can control your ally's units, and they can control yours
 - Improved cutscenes for Boosterpack1 singleplayer campaign for classis and SEAS versions
 - Holy city gates on skirmish maps and in mission 13 are playing "Open" animation from now on
@@ -26,6 +26,7 @@ General:
 - Wild animals will play selection sounds when selected
 - Neutral buildings and resources will play selection sounds when selected
 - Added proper workers positions during building construction for all custom buildings without Bl_ links 
+- Walls and gates are available from epoch 1 for each tribe now
 
 Maps:
 - Northland version of Yggdrasil map added
