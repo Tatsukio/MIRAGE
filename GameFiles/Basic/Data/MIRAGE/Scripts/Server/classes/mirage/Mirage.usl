@@ -7733,6 +7733,7 @@ class CPirateShip inherit CBigSizeShip
 	
 	export proc void Die()
 		if(!IsDead())then
+			CreateShipCorpse();
 			if(m_xKanone.IsValid())then
 				RemGroupedChildren(m_xKanone.GetObj()^.GetGuid());
 				m_xKanone.GetObj()^.Delete();
@@ -7757,15 +7758,32 @@ class CPirateShip inherit CBigSizeShip
 			m_xBug=CObjHndl.Invalid();
 			m_xKanone=CObjHndl.Invalid();
 			*/
-			CreateShipCorpse();
 		endif;
 		super.Die();
 	endproc;
 	
 	export proc ^CGameObj CreateShipCorpse()
-		var ^CShipCorpse pxGameObj=cast<CShipCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_dest",GetOwner(),GetPos(),GetRotation()));
+		var CObjList xDummies;
+		var ^CPirateShipCorpse pxPart;
+		var ^CPirateShipCorpse pxCannons;
+		var ^CPirateShipCorpse pxGameObj=cast<CPirateShipCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_dest",GetOwner(),GetPos(),GetRotation()));
+		var int i,iC=m_xParts.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxPartObj=m_xParts[i].GetObj();
+			pxPart=cast<CPirateShipCorpse>(CSrvWrap.GetObjMgr()^.CreateObj(pxPartObj^.GetClassName()+"_dest",GetOwner(),pxPartObj^.GetPos(),pxPartObj^.GetRotation()));
+			pxPart^.SetDestructLevel(2);
+			xDummies.Include(pxPart^.GetHandle());
+		endfor;
+		var vec3 vPos = m_xKanone.GetObj()^.GetPos();
+		var vec3 vRot = m_xKanone.GetObj()^.GetRotation();
+		pxCannons=cast<CPirateShipCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_cannons_dest",GetOwner(),vPos,vRot));
+		xDummies.Include(pxCannons^.GetHandle());
+		pxCannons=cast<CPirateShipCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_cannons_reduced_dest",GetOwner(),vPos,vRot));
+		pxCannons^.SetVisible(false);
+		xDummies.Include(pxCannons^.GetHandle());
 		if(pxGameObj!=null)then
-			pxGameObj^.Init("ninigi_pirate_ship_dest",m_sSinkAnim,GetName(), 10.0);
+			pxGameObj^.SetVisible(false);
+			pxGameObj^.Init("ninigi_pirate_ship_dest",GetName(), 17.0, xDummies);
 			pxGameObj^.SetDestructLevel(2);
 		endif;
 		return pxGameObj;
@@ -8212,7 +8230,7 @@ class CPirateShipBuildUp inherit CFightingObj
 	endproc;
 	
 	export proc void Die()
-		if(!IsDead())then
+/*		if(!IsDead())then
 			var ^CGameObj pxParent = m_xParent.GetObj();
 			if(pxParent!=null)then
 				pxParent^.RemGroupedChildren(GetGuid());
@@ -8222,7 +8240,8 @@ class CPirateShipBuildUp inherit CFightingObj
 			pxBoss^.ReplacePart(GetClassName()+"_dest",m_xLink);
 //			m_bBuildingReady=false;
 		endif;
-		super.Die();
+		super.Die();	*/
+		return;
 	endproc;
 	
 	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
@@ -8235,12 +8254,14 @@ class CPirateShipBuildUp inherit CFightingObj
 			endif;
 		endif;
 		if(GetIncapacitated()&&(p_sMiscParams.Find("/Kill")!=-1||p_sCommand=="Kill")&&!(p_sCommand=="Cancel"))then return; endif;
-		if(p_sCommand=="Delete")then
-			Delete();
+		if(p_sCommand=="Delete"||p_sCommand=="Kill")then
+			return;
 		elseif(p_sCommand=="Action")then
 			if(p_sMiscParams.Find("/Attack")==-1&&p_sMiscParams.Find("/GoAway")==-1&&p_sMiscParams.Find("/AttackSrv")==-1&&p_sMiscParams.Find("/Walk")==-1 
 				&& p_sMiscParams.Find("/Stop")==-1&&p_sMiscParams.Find("/LevelUp")==-1&&p_sMiscParams.Find("/AggressiveTarget")==-1&&p_sMiscParams.Find("/AggroState_")==-1)then
 				super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+			elseif(p_sMiscParams.Find("/Kill")!=-1)then
+				return;
 			else
 				if(bShip)then
 					pxShip^.ReactToGamePlayCommand(p_sCommand, p_pxObject, p_vPos, p_sMiscParams, p_bQ, p_bS, p_bA);
@@ -8315,6 +8336,167 @@ class CPirateShipCannons inherit CPirateShipBuildUp
 		return "";
 	endproc;
 	
+endclass;
+
+class CPirateShipCorpse inherit CUniversalCorpse
+
+	var string		m_sGfxName;
+	var string		m_sName;
+	var real		m_fDuration;
+	var CObjHndl	m_xCannons;
+	var CObjHndl	m_xCannonsTail;
+	var CObjHndl	m_xRow;
+	var CObjHndl	m_xSail;
+	var CObjList 	m_xParts;
+	const string	CANNONS="ninigi_pirate_ship_cannons_dest";
+	const string	CANNONS_TAIL="ninigi_pirate_ship_cannons_reduced_dest";
+	const string	SHIP_TAIL="ninigi_pirate_ship_tail_dest";
+	const string	SHIP_SAIL="ninigi_pirate_ship_sail_dest";
+	const string	SHIP_ROW="ninigi_pirate_ship_row_dest";
+	const int 		TIMER_DELETE_MAIN=40037;
+	const int 		TIMER_DELETE_CANNONS=40038;
+	const int 		TIMER_PLAY_SAIL=40039;
+	const int 		TIMER_PLAY_ROW=40040;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+	endproc;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xBase="MCor";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		pxArc^ << m_sGfxName;
+		pxArc^ << m_sName;
+		pxArc^ << m_fDuration;
+		m_xCannons.DoKArc(pxArc^);
+		m_xCannonsTail.DoKArc(pxArc^);
+		m_xRow.DoKArc(pxArc^);
+		m_xSail.DoKArc(pxArc^);
+		m_xParts.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="MCor")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			pxArc^ << m_sGfxName;
+			pxArc^ << m_sName;
+			pxArc^ << m_fDuration;
+			m_xCannons.DoKArc(pxArc^);
+			m_xCannonsTail.DoKArc(pxArc^);
+			m_xRow.DoKArc(pxArc^);
+			m_xSail.DoKArc(pxArc^);
+			m_xParts.DoKArc(pxArc^);
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(string p_sGfxName, string p_sName, real p_fDuration, CObjList p_xList)
+		m_sGfxName = p_sGfxName;
+		m_sName = p_sName;
+		m_fDuration = p_fDuration;
+		m_xParts = p_xList;
+		DieTail();
+		return(true);
+	endproc;
+
+	export proc void Init(string p_sGfxName, string p_sName, real p_fDuration)
+		super.Init(p_sGfxName,p_sName,p_fDuration);
+		return();
+	endproc;
+	
+	proc void DieTail()
+		var real fDuration=0.0;
+		var int i,iC=m_xParts.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_xParts[i].IsValid())then
+				var ^CGameObj pxGameObj=m_xParts[i].GetObj();
+				if(pxGameObj^.GetClassName()==SHIP_TAIL)then
+					var ^CPirateShipCorpse pxPart=cast<CPirateShipCorpse>(pxGameObj);
+					pxGameObj^.SetGFX(pxGameObj^.GetGfxName());
+					pxGameObj^.SetName(pxGameObj^.GetName());
+					pxGameObj^.InvokeGenericSCEvent(40,4.0);
+					pxPart^.PlayAnim(m_iPlayMode);
+					fDuration=(pxGameObj^.GetCurrentAnimLength().ToInt()/1).ToReal();
+				elseif(pxGameObj^.GetClassName()==SHIP_SAIL)then
+					m_xSail=pxGameObj^.GetHandle();
+				elseif(pxGameObj^.GetClassName()==SHIP_ROW)then
+					m_xRow=pxGameObj^.GetHandle();
+				elseif(pxGameObj^.GetClassName()==CANNONS)then
+					m_xCannons=pxGameObj^.GetHandle();
+				elseif(pxGameObj^.GetClassName()==CANNONS_TAIL)then
+					m_xCannonsTail=pxGameObj^.GetHandle();
+				endif;
+			endif;
+		endfor;
+		CreateTimer(TIMER_PLAY_SAIL, CGameTimeSpan.OneSecond()*2.15,false);
+		CreateTimer(TIMER_PLAY_ROW, CGameTimeSpan.OneSecond()*1.33,false);
+		CreateTimer(TIMER_DELETE_CANNONS, CGameTimeSpan.OneSecond()*4.2,false);
+		if(fDuration>0.0)then
+			CreateTimer(TIMER_DELETE_MAIN, CGameTimeSpan.OneSecond()*(fDuration-5.0),false);
+		endif;
+	endproc;
+	
+	proc void DieSail()
+		var ^CPirateShipCorpse pxPart=cast<CPirateShipCorpse>(m_xSail.GetObj());
+		pxPart^.SetGFX(pxPart^.GetGfxName());
+		pxPart^.SetName(pxPart^.GetName());
+		pxPart^.InvokeGenericSCEvent(40,4.0);
+		pxPart^.PlayAnim(m_iPlayMode);
+	endproc;
+	
+	proc void DieRow()
+		var ^CPirateShipCorpse pxPart=cast<CPirateShipCorpse>(m_xRow.GetObj());
+		pxPart^.SetGFX(pxPart^.GetGfxName());
+		pxPart^.SetName(pxPart^.GetName());
+		pxPart^.InvokeGenericSCEvent(40,4.0);
+		pxPart^.PlayAnim(m_iPlayMode);
+	endproc;
+	
+	proc void DeleteParts()
+		var int i,iC=m_xParts.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_xParts[i].IsValid())then
+				m_xParts[i].GetObj()^.Delete();
+			endif;
+		endfor;
+	endproc;
+	
+	proc void DeleteCannons()
+		m_xCannonsTail.GetObj()^.SetVisible(true);
+		m_xCannons.GetObj()^.Delete();
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass() == ms_xTimerClass)then
+			var int iTimerID = p_rxEvtPtr.GetInt(0);
+			if(iTimerID == TIMER_PLAY_ROW)then
+				DeleteTimer(TIMER_PLAY_ROW);
+				DieRow();
+			elseif(iTimerID == TIMER_PLAY_SAIL)then
+				DeleteTimer(TIMER_PLAY_SAIL);
+				DieSail();
+			elseif(iTimerID == TIMER_DELETE_CANNONS)then
+				DeleteTimer(TIMER_DELETE_CANNONS);
+				DeleteCannons();
+			elseif(iTimerID == TIMER_DELETE_MAIN)then
+				DeleteTimer(TIMER_DELETE_MAIN);
+				DeleteParts();
+				SetVisible(true);
+				super.Init(m_sGfxName,m_sName,m_fDuration);
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		endif;
+	endproc;
+
+	proc void PlayAnim(int p_iPlayMode)
+		SetAnim("destroy",1);
+	endproc;
+
 endclass;
 	
 	//========================================================================================
@@ -10012,51 +10194,61 @@ class CSeasGreatCannon inherit CTower
 	
 	const real INTERNAL_DAMAGE=300.0f; //selfdamage by attacking enemies. ex: 350
 	var CObjHndl m_xBirdie;
+	var bool m_bRotator;
 	
 	export proc void OnInit(bool p_bLoad)
-		SetTurretLink("we");
 		super.OnInit(p_bLoad);
 		//	modified by ParaworldFan
-		if(!p_bLoad)then
+		m_bRotator=false;
+		SetTurretLink("we");
+		//	ParaworldFan end
+/*		if(!p_bLoad)then
 			SetTurret("seas_great_cannon_rotator");
 			m_sTurretAttackAnim="attack_front";
-//			var string sPlayerName="";
-//			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
-//			if(pxLevel!=null)then
-//				var ^CPlayer pxPlayer=pxLevel^.GetPlayer(GetOwner());
-//				if(pxPlayer!=null)then
-//					sPlayerName=pxLevel^.GetLevelInfo().GetPlayerSlot(pxPlayer^.GetPlayerSlotID()).GetName();
-//					CFeedback.Print(CFeedback.ALL, CFeedback.ATTACK, "_MIRAGE_NT_CannonStarted\t"+sPlayerName);
-//				endif;
-//			endif;
-		endif;
+			var string sPlayerName="";
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			if(pxLevel!=null)then
+				var ^CPlayer pxPlayer=pxLevel^.GetPlayer(GetOwner());
+				if(pxPlayer!=null)then
+					sPlayerName=pxLevel^.GetLevelInfo().GetPlayerSlot(pxPlayer^.GetPlayerSlotID()).GetName();
+					CFeedback.Print(CFeedback.ALL, CFeedback.ATTACK, "_MIRAGE_NT_CannonStarted\t"+sPlayerName);
+				endif;
+			endif;
+		endif;	*/
 	endproc;
 	
 	export proc void SetReady()
 		super.SetReady();
-		// added by ParaworldFan
-		if(m_bBuildingReady)then	//PwFan
-			var ^CGameObj pxO=CSrvWrap.GetObjMgr()^.CreateObj("seas_great_cannon_cannon", GetOwner());	//PwFan
-			AddGroupedChildren(pxO^.GetGuid());	//PwFan
-			var CFourCC xLink="we";	//PwFan
-			pxO^.LinkAction(m_xTurret,xLink);	//PwFan
-			m_xBirdie=pxO^.GetHandle();	//PwFan
-		endif;	//PwFan
-//		var string sPlayerName="";
-//		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
-//		if(pxLevel!=null)then
-//			var ^CPlayer pxPlayer=pxLevel^.GetPlayer(GetOwner());
-//			if(pxPlayer!=null)then
-//				sPlayerName=pxLevel^.GetLevelInfo().GetPlayerSlot(pxPlayer^.GetPlayerSlotID()).GetName();
-//				CFeedback.Print(CFeedback.ALL, CFeedback.ATTACK, "_MIRAGE_NT_CannonFinished\t"+sPlayerName);
-//			endif;
-//		endif;
+		//	added by ParaworldFan
+		if(m_bBuildingReady)then
+			var ^CGameObj pxO=CSrvWrap.GetObjMgr()^.CreateObj("seas_great_cannon_cannon", GetOwner());
+			AddGroupedChildren(pxO^.GetGuid());
+			var CFourCC xLink="we";
+			pxO^.LinkAction(m_xTurret,xLink);
+			m_xBirdie=pxO^.GetHandle();
+		endif;
+		//	ParaworldFan end
+/*		var string sPlayerName="";
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel!=null)then
+			var ^CPlayer pxPlayer=pxLevel^.GetPlayer(GetOwner());
+			if(pxPlayer!=null)then
+				sPlayerName=pxLevel^.GetLevelInfo().GetPlayerSlot(pxPlayer^.GetPlayerSlotID()).GetName();
+				CFeedback.Print(CFeedback.ALL, CFeedback.ATTACK, "_MIRAGE_NT_CannonFinished\t"+sPlayerName);
+			endif;
+		endif;	*/
 	endproc;
 	
 	export proc void Load(^CUOFReaderNode p_pxReaderNode)
 		if(p_pxReaderNode^.GetType()=="SeGr")then
 			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
-			m_xBirdie.DoKArc(pxArc^);
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			if(iVersion>=1)then
+				m_xBirdie.DoKArc(pxArc^);
+			endif;
+			if(iVersion>=2)then
+				pxArc^ << m_bRotator;
+			endif;
 		else
 			super.Load(p_pxReaderNode);
 		endif;
@@ -10065,13 +10257,27 @@ class CSeasGreatCannon inherit CTower
 	export proc void Save(^CUOFWriterNode p_pxWriterNode)
 		super.Save(p_pxWriterNode);
 		var CFourCC xBase="SeGr";
-		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,1);
+		var int iVersion=2;
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,iVersion);
 		var ^CArc pxArc=^(pxWalk^.GetArc());
 		m_xBirdie.DoKArc(pxArc^);
+		if(iVersion>=2)then
+			pxArc^ << m_bRotator;
+		endif;
 		pxWalk^.Close();
+	endproc;
+
+	export proc void SetProcess(int p_iP)
+		super.SetProcess(p_iP);
+		if(p_iP>=80 && !m_bRotator)then
+			m_bRotator=true;
+			SetTurret("seas_great_cannon_rotator");
+			m_sTurretAttackAnim="attack_front";
+		endif;
 	endproc;
 	
 	export proc bool CreateBuildingCorpse()
+		if(!m_bBuildingReady)then return true; endif;
 		var Quat qRot, qAdditionalRot;
 		var ^CBuildingCorpse pxGameObj=cast<CBuildingCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("BuildingCorpse",GetOwner(),GetPos(),GetRotation()));
 		if(pxGameObj!=null)then
@@ -10099,10 +10305,10 @@ class CSeasGreatCannon inherit CTower
 	endproc;
 	
 	export proc bool AttackEnemy(^CFightingObj p_pxEnemy, vec3 p_vTarget, ref bool p_rbRotated)
-//		if(GetHitpoints()<=INTERNAL_DAMAGE+50.0||(IsBurning()&&GetHitpoints()<=INTERNAL_DAMAGE*1.5))then
-//			CFeedback.Print(GetOwner(), CFeedback.ATTACK, "_MIRAGE_NT_CannonOffline");
-//			return false;
-//		endif;
+/*		if(GetHitpoints()<=INTERNAL_DAMAGE+50.0||(IsBurning()&&GetHitpoints()<=INTERNAL_DAMAGE*1.5))then
+			CFeedback.Print(GetOwner(), CFeedback.ATTACK, "_MIRAGE_NT_CannonOffline");
+			return false;
+		endif;	*/
 		var bool bReturned=super.AttackEnemy(p_pxEnemy,p_vTarget,p_rbRotated);
 		var ^CGameObj pxBuildUp=m_xBirdie.GetObj();
 		if(pxBuildUp!=null&&!p_rbRotated)then
@@ -10112,9 +10318,9 @@ class CSeasGreatCannon inherit CTower
 	endproc;
 	
 	//ParaworldFan: template for cannon exception for attacking the Wild agressive animals automatically
-//	export proc void AttackSrv(^CGameObj p_pxEnemy)
-//		return;
-//	endproc;
+/*	export proc void AttackSrv(^CGameObj p_pxEnemy)
+		return;
+	endproc;	*/
 	
 	export proc ^CArrow CreateProjectileAndShoot(^CFightingObj p_pxEnemy, vec3 p_vPos)
 		return super.CreateProjectileAndShoot(p_pxEnemy, p_vPos);
@@ -10122,47 +10328,47 @@ class CSeasGreatCannon inherit CTower
 	
 	export proc ^CArrow CreateProjectileAndShoot(^CFightingObj p_pxEnemy, vec3 p_vPos, string p_sProjectileType)
 		var ^CArrow pxArrow=super.CreateProjectileAndShoot(p_pxEnemy, p_vPos, p_sProjectileType);
-//		if(pxArrow!=null)then
-//			var string sPlayerName="Unknown opponent";
-//			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
-//			if(pxLevel!=null)then
-//				var ^CPlayer pxPlayer=pxLevel^.GetPlayer(GetOwner());
-//				if(pxPlayer!=null)then
-//					sPlayerName=pxLevel^.GetLevelInfo().GetPlayerSlot(pxPlayer^.GetPlayerSlotID()).GetName();
-//				endif;
-//				var int i=0;
-//				for(i=0)cond(i<CGameBase.GetMaxPlayers())iter(i++)do
-//					var ^CPlayer pxPlayer=pxLevel^.GetPlayer(i);
-//					if(pxPlayer==null)then continue; endif;
-//					if(cast<CAiPlayer>(pxPlayer)!=null)then continue; endif;
-//					if(CSrvWrap.GetDiplomacyMgr().GetIsFriend(GetOwner(), i))then continue; endif;
-//					CSrvWrap.SendGenericEvtToPlayer(i, "MiniMapAttack\t"+p_vPos.ToString()+"\tCannon");
-//					CFeedback.Print(i, CFeedback.ATTACK, "_MIRAGE_NT_CannonAttack\t"+sPlayerName);
-//				endfor;
-//			endif;
-//		endif;
+/*		if(pxArrow!=null)then
+			var string sPlayerName="Unknown opponent";
+			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+			if(pxLevel!=null)then
+				var ^CPlayer pxPlayer=pxLevel^.GetPlayer(GetOwner());
+				if(pxPlayer!=null)then
+					sPlayerName=pxLevel^.GetLevelInfo().GetPlayerSlot(pxPlayer^.GetPlayerSlotID()).GetName();
+				endif;
+				var int i=0;
+				for(i=0)cond(i<CGameBase.GetMaxPlayers())iter(i++)do
+					var ^CPlayer pxPlayer=pxLevel^.GetPlayer(i);
+					if(pxPlayer==null)then continue; endif;
+					if(cast<CAiPlayer>(pxPlayer)!=null)then continue; endif;
+					if(CSrvWrap.GetDiplomacyMgr().GetIsFriend(GetOwner(), i))then continue; endif;
+					CSrvWrap.SendGenericEvtToPlayer(i, "MiniMapAttack\t"+p_vPos.ToString()+"\tCannon");
+					CFeedback.Print(i, CFeedback.ATTACK, "_MIRAGE_NT_CannonAttack\t"+sPlayerName);
+				endfor;
+			endif;
+		endif;	*/
 		return pxArrow;
 	endproc;
 	
 	export proc void Die()
-//		var string sPlayerName="";
-//		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
-//		if(pxLevel!=null)then
-//			var ^CPlayer pxPlayer=pxLevel^.GetPlayer(GetOwner());
-//			if(pxPlayer!=null)then
-//				sPlayerName=pxLevel^.GetLevelInfo().GetPlayerSlot(pxPlayer^.GetPlayerSlotID()).GetName();
-//				CFeedback.Print(CFeedback.ALL, CFeedback.ATTACK, "_MIRAGE_NT_CannonDestroyed\t"+sPlayerName);
-//			endif;
-//		endif;
+/*		var string sPlayerName="";
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel!=null)then
+			var ^CPlayer pxPlayer=pxLevel^.GetPlayer(GetOwner());
+			if(pxPlayer!=null)then
+				sPlayerName=pxLevel^.GetLevelInfo().GetPlayerSlot(pxPlayer^.GetPlayerSlotID()).GetName();
+				CFeedback.Print(CFeedback.ALL, CFeedback.ATTACK, "_MIRAGE_NT_CannonDestroyed\t"+sPlayerName);
+			endif;
+		endif;	*/
 		super.Die();
 	endproc;
 	
 	export proc void ThrowBack()
-//		CFeedback.Print(GetOwner(), CFeedback.ATTACK, "_MIRAGE_NT_CannonDamage");
-////		AddHitpoints(-350.0f);
-//		var real fMaxDmg=Math.Min((GetHitpoints()+5.0),INTERNAL_DAMAGE);
-//		fMaxDmg*=-1.0;
-//		AddHitpoints(fMaxDmg);
+/*		CFeedback.Print(GetOwner(), CFeedback.ATTACK, "_MIRAGE_NT_CannonDamage");
+		//AddHitpoints(-350.0f);
+		var real fMaxDmg=Math.Min((GetHitpoints()+5.0),INTERNAL_DAMAGE);
+		fMaxDmg*=-1.0;
+		AddHitpoints(fMaxDmg);	*/
 	endproc;
 	
 endclass;
@@ -11608,6 +11814,227 @@ class CSeasWell inherit CBuilding
 	
 	export proc string GetReportCode()
 		return "defence";
+	endproc;
+	
+endclass;
+
+class CSeasLaboratory inherit CRallyBuilding
+	
+	var bool				m_bEquipped;
+	var CObjList			m_xAddons;
+	var array vec3			m_avAddonOffsets;
+	const string			FAKE_WORK_ANIM_NAME="build";
+	const string			FAKE_WORK_FINISHED_ANIM_NAME="none";
+	const real				FAKE_WORK_ANIM_TIMEOUT=1.0;		//6.0;
+	const int				FAKE_WORK_ANIM_TIMER_ID=724;
+	
+	constructor()
+		m_bEquipped=false;
+	endconstructor;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="RlyB")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			if(iVersion>=1)then
+				(pxArc^) << m_bEquipped;
+				var int i,iC;
+				(pxArc^) << iC;
+				m_avAddonOffsets=iC;
+				for(i=0) cond(i<iC) iter(i++)do
+					(pxArc^) << m_avAddonOffsets[i];
+				endfor;
+				m_xAddons.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xBase="RlyB";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		(pxArc^) << m_bEquipped;
+		var int i,iC=m_avAddonOffsets.NumEntries();
+		(pxArc^) << iC;
+		for(i=0) cond(i<iC) iter(i++)do
+			(pxArc^) << m_avAddonOffsets[i];
+		endfor;
+		m_xAddons.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void SetReady()
+		super.SetReady();
+		if(m_bBuildingReady)then
+			BuildAddons();
+			HideSmoke(true);
+		endif;
+	endproc;
+	
+	proc void BuildAddons()
+		if(!m_bEquipped)then
+			m_bEquipped=true;
+			var CFourCC xLink="NOPE";
+			var ^CMirageDeco pxA;
+			m_avAddonOffsets.AddEntry({-3.4,-7.0,11.51}); // ParaworldFan: chimney_steam
+			m_avAddonOffsets.AddEntry({-9.2,-8.4,-0.4}); // ParaworldFan: crane pos
+			var int i, iC=m_avAddonOffsets.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				pxA=cast<CMirageDeco>(CSrvWrap.GetObjMgr()^.CreateObj("seas_laboratory_misc_"+i.ToString(),GetOwner(),GetPos(),GetRotation()));
+				if(pxA!=null)then
+					m_xAddons.AddEntry(pxA^.GetHandle());
+					AddGroupedChildren(pxA^.GetGuid());
+					var vec3 vDir=pxA^.GetPos()-GetPos();
+					var Quat qRot;
+					qRot.FromXYDir(vDir.GetX(),vDir.GetY());
+					if(i==0)then
+						qRot.RotateZ(-0.4538);
+					else
+						qRot.RotateZ(1.047);
+					endif;
+					pxA^.SecRotAction(qRot,0.01);
+					pxA^.LinkAction(GetHandle(),xLink,m_avAddonOffsets[i]);
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
+	export proc void OnPostLoad()
+		super.OnPostLoad();
+		var CFourCC xLink="NOPE";
+		var int i, iC=m_xAddons.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxA=m_xAddons[i].GetObj();
+			if(pxA!=null)then
+				pxA^.LinkAction(GetHandle(),xLink,m_avAddonOffsets[i]);
+			endif;
+		endfor;
+	endproc;
+	
+	export proc void TransferLinkedObjs(CObjHndl p_xC)
+		if(!p_xC.IsValid())then return; endif;
+		var CFourCC xLink="NOPE";
+		while(m_xAddons.NumEntries()>0)do
+			var ^CGameObj pxA = m_xAddons[0].GetObj();
+			if(pxA==null)then
+				m_xAddons.DeleteEntry(0);
+				m_avAddonOffsets.DeleteEntry(0);
+				continue;
+			endif;
+			RemGroupedChildren(pxA^.GetGuid());
+			pxA^.TerminateAction();
+			pxA^.LinkAction(p_xC,xLink,m_avAddonOffsets[0]);
+			m_xAddons.DeleteEntry(0);
+			m_avAddonOffsets.DeleteEntry(0);
+		endwhile;
+		m_xAddons.Clear();
+	endproc;
+	
+	export proc CObjList GetAddons();
+		return m_xAddons;
+	endproc;
+
+	//////////////////////// WORK FAKE ANIMS ////////////////////////////////
+	
+	export proc void OnWork()
+		DeleteTimer(FAKE_WORK_ANIM_TIMER_ID);
+		CreateTimer(FAKE_WORK_ANIM_TIMER_ID,CGameTimeSpan.OneSecond()*FAKE_WORK_ANIM_TIMEOUT,false);
+		if(m_xAddons.NumEntries()!=2)then return; endif;
+		var ^CGameObj pxCraneObj=m_xAddons[1].GetObj();
+		if(pxCraneObj==null)then return; endif;
+		if((pxCraneObj^.GetCurrentAnimName()!=FAKE_WORK_ANIM_NAME||pxCraneObj^.GetCurrentAnimMode()!=3)&&pxCraneObj^.HasAnim(FAKE_WORK_ANIM_NAME))then
+			pxCraneObj^.SetAnim(FAKE_WORK_ANIM_NAME,3);
+			HideSmoke(false);
+		endif;
+	endproc;
+	
+	export proc void OnWorkFinished()
+		if(m_xAddons.NumEntries()!=2)then return; endif;
+		var ^CGameObj pxCraneObj=m_xAddons[1].GetObj();
+		if(pxCraneObj==null)then return; endif;
+		if(pxCraneObj^.HasAnim(WORK_FINISHED_ANIM_NAME_1))then
+			if(pxCraneObj^.HasAction())then
+				pxCraneObj^.SetAnim(FAKE_WORK_FINISHED_ANIM_NAME,1);
+			else
+				pxCraneObj^.AnimAction(FAKE_WORK_FINISHED_ANIM_NAME);
+			endif;
+			HideSmoke(true);
+		else
+			SetIdleAnim();
+		endif;
+	endproc;
+	
+	export proc void OnWorkFinishedSimple()
+		HideSmoke(true);
+		SetIdleAnim();
+	endproc;
+	
+	export proc void StartWorkAnim()
+		DeleteTimer(FAKE_WORK_ANIM_TIMER_ID);
+		CreateTimer(FAKE_WORK_ANIM_TIMER_ID,CGameTimeSpan.OneSecond()*FAKE_WORK_ANIM_TIMEOUT,false);
+		if(m_xAddons.NumEntries()!=2)then return; endif;
+		var ^CGameObj pxCraneObj=m_xAddons[1].GetObj();
+		if(pxCraneObj==null)then return; endif;
+		if(pxCraneObj^.GetCurrentAnimName()!=FAKE_WORK_ANIM_NAME&&pxCraneObj^.HasAnim(FAKE_WORK_ANIM_NAME))then
+			pxCraneObj^.SetAnim(FAKE_WORK_ANIM_NAME,3);
+			HideSmoke(false);
+		endif;
+	endproc;
+	
+	export proc void DoWorkAnim()
+		if(m_xAddons.NumEntries()!=2)then return; endif;
+		var ^CGameObj pxCraneObj=m_xAddons[1].GetObj();
+		if(pxCraneObj==null)then return; endif;
+		if((pxCraneObj^.GetCurrentAnimName()!=FAKE_WORK_ANIM_NAME||pxCraneObj^.GetCurrentAnimMode()!=3)&&pxCraneObj^.HasAnim(FAKE_WORK_ANIM_NAME))then
+			HideSmoke(false);
+			pxCraneObj^.SetAnim(FAKE_WORK_ANIM_NAME,3);
+		endif;
+	endproc;
+	
+	export proc void StopWorkAnim()
+		if(m_xAddons.NumEntries()!=2)then return; endif;
+		var ^CGameObj pxCraneObj=m_xAddons[1].GetObj();
+		if(pxCraneObj==null)then return; endif;
+		if(pxCraneObj^.GetCurrentAnimName()==FAKE_WORK_ANIM_NAME)then
+			HideSmoke(true);
+			pxCraneObj^.EndCurrentLoopAnim();
+		endif;
+	endproc;
+	
+	export proc void HideSmoke(bool p_bIsHidden)
+		if(m_xAddons.NumEntries()!=2)then return; endif;
+		var ^CGameObj pxSmokeObj=m_xAddons[0].GetObj();
+		if(pxSmokeObj==null)then return; endif;
+		pxSmokeObj^.SetNoParticles(p_bIsHidden);
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
+			if(p_rxEvtPtr.GetInt(0)==FAKE_WORK_ANIM_TIMER_ID)then
+				StopWorkAnim();
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		else
+			super.HandleEvent(p_rxEvtPtr);
+		endif;
+	endproc;
+
+	export proc void Delete()
+		StopWorkAnim();
+		var int i, iC=m_xAddons.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxA=m_xAddons[i].GetObj();
+			if(i==1)then continue; endif;
+			if(pxA!=null)then
+				RemGroupedChildren(pxA^.GetGuid());
+				pxA^.Delete();
+			endif;
+		endfor;
+		super.Delete();
 	endproc;
 	
 endclass;

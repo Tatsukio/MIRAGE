@@ -24,12 +24,17 @@ General:
 - Fixed syntax errors in russain language tooltips
 - Various fixes in the options menu
 - Wild animals will play selection sounds when selected
+- Neutral buildings and resources will play selection sounds when selected
+- Added proper workers positions during building construction for all custom buildings without Bl_ links 
 
 Maps:
+- Northland version of Yggdrasil map added
 
 Campaign maps:
 - Amazon Warrior have female voiceover instead of male one from now on
 - Fixed floating buildings, units and incorrect camera's angles on mission 13 in three cutscenes
+- Classic Pirate ship from now on plays destruction animation of decks, once the unit being deleted. Ship decks and cannons no longer stuck in the air. Animation based on the amount, how many decks the ship had, when got order for Deletion.
+- Classis pirate ship no longer can do any actions, once all its decks being destroyed.
 
 Heroes:
 - Larry, Barry and Harry are affected by Dustriders Town Center Resource tool upgrades 1,2,3 and 4
@@ -41,10 +46,17 @@ Heroes:
 
 Dustriders:
 - Town Center Resource tool upgrades 1,2,3, and 4 now correctly increase harvest speed but no longer affect build up and repair
+- Better tools upgrade from now on adds icon to infantry once was researched
+- Better tools from now also increase upgrade duration for medium and tesla towers, big tent, clay walls and gates
+- Better tools description were updated
+- Tesla tower upgrade duration was rised from 30 to 90 seconds
 
 Dragon Clan:
+- Pirate ship death animation being improved. Ships decks are no logner just dissapear once the ship being killed. They are playing death animation, as well as ship's hull.
+- Fixed bug with death animation being played, when the rocket ramp being not fully built while was killed
 
 Norsemen:
+- Fixed bug with bunker dissapearing from build menu, once first tier of walls upgrade was researched
 
 SEAS:
 - Regular Babbage mobile suit from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
@@ -56,8 +68,19 @@ SEAS:
 - Improved repair costs 0/500/300/0 and increases repair speed (double repair ticks like before)
 - Advanced tools costs 200/200/200/0 and increases build up speed (+25% build speed like before)
 - Improved repair and Advanced tools now properly both affect Taslow and display upgrade icons
+- Improved big cannon build sequnece. The base platform are not placed by default, it appears during construction process, as well as the rotator.
+- Fixed bug, where not fully built big cannon were playing destruction animation, if it was killed
+- Fixed bug when death animation being played, when the pub or laboratory being not fully built while were killed
+- Added SEAS laboratory work animation, that plays when building produces unit or research upgrade
+- Restored SEAS laboratory crane, that was deleted long time ago
 
 AI:
+- Fixed bug, that AI were able to delete pirate ship decks separately from the main unit one by one. Now, no longer.
+- Fixed bug, that AI were able to detect pirate ship parts as attack target and kill them by splash damage, which lead to animation break up. Now, no longer.
+
+SDK:
+- Level terrain can be saved as .obj mesh with "Export to .obj" button at icons bar
+- Northland setting textures for icewaste vegetation added
 
 
 MIRAGE 2.6.6

@@ -1270,6 +1270,7 @@ endclass;
 
 class CPirateBoss inherit CBigSizeShip
 
+	const int CANNONS=836;
 	const int TIMEOUT=835;
 	const int TIMER=834;
 
@@ -1315,9 +1316,56 @@ class CPirateBoss inherit CBigSizeShip
 	endproc;
 
 	export proc ^CGameObj CreateShipCorpse()
-		var ^CShipCorpse pxGameObj=cast<CShipCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("pirate_boss_dest",GetOwner(),GetPos(),GetRotation()));
+		var CObjList xParts;
+		var CObjList xDummies;
+		var ^CPirateBossCorpse pxGameObj=cast<CPirateBossCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("pirate_boss_dest",GetOwner(),GetPos(),GetRotation()));
+		if(m_bToBeDeleted)then
+			var ^CGameObj pxPartObj;
+			var ^CPirateBossCorpse pxPart;
+			var ^CPirateBossCorpse pxCannons;
+			var vec3 vPos = m_xKanone.GetObj()^.GetPos();
+			var vec3 vRot = m_xKanone.GetObj()^.GetRotation();
+			if(m_xHeck.IsValid())then
+				pxCannons=cast<CPirateBossCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("pirate_boss_cannons_dest",GetOwner(),vPos,vRot));
+				xParts.Include(pxCannons^.GetHandle());
+				pxCannons=cast<CPirateBossCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("pirate_boss_cannons_reduced_dest",GetOwner(),vPos,vRot));
+				pxCannons^.SetVisible(false);
+				xParts.Include(pxCannons^.GetHandle());
+			else
+				pxCannons=cast<CPirateBossCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("pirate_boss_cannons_reduced_dest",GetOwner(),vPos,vRot));
+				xParts.Include(pxCannons^.GetHandle());
+			endif;
+			var int iLastAnimFrame=300;
+			var int j,jC=m_xDummies.NumEntries();
+			for(j=0)cond(j<jC)iter(j++)do
+				if(m_xDummies[j].IsValid())then
+					pxPartObj=m_xDummies[j].GetObj();
+					pxPart=cast<CPirateBossCorpse>(CSrvWrap.GetObjMgr()^.CreateObj(pxPartObj^.GetClassName(),GetOwner(),pxPartObj^.GetPos(),pxPartObj^.GetRotation()));
+					xDummies.Include(pxPart^.GetHandle());
+					pxPart^.SetDestructLevel(2);
+					pxPart^.SetAnim("destroy",0,iLastAnimFrame);
+					pxPartObj^.Delete();
+				endif;
+			endfor;
+			var CObjList xDecks;
+			if(m_xHeck.IsValid())then xDecks.Include(m_xHeck); endif;
+			if(m_xBug.IsValid())then xDecks.Include(m_xBug); endif;
+			if(m_xSegel.IsValid())then xDecks.Include(m_xSegel); endif;
+			var int i,iC=xDecks.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(xDecks[i].IsValid())then
+					pxPartObj=xDecks[i].GetObj();
+					pxPart=cast<CPirateBossCorpse>(CSrvWrap.GetObjMgr()^.CreateObj(pxPartObj^.GetClassName()+"_dest",GetOwner(),pxPartObj^.GetPos(),pxPartObj^.GetRotation()));
+					pxPart^.SetDestructLevel(2);
+					xParts.Include(pxPart^.GetHandle());
+					pxPartObj^.Delete();
+				endif;
+			endfor;
+		endif;
+		m_xKanone.GetObj()^.Delete();
 		if(pxGameObj!=null)then
-			pxGameObj^.Init("pirate_boss_dest",m_sSinkAnim,GetName(), 10.0);
+			if(m_bToBeDeleted)then pxGameObj^.SetVisible(false); endif;
+			pxGameObj^.Init("pirate_boss_dest",GetName(), 17.0, xParts, xDummies, m_bToBeDeleted);
 			pxGameObj^.SetDestructLevel(2);
 		endif;
 		return pxGameObj;
@@ -1480,6 +1528,19 @@ class CPirateBoss inherit CBigSizeShip
 		return;
 	endproc;
 	
+	export proc void ReplaceCannons()
+		var ^CGameObj pxKanone=m_xKanone.GetObj();
+		if(pxKanone!=null)then
+			pxKanone^.Delete();
+		endif;
+		var ^CGameObj pxCannons=CSrvWrap.GetObjMgr()^.CreateObj("pirate_boss_cannons_reduced", GetOwner());
+		var CFourCC xLink="psh2";
+		pxCannons^.LinkAction(GetHandle(),xLink);
+		pxCannons^.SetHitable(false);
+		pxCannons^.SetSelectable(false);
+		m_xKanone=pxCannons^.GetHandle();
+	endproc;
+	
 	export proc void ReplacePart(string p_sClass, CFourCC p_xLink)
 		TerminateAction();
 		var ^CGameObj pxGameObj=CSrvWrap.GetObjMgr()^.CreateObj(p_sClass, GetOwner());
@@ -1487,26 +1548,31 @@ class CPirateBoss inherit CBigSizeShip
 		pxGameObj^.SetAnim("destroy",1);
 		var real fDuration=pxGameObj^.GetCurrentAnimLength();
 
-		if(p_sClass.Find("_tail")!=-1)then
-			var ^CGameObj pxKanone=m_xKanone.GetObj();
-			if(pxKanone!=null)then
-				pxKanone^.Delete();
-			endif;
-			var ^CGameObj pxCannons=CSrvWrap.GetObjMgr()^.CreateObj("pirate_boss_cannons_reduced", GetOwner());
-			var CFourCC xLink="psh2";
-			pxCannons^.LinkAction(GetHandle(),xLink);
-			pxCannons^.SetHitable(false);
-			pxCannons^.SetSelectable(false);
-			m_xKanone=pxCannons^.GetHandle();
+		if(p_sClass.Find("_row")!=-1)then
+			m_xBug.GetObj()^.Delete();
+			m_xBug=CObjHndl.Invalid();
+		elseif(p_sClass.Find("_sail")!=-1)then
+			m_xSegel.GetObj()^.Delete();
+			m_xSegel=CObjHndl.Invalid();
+		elseif(p_sClass.Find("_tail")!=-1)then
+			m_xHeck.GetObj()^.Delete();
+			m_xHeck=CObjHndl.Invalid();
+			CreateTimer(CANNONS,CGameTimeSpan.OneSecond()*4.2,false);
 		endif;
 
 		if(!m_xHeck.IsValid() && !m_xSegel.IsValid() && !m_xBug.IsValid())then
 			m_bDeadBoat=true;
+			StopEverything();
 		endif;
 
 		DeleteTimer(TIMEOUT);
 		CreateTimer(TIMEOUT,CGameTimeSpan.OneSecond()*fDuration,false);
 		m_xDummies.Include(pxGameObj^.GetHandle());
+	endproc;
+	
+	proc void DeleteShip()
+		m_bToBeDeleted=true;
+		Die();
 	endproc;
 
 	export proc void CheckDeath()
@@ -1518,9 +1584,6 @@ class CPirateBoss inherit CBigSizeShip
 					m_xDummies[i].GetObj()^.Delete();
 				endif;
 			endfor;
-			if(m_xKanone.IsValid())then
-				m_xKanone.GetObj()^.Delete();
-			endif;
 			Die();
 		endif;
 	endproc;
@@ -1532,11 +1595,31 @@ class CPirateBoss inherit CBigSizeShip
 				CheckDeath();
 			elseif(p_rxEvtPtr.GetInt(0)==TIMER)then
 				LogData();
+			elseif(p_rxEvtPtr.GetInt(0)==CANNONS)then
+				DeleteTimer(CANNONS);
+				ReplaceCannons();
 			else
 				super.HandleEvent(p_rxEvtPtr);
 			endif;
 		else
 			super.HandleEvent(p_rxEvtPtr);
+		endif;
+	endproc;
+	
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		if(m_bDeadBoat)then return; endif;
+		if(p_sCommand=="Kill")then
+			if(HasTimer(TIMEOUT))then return; endif;
+			DeleteShip();
+		elseif(p_sCommand=="Action")then
+			if(p_sMiscParams.Find("/Kill")!=-1)then
+				if(HasTimer(TIMEOUT))then return; endif;
+				DeleteShip();
+			else
+				super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+			endif;
+		else
+			super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
 		endif;
 	endproc;
 
@@ -1594,9 +1677,9 @@ class CPirateBossBuildUp inherit CBuilding
 			TerminateAction();
 			var ^CPirateBoss pxBoss=cast<CPirateBoss>(m_xParent.GetObj());
 			if(pxBoss!=null)then
+				m_bBuildingReady=false;
 				pxBoss^.ReplacePart(GetClassName()+"_dest",m_xLink);
 			endif;
-			m_bBuildingReady=false;
 		endif;
 		super.Die();
 	endproc;
@@ -1640,6 +1723,148 @@ class CPirateBossCannons inherit CPirateBossBuildUp
 		return;
 	endproc;
 	
+endclass;
+
+class CPirateBossCorpse inherit CUniversalCorpse
+
+	var string		m_sGfxName;
+	var string		m_sName;
+	var real		m_fDuration;
+	var CObjHndl	m_xCannons;
+	var CObjHndl	m_xCannonsTail;
+	var CObjList 	m_xParts;
+	var CObjList 	m_xDummies;
+	const string	CANNONS="pirate_boss_cannons_dest";
+	const string	CANNONS_TAIL="pirate_boss_cannons_reduced_dest";
+	const int 		TIMER_DELETE_MAIN=837;
+	const int 		TIMER_DELETE_CANNONS=838;
+
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+	endproc;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xBase="GCor";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		pxArc^ << m_sGfxName;
+		pxArc^ << m_sName;
+		pxArc^ << m_fDuration;
+		m_xCannons.DoKArc(pxArc^);
+		m_xCannonsTail.DoKArc(pxArc^);
+		m_xParts.DoKArc(pxArc^);
+		m_xDummies.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="GCor")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			pxArc^ << m_sGfxName;
+			pxArc^ << m_sName;
+			pxArc^ << m_fDuration;
+			m_xCannons.DoKArc(pxArc^);
+			m_xCannonsTail.DoKArc(pxArc^);
+			m_xParts.DoKArc(pxArc^);
+			m_xDummies.DoKArc(pxArc^);
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(string p_sGfxName, string p_sName, real p_fDuration, CObjList p_xListA, CObjList p_xListB, bool p_bAnimateParts)
+		if(p_bAnimateParts)then
+			m_sGfxName = p_sGfxName;
+			m_sName = p_sName;
+			m_fDuration = p_fDuration;
+			m_xParts = p_xListA;
+			m_xDummies = p_xListB;
+			DieParts();
+		else
+			super.Init(p_sGfxName,p_sName,p_fDuration);
+		endif;
+		return(true);
+	endproc;
+
+	export proc void Init(string p_sGfxName, string p_sName, real p_fDuration)
+		super.Init(p_sGfxName,p_sName,p_fDuration);
+		return();
+	endproc;
+	
+	proc void DieParts()
+		var real fDuration=0.0;
+		var int i,iC=m_xParts.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_xParts[i].IsValid())then
+				var ^CGameObj pxGameObj=m_xParts[i].GetObj();
+				var ^CPirateBossCorpse pxPart=cast<CPirateBossCorpse>(pxGameObj);
+				pxGameObj^.SetGFX(pxGameObj^.GetGfxName());
+				pxGameObj^.SetName(pxGameObj^.GetName());
+				pxGameObj^.InvokeGenericSCEvent(40,4.0);
+				if(pxGameObj^.GetClassName()!=CANNONS && pxGameObj^.GetClassName()!=CANNONS_TAIL)then
+					pxPart^.PlayAnim(m_iPlayMode);
+					fDuration=(pxGameObj^.GetCurrentAnimLength().ToInt()/1).ToReal();
+				elseif(pxGameObj^.GetClassName()==CANNONS)then
+					m_xCannons=pxGameObj^.GetHandle();
+				elseif(pxGameObj^.GetClassName()==CANNONS_TAIL)then
+					m_xCannonsTail=pxGameObj^.GetHandle();
+				endif;
+			endif;
+		endfor;
+		if(m_xCannons.GetObj()!=null)then
+			CreateTimer(TIMER_DELETE_CANNONS, CGameTimeSpan.OneSecond()*4.2,false);
+		endif;
+		if(fDuration>0.0)then
+			if(m_xCannons.GetObj()!=null)then
+				CreateTimer(TIMER_DELETE_MAIN, CGameTimeSpan.OneSecond()*(fDuration-1.4),false);
+			else
+				CreateTimer(TIMER_DELETE_MAIN, CGameTimeSpan.OneSecond()*(fDuration-3.8),false);
+			endif;
+		endif;
+	endproc;
+	
+	proc void DeleteParts()
+		var int i,iC=m_xParts.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_xParts[i].IsValid())then
+				m_xParts[i].GetObj()^.Delete();
+			endif;
+		endfor;
+		var int j,jC=m_xDummies.NumEntries();
+		for(j=0)cond(j<jC)iter(j++)do
+			if(m_xDummies[j].IsValid())then
+				m_xDummies[j].GetObj()^.Delete();
+			endif;
+		endfor;
+	endproc;
+	
+	proc void DeleteCannons()
+		m_xCannonsTail.GetObj()^.SetVisible(true);
+		m_xCannons.GetObj()^.Delete();
+	endproc;
+	
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass() == ms_xTimerClass)then
+			var int iTimerID = p_rxEvtPtr.GetInt(0);
+			if(iTimerID == TIMER_DELETE_CANNONS)then
+				DeleteTimer(TIMER_DELETE_CANNONS);
+				DeleteCannons();
+			elseif(iTimerID == TIMER_DELETE_MAIN)then
+				DeleteTimer(TIMER_DELETE_MAIN);
+				DeleteParts();
+				SetVisible(true);
+				super.Init(m_sGfxName,m_sName,m_fDuration);
+			else
+				super.HandleEvent(p_rxEvtPtr);
+			endif;
+		endif;
+	endproc;
+
+	proc void PlayAnim(int p_iPlayMode)
+		SetAnim("destroy",1);
+	endproc;
+
 endclass;
 	
 class CTransportShip inherit CBigSizeShip
