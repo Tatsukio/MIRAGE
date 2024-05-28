@@ -321,7 +321,6 @@ class CBuilding inherit CFightingObj
 	endproc;
 	
 	export proc bool CreateBuildingCorpse()
-		if(!m_bBuildingReady)then return true; endif;
 		if(m_bFakeCorpse)then
 			var ^CFakeCorpse pxGameObj=cast<CFakeCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("mirage_bldg_corpse",GetOwner(),GetPos(),GetRotation()));
 			if(pxGameObj!=null)then
@@ -591,6 +590,9 @@ class CBuilding inherit CFightingObj
 	endproc;
 	
 	export proc bool UpdateGfx()
+		if(!m_bBuildingReady && m_bCustomConstruction)then
+			return false;
+		endif;
 		var bool bReturn=super.UpdateGfx();
 		if(bReturn||m_axBuildUpLinks.NumEntries()==0)then
 			var int i;
@@ -598,19 +600,6 @@ class CBuilding inherit CFightingObj
 				var CFourCC xLink="Bl_"+i.ToString();
 				var vec3 vPos;
 				if(GetLinkPosWorld(xLink, vPos))then
-					var ^CBuilding.CBuildUpLink pxLink=^(m_axBuildUpLinks.NewEntryRef());
-					pxLink^.m_xLink=xLink;
-					pxLink^.m_vPos=vPos;
-				else
-					//Fake buildup pos if there is no Bl_ links
-					vPos = GetPos();
-					var real fBldgSize = GetRadius() - 10.0;
-					var real fAngle = 36.0 * i.ToReal();
-					fAngle = fAngle*Math.Pi()/180.0;
-					
-					vPos.SetX(vPos.GetX() + fBldgSize * Math.Cos(fAngle)); 
-					vPos.SetY(vPos.GetY() + fBldgSize * Math.Sin(fAngle)); 
-
 					var ^CBuilding.CBuildUpLink pxLink=^(m_axBuildUpLinks.NewEntryRef());
 					pxLink^.m_xLink=xLink;
 					pxLink^.m_vPos=vPos;
@@ -640,16 +629,6 @@ class CBuilding inherit CFightingObj
 		xReturn=m_axBuildUpLinks[iIndex].m_xLink;
 		m_axBuildUpLinks[iIndex].m_iWorkers++;
 		return xReturn;
-	endproc;
-	
-	export proc vec3 GetFakeBuilderPos()
-		var int i, iC=m_axBuildUpLinks.NumEntries();
-		var vec3 vPos;
-		if(iC==0 || iC != 10)then
-			vPos = GetPos();
-			return vPos;
-		endif;
-		return m_axBuildUpLinks[Random.GetInt()%9].m_vPos;
 	endproc;
 	
 	export proc void FreeLink(CFourCC p_xLink)
@@ -2166,7 +2145,6 @@ class CRocketRamp inherit CTower
 	endproc;
 	
 	export proc bool CreateBuildingCorpse()
-		if(!m_bBuildingReady)then return true; endif;
 		var ^CBuildingCorpse pxGameObj=cast<CBuildingCorpse>(CSrvWrap.GetObjMgr()^.CreateObj("BuildingCorpse",GetOwner(),GetPos(),GetRotation()));
 		if(pxGameObj!=null)then
 			pxGameObj^.SetSource(m_xTurret.GetObj());
@@ -3835,8 +3813,8 @@ class CGate inherit CBuilding
 			endif;
 			if(m_iState==GATE_STATE_OPEN)then
 				if(sGFX.Find("hcl13_gate")!=-1)then
-					iLastAnimFrame=30;
-					SetAnim("open",0,iLastAnimFrame);
+					iLastAnimFrame=45;
+					SetAnim("anim",0,iLastAnimFrame);
 				elseif(sGFX.Find("ship_chain")!=-1)then
 					iLastAnimFrame=250;
 					SetAnim("open_anim",0,iLastAnimFrame);
@@ -3845,11 +3823,11 @@ class CGate inherit CBuilding
 				endif;
 			elseif(m_iState==GATE_STATE_CLOSED||m_iState==GATE_STATE_AUTO)then
 				if(sGFX.Find("hcl13_gate")!=-1)then
-					iLastAnimFrame=29;
-					SetAnim("close",0,iLastAnimFrame);
+					iLastAnimFrame=45;
+					SetAnim("anim",iLastAnimFrame,0);
 				elseif(sGFX.Find("ship_chain")!=-1)then
 					iLastAnimFrame=250;
-					SetAnim("open_anim",2,iLastAnimFrame);
+					SetAnim("open_anim",iLastAnimFrame,0);
 				else
 					SetAnim("close",0,iLastAnimFrame);
 				endif;
@@ -3870,7 +3848,13 @@ class CGate inherit CBuilding
 	endproc;
 	
 	proc void Open()
-		var string sGFX=GetGfxName();
+		// added by ParaworldFan
+		var string sGFX=m_xTechTree.GetValueS(GetObjPath()+"/gfx","");
+		KLog.LogSpam("Campaign_gate","sGFX:"+sGFX);
+		SetGFX(sGFX);
+		UpdateObjPath();
+		OnTechTreeChange();
+		//
 		if(m_iState==GATE_STATE_OPEN)then return; endif; //redundant
 		if(m_xHackers.NumEntries()>0)then
 			OpenViolently(true);
@@ -3878,7 +3862,10 @@ class CGate inherit CBuilding
 		if(HasTimer(AUTO_GATE_TIMER))then
 			DeleteTimer(AUTO_GATE_TIMER);
 		else
-			if(sGFX=="ship_chain")then
+			if(sGFX.Find("hcl13_gate")!=-1)then
+				KLog.LogSpam("Campaign_gate","sGFX.Find(hcl13_gate)!=-1"+" true");
+				SetAnim("open",1);
+			elseif(sGFX.Find("ship_chain")!=-1)then
 				SetAnim("open_anim",1);
 			else
 				SetAnim("open",1);
@@ -3890,7 +3877,13 @@ class CGate inherit CBuilding
 	endproc;
 	
 	proc void Close()
-		var string sGFX=GetGfxName();
+		// added by ParaworldFan
+		var string sGFX=m_xTechTree.GetValueS(GetObjPath()+"/gfx","");
+		KLog.LogSpam("Campaign_gate","sGFX:"+sGFX);
+		SetGFX(sGFX);
+		UpdateObjPath();
+		OnTechTreeChange();
+		//
 		if(m_iState==GATE_STATE_CLOSED)then return; endif; //redundant
 		if(HasTimer(BROCKEN_TIMER))then return; endif;
 		var bool bSetAnim=true;
@@ -3900,8 +3893,10 @@ class CGate inherit CBuilding
 			bSetAnim=false;
 		endif;
 		if(bSetAnim)then
-			if(sGFX=="ship_chain")then
-				SetAnim("open_anim",2);
+			if(sGFX.Find("hcl13_gate")!=-1)then
+				SetAnim("anim",0,0);
+			elseif(sGFX.Find("ship_chain")!=-1)then
+				SetAnim("open_anim",1);
 			else
 				SetAnim("close",1);
 			endif;
@@ -3912,11 +3907,19 @@ class CGate inherit CBuilding
 	endproc;
 	
 	proc void Auto()
-		var string sGFX=GetGfxName();
+		// added by ParaworldFan
+		var string sGFX=m_xTechTree.GetValueS(GetObjPath()+"/gfx","");
+		KLog.LogSpam("Campaign_gate","sGFX:"+sGFX);
+		SetGFX(sGFX);
+		UpdateObjPath();
+		OnTechTreeChange();
+		//
 		if(m_iState==GATE_STATE_AUTO)then return; endif; //redundant
 		if(HasTimer(BROCKEN_TIMER))then return; endif;
 		if(m_iState!=GATE_STATE_CLOSED)then
-			if(sGFX=="ship_chain")then
+			if(sGFX.Find("hcl13_gate")!=-1)then
+				SetAnim("anim",2);
+			elseif(sGFX.Find("ship_chain")!=-1)then
 				SetAnim("open_anim",2);
 			else
 				SetAnim("close",1);
@@ -3928,13 +3931,21 @@ class CGate inherit CBuilding
 	endproc;
 	
 	proc void OnAutoGatePassUnit()
-		var string sGFX=GetGfxName();
+		// added by ParaworldFan
+		var string sGFX=m_xTechTree.GetValueS(GetObjPath()+"/gfx","");
+		KLog.LogSpam("Campaign_gate","sGFX:"+sGFX);
+		SetGFX(sGFX);
+		UpdateObjPath();
+		OnTechTreeChange();
+		//
 		if(m_iState!=GATE_STATE_AUTO)then return; endif;
 		//KLog.LogWarn("CHP","Gate\n");
 		if(HasTimer(AUTO_GATE_TIMER))then
 			DeleteTimer(AUTO_GATE_TIMER);
 		else
-			if(sGFX=="ship_chain")then
+			if(sGFX.Find("hcl13_gate")!=-1)then
+				SetAnim("anim",1);
+			elseif(sGFX.Find("ship_chain")!=-1)then
 				SetAnim("open_anim",1);
 			else
 				SetAnim("open",1);
@@ -4119,7 +4130,13 @@ class CGate inherit CBuilding
 	
 	proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
 		super.HandleEvent(p_rxEvtPtr);
-		var string sGFX=GetGfxName();
+		// added by ParaworldFan
+		var string sGFX=m_xTechTree.GetValueS(GetObjPath()+"/gfx","");
+		KLog.LogSpam("Campaign_gate","sGFX:"+sGFX);
+		SetGFX(sGFX);
+		UpdateObjPath();
+		OnTechTreeChange();
+		//
 		if(p_rxEvtPtr.GetClass()==ms_xTimerClass)then
 			if(p_rxEvtPtr.GetInt(0)==BROCKEN_TIMER )then
 				DeleteTimer(BROCKEN_TIMER);
@@ -4132,7 +4149,9 @@ class CGate inherit CBuilding
 				DeleteTimer(STONES_RELOAD_TIMER);
 			elseif(p_rxEvtPtr.GetInt(0)==AUTO_GATE_TIMER)then
 				if(m_iState==GATE_STATE_AUTO)then
-					if(sGFX=="ship_chain")then
+					if(sGFX.Find("hcl13_gate")!=-1)then
+						SetAnim("anim",2);
+					elseif(sGFX.Find("ship_chain")!=-1)then
 						SetAnim("open_anim",2);
 					else
 						SetAnim("close",1);
