@@ -707,7 +707,31 @@ class CActionMenu
 			return ^(m_axButtons.NewEntryRef());
 		endif;
 	endproc;
-
+	
+	proc bool HaveTribeBuildMenu(string p_sClass)
+		if(p_sClass.Find("aje_") != -1 || p_sClass == "hu_worker" || p_sClass == "ninigi_worker" || p_sClass == "seas_worker" || p_sClass == "tesla_s0") then
+			return true;
+		else
+			return false;
+		endif;
+	endproc;
+	
+	proc string GetMenuFromTribe(string p_sTribe)
+		var string sMenu = "BLD";
+		if(p_sTribe == "Hu")then
+			sMenu += "H";
+		elseif(p_sTribe == "Aje")then
+			sMenu += "A";
+		elseif(p_sTribe == "Ninigi")then
+			sMenu += "N";
+		elseif(p_sTribe == "SEAS")then
+			sMenu += "S";
+		else
+			sMenu += "X";
+		endif;
+		return sMenu;
+	endproc;
+	
 	export proc void UpdateMenu(bool p_bSelChg)
 		var CObjList xSel=m_pxParent^.m_xCurSelection;
 		var CObjList xSelEx=m_pxParent^.m_xOldSelection;
@@ -715,17 +739,7 @@ class CActionMenu
 			m_axButtons=0;
 			return;
 		endif;
-// special debug infos for testing department, no fuctionality
-//		if(p_bSelChg)then
-//			var ^CTechTreeDef pxDef=^(CGameWrap.GetClient().GetPlayer().GetPlayerTechTreeDef());
-//			if(pxDef!=null)then
-//				KLog.LogSpam("SFBug","Client->Owner "+CGameWrap.GetClient().GetPlayerID().ToString()+"->CProgressButton->Initialize->Object Filters:");
-//				var int i,iC=pxDef^.NumEntries();
-//				for(i=0)cond(i<iC)iter(i++)do
-//					KLog.LogSpam("SFBug","\t\t- "+pxDef^.GetFilter(i));
-//				endfor;
-//			endif;
-//		endif;
+
 		var CObjList xTemp;
 		var bool bIsCurrentlyBuild=true; //m_pxParent^.IsBuildingBuild();
 		m_pxParent^.PreprocessObjects(xSelEx, xTemp, bIsCurrentlyBuild);
@@ -739,36 +753,72 @@ class CActionMenu
 				endif;
 			endfor;
 		endif;
-		var string sClass="";
-		var bool bMultiSel=xSel.NumEntries()>1;
-		//var	CObjList	xSelEx		= CClientWrap.GetSelection();
-		var bool bMultiSelEx=xSelEx.NumEntries() > 1;
-		var int iPlayerID=CGameWrap.GetClient().GetPlayerID();
-		if(m_dwFlags==0b)then
+		
+		var string sClass			= "";
+		var bool bMultiSel			= xSel.NumEntries() > 1;
+		var bool bMultiSelEx		= xSelEx.NumEntries() > 1;
+		
+		var bitset dwSelectedTribes = 0b;
+		var bitset dwHU				= 01b;
+		var bitset dwAJE			= 010b;
+		var bitset dwNINIGI			= 0100b;
+		var bitset dwSEAS			= 01000b;
+		var bitset dwWORLD			= 010000b;
+		var bitset dwSPECIAL		= 0100000b;
+		
+		//if(m_dwFlags==0b)then //for some reason its not 0 sometimes now and cause bldg menu hiding after any update
+		if(true)then
+			//TODO: xSel does not count units of the same type, but different tribes so it wont work if you select different tribe taslows
 			var int i, iC=xSel.NumEntries();
 			for(i=0) cond(i<iC) iter(++i) do
 				if(!xSel[i].IsValid())then xSel.DeleteEntry(i--); --iC; continue; endif;
+				
 				var ^CObj pxO=xSel[i].GetObj();
-				var int iOwner = pxO^.GetOwner();
-				var int iDiploStatus = CGameWrap.GetDiplomacyMgr().GetTheirOpinion(iOwner);
-				var bool bAllyCommands = CMirageClnMgr.Get().CheckAlienCommands();
-				if((iOwner!=iPlayerID) && !(bAllyCommands==true && iDiploStatus==2))then xSel.DeleteEntry(i--); --iC; continue; endif;
-				var string sCN=pxO^.GetClassName();
-				if(sCN=="aje_torpedo_turtle"||sCN=="aje_gallimimus"||sCN=="aje_tracker_dino"||sCN=="hu_kennel_smilodon"||sCN=="ninigi_dilophosaurus"||sCN=="seas_stygimoloch")then continue; endif;
-				//RT#14694 deactivation of command buttons for ninigi water mines
-				if(sCN=="ninigi_mineship_mine")then continue; endif;
-				if(sCN=="mrg_sprt")then continue; endif;
 				var ^CAttribs pxA=pxO^.GetAttribs();
+				var CFourCC sObjType=pxO^.GetType();
+				var string sCN=pxO^.GetClassName();
+				var int iOwner = pxO^.GetOwner();
 				if(pxA==null)then xSel.DeleteEntry(i--); --iC; continue; endif;
 				if(!pxA^.GetValue("transporter_guid").IsEmpty())then continue; endif;
-				var string sObjPath=pxA^.GetValue("ObjPath");
+				if(!CGameInst.CanBeControlled(iOwner))then xSel.DeleteEntry(i--); --iC; continue; endif;
+				if(sCN == "aje_torpedo_turtle" || sCN == "aje_gallimimus" || sCN == "aje_tracker_dino" || sCN == "hu_kennel_smilodon" || sCN == "ninigi_dilophosaurus" || sCN == "seas_stygimoloch" || sCN == "ninigi_mineship_mine" || sCN == "mrg_sprt")then continue; endif;
+				
+				if(sObjType == "CHTR" && HaveTribeBuildMenu(sCN))then
+					var string sTribe=pxA^.GetValue("tribe");
+					if((sTribe == "Special"))then
+						var ^CLevelInfoClient pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+						if(pxLevelInfo!=null)then
+							var ^CLevelInfo.CPlayerSlot pxRealOwnerSlot=pxLevelInfo^.GetOwnerPlayerSlot(pxO^.GetOwner());
+							if(pxRealOwnerSlot!=null)then
+								sTribe = pxRealOwnerSlot^.GetTribe();
+							endif;
+						endif;
+					endif;
+					if(sTribe == "Hu")then
+						dwSelectedTribes |= dwHU;
+					elseif(sTribe == "Aje")then
+						dwSelectedTribes |= dwAJE;
+					elseif(sTribe == "Ninigi")then
+						dwSelectedTribes |= dwNINIGI;
+					elseif(sTribe == "SEAS")then
+						dwSelectedTribes |= dwSEAS;
+					elseif(sTribe == "World")then
+						dwSelectedTribes |= dwWORLD;
+					elseif(sTribe == "Special")then
+						dwSelectedTribes |= dwSPECIAL;
+					else
+						dwSelectedTribes |= dwHU;
+					endif;
+				endif;
+				
 				if(sClass.IsEmpty())then
-					sClass=pxO^.GetClassName();
-				elseif(sClass!=pxO^.GetClassName())then
+					sClass=sCN;
+				elseif(sClass!=sCN)then
 					sClass="diff";
 				endif;
+				
 				if((m_dwFlags&FLAG_CAN_MOVE)==0b)then
-					if(pxO^.GetType()!="BLDG"|| (pxA^.GetValueInt("MovingBuilding")>0))then
+					if(sObjType !="BLDG" || (pxA^.GetValueInt("MovingBuilding")>0))then
 						m_dwFlags |= FLAG_CAN_MOVE;
 					endif;
 				endif;
@@ -776,7 +826,7 @@ class CActionMenu
 					var CTechTree xTechTree=pxO^.GetTechTree();
 					var ^CTechTree.CNode pxTTNode=xTechTree.FindNode(m_pxParent^.GetObjPath(pxO));
 					if(pxTTNode!=null)then
-						if(pxTTNode^.GetSubValueI("can_harvest",0)!=0 && (pxO^.GetType()=="ANML"||pxO^.GetType()=="CHTR"||pxO^.GetType()=="VHCL"))then
+						if(pxTTNode^.GetSubValueI("can_harvest",0)!=0 && (sObjType == "ANML" || sObjType == "CHTR" || sObjType == "VHCL"))then
 							m_dwFlags |= FLAG_CAN_HARVEST;
 						endif;
 					endif;
@@ -795,19 +845,12 @@ class CActionMenu
 				if((m_dwFlags&FLAG_HOLD_UNITS)==0b)then
 					var array string asToks;
 					var int iMaxPassengers=0;
-/*
-					if(pxO^.GetClassName().Find("bunker") != -1)then
-						iMaxPassengers=4;
-					else
-*/
-					//by Henry: removed because bunker upgrade has been boosted
 					iMaxPassengers=pxA^.GetValueInt("max_passengers");
-					//endif;
 					pxA^.GetValue("passenger_guids").Split(asToks, "\n", true);
-					if((asToks.NumEntries()>0 && pxO^.GetClassName().Find("harbour")<0)||(iMaxPassengers > 0))then
+					if((asToks.NumEntries()>0 && sCN.Find("harbour")<0)||(iMaxPassengers > 0))then
 						m_dwFlags |= FLAG_HOLD_UNITS;
 					endif;
-					if(pxO^.GetType()=="BLDG")then
+					if(sObjType =="BLDG")then
 						m_dwFlags |= FLAG_DISMOUNT_NO_SEC;
 					endif;
 				endif;
@@ -823,8 +866,8 @@ class CActionMenu
 				var bool bFight=pxA^.GetValueBool("can_attack");
 				var bool bAttckBldg=pxA^.GetValueBool("AttackBuilding");
 				if((m_dwFlags&FLAG_CAN_FIGHT)==0b)then
-					if(pxA^.GetValueInt("damage")>0 && (pxO^.GetType()!="BLDG"||bAttckBldg) && !bIsCurrentlyBuild && bFight)then
-						if(bAttckBldg && (pxO^.GetClassName().Find("bunker")>=0||pxO^.GetClassName().Find("fortress")>=0))then
+					if(pxA^.GetValueInt("damage")>0 && (sObjType != "BLDG" || bAttckBldg) && !bIsCurrentlyBuild && bFight)then
+						if(bAttckBldg && (sCN.Find("bunker")>=0 || sCN.Find("fortress")>=0))then
 							if((m_dwFlags&FLAG_HOLD_UNITS)!=0b)then
 								m_dwFlags |= FLAG_CAN_FIGHT;
 								m_dwFlags |= FLAG_CAN_HUNT;
@@ -836,19 +879,13 @@ class CActionMenu
 					endif;
 				endif;
 				if((m_dwFlags&FLAG_SHOW_STANCES)==0b)then
-					if	(bFight &&
-						(pxO^.GetType()!="BLDG"||bAttckBldg||pxO^.GetClassName()=="seas_carrier") &&
-						(pxO^.GetClassName()!="aje_resource_collector" || pxA^.GetValueInt("damage")>0) &&
-						pxO^.GetClassName()!="aje_shaman" &&
-						pxO^.GetClassName()!="hu_druid" &&
-						pxO^.GetClassName()!="ninigi_monk" &&
-						pxO^.GetClassName()!="seas_medic")then
+					if (bFight && (sObjType != "BLDG" || bAttckBldg || sCN =="seas_carrier") && (sCN != "aje_resource_collector" || pxA^.GetValueInt("damage")>0) && sCN !="aje_shaman" && sCN !="hu_druid" && sCN !="ninigi_monk" && sCN !="seas_medic")then
 						m_dwFlags |= FLAG_SHOW_STANCES;
 					endif;
 				endif;
 				if((m_dwFlags&FLAG_SHOW_LEVEL_UP)==0b)then
 					//by Henry: fix for seas carrier to have levelup button
-					if((pxO^.GetType()!="BLDG"||pxO^.GetClassName()=="aje_floating_harbour"||pxO^.GetClassName()=="seas_carrier") && pxO^.GetClassName()!="ninigi_water_turret")then
+					if((sObjType != "BLDG" || sCN == "aje_floating_harbour" || sCN =="seas_carrier") && sCN !="ninigi_water_turret")then
 						m_dwFlags |= FLAG_SHOW_LEVEL_UP;
 					endif;
 				endif;
@@ -864,20 +901,13 @@ class CActionMenu
 						m_dwFlags |= FLAG_GATE;
 					endif;
 				endif;
-				/* Deprecated ... det jibbet nich mehr
-				if((m_dwFlags&FLAG_SHOW_TRADE)==0b)then
-					if(pxA^.GetValueInt("TradeBuilding")>0)then
-						m_dwFlags |= FLAG_SHOW_TRADE;
-					endif;
-				endif;*/
 				if((m_dwFlags&FLAG_SHOW_RALLY)==0b)then
 					if(pxA^.GetValueInt("IsRallySite")>0)then
 						m_dwFlags |= FLAG_SHOW_RALLY;
 					endif;
 				endif;
 				if((m_dwFlags&FLAG_SHOW_KILLBTN)==0b)then
-					if(pxO^.GetType()=="BLDG" || !CGameInst.ms_bDisableDelete)then
-//					if(pxO^.GetType()=="BLDG"&&!CGameInst.ms_bDisableDelete)then
+					if(sObjType == "BLDG" || !CGameInst.ms_bDisableDelete)then
 						m_dwFlags |= FLAG_SHOW_KILLBTN;
 					endif;
 				endif;
@@ -894,6 +924,8 @@ class CActionMenu
 				m_axButtons.DeleteEntry(0);
 			endwhile;
 		endif;
+		
+		/*
 		// hide rarely used buttons on multiselection
 		if(bMultiSel)then
 			var bitset dwFlag=m_dwFlags;
@@ -929,6 +961,8 @@ class CActionMenu
 				endwhile;
 			endif;
 		endif;
+		*/
+		
 		//	Wenn wir mehrere Einheiten (nicht nur verschiedene Einheitstypen wie bMultiSel nur unterscheidet) haben, dann werden
 		//	die Slots nicht mehr angezeigt, wohl aber der Dismount all button
 		if(bMultiSelEx)then
@@ -957,7 +991,7 @@ class CActionMenu
 		pxBtn^.Initialize("NONE", CCmdButton.TYPE_LEFT_SPACER, m_pxParent, "", "");
 		pxBtn^.SetPos(iXPos, iYPos);
 		iXPos += 7*CGameInst.ms_iUIScaleFactor;
-		if(((m_dwFlags&FLAG_CAN_PRODUCE)!=0b)&&((m_dwFlags&FLAG_CAN_BUILD)==0b)&&((m_dwFlags&FLAG_CAN_TRAPS)==0b))then
+		if(((m_dwFlags&FLAG_CAN_PRODUCE)!=0b)/*&&((m_dwFlags&FLAG_CAN_BUILD)==0b)&&((m_dwFlags&FLAG_CAN_TRAPS)==0b)*/)then
 			pxBtn=GetButton(iNumMenuBtns++);
 			pxBtn^.Initialize("PROD", CCmdButton.TYPE_MENU, m_pxParent, "produce", "");
 			pxBtn^.SetPos(iXPos, iYPos);
@@ -967,13 +1001,60 @@ class CActionMenu
 			pxBtn^.SetToolTipText(sTTTitle+" \n"+sTTText);
 		endif;
 		if((m_dwFlags&FLAG_CAN_BUILD)!=0b)then
-			pxBtn=GetButton(iNumMenuBtns++);
-			pxBtn^.Initialize("BUIL", CCmdButton.TYPE_MENU, m_pxParent, "build", "");
-			pxBtn^.SetPos(iXPos, iYPos);
-			iXPos += m_iMENUBTN_WIDTH;
+		
+			var string sIcon = "build";
+			var bool bOneMenu = false;
 			var string sTTTitle;
 			var string sTTText=CClientWrap.GetUIMgr().GetToopTipText("cb_build",sTTTitle);
-			pxBtn^.SetToolTipText(sTTTitle+" \n"+sTTText);
+			
+			if(dwSelectedTribes == dwHU || dwSelectedTribes == dwAJE || dwSelectedTribes == dwNINIGI || dwSelectedTribes == dwSEAS || dwSelectedTribes == dwWORLD)then
+				bOneMenu = true;
+			endif;
+
+			if((dwSelectedTribes&dwHU)!=0b)then
+				var string sAdd = "";
+				if(!bOneMenu)then
+					sAdd = "_hu";
+				endif;
+				pxBtn=GetButton(iNumMenuBtns++);
+				pxBtn^.Initialize("BLDH", CCmdButton.TYPE_MENU, m_pxParent, sIcon+sAdd, "");
+				pxBtn^.SetPos(iXPos, iYPos);
+				iXPos += m_iMENUBTN_WIDTH;
+				pxBtn^.SetToolTipText(sTTTitle+" \n"+sTTText);
+			endif;
+			if((dwSelectedTribes&dwAJE)!=0b)then
+				var string sAdd = "";
+				if(!bOneMenu)then
+					sAdd = "_aje";
+				endif;
+				pxBtn=GetButton(iNumMenuBtns++);
+				pxBtn^.Initialize("BLDA", CCmdButton.TYPE_MENU, m_pxParent, sIcon+sAdd, "");
+				pxBtn^.SetPos(iXPos, iYPos);
+				iXPos += m_iMENUBTN_WIDTH;
+				pxBtn^.SetToolTipText(sTTTitle+" \n"+sTTText);
+			endif;
+			if((dwSelectedTribes&dwNINIGI)!=0b)then
+				var string sAdd = "";
+				if(!bOneMenu)then
+					sAdd = "_ninigi";
+				endif;
+				pxBtn=GetButton(iNumMenuBtns++);
+				pxBtn^.Initialize("BLDN", CCmdButton.TYPE_MENU, m_pxParent, sIcon+sAdd, "");
+				pxBtn^.SetPos(iXPos, iYPos);
+				iXPos += m_iMENUBTN_WIDTH;
+				pxBtn^.SetToolTipText(sTTTitle+" \n"+sTTText);
+			endif;
+			if((dwSelectedTribes&dwSEAS)!=0b)then
+				var string sAdd = "";
+				if(!bOneMenu)then
+					sAdd = "_seas";
+				endif;
+				pxBtn=GetButton(iNumMenuBtns++);
+				pxBtn^.Initialize("BLDS", CCmdButton.TYPE_MENU, m_pxParent, sIcon+sAdd, "");
+				pxBtn^.SetPos(iXPos, iYPos);
+				iXPos += m_iMENUBTN_WIDTH;
+				pxBtn^.SetToolTipText(sTTTitle+" \n"+sTTText);
+			endif;
 		endif;
 		if((m_dwFlags&FLAG_CAN_TRAPS)!=0b)then
 			pxBtn=GetButton(iNumMenuBtns++);
@@ -1367,13 +1448,13 @@ class CActionMenu
 					var ^CAttribs pxA=pxObj^.GetAttribs();
 					if(pxA==null)then continue; endif;
 					var string sPasGuids=pxA^.GetValue("passenger_guids");
-					//----< DaHo - Leere Plätze anzeigen >--- Die untere Zeile wieder einkommentieren
+					//----< DaHo - Leere Platze anzeigen >--- Die untere Zeile wieder einkommentieren
 //					if(sPasGuids.IsEmpty())then continue; endif;
 					//----------------------------------------
 					var array string asToks;
 					sPasGuids.Split(asToks, "\n", true);
 					if(++iTrspCnt>=CFlyout.MAX_CATEGORIES)then return; endif;
-					//----< DaHo - Leere Plätze anzeigen >---
+					//----< DaHo - Leere Platze anzeigen >---
 					var CTechTree xTT=pxObj^.GetTechTree();
 					var string sTT = pxA^.GetValue("ObjPath");
 					var ^CTechTree.CNode pxN = xTT.FindNode(sTT+"/max_passengers");
@@ -1390,7 +1471,7 @@ class CActionMenu
 					//----------------------------------------
 					var int i, iC=asToks.NumEntries();
 					var int iAdditional=0; //Einheiten in Einheiten in Einheiten
-					//----< DaHo - Leere Plätze anzeigen >---
+					//----< DaHo - Leere Platze anzeigen >---
 					//----------------------------------------
 					for(i=0) cond(i<iC) iter(++i) do
 						var CGuid xG; xG.FromString(asToks[i]);
@@ -1421,7 +1502,7 @@ class CActionMenu
 					if(iCM > 0)then
 						iCM=iCM - (iC+iAdditional);
 					endif;
-					//----< DaHo - Leere Plätze anzeigen >---
+					//----< DaHo - Leere Platze anzeigen >---
 					for(i=0)cond(i<iCM)iter(++i) do
 						var ^CCmdButton pxBtn=^(m_axCmdButtons.NewEntryRef());
 						var string sCmd="/Unboard|"+sSubCat+"|none";
@@ -1431,7 +1512,7 @@ class CActionMenu
 					//----------------------------------------
 				endif;
 			endfor;
-		elseif(p_xCurFlyout=="BUIL")then
+		elseif(p_xCurFlyout=="BLDH"||p_xCurFlyout=="BLDA"||p_xCurFlyout=="BLDN"||p_xCurFlyout=="BLDS")then
 			m_pxParent^.GetFlyoutWindow()^.SetCategory(0, "ECON");
 			m_pxParent^.GetFlyoutWindow()^.SetCategory(1, "COMB");
 			m_pxParent^.GetFlyoutWindow()^.SetCategory(2, "DEFE");
@@ -1471,6 +1552,7 @@ class CActionMenu
 					m_pxParent^.GetFlyoutWindow()^.SetCategory(1, "CONV");
 					m_pxParent^.GetFlyoutWindow()^.SetCategory(2, "UPGR");
 					m_pxParent^.GetFlyoutWindow()^.SetCategory(3, "UNIT");
+					m_pxParent^.GetFlyoutWindow()^.SetCategory(4, "UFOC");
 				endif;
 			else
 				m_pxParent^.GetFlyoutWindow()^.SetCategory(0, "UPGR");
@@ -1482,8 +1564,9 @@ class CActionMenu
 				m_pxParent^.GetFlyoutWindow()^.SetCategory(1, "EXTE");
 			else
 				m_pxParent^.GetFlyoutWindow()^.SetCategory(0, "HERO");
-				m_pxParent^.GetFlyoutWindow()^.SetCategory(1, "STAR");
+				m_pxParent^.GetFlyoutWindow()^.SetCategory(1, "HFOC");
 				m_pxParent^.GetFlyoutWindow()^.SetCategory(2, "UNIT");
+				m_pxParent^.GetFlyoutWindow()^.SetCategory(3, "UFOC");
 			endif;
 		endif;
 		var array string asCats;
@@ -1541,7 +1624,7 @@ class CActionMenu
 		endif;
 		m_pxParent^.GetFlyoutWindow()^.Sort();
 	endproc;
-
+	
 endclass;
 
 class CCommandBar inherit CWindow
@@ -3422,7 +3505,7 @@ class CCommandBar inherit CWindow
 				CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this,xNewSel[i],CSubscriptionMgr.CT_ObjAttribs|CSubscriptionMgr.CT_TechTree, "ActionMenu ActionMenuProgress");
 			endfor;
 			if(m_xCurSelection.NumEntries()>0)then
-				var ^CObj pxO=m_xCurSelection[0].GetObj();
+				var ^CObj pxO=GetSelObjPtr(0);
 				if(pxO!=null)then
 					m_xCurTechTree=pxO^.GetTechTree();
 				endif;
@@ -3442,7 +3525,23 @@ class CCommandBar inherit CWindow
 			endif;
 		endif;
 	endproc;
-
+	
+	proc string GetMenuFromTribe(string p_sTribe)
+		var string sMenu = "BLD";
+		if(p_sTribe == "Hu")then
+			sMenu += "H";
+		elseif(p_sTribe == "Aje")then
+			sMenu += "A";
+		elseif(p_sTribe == "Ninigi")then
+			sMenu += "N";
+		elseif(p_sTribe == "SEAS")then
+			sMenu += "S";
+		else
+			sMenu += "X";
+		endif;
+		return sMenu;
+	endproc;
+	
 	proc void OpenFlyout()
 		var bool bOnlyWorker=true;
 		var bool bBuildings=false;
@@ -3450,7 +3549,7 @@ class CCommandBar inherit CWindow
 		var int i, iC=m_xCurSelection.NumEntries();
 		if(iC==0)then return; endif;
 		for(i=0) cond(i<iC) iter(++i) do
-			var ^CObj pxO=m_xCurSelection[i].GetObj();
+			var ^CObj pxO=GetSelObjPtr(i);
 			if(pxO==null)then continue; endif;
 			if(pxO^.GetClassName().Find("worker")<0)then
 				bOnlyWorker=false;
@@ -3468,27 +3567,28 @@ class CCommandBar inherit CWindow
 		endfor;
 		var ^CCmdButton pxBtn=null;
 		if(bOnlyWorker)then
-			m_xCurFlyout= "BUIL";
-			pxBtn=m_pxActionMenu^.FindMatchingMenuBtn("BUIL");
+			var string sMenu = GetMenuFromTribe(CInfo.GetSelectedUnitTribe());
+			m_xCurFlyout = sMenu;
+			pxBtn=m_pxActionMenu^.FindMatchingMenuBtn(sMenu);
 		elseif(bMobileHQ)then
-			m_xCurFlyout= "PROD";
+			m_xCurFlyout = "PROD";
 			pxBtn=m_pxActionMenu^.FindMatchingMenuBtn("PROD");
 		elseif(bBuildings)then
-			m_xCurFlyout= "SLOT";
+			m_xCurFlyout = "SLOT";
 			pxBtn=m_pxActionMenu^.FindMatchingMenuBtn("SLOT");
 			if(pxBtn==null)then
-				m_xCurFlyout= "PROD";
+				m_xCurFlyout = "PROD";
 				pxBtn=m_pxActionMenu^.FindMatchingMenuBtn("PROD");
 			endif;
 		else
-			m_xCurFlyout= "SPEC";
+			m_xCurFlyout = "SPEC";
 			pxBtn=m_pxActionMenu^.FindMatchingMenuBtn("SPEC");
 			if(pxBtn==null)then
-				m_xCurFlyout= "PROD";
+				m_xCurFlyout = "PROD";
 				pxBtn=m_pxActionMenu^.FindMatchingMenuBtn("PROD");
 			endif;
 			if(pxBtn==null)then
-				m_xCurFlyout= "SLOT";
+				m_xCurFlyout = "SLOT";
 				pxBtn=m_pxActionMenu^.FindMatchingMenuBtn("SLOT");
 			endif;
 		endif;
@@ -3533,7 +3633,7 @@ class CCommandBar inherit CWindow
 						bResChg=true;
 					endif;
 				endfor;
-				if(bResChg&&m_xCurFlyout!="BUIL"&&m_xCurFlyout!="PROD")then
+				if(bResChg&&m_xCurFlyout!="BLDH"&&m_xCurFlyout!="BLDA"&&m_xCurFlyout!="BLDN"&&m_xCurFlyout!="BLDS"&&m_xCurFlyout!="PROD")then
 					bResChg=false;
 				endif;
 			elseif(p_iInvokerID==CInvoke.PYRAMIDCHG)then
@@ -3614,8 +3714,7 @@ class CCommandBar inherit CWindow
 				var int iIdx=asClasses.FindEntry(sClass);
 				var bool bIsBuilding=pxO^.GetType()=="BLDG";
 				var int iOwner = pxO^.GetOwner();
-				var int iDiploStatus = CGameWrap.GetDiplomacyMgr().GetTheirOpinion(iOwner);
-				if(iOwner==iPlayerID || (CMirageClnMgr.Get().CheckAlienCommands() && iDiploStatus==2))then
+				if(CGameInst.CanBeControlled(iOwner))then
 					if(iIdx<0)then
 						if(bIsBuilding && !bAlreadyBuilding)then
 							asClasses.AddEntry(sClass);
@@ -3646,125 +3745,72 @@ class CCommandBar inherit CWindow
 	endproc;
 
 	export proc bool GetAvailableActions(ref CObjList p_rxObjects, ^array string p_pasNodes, ^array int p_paiLocIdx, ref array string p_rasCategory, ^array bool p_pabDeny)
+	
 		if(p_rasCategory.NumEntries()==1 && p_rasCategory[0]=="NONE")then return false; endif;
+		
 		var CTechTree xTT;
-		var string sTribe="";
+		
+		var int i, iC=p_rxObjects.NumEntries();
+		
+		var string sOwnTribe="";
 		var ^CPlayer pxPlayer=^(CGameWrap.GetClient().GetPlayer());
 		if(pxPlayer!=null)then
 			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=pxPlayer^.GetPlayerSlot();
 			if(pxPlayerSlot!=null)then
-				sTribe=pxPlayerSlot^.GetTribe();
+				sOwnTribe=pxPlayerSlot^.GetTribe();
 			endif;
 		endif;
-		var string sPlayerTribe=sTribe;
-		var bool bStances=p_rasCategory.FindEntry("STNC")>=0;
-		var bool bBuilding=false;
-		var int i, iC=p_rxObjects.NumEntries();
+		
 		for(i=0)cond(i<iC)iter(++i)do
 			if(!p_rxObjects[i].IsValid())then continue; endif;
 			var ^CObj pxO=p_rxObjects[i].GetObj();
-			xTT=pxO^.GetTechTree();
-			if((pxO^.GetType()=="BLDG" && pxO^.GetClassName()!="seas_carrier") && bBuilding)then
-				continue;
-			else
-				bBuilding=true;
-			endif;
-			// HACK for TorpedoTurtle (RT#12583)
-			if(pxO^.GetClassName()=="aje_torpedo_turtle")then continue; endif;
-			if(pxO^.GetClassName()=="mrg_sprt")then continue; endif;
-			// ENDHACK
-			var string sType=pxO^.GetType().AsString();
-			var string sClass=pxO^.GetClassName();
-			var string sRealTribe=sPlayerTribe;
-			var ^CLevelInfoClient pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
-			if(pxLevelInfo!=null)then
-				var ^CLevelInfo.CPlayerSlot pxRealOwnerSlot=pxLevelInfo^.GetOwnerPlayerSlot(pxO^.GetOwner());
-				if(pxRealOwnerSlot!=null)then
-					sRealTribe=pxRealOwnerSlot^.GetTribe();
-				endif;
-			endif;
-			sTribe=sPlayerTribe;
+			var string sClass = pxO^.GetClassName();
+			var string sType = pxO^.GetType().AsString();
 			var string sObjTribe=GetObjTribe(pxO);
-			var bool bWorker=false;
-			if(pxO^.GetType()=="CHTR" && (pxO^.GetClassName()=="aje_worker"||pxO^.GetClassName()=="hu_worker"||pxO^.GetClassName()=="ninigi_worker"||pxO^.GetClassName()=="seas_worker") && (p_rasCategory.FindEntry("BUIL")>=0||p_rasCategory.FindEntry("TRAP")>=0))then
-				bWorker=true;
-				sTribe=sObjTribe;
-				sClass=sTribe;
-				sClass+="_worker";
-				sClass.MakeLower();
-			endif;
-			
-//			if(pxO^.GetType()=="CHTR"&&pxO^.GetClassName()!="ninigi_worker"&&(p_rasCategory.FindEntry("TRAP")>=0))then
-//				sTribe=sObjTribe;
-//				sClass=sTribe;
-//				sClass+="_worker";
-//				sClass.MakeLower();
-//			endif;
-			
-			//Henry: HACK!!! so that Trader Triplets can't build dustriders stuff...
-//			if(pxO^.GetType()=="CHTR" && sTribe=="Aje" && pxO^.GetClassName()!="aje_worker" && (sClass!="Barry_s0"&&sClass!="Harry_s0"&&sClass!="Larry_s0") && (p_rasCategory.FindEntry("BUIL")>=0))then
-			if(pxO^.GetType()=="CHTR" && (sTribe=="Aje"||sObjTribe=="Aje") && (pxO^.GetClassName()!="aje_worker" && pxO^.GetClassName()!="hu_worker" && pxO^.GetClassName()!="ninigi_worker" && pxO^.GetClassName()!="seas_worker") && (sClass!="Barry_s0"&&sClass!="Harry_s0"&&sClass!="Larry_s0"&&sClass!="tesla_s0") && (p_rasCategory.FindEntry("BUIL")>=0))then
-				if(sTribe=="Aje")then
-					sClass=sTribe;
-				else
-					sClass=sObjTribe;
-				endif;
-				sClass+="_worker";
-				sClass.MakeLower();
-			endif;
-			// ENDHACK ...
-			
-			var bool bTesla=false;
-			// HACK!!! tesla can build stuff too ...
-			if(sClass=="tesla_s0"&&(p_rasCategory.FindEntry("BUIL")>=0||p_rasCategory.FindEntry("TRAP")>=0))then
-				bTesla = true;
-				sTribe=sRealTribe;
-				sClass=sTribe;
-				//KLog.LogSpam("Kr1s1m", "line 3719, tesla_s0: sTribe = "+sTribe);
-				//KLog.LogSpam("Kr1s1m", "line 3720, tesla_s0: sClass = "+sClass);
-				sClass+="_worker";
-				sClass.MakeLower();
-			endif;
-			// ENDHACK ...
+			var bool bStances=p_rasCategory.FindEntry("STNC")>=0;
 
-//			// HACK!!! for suced dr infantry...
-//			if(pxO^.GetType()=="CHTR" && sClass.Find("aje_")!=-1 && sClass!=("aje_worker") && p_rasCategory.FindEntry("BUIL")>=0)then
-//				sClass=sObjTribe;
-//				sClass+="_worker";
-//				sClass.MakeLower();
-//			endif;
-//			// ENDHACK ...
-			
-			var bool bTrader = false;
-			//Henry: HACK!!! trader can build something ... ;)
-			if((sClass=="Barry_s0"||sClass=="Harry_s0"||sClass=="Larry_s0")&&(p_rasCategory.FindEntry("BUIL")>=0))then
-				bTrader = true;
-				sTribe=sRealTribe;
-				sClass=sTribe;
-				sClass+="_trader";
-				sClass.MakeLower();
+			if((sObjTribe == "Special"))then
+				var ^CLevelInfoClient pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+				if(pxLevelInfo!=null)then
+					var ^CLevelInfo.CPlayerSlot pxRealOwnerSlot=pxLevelInfo^.GetOwnerPlayerSlot(pxO^.GetOwner());
+					if(pxRealOwnerSlot!=null)then
+						sObjTribe = pxRealOwnerSlot^.GetTribe();
+					endif;
+				endif;
 			endif;
-			// ENDHACK ...
-			//HACK!!! illusion does not have any special moves
+			
+			var bool bHaveTribeBuildMenu = p_rasCategory.FindEntry(GetMenuFromTribe(sObjTribe))>=0;
+			var bool bHaveTrapsBuildMenu = p_rasCategory.FindEntry("TRAP")>=0;
+			
+			if(sClass == "aje_torpedo_turtle")then continue; endif;
+			if(sClass == "mrg_sprt")then continue; endif;
+
+			if(sType=="CHTR" && sObjTribe=="Aje" && bHaveTribeBuildMenu)then
+				sClass=sObjTribe;
+				sClass+="_worker";
+			endif;
+			
+			if(sClass=="tesla_s0" && (bHaveTribeBuildMenu || bHaveTrapsBuildMenu))then
+				sClass=sObjTribe;
+				sClass+="_worker";
+			endif;
+
 			var ^CAttribs pxAttr=pxO^.GetAttribs();
 			if(p_rasCategory.FindEntry("SPEC")>=0 && pxAttr!=null && pxAttr^.GetValueBool("illusion"))then
 				continue;
 			endif;
-			// ENDHACK ...
 			
 			//Kr1s1m: If TT-Stealing is off and obj has a foreign build menu bHideBUIL flag becomes raised
 			var bool bHideBUIL = false;
-			if(!CMirageClnMgr.Get().CheckTechtreeSteal() && sRealTribe!=sObjTribe)then
-				var bool bAjeCHTR = pxO^.GetType()=="CHTR" && sClass.Find("aje_")!=-1 && p_rasCategory.FindEntry("BUIL")>=0;
-				if(bAjeCHTR || bWorker)then
+			if(!CMirageClnMgr.Get().CheckTechtreeSteal())then
+				if(sObjTribe != sOwnTribe)then
 					bHideBUIL = true;
-					sClass=sObjTribe;
-					sClass+="_worker";
-					sClass.MakeLower();
 				endif;
 			endif;
 			
+			xTT=pxO^.GetTechTree();
 			var array string asJupp;
+			sClass.MakeLower();
 			asJupp.AddEntry(sClass);
 			asJupp.AddEntry(sType);
 			var int iA, iAC=2;
@@ -3785,7 +3831,6 @@ class CCommandBar inherit CWindow
 				var string sTribe=GetObjTribe(pxO);
 				var int iAction, iNumActions=pxLocation^.m_axActions.NumEntries();
 				for(iAction=0)cond(iAction<iNumActions)iter(++iAction)do
-					if(bHideBUIL)then continue; endif; //Kr1s1m: if the bHideBUIL flag was raised, skip filling the BUIL action menu
 					var ^CTTHelper.CActionPath pxActionInfo=^(pxLocation^.m_axActions[iAction]);
 					if(p_pasNodes!=null && p_pasNodes^.FindEntry(pxActionInfo^.m_sPath)>=0)then continue; endif;
 					if(p_rasCategory.FindEntry(pxActionInfo^.m_sCategory)<0)then continue; endif;
@@ -3829,6 +3874,7 @@ class CCommandBar inherit CWindow
 						endif;
 					endif;
 					var bool bDeny=false;
+					/*
 					var string sSF=CMirageClnMgr.Get().GetSpecialFocus();
 					var ^CTechTree.CNode pxConditions=pxAction^.GetSub("conditions");
 					if(sSF!=""&&pxConditions!=null)then
@@ -3845,6 +3891,7 @@ class CCommandBar inherit CWindow
 							if(!bValidTribe && !bTesla)then continue; endif;
 						endif;
 					endif;
+					*/
 					if(m_bSkipOldTraps&&pxAction^.GetSubValueI("trap", 0)==1)then
 						continue;
 					elseif(pxAction^.GetSubValueI("visibility", 1)!=1)then
@@ -3864,6 +3911,10 @@ class CCommandBar inherit CWindow
 					var ^CTechTree.CNode pxUIPos=pxLocNode^.GetSub("uiposition");
 					if(pxUIPos!=null)then
 						var string sCat=pxUIPos^.GetSubValue("cat","");
+						//Kr1s1m: if the bHideBUIL flag was raised, skip filling the BUIL action menu
+						if(bHideBUIL)then
+							if(sCat == "BLDH" || sCat == "BLDA" || sCat == "BLDN" || sCat == "BLDS" || sCat == "TRAP")then continue; endif;
+						endif;
 						if(p_rasCategory.FindEntry(sCat)<0)then continue; endif;
 					endif;
 					var ^CTechTree.CNode pxLocalFlags=pxLocNode^.GetSub("localflags");
@@ -4279,7 +4330,7 @@ class CCommandBar inherit CWindow
 		var bool bCheckInventObjects=true;
 		var int i=0;
 		if(m_xCurSelection.NumEntries()>0)then
-			var ^CObj pxObj=m_xCurSelection[i].GetObj();
+			var ^CObj pxObj=GetSelObjPtr(i);
 			if(pxObj!=null)then
 				m_xCurTechTree=pxObj^.GetTechTree();
 			endif;
