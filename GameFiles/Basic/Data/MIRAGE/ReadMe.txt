@@ -32,9 +32,9 @@ Maps:
 - Northland version of Yggdrasil map added
 
 Campaign maps:
-- Amazon Warrior have female voiceover instead of male one from now on
+- Amazon warrior have female voiceover instead of male one from now on
 - Fixed floating buildings, units and incorrect camera's angles on mission 13 in three cutscenes
-- Classic Pirate ship from now on plays destruction animation of decks, once the unit being deleted. Ship decks and cannons no longer stuck in the air. Animation based on the amount, how many decks the ship had, when got order for Deletion.
+- Classic pirate ship from now on plays destruction animation of decks, once the unit being deleted. Ship decks and cannons no longer stuck in the air. Animation based on the amount, how many decks the ship had, when got order for Deletion.
 - Classis pirate ship no longer can do any actions, once all its decks being destroyed.
 
 Heroes:
@@ -46,6 +46,7 @@ Heroes:
 - Taslow lvl 5 now correctly grants +33% buildup speed globally
 
 Dustriders:
+- Amazon temple buildup animation added
 - Town Center Resource tool upgrades 1,2,3, and 4 now correctly increase harvest speed but no longer affect build up and repair
 - Better tools upgrade from now on adds icon to infantry once was researched
 - Better tools from now also increase upgrade duration for medium and tesla towers, big tent, clay walls and gates
@@ -82,7 +83,7 @@ AI:
 SDK:
 - Level terrain can be saved as .obj mesh with "Export to .obj" button at icons bar
 - Northland setting textures for icewaste vegetation added
-
+- pirate_outpost buildup animation added
 
 MIRAGE 2.6.6
 ------------------
