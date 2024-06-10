@@ -73,6 +73,7 @@ SEAS:
 - Advanced tools costs 200/200/200/0 and increases build up speed (+25% build speed like before)
 - Improved repair and Advanced tools now properly both affect Taslow and display upgrade icons
 - Improved big cannon build sequnece. The base platform are not placed by default, it appears during construction process, as well as the rotator.
+- Buildable and campaign big cannon from on have destruction stages
 - Fixed bug, where not fully built big cannon were playing destruction animation, if it was killed
 - Fixed bug when death animation being played, when the pub or laboratory being not fully built while were killed
 - Added SEAS laboratory work animation, that plays when building produces unit or research upgrade
@@ -86,6 +87,7 @@ SDK:
 - Level terrain can be saved as .obj mesh with "Export to .obj" button at icons bar
 - Northland setting textures for icewaste vegetation added
 - pirate_outpost buildup animation added
+- Fixed seas_great_cannon placing
 
 MIRAGE 2.6.6
 ------------------
