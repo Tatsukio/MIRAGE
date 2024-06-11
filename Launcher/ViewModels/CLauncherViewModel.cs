@@ -62,6 +62,8 @@ namespace MIRAGE_Launcher.ViewModel
                 return;
             }
 
+            LoadLang();
+
             Task taskGetMyPublicIp = new Task(CLauncher.GetMyPublicIp);
             taskGetMyPublicIp.Start();
 
@@ -78,7 +80,6 @@ namespace MIRAGE_Launcher.ViewModel
                     {
                         if (ReadyToStart())
                         {
-                            LoadLang();
                             LoadDB();
                             ReadMods();
 
@@ -118,7 +119,6 @@ namespace MIRAGE_Launcher.ViewModel
                 return;
             }
 
-            LoadLang();
             LoadDB();
             LoadUI();
             ReadMods();
