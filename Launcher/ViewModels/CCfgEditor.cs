@@ -1,6 +1,7 @@
 ﻿using MIRAGE_Launcher.ViewModel;
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 
 namespace MIRAGE_Launcher.ViewModels
@@ -14,6 +15,16 @@ namespace MIRAGE_Launcher.ViewModels
             {
                 return false;
             }
+
+            if (FileLocked(settingsPath))
+            {
+                System.Threading.Thread.Sleep(2000);
+                if (FileLocked(settingsPath))
+                {
+                    return false;
+                }
+            }
+
             string path = null;
             if (CLauncher.FileFound(CLauncherViewModel._toolsDir, "CfgEditor.exe", ref path))
             {
@@ -122,6 +133,29 @@ namespace MIRAGE_Launcher.ViewModels
                 return (outputDescription + "\n" + errorDescription).TrimEnd();
             }
             return null;
+        }
+
+        protected static bool FileLocked(string path)
+        {
+            var file = new FileInfo(path);
+            try
+            {
+                using (FileStream stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.None))
+                {
+                    stream.Close();
+                }
+            }
+            catch (IOException)
+            {
+                //the file is unavailable because it is:
+                //still being written to
+                //or being processed by another thread
+                //or does not exist (has already been processed)
+                return true;
+            }
+
+            //file is not locked
+            return false;
         }
     }
 }

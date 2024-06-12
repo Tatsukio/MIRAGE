@@ -63,6 +63,45 @@ namespace PWKiller
             return null;
         }
 
+        public static bool SetS(string value)
+        {
+            string settingsPath = null;
+            if (!FileFound(_settingsDir, "Settings.cfg", ref settingsPath))
+            {
+                return false;
+            }
+
+            if (FileLocked(settingsPath))
+            {
+                System.Threading.Thread.Sleep(2000);
+                if (FileLocked(settingsPath))
+                {
+                    return false;
+                }
+            }
+
+            string path = null;
+            if (FileFound(_toolsDir, "CfgEditor.exe", ref path))
+            {
+                Process cfgEditor = new Process();
+                cfgEditor.StartInfo.FileName = path;
+                cfgEditor.StartInfo.Arguments = "-s " + value;
+                cfgEditor.StartInfo.CreateNoWindow = true;
+                cfgEditor.StartInfo.UseShellExecute = false;
+                cfgEditor.StartInfo.RedirectStandardOutput = true;
+                cfgEditor.StartInfo.RedirectStandardError = true;
+                cfgEditor.Start();
+                cfgEditor.WaitForExit();
+
+                if (cfgEditor.ExitCode != 0)
+                {
+                    return false;
+                }
+                return true;
+            }
+            return false;
+        }
+
         public static bool FileFound(string path, string filename, ref string outpath)
         {
             if (String.IsNullOrEmpty(path) || String.IsNullOrEmpty(filename))
@@ -85,6 +124,28 @@ namespace PWKiller
             }
         }
 
+        protected static bool FileLocked(string path)
+        {
+            var file = new FileInfo(path);
+            try
+            {
+                using (FileStream stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.None))
+                {
+                    stream.Close();
+                }
+            }
+            catch (IOException)
+            {
+                //the file is unavailable because it is:
+                //still being written to
+                //or being processed by another thread
+                //or does not exist (has already been processed)
+                return true;
+            }
+
+            //file is not locked
+            return false;
+        }
 
         static readonly XmlDocument _locale = new XmlDocument();
 
@@ -137,13 +198,7 @@ namespace PWKiller
         {
             if (File.Exists(_toolsDir + "/CfgEditor.exe"))
             {
-                string appDataDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                ProcessStartInfo modConf = new ProcessStartInfo(_toolsDir + "/CfgEditor.exe", "-r Root/Pest/Server/UseUslCPP")
-                {
-                    CreateNoWindow = true,
-                    UseShellExecute = false
-                };
-                Process.Start(modConf);
+                SetS("Root/Pest/Server/UseUslCPP 1");
             }
             KillPW();
             KillPWKiller();
