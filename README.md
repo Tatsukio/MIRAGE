@@ -8,8 +8,12 @@
   
 </details>
 
+## Requirements:
+- Base game + BoosterPack 3
 
-## Build Requirements: vs, nsis
+## Build Requirements:
+- Visual Studio
+- NSIS
 
 ## Build Order:
 - Compile MIRAGE/CfgEditor/CfgEditor.hs and move the generated binary file to MIRAGE/GameFiles/Basic/Tools
