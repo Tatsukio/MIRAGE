@@ -27,6 +27,7 @@ General:
 - Neutral buildings and resources will play selection sounds when selected
 - Added proper workers positions during building construction for all custom buildings without Bl_ links 
 - Walls and gates are available from epoch 1 for each tribe now
+- Idle animations for non-activated valhalla campaign statues was disabled
 
 Maps:
 - Northland version of Yggdrasil map added
