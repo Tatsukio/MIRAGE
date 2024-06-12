@@ -9,6 +9,8 @@ MIRAGE 2.6.7
 Special:
 
 General:
+- Added a separate sub-menu to the build menu to display buildable units (seas scorpion, trader zeppelin)
+- Empty sub-menus in the command bar are now hidden
 - All menus are centered now (can be reverted by disabling "center menu" checkbox in the options menu)
 - New game-mechanics server setting added: "Ally controll" - if enabled you can control your ally's units, and they can control yours
 - Improved cutscenes for Boosterpack1 singleplayer campaign for classis and SEAS versions
