@@ -58,6 +58,7 @@ Dustriders:
 - Tesla tower upgrade duration was rised from 30 to 90 seconds
 
 Dragon Clan:
+- Firecannon recoil animation added
 - Pirate ship death animation being improved. Ships decks are no logner just dissapear once the ship being killed. They are playing death animation, as well as ship's hull.
 - Fixed bug with death animation being played, when the rocket ramp being not fully built while was killed
 
