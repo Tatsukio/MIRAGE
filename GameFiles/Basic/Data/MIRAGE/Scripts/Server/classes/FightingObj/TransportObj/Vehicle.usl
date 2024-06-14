@@ -959,12 +959,15 @@ endclass;
 	
 class CLumberjack inherit CVehicle
 	
-	var bool m_bTecInFightPos;
-	export const string EXPLOSIVES_ROUNDS="/Filters/SEAS/Upgrades/xenage/explosives_rounds";
+	export constructor()
+	endconstructor;
 	
 	export destructor()
 	enddestructor;
-
+	
+	var bool m_bTecInFightPos;
+	export const string EXPLOSIVES_ROUNDS="/Filters/SEAS/Upgrades/xenage/explosives_rounds";
+	
 	export proc bool AttackEnemy(^CFightingObj p_pxEnemy, vec3 p_vTarget, ref bool p_rbRotated)
 		if(GetTransportObj().IsValid())then
 			return false;
@@ -1044,7 +1047,124 @@ class CLumberjack inherit CVehicle
 		endif;
 	endproc;
 	
-		proc void HarvestTask(^CGameObj p_pxObject, vec3 p_vPos, bool p_bQ)
+	export proc bool NextJob(CObjHndl p_xTarget, CObjList p_xIgnoreBuildUps)
+		if(!p_xTarget.IsValid())then return false; endif;
+		var ^CBuilding pxBuilding=cast<CBuilding>(p_xTarget.GetObj());
+		if(pxBuilding!=null && CSrvWrap.GetDiplomacyMgr().GetIsFriend(GetOwner(), pxBuilding^.GetOwner()))then
+			if(pxBuilding^.IsReady())then
+				var string sClassName=pxBuilding^.GetClassName();
+				if(sClassName=="ninigi_lumbermill")then
+					FindClosestResource(pxBuilding^.GetPos(), "Wood");
+				elseif(sClassName=="hu_lumberjack_cottage")then
+					FindClosestResource(pxBuilding^.GetPos(), "Lumber");
+				elseif(sClassName=="ninigi_hunting_lodge")then
+					FindClosestResource(pxBuilding^.GetPos(), "Food");
+				elseif(sClassName=="hu_stone_quarry"||sClassName=="ninigi_stone_quarry")then
+					FindClosestResource(pxBuilding^.GetPos(), "Stone");
+				elseif(sClassName=="aje_bazaar"|| sClassName=="hu_marketplace"||sClassName=="hu_warehouse"||sClassName=="ninigi_warehouse"||sClassName=="seas_small_tent"||sClassName=="seas_steelwork")then
+					FindClosestResource(pxBuilding^.GetPos(), "All");
+				else
+					return super.NextJob(p_xTarget,p_xIgnoreBuildUps);
+				endif;
+				return true;
+			else
+				return super.NextJob(p_xTarget,p_xIgnoreBuildUps);
+			endif;
+		endif;
+		var ^CResource pxResource=cast<CResource>(p_xTarget.GetObj());
+		if(pxResource!=null)then
+			if(pxResource^.GetType()=="WOOD")then
+				HarvestTask(pxResource,pxResource^.GetPos(),false);
+			elseif(pxResource^.GetType()=="STON")then
+				MineTask(pxResource,pxResource^.GetPos(),false);
+			elseif(pxResource^.GetType()=="FRUI"||pxResource^.GetType()=="FOOD")then
+				GetFoodTask(pxResource,pxResource^.GetPos(),false);
+			else
+				return false;
+			endif;
+			return true;
+		endif;
+		return super.NextJob(p_xTarget,p_xIgnoreBuildUps);
+	endproc;
+	
+	export proc bool FindClosestResource(vec3 p_vPos, string p_sType);
+		if(p_vPos=={0.0,0.0,0.0})then return false; endif;
+		var real fSRadius=100.0;
+		if(p_sType=="Mix"||p_sType=="Wood")then
+			var int iSkip=0;
+			var vec3 vTree;
+			var bool bTreeFound=false;
+			var bool bNewTree=false;
+			var CForestSrvMgr.CTree xForTree;
+			while(true)do
+				bNewTree=CSrvWrap.GetForestMgr().FindNextTreeShortDelivery(xForTree,p_vPos,p_vPos,fSRadius,iSkip);
+				if(!xForTree.IsValid())then break; endif;
+				if(bNewTree==true)then
+					CSrvWrap.GetForestMgr().SetHitPoints(xForTree, CSrvWrap.GetForestMgr().GetMaxHPFakeTrees());
+				endif;
+				CSrvWrap.GetForestMgr().GetTreePos(xForTree, vTree);
+				if(Math.Abs(vTree.GetZ()-GetPos().GetZ()) > 10.0f)then //too much height difference...
+					iSkip++;
+					continue;
+				endif;
+				if(!CheckMaxAutoprodDist(vTree))then
+					iSkip++;
+					continue;
+				endif;
+				bTreeFound=true;
+				break;
+			endwhile;
+			if(bTreeFound)then
+				if(bNewTree==true)then
+					CSrvWrap.GetForestMgr().SetHitPoints(xForTree, CSrvWrap.GetForestMgr().GetMaxHPFakeTrees());
+					if(xForTree.IsFakeTree())then
+						var bool bFound=Convert2ObjTree(xForTree);
+					endif;
+				endif;
+			endif;
+		endif;
+		var CObjQuery xResourceSearch;
+		if(p_sType=="Stone"||p_sType=="All")then
+			xResourceSearch.SetType("STON",true);
+			xResourceSearch.SetAttribsNeg("inactive","1");
+		endif;
+		if(p_sType=="Wood"||p_sType=="Lumber"||p_sType=="All")then
+			xResourceSearch.SetType("TREE",true);
+			xResourceSearch.SetType("WOOD",true);
+		endif;
+		if(p_sType=="Food"||p_sType=="Lumber"||p_sType=="All")then
+			xResourceSearch.SetType("FOOD",true);
+			xResourceSearch.SetType("FRUI",true);
+			xResourceSearch.SetAttribsNeg("fish",1);
+		endif;
+		xResourceSearch.SetVisibility(GetOwner(),true);
+		var CObjList xResources;
+		xResourceSearch.RegionCircle(p_vPos,fSRadius);
+		if(xResourceSearch.Execute(xResources))then
+			xResources.SortDistance(p_vPos);
+			while(xResources.NumEntries()>0&&!CheckMaxAutoprodDist(xResources[0]))do
+				xResources.DeleteEntry(0);
+			endwhile;
+			if(xResources.NumEntries()>0)then
+				var CFourCC xType=xResources[0].GetObj()^.GetType();
+				var CObjHndl xResource=xResources[0];
+				if(xType=="FOOD"||xType=="FRUI")then
+					GetFoodTask(xResource.GetObj(),xResource.GetObj()^.GetPos(),false);
+				elseif(xType=="STON")then
+					MineTask(xResource.GetObj(),xResource.GetObj()^.GetPos(),false);
+				elseif(xType=="TREE"||xType=="WOOD")then
+					HarvestTask(xResource.GetObj(),xResource.GetObj()^.GetPos(),false);
+				endif;
+			endif;
+		endif;
+		return(true);
+	endproc;
+	
+	proc void HarvestTask(^CGameObj p_pxObject, vec3 p_vPos, bool p_bQ)
+		if(!CanHarvest())then
+			GoTo(p_vPos, true, GetDefaultSpeed(), true, p_bQ);
+			return;
+		endif;
 		var ^CHarvesterTask pxTask=cast<CHarvesterTask>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(),"HarvestT"));
 		if(pxTask==null)then return; endif;
 		var bool bInit=false;
@@ -1061,61 +1181,86 @@ class CLumberjack inherit CVehicle
 		endif;
 	endproc;
 	
-	export proc bool NextJob(CObjHndl p_xTarget, CObjList p_xIgnoreBuildUps)
-		if(m_pxTaskMgr==null)then return false; endif;
-		if(!p_xTarget.IsValid())then return false; endif;
-		var int i,iC=m_pxTaskMgr^.NumSubs();
-		for(i=1)cond(i<iC)iter(i++)do
-			if(m_pxTaskMgr^.GetSubState(i)^.GetName()=="BuildUp")then
-				return false;
-			endif;
-		endfor;
-		var ^CBuilding pxBuilding=cast<CBuilding>(p_xTarget.GetObj());
-		if(pxBuilding!=null && CSrvWrap.GetDiplomacyMgr().GetIsFriend(GetOwner(), pxBuilding^.GetOwner()))then
-			if(pxBuilding^.IsReady())then
-				var string sClassName=pxBuilding^.GetClassName();
-				if(sClassName=="aje_bazaar"||sClassName=="hu_lumberjack_cottage"||sClassName=="hu_marketplace"||sClassName=="hu_warehouse"||sClassName=="ninigi_lumbermill"||sClassName=="ninigi_warehouse"||sClassName=="seas_small_tent"||sClassName=="seas_steelwork")then
-					HarvestTask(null,pxBuilding^.GetPos(),false);
-					return true;
-				else
-					return super.NextJob(p_xTarget,p_xIgnoreBuildUps);
-				endif;
-			else
-				return super.NextJob(p_xTarget,p_xIgnoreBuildUps);
-			endif;
+	proc bool Convert2ObjTree(ref CForestSrvMgr.CTree po_rxForTree)
+		CSrvWrap.GetForestMgr().Refresh(po_rxForTree);
+		var bool bFound=false;
+		var vec3 vPos;
+		if(!po_rxForTree.IsValid())then return bFound; endif;
+		var int iTreeType=CSrvWrap.GetForestMgr().GetTreeType(po_rxForTree);
+		if(iTreeType==-1)then return bFound; endif;
+		if(CSrvWrap.GetForestMgr().GetTreePos(po_rxForTree, vPos)==false)then
+			return bFound;
 		endif;
-		var ^CResource pxResource=cast<CResource>(p_xTarget.GetObj());
-		if(pxResource!=null)then
-			if(pxResource^.GetType()=="WOOD")then
-				HarvestTask(pxResource,pxResource^.GetPos(),false);
-			else
-				return false;
-			endif;
-			return true;
+		var string sSetting=CSrvWrap.GetCurLevel()^.GetLevelInfo().GetAttribs().GetValue("Setting");
+		if(sSetting=="Cave1")then
+			sSetting="Savanna";
+		elseif(sSetting=="Cave2")then
+			sSetting="Ashvalley";
+		elseif(sSetting=="Cave3")then
+			sSetting="Oasis";
 		endif;
-		return super.NextJob(p_xTarget,p_xIgnoreBuildUps);
+		var string sTree=sSetting+"_Tree_0"+(iTreeType+1).ToString();
+		var CObjHndl xRet=CSrvWrap.GetForestMgr().ConvertTree(po_rxForTree,sTree);
+		bFound=xRet.IsValid();
+		return bFound;
 	endproc;
 	
+	proc void MineTask(^CGameObj p_pxObject, vec3 p_vPos, bool p_bQ)
+		if(!CanHarvestRes("stone"))then
+			GoTo(p_vPos, true, GetDefaultSpeed(), true, p_bQ);
+			return;
+		endif;
+		if(p_pxObject!=null)then
+			var ^CMineTask pxTask=cast<CMineTask>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(),"MineT"));
+			if(pxTask==null)then return; endif;
+			var bool bInit=pxTask^.Init(GetHandle(),p_pxObject^.GetHandle());
+			if(bInit)then
+				pxTask^.SetUserCommand(true);
+				NewTaskFO(pxTask,p_bQ);
+			else
+				pxTask^.GetFactory()^.FreeState(pxTask);
+			endif;
+		else
+			GoTo(p_vPos, true, GetDefaultSpeed(), true, p_bQ);
+		endif;
+	endproc;
+	
+	proc void GetFoodTask(^CGameObj p_pxObject, vec3 p_vPos, bool p_bQ)
+		if(p_pxObject!=null)then
+			var ^CGetFoodTask pxTask=cast<CGetFoodTask>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(),"GetFoodTask"));
+			if(pxTask==null)then return; endif;
+			var bool bInit=pxTask^.Init(GetHandle(),p_pxObject^.GetHandle());
+			if(bInit)then
+				pxTask^.SetUserCommand(true);
+				NewTaskFO(pxTask,p_bQ);
+			else
+				pxTask^.GetFactory()^.FreeState(pxTask);
+			endif;
+		else
+			GoTo(p_vPos, true, GetDefaultSpeed(), true, p_bQ);
+		endif;
+	endproc;
+
 	export proc void DoCutAnim()
-		AnimAction("harvest");
+		AnimAction("attack_front_s_2");
 	endproc;
 	
 	export proc void DoTakeAnim()
-		AnimAction("attack_front");
+		AnimAction("attack_front_s_0");
 	endproc;
 	
 	export proc void DoMineAnim()
-		AnimAction("attack_front");
+		DoTakeAnim();
 	endproc;
 	
 	export proc void LinkToStock(string p_sGFX)
-		var CFourCC xLink = "psh1";
+		var CFourCC xLink = "HndR";
 		SetLinkGFX(xLink, p_sGFX);
 		super.LinkToStock(p_sGFX);
 	endproc;
 	
 	export proc void ClearLink()
-		var CFourCC xLink="psh1";
+		var CFourCC xLink="HndR";
 		RemLinkGFX(xLink);
 		super.ClearLink();
 	endproc;
@@ -1638,6 +1783,10 @@ class CHarvester inherit CVehicle
 	endproc;
 	
 	proc void HarvestTask(^CGameObj p_pxObject, vec3 p_vPos, bool p_bQ)
+		if(!CanHarvest())then
+			GoTo(p_vPos, true, GetDefaultSpeed(), true, p_bQ);
+			return;
+		endif;
 		var ^CHarvesterTask pxTask=cast<CHarvesterTask>(CSrvWrap.GetUSLFactoryMgr().CreateState(GetFSM(),"HarvestT"));
 		if(pxTask==null)then return; endif;
 		var bool bInit=false;
