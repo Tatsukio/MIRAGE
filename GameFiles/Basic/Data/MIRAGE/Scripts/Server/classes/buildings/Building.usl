@@ -260,9 +260,9 @@ class CBuilding inherit CFightingObj
 				if(pxBldgCorpse!=null)then
 					pxBldgCorpse^.SetName(GetName());
 					pxBldgCorpse^.SetGFX(sGfx);
-					if(sClassName=="aje_sensor_tower")then
-						pxBldgCorpse^.SetPos(GetPos()); //If it works then its not stupid
-					endif;
+					//if(sClassName=="aje_sensor_tower")then
+					//	pxBldgCorpse^.SetPos(GetPos()); //If it works then its not stupid
+					//endif;
 					pxBldgCorpse^.Initialize(this);
 					pxBldgCorpse^.SetDieAnim("destroy",true);
 					pxBldgCorpse^.SetAggressive(GetTechTreeAggressiv());
@@ -2351,46 +2351,6 @@ class CNinigiSmallTower inherit CTower
 
 endclass;
 
-class CNinigiLargeTower inherit CTower
-	
-	export proc void OnInit(bool p_bLoad)
-		SetTurretLink("Proj");
-		super.OnInit(p_bLoad);
-		m_sTurretAttackAnim="load";
-	endproc;
-
-	export proc bool UpdateDestructionFlags()
-		if(((GetHitpoints()!=0.0f)&&(GetMaxHitpoints()!=0.0f)))then
-			var real fPercentage=GetHitpoints()/(GetMaxHitpoints()/100.0f);
-			if(fPercentage>50.0f)then
-				SetDestructLevel(0);
-			elseif(fPercentage>25.0f)then
-				if(GetDestructLevel()!=1)then
-					SetDestructLevel(1);
-				endif;
-			elseif(GetDestructLevel()!=2)then
-				SetDestructLevel(1);
-			endif;
-		endif;
-		return false;
-	endproc;
-	
-	export proc bool CorpseAvailable(ref string p_rsClass)
-		p_rsClass="ninigi_smoke_tower_dest";
-		return CSrvWrap.GetGfxMgrBase().FindGraphicSetEntry(p_rsClass);
-	endproc;
-	
-	export proc void Die()
-		super.Die();
-	endproc;
-	
-	export proc void UpdateGfxFlags()
-		if(!m_bBuildingReady)then return; endif;	
-		SetTurret("ninigi_rocket_ramp_top");
-	endproc;
-
-endclass;
-
 //Hu: Hu_Tower
 //Aje: ??
 //Ninigi: ??
@@ -2399,7 +2359,7 @@ class CTower inherit CBuilding
 	var CObjHndl			m_xTurret;
 	var string				m_sTurretAttackAnim;
 	var CFourCC				m_xTurretLink;
-	var bool					m_bUpgraded;
+	var bool				m_bUpgraded;
 	
 	export constructor()
 		m_xTurretLink="Proj";
@@ -2434,6 +2394,8 @@ class CTower inherit CBuilding
 		m_sTurretAttackAnim="attack_front";
 		if(GetClassName()=="aje_small_tower"||GetClassName()=="aje_medium_tower")then
 			m_sTurretAttackAnim="gun_shoot";
+		elseif(GetClassName()=="ninigi_large_tower")then
+			m_sTurretAttackAnim="load";
 		endif;
 		SetWallMapObj(true);
 	endproc;
@@ -2475,6 +2437,15 @@ class CTower inherit CBuilding
 		var string sLink=m_xTurretLink.AsString();
 		(pxArc^) << sLink;
 		pxWalk^.Close();
+	endproc;
+	
+	export proc bool CorpseAvailable(ref string p_rsClass)
+		if(GetClassName()=="ninigi_large_tower")then
+			p_rsClass="ninigi_smoke_tower_dest";
+		else
+			p_rsClass=GetGfxName()+"_dest";
+		endif;
+		return CSrvWrap.GetGfxMgrBase().FindGraphicSetEntry(p_rsClass);
 	endproc;
 	
 	proc void SetTurretLink(string p_sLink)
@@ -2595,7 +2566,11 @@ class CTower inherit CBuilding
 				SetAnim(GetFightAnim(),1);
 			endif;
 			if(!m_sTurretAttackAnim.IsEmpty() && m_xTurret.IsValid())then
-				m_xTurret.GetObj()^.SetAnim(m_sTurretAttackAnim, 1);
+				if(GetClassName()=="ninigi_large_tower")then
+					m_xTurret.GetObj()^.SetSLEAnim(m_sTurretAttackAnim,15,true,true);
+				else
+					m_xTurret.GetObj()^.SetAnim(m_sTurretAttackAnim, 1);
+				endif;
 			endif;
 			return false;
 		endif;
@@ -2632,7 +2607,31 @@ class CTower inherit CBuilding
 				SetTurret("aje_tesla_tower_canon");
 				DeleteVPU();
 			endif;
+		elseif(GetClassName()=="ninigi_large_tower")then
+			if(!m_xTurret.IsValid())then
+				if(m_bBuildingReady)then
+					m_sTurretAttackAnim="load";
+					SetTurret("ninigi_rocket_ramp_top");
+					DeleteVPU();
+				endif;
+			endif;
 		endif;
+	endproc;
+	
+	export proc bool UpdateDestructionFlags()
+		if(((GetHitpoints()!=0.0f)&&(GetMaxHitpoints()!=0.0f)))then
+			var real fPercentage=GetHitpoints()/(GetMaxHitpoints()/100.0f);
+			if(fPercentage>50.0f)then
+				SetDestructLevel(0);
+			elseif(fPercentage>25.0f)then
+				if(GetDestructLevel()!=1)then
+					SetDestructLevel(1);
+				endif;
+			elseif(GetDestructLevel()!=2)then
+				SetDestructLevel(1);
+			endif;
+		endif;
+		return false;
 	endproc;
 	
 	export proc void CancelAction(string p_sTTPath)
@@ -9948,7 +9947,13 @@ class CBuildingCorpse inherit CUniversalCorpse
 	
 	export proc void Init(string p_sGfx, string p_sName, real p_fDuration, int p_iAge)
 		m_sGfx=p_sGfx;
-		super.Init(p_sGfx+"_dest", p_sName, p_fDuration);
+
+		if(p_sGfx=="ninigi_large_tower")then
+			super.Init("ninigi_smoke_tower_dest", p_sName, p_fDuration);
+		else
+			super.Init(p_sGfx+"_dest", p_sName, p_fDuration);
+		endif;
+
 		m_iState=1;
 		SetAge(p_iAge);
 	endproc;
