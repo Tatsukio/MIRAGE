@@ -68,6 +68,7 @@ Norsemen:
 - Fixed bug with bunker dissapearing from build menu, once first tier of walls upgrade was researched
 
 SEAS:
+- New epoch 6 unit: MG Walker
 - Executioner can harvest food and wood (and stone after upgrade) from now on
 - Warpgate model was updated
 - Regular Babbage mobile suit from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
