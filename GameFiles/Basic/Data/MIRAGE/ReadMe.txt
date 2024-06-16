@@ -60,6 +60,7 @@ Dustriders:
 Dragon Clan:
 - New epoch 6 building: mortar tower
 - Firecannon recoil animation added
+- Pirate ship is buildable as a separate structure (like a seas scorpion)
 - Pirate ship death animation being improved. Ships decks are no logner just dissapear once the ship being killed. They are playing death animation, as well as ship's hull.
 - Fixed bug with death animation being played, when the rocket ramp being not fully built while was killed
 
@@ -93,7 +94,6 @@ AI:
 SDK:
 - Level terrain can be saved as .obj mesh with "Export to .obj" button at icons bar
 - Northland setting textures for icewaste vegetation added
-- pirate_outpost buildup animation added
 - Fixed seas_great_cannon placing
 
 MIRAGE 2.6.6
