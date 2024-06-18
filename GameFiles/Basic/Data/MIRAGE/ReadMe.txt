@@ -72,6 +72,7 @@ SEAS:
 - New epoch 6 unit: MG Walker
 - Executioner can harvest food and wood (and stone after upgrade) from now on
 - Warpgate model was updated
+- Black widows are rebuildable from now on
 - Regular Babbage mobile suit from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
 - Regular Babbage mobile suit now properly shows Poison Rounds upgrade icon when Kleeman is tier 4
 - Regular Babbage mobile suit now properly shows Maelstorm Rounds upgrade icon
