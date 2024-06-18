@@ -5511,6 +5511,7 @@ class CLumberjackWreckage inherit CVehicle
 	var string m_sWreckage;
 	var string m_sRobot;
 	var bool m_bAutoStart;
+	var array CUniversalLinkObj m_axLinkedObjs;
 	
 	constructor()
 		m_bReactivated=false;
@@ -5609,6 +5610,8 @@ class CLumberjackWreckage inherit CVehicle
 		m_sWreckage=GetClassName();
 		if(m_sWreckage=="seas_flamer_wreckage"||m_sWreckage=="seas_suit_wreckage"||m_sWreckage=="seas_terminator_wreckage"||m_sWreckage=="babbage_wreckage")then
 			m_iLast=95;
+		elseif(m_sWreckage=="seas_wehrspinne_wreckage"||m_sWreckage=="seas_mgwalker_wreckage")then
+			m_iLast=50;
 		elseif(m_sWreckage=="seas_boss_wreckage")then
 			m_iLast=249;
 		endif;
@@ -5622,6 +5625,55 @@ class CLumberjackWreckage inherit CVehicle
 		var real fRemade=1.0f;
 		SetAnim("dying",2,0,fRemade);
 		CreateTimer(INITIATE_IMMORTALITY_PROTOCOL, CGameTimeSpan.OneSecond()*fRemade, false);
+	endproc;
+	
+	export proc void UpdateLinkedObjs()
+		var ^CGameObj pxParent = this;
+		var int i, iC = m_axLinkedObjs.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CGameObj pxObj = m_axLinkedObjs[i].GetHandle().GetObj();
+			if(pxObj==null)then
+				m_axLinkedObjs.DeleteEntry(i);
+				i--; iC--;
+				continue;
+			endif;
+			var real fDelay = m_axLinkedObjs[i].GetDelay();
+			var CFourCC xLink = m_axLinkedObjs[i].GetLink();
+			var CObjHndl xParent = m_axLinkedObjs[i].GetParentObj();
+			var bool bCustom = m_axLinkedObjs[i].GetCustom();
+			var vec3 vOffset = m_axLinkedObjs[i].GetLinkOffset();
+			if(!xParent.IsValid())then
+				xParent = GetHandle();
+			endif;
+			if(bCustom)then
+				if(fDelay>=0.0)then
+					pxObj^.FlexLinkAction(xParent,xLink,fDelay,vOffset,"walk_1");
+				else
+					pxObj^.LinkAction(xParent,xLink,vOffset);
+				endif;
+			else
+				if(fDelay>=0.0)then
+					pxObj^.FlexLinkAction(xParent,xLink,fDelay,{0.0,0.0,0.0},"walk_1");
+				else
+					pxObj^.LinkAction(xParent, xLink);
+				endif;
+			endif;
+			pxParent^.AddGroupedChildren(pxObj^.GetGuid());
+			pxObj^.SetVisible(xLink!="NONE");
+			pxObj^.SetSelectable(xLink!="NONE");
+		endfor;
+	endproc;
+	
+	export proc void AddObjFlex(CObjHndl p_xHndl, string p_sLink, real p_fDelay, CObjHndl p_xParent)
+		var ^CUniversalLinkObj pxObj = ^(m_axLinkedObjs.NewEntryRef());
+		if(pxObj==null)then return; endif;
+		pxObj^.SetHandle(p_xHndl);
+		pxObj^.SetLink(p_sLink);
+		pxObj^.SetDelay(p_fDelay);
+		pxObj^.SetParentObj(p_xParent);
+		pxObj^.SetLinkOffset({0.0,0.0,0.0});
+		pxObj^.SetCustom(false);
+		UpdateLinkedObjs();
 	endproc;
 	
 	export proc void ActionTask(string p_sAction)
