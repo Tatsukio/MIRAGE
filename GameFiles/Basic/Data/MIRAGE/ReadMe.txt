@@ -55,6 +55,7 @@ Dustriders:
 - Better tools upgrade from now on adds icon to infantry once was researched
 - Better tools from now also increase upgrade duration for medium and tesla towers, big tent, clay walls and gates
 - Better tools description were updated
+- Floating Harbour placing ghost from now on has turtles displaying
 - Tesla tower upgrade duration was rised from 30 to 90 seconds
 
 Dragon Clan:
@@ -65,6 +66,7 @@ Dragon Clan:
 - Fixed bug with death animation being played, when the rocket ramp being not fully built while was killed
 
 Norsemen:
+- Harbour placing ghost from now on has missing crane displaying
 - Fixed broken warpgate model
 - Fixed bug with bunker dissapearing from build menu, once first tier of walls upgrade was researched
 
@@ -73,6 +75,7 @@ SEAS:
 - Executioner can harvest food and wood (and stone after upgrade) from now on
 - Warpgate model was updated
 - Black widows are rebuildable from now on
+- Carrier placing ghost from now on has missing turret displaying
 - Regular Babbage mobile suit from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
 - Regular Babbage mobile suit now properly shows Poison Rounds upgrade icon when Kleeman is tier 4
 - Regular Babbage mobile suit now properly shows Maelstorm Rounds upgrade icon
