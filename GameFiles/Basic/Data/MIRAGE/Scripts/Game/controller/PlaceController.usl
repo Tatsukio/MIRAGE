@@ -471,24 +471,46 @@ class CPlaceController inherit CInputController
 	
 	export proc void ApplyGhostRot()
 		var int i, iNumGhosts=CClientWrap.GetObjMgr().NumGhosts();
+		var real fRotStep=(2.0f*Math.Pi())/m_iBuildingRotSteps.ToReal(); //-> 16 steps = 22.5°
+		var real fGR=m_fGhostRot;
+		var vec3 vBaseGhostPos;
+		var real fStepRot=0.0f;
+		fGR/=fRotStep;
+		fGR=(fGR+0.5f).ToInt().ToReal();
+		fGR*=fRotStep;
 		for(i=0)cond(i<iNumGhosts)iter(i++)do
 			var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhostIndex(i);
 			if(pxGhost==null)then return; endif;
-			var real fRotStep=(2.0f*Math.Pi())/m_iBuildingRotSteps.ToReal(); //-> 16 steps = 22.5°
-			var real fGR=m_fGhostRot;
-			fGR/=fRotStep;
-			fGR=(fGR+0.5f).ToInt().ToReal();
-			fGR*=fRotStep;
 			var vec3 vRotation;
 			vRotation.SetZ(fGR);
 			pxGhost^.SetRotation(vRotation);
+			if(i == 0)then
+				vBaseGhostPos = pxGhost^.GetPos();
+			else
+				var vec3 vPosAfterRot = PosByRot(GetPosFromName(pxGhost^.GetName())+vBaseGhostPos,vBaseGhostPos,-fGR);
+				pxGhost^.SetPos(vPosAfterRot);
+				//HACK
+				//Store rel pos after rot as LookAtPos vec3
+				pxGhost^.SetLookAtPos(vPosAfterRot - vBaseGhostPos);
+				//ENDHACK
+			endif;
 		endfor;
+	endproc;
+	
+	export proc vec3 PosByRot(vec3 p_vPos, vec3 p_vParentPos, real p_fAngle)
+		var vec3 vNewPos = p_vPos;
+		var real fNewX = (p_vPos.GetX() - p_vParentPos.GetX()) * Math.Cos(p_fAngle) - (p_vPos.GetY() - p_vParentPos.GetY()) * Math.Sin(p_fAngle) + p_vParentPos.GetX();
+		var real fNewY = (p_vPos.GetX() - p_vParentPos.GetX()) * Math.Sin(p_fAngle) + (p_vPos.GetY() - p_vParentPos.GetY()) * Math.Cos(p_fAngle) + p_vParentPos.GetY();
+		vNewPos.SetX(fNewX);
+		vNewPos.SetY(fNewY);
+		return vNewPos;
 	endproc;
 
 	export proc void MoveGhost()
 		var int i, iNumGhosts=CClientWrap.GetObjMgr().NumGhosts();
 		var Quat qBaseGhostRot;
 		var string sBaseGhostClass;
+		var vec3 vBaseGhostPos;
 		for(i=0)cond(i<iNumGhosts)iter(i++)do
 			var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhostIndex(i);
 			if(pxGhost==null)then return; endif;
@@ -503,9 +525,13 @@ class CPlaceController inherit CInputController
 			var vec3 vPickpoint = GetPickpoint();
 			if(vPickpoint!={0.0,0.0,0.0})then
 				var vec3 vGhostOffset = GetPosFromName(pxGhost^.GetName());
+				var vec3 vPosAfterRot = pxGhost^.GetLookAtPos();
 				if (m_bCoastal) then
 					var vec3 vNewPos;
 					var Quat qNewRot;
+					if(i == 0)then
+						vBaseGhostPos = pxGhost^.GetPos();
+					endif;
 					if (CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(sBaseGhostClass, vPickpoint, vNewPos, qNewRot) ) then
 						pxGhost^.SetPos(vNewPos + vGhostOffset);
 						pxGhost^.SetRot(qNewRot);
@@ -518,7 +544,11 @@ class CPlaceController inherit CInputController
 						ColorGhosts(m_xNotPlaceable);
 					endif;
 				else
-					pxGhost^.SetPos(vPickpoint + vGhostOffset);
+					if(vPosAfterRot != {0.0,0.0,0.0}) then
+						pxGhost^.SetPos(vPickpoint + vPosAfterRot);
+					else
+						pxGhost^.SetPos(vPickpoint + vGhostOffset);
+					endif;
 					if(m_bRallyPoint) then ColorGhosts(m_xPlaceable); endif;
 				endif;
 			endif;
