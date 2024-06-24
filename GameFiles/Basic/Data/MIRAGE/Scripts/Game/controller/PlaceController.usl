@@ -111,6 +111,9 @@ class CPlaceController inherit CInputController
 			CGameWrap.LogError("Controller.Place","Player invalid!");
 			return;
 		endif;
+		
+		CClientWrap.GetObjMgr().DeleteGhost();
+		
 		m_fGhostRot=0.0;
 		// HACK
 		/*if(p_sObjClass.Find("hu_ladder")!=-1)then
@@ -204,9 +207,9 @@ class CPlaceController inherit CInputController
 				AddGhostAdvanced(1, 0, "ninigi_final_stage_deco_0", 4, "NONE", {-7.35,-7.86,-2.9}, {0.0,0.0,90.0});
 				AddGhostAdvanced(2, 0, "ninigi_final_stage_deco_1", 4, "NONE", {6.36,-7.94,-2.9}, {0.0,0.0,180.0});
 			elseif(m_sGfxClass=="ninigi_launchpad_pirate_boss")then
-				AddGhostAdvanced(1, 0, "pirate_boss_tail", 4, "NONE", {-11.36,0.0,0.0});
+				AddGhostAdvanced(1, 0, "pirate_boss_tail", 4, "NONE", {0.0,-11.36,0.0});
 				AddGhostAdvanced(2, 0, "pirate_boss_sail", 4, "NONE", {0.0,0.0,0.0});
-				AddGhostAdvanced(3, 0, "pirate_boss_row", 4, "NONE", {12.6,0.0,0.0});
+				AddGhostAdvanced(3, 0, "pirate_boss_row", 4, "NONE", {0.0,12.6,0.0});
 				AddGhostAdvanced(4, 0, "pirate_boss_cannons", 4, "NONE", {0.0,0.0,0.0});
 			elseif(m_sGfxClass=="ninigi_rocket_ramp")then
 				AddGhostAdvanced(1, 0, "ninigi_rb_top", "RE_1");
@@ -290,7 +293,6 @@ class CPlaceController inherit CInputController
 		
 		var vec3 vPos = {0.0,0.0,0.0};
 		var Quat qRot;
-		var vec3 vPickpoint = GetPickpoint();
 		
 		if(p_sObjClass=="seas_wall_gate")then
 			vPos+={0.0,0.0,-1.0};
@@ -310,18 +312,18 @@ class CPlaceController inherit CInputController
 			var vec3 vPosOffset;
 			pxParentGhost^.GetLinkPosRotWorld(xLink,vPosOffset,qRot);
 			vPos+=vPosOffset;
-		else
-			vPos;
 		endif;
 		
 		vPos+=p_vPosOffset;
-		var Quat qRotAdd;
-		qRotAdd.FromVec3(p_vRotAdd);
-		qRot*=qRotAdd;
+		//qRot*=pxGhost^.GetRot();
+		qRot.RotateX(p_vRotAdd.GetX());
+		qRot.RotateY(p_vRotAdd.GetY());
+		qRot.RotateZ(p_vRotAdd.GetZ());
 		
 		//HACK
 		//Store ghost rel pos as ghost name to read it later
 		pxGhost^.SetName(vPos.ToString());
+		pxGhost^.SetLookAtPos(vPos);
 		//ENDHACK
 		
 		pxGhost^.SetPos(vPos);
@@ -449,16 +451,6 @@ class CPlaceController inherit CInputController
 			endif;
 		endif;
 	endproc;
-	
-	export proc void ClearGhosts()
-		var int i, iNumGhosts=CClientWrap.GetObjMgr().NumGhosts();
-		for(i=0)cond(i<iNumGhosts)iter(i++)do
-			var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhostIndex(i);
-			if(pxGhost != null)then
-				pxGhost^.Delete();
-			endif;
-		endfor;
-	endproc;
 
 	export proc void RotateGhost(int p_iX, int p_iY)
 		if (m_bCoastal || m_bGate) then return; endif;
@@ -487,7 +479,7 @@ class CPlaceController inherit CInputController
 			if(i == 0)then
 				vBaseGhostPos = pxGhost^.GetPos();
 			else
-				var vec3 vPosAfterRot = GetPosByRot(GetPosFromName(pxGhost^.GetName())+vBaseGhostPos,vBaseGhostPos,-fGR);
+				var vec3 vPosAfterRot = GetPosByRot(GetGhostOffset(pxGhost^.GetName())+vBaseGhostPos,vBaseGhostPos,-fGR);
 				pxGhost^.SetPos(vPosAfterRot);
 				//HACK
 				//Store rel pos after rot as LookAtPos vec3
@@ -501,6 +493,7 @@ class CPlaceController inherit CInputController
 		var int i, iNumGhosts=CClientWrap.GetObjMgr().NumGhosts();
 		var string sBaseGhostClass;
 		var vec3 vBaseGhostPos;
+		var Quat qBaseGhostRot;
 		
 		var vec3 vCoastalNewPos;
 		var Quat qCoastalNewRot;
@@ -519,17 +512,15 @@ class CPlaceController inherit CInputController
 			endif;
 			var vec3 vPickpoint = GetPickpoint();
 			if(vPickpoint!={0.0,0.0,0.0})then
-				var vec3 vGhostOffset = GetPosFromName(pxGhost^.GetName());
+				var vec3 vGhostOffset = pxGhost^.GetLookAtPos();
 				if (m_bCoastal) then
 					if(i == 0)then
 						vBaseGhostPos = pxGhost^.GetPos();
+						qBaseGhostRot = pxGhost^.GetRot();
 						bValidCoastalPos = CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(sBaseGhostClass, vPickpoint, vCoastalNewPos, qCoastalNewRot);
 						pxGhost^.SetPos(vCoastalNewPos);
 					else
-						var Quat qOldRot = pxGhost^.GetRot();
-						var real fRad = GetAngleDiff(qOldRot, qCoastalNewRot);
-						var vec3 vNewGhostPos = GetPosByRot(vGhostOffset+vBaseGhostPos,vCoastalNewPos,fRad);
-						pxGhost^.SetPos(vNewGhostPos);
+						pxGhost^.SetPos(vCoastalNewPos);
 					endif;
 					if (bValidCoastalPos) then
 						pxGhost^.SetRot(qCoastalNewRot);
@@ -540,21 +531,17 @@ class CPlaceController inherit CInputController
 						endif;
 						ColorGhosts(m_xNotPlaceable);
 					endif;
+					pxGhost^.SetPos(vPickpoint + pxGhost^.GetLookAtPos());
 				else
-					var vec3 vPosAfterRot = pxGhost^.GetLookAtPos();
-					if(vPosAfterRot != {0.0,0.0,0.0}) then
-						pxGhost^.SetPos(vPickpoint + vPosAfterRot);
-					else
-						pxGhost^.SetPos(vPickpoint + vGhostOffset);
-					endif;
+					pxGhost^.SetPos(vPickpoint + pxGhost^.GetLookAtPos());
 					if(m_bRallyPoint) then ColorGhosts(m_xPlaceable); endif;
 				endif;
 			endif;
 			m_vPlacement=vPickpoint;
 		endfor;
 	endproc;
-	
-	proc vec3 GetPosFromName(string p_sGhostName)
+
+	proc vec3 GetGhostOffset(string p_sGhostName)
 		var vec3 vPos = {0.0,0.0,0.0};
 		if (p_sGhostName.IsEmpty()) then
 			return vPos;
@@ -562,7 +549,7 @@ class CPlaceController inherit CInputController
 		vPos.FromString(p_sGhostName);
 		return vPos;
 	endproc;
-	
+
 	proc vec3 GetPosByRot(vec3 p_vPos, vec3 p_vParentPos, real p_fRad)
 		var vec3 vNewPos = p_vPos;
 		var real fNewX = (p_vPos.GetX() - p_vParentPos.GetX()) * Math.Cos(p_fRad) - (p_vPos.GetY() - p_vParentPos.GetY()) * Math.Sin(p_fRad) + p_vParentPos.GetX();
@@ -571,15 +558,7 @@ class CPlaceController inherit CInputController
 		vNewPos.SetY(fNewY);
 		return vNewPos;
 	endproc;
-	
-	proc real GetAngleDiff(Quat p_qOldRot, Quat p_qNewRot)
-		var Quat qOldRot = p_qOldRot;
-		qOldRot.Invert();
-		var Quat qTmp = p_qNewRot * qOldRot;
-		var real fRad = 2.0f * Math.ACos(qTmp.GetW());
-		return fRad;
-	endproc;
-	
+
 	proc void CheckPlacebility()
 		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhostIndex(0);
 		if(pxGhost==null)then return; endif;
@@ -715,7 +694,7 @@ class CPlaceController inherit CInputController
 				var Quat qNewRot;
 				var vec3 vPickpoint = GetPickpoint();
 
-				var vec3 vGhostOffset = GetPosFromName(pxGhost^.GetName());
+				var vec3 vGhostOffset = pxGhost^.GetLookAtPos();
 				if (CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(pxGhost^.GetGhostClass(), vPickpoint, vNewPos, qNewRot)) then
 					pxGhost^.SetPos(vNewPos + vGhostOffset);
 					pxGhost^.SetRot(qNewRot);
