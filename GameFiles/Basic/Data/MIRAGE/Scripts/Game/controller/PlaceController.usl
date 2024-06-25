@@ -260,7 +260,7 @@ class CPlaceController inherit CInputController
 			fTmp-=CMultiCameraController.Get().GetGameCameraModule()^.m_fAngle;
 			m_fGhostRot=fTmp;
 			//MoveGhost();
-			//ApplyGhostRot();
+			ApplyGhostRot();
 		endif;
 		CWindowMgr.Get().BringWindowToTop(CClientWrap.GetDesktop(),true);
 	endproc;
@@ -325,14 +325,36 @@ class CPlaceController inherit CInputController
 		qRot.RotateZ(DegToRad(p_vRotAddDeg.GetZ()));
 		
 		//HACK
-		//Store ghost rel pos as ghost name to read it later
-		pxGhost^.SetName(vPos.ToString());
+		//Store ghost rel pos and rot as ghost name to read it later
+		pxGhost^.SetName(vPos.ToString() + "#" + qRot.ToString());
 		pxGhost^.SetLookAtPos(vPos);
 		//ENDHACK
 		
 		pxGhost^.SetPos(vPos);
 		pxGhost^.SetRot(qRot);
+		
 		pxGhost^.SetConstructLevel(p_iConstructLvl);
+	endproc;
+	
+	proc void GetLocalTransform(string p_sGhostName, ref vec3 p_rvLocalPos, ref Quat p_rqLocalRot)
+		var array string asLocalPosRot;
+		var vec3 vNewPos;
+		var Quat qNewRot;
+		if (p_sGhostName.IsEmpty() || p_sGhostName.Find("#")==-1) then
+			p_rvLocalPos = vNewPos;
+			p_rqLocalRot = qNewRot;
+			return;
+		endif;
+
+		p_sGhostName.Split(asLocalPosRot, "#", false);
+		vNewPos.FromString(asLocalPosRot[0]);
+		var string sRot = asLocalPosRot[1];
+		var array string asXYZW;
+		sRot.Split(asXYZW, " ", false);
+		qNewRot.SetXYZW(asXYZW[0].ToReal(),asXYZW[1].ToReal(),asXYZW[2].ToReal(),asXYZW[3].ToReal());
+
+		p_rvLocalPos = vNewPos;
+		p_rqLocalRot = qNewRot;
 	endproc;
 	
 	export proc real DegToRad(real p_fDeg)
@@ -481,14 +503,15 @@ class CPlaceController inherit CInputController
 		for(i=0)cond(i<iNumGhosts)iter(i++)do
 			var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhostIndex(i);
 			if(pxGhost==null)then return; endif;
-			//var Quat qRot = pxGhost^.GetRot();
-			var Quat qRot;
-			qRot.RotateZ(fGR);
-			pxGhost^.SetRot(qRot);
+			var vec3 vLocalPos;
+			var Quat qLocalRot;
+			GetLocalTransform(pxGhost^.GetName(), vLocalPos, qLocalRot);
+			qLocalRot.RotateZ(fGR);
+			pxGhost^.SetRot(qLocalRot);
 			if(i == 0)then
 				vBaseGhostPos = pxGhost^.GetPos();
 			else
-				var vec3 vPosAfterRot = GetPosByRot(GetGhostOffset(pxGhost^.GetName())+vBaseGhostPos,vBaseGhostPos,-fGR);
+				var vec3 vPosAfterRot = GetPosByRot(vLocalPos+vBaseGhostPos,vBaseGhostPos,-fGR);
 				pxGhost^.SetPos(vPosAfterRot);
 				//HACK
 				//Store rel pos after rot as LookAtPos vec3
