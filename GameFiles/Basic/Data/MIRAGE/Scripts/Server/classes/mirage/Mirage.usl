@@ -11050,6 +11050,7 @@ class CNinigiPirateBossLaunchpad inherit CBuilding
 	var CObjList 	m_xDummies;
 	
 	export constructor()
+		m_bActive=false;
 		m_bParts=false;
 		m_bFirstStage=false;
 		m_bSecondStage=false;
@@ -11077,7 +11078,6 @@ class CNinigiPirateBossLaunchpad inherit CBuilding
 		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,2);
 		var ^CArc pxArc=^(pxWalk^.GetArc());
 		pxArc^ << m_bActive;
-//		pxArc^ << m_bBase;
 		pxArc^ << m_bParts;
 		pxArc^ << m_bFirstStage;
 		pxArc^ << m_bSecondStage;
@@ -11091,16 +11091,25 @@ class CNinigiPirateBossLaunchpad inherit CBuilding
 		SetCanSwim(false);
 		SetCanFly(false);
 		if(!p_bLoad)then
-			m_bActive=false;
+			var vec3 vPos;
+			var vec3 vRot;
+			var Quat qRot;
+			var CFourCC xLink="Bl_1";
+			GetLinkPosRotWorld(xLink,vPos,qRot);
+			qRot.ToVec3(vRot);
+			var ^CMirageDeco pxGameObj=cast<CMirageDeco>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_deco_0",GetOwner(),vPos,vRot));
+			if(CMirageSrvMgr.SDK())then
+				SetLevelClean(4);
+			endif;
+			AddGroupedChildren(pxGameObj^.GetGuid());
+			m_xDummies.Include(pxGameObj^.GetHandle());
 		endif;
-		var vec3 vPos;
-		var vec3 vRot;
-		var Quat qRot;
-		var CFourCC xLink="Bl_1";
-		GetLinkPosRotWorld(xLink,vPos,qRot);
-		qRot.ToVec3(vRot);
-		var ^CMirageDeco pxGameObj=cast<CMirageDeco>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_deco_0",GetOwner(),vPos,vRot));
-		m_xDummies.Include(pxGameObj^.GetHandle());
+	endproc;
+	
+	export proc void OnPostLoad()
+		if(!CSrvWrap.GetCurLevel()^.IsEditable() && !IsReady()&&GetCurTaskName()!="BuildUpB")then
+			BuildUp("/Actions/"+GetTribeName()+"/Build/BLDG/"+GetClassName());
+		endif;
 	endproc;
 	
 	export proc void IgniteBuilding(real p_fDmg, int p_iMaxCount, CObjHndl p_xSource, int p_iSource)
@@ -11111,30 +11120,34 @@ class CNinigiPirateBossLaunchpad inherit CBuilding
 		super.SetProcess(p_iP);
 		if(p_iP==40 && !m_bParts)then
 			m_bParts=true;
-			KLog.LogSpam("ParaworldFan", GetGfxName()+" position =="+GetPos().ToString());
 			var ^CMirageDeco pxParentObj=cast<CMirageDeco>(m_xDummies[0].GetObj());
 			var CFourCC xLink="NONE";
 			var vec3 vPos=pxParentObj^.GetPos();
 			var vec3 vRot=pxParentObj^.GetRotation();
 			pxParentObj^.SetVisible(false);
-			KLog.LogSpam("ParaworldFan", pxParentObj^.GetGfxName()+" position =="+vPos.ToString());
 			var ^CMirageDeco pxGameObj=cast<CMirageDeco>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_deco_1",GetOwner(),vPos,vRot));
+			AddGroupedChildren(pxGameObj^.GetGuid());
 			pxGameObj^.LinkAction(GetHandle(),xLink,{0.0,-11.36,0.01});
 			pxGameObj^.SetDestructLevel(2);
 			m_xDummies.Include(pxGameObj^.GetHandle());
 			pxGameObj=cast<CMirageDeco>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_deco_2",GetOwner(),vPos,vRot));
+			AddGroupedChildren(pxGameObj^.GetGuid());
 			pxGameObj^.LinkAction(GetHandle(),xLink,{0.0,0.0,0.0});
 			pxGameObj^.SetDestructLevel(2);
 			m_xDummies.Include(pxGameObj^.GetHandle());
 			pxGameObj=cast<CMirageDeco>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_deco_3",GetOwner(),vPos,vRot));
-			pxGameObj^.LinkAction(GetHandle(),xLink,{0.0,12.6,0.01});
+			AddGroupedChildren(pxGameObj^.GetGuid());
+			pxGameObj^.LinkAction(GetHandle(),xLink,{0.0,12.6,0.0});
 			pxGameObj^.SetDestructLevel(2);
 			m_xDummies.Include(pxGameObj^.GetHandle());
 			pxGameObj=cast<CMirageDeco>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_deco_4",GetOwner(),vPos,vRot));
+			AddGroupedChildren(pxGameObj^.GetGuid());
 			pxGameObj^.LinkAction(GetHandle(),xLink,{0.0,0.0,0.0});
 			pxGameObj^.SetDestructLevel(2);
 			m_xDummies.Include(pxGameObj^.GetHandle());
+			AddGroupedChildren(pxGameObj^.GetGuid());
 			m_xDummies[0]=CObjHndl.Invalid();
+			RemGroupedChildren(pxParentObj^.GetGuid());
 			pxParentObj^.Delete();
 		elseif(p_iP==60 && !m_bFirstStage)then
 			m_bFirstStage=true;
@@ -11174,6 +11187,7 @@ class CNinigiPirateBossLaunchpad inherit CBuilding
 		var int i, iC=m_xDummies.NumEntries();
 		for(i=0)cond(i<iC)iter(i++)do
 			if(m_xDummies[i].IsValid())then
+				RemGroupedChildren(m_xDummies[i].GetObj()^.GetGuid());
 				m_xDummies[i].GetObj()^.Delete();
 			endif;
 		endfor;
@@ -11218,9 +11232,11 @@ class CNinigiPirateBossLaunchpad inherit CBuilding
 	
 	export proc void Die()
 		if(!m_bBuildingReady)then
+			SetVisible(false);
 			var int i, iC=m_xDummies.NumEntries();
 			for(i=0)cond(i<iC)iter(i++)do
 				if(m_xDummies[i].IsValid())then
+					RemGroupedChildren(m_xDummies[i].GetObj()^.GetGuid());
 					m_xDummies[i].GetObj()^.Delete();
 				endif;
 			endfor;
@@ -11292,6 +11308,9 @@ class CSeasScorpionLaunchpad inherit CBuilding
 			m_bActive=false;
 			m_bReplacing=false;
 			m_bAlreadySetLevel=false;
+			if(CMirageSrvMgr.SDK())then
+				SetLevelClean(4);
+			endif;
 //			var string sPlayerName="";
 //			var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
 //			if(pxLevel!=null)then
