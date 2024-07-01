@@ -11043,6 +11043,18 @@ endclass;
 class CNinigiPirateBossLaunchpad inherit CBuilding
 		
 	var bool m_bActive;
+	//These booleans needed, so the functions inside SetProcess(int p_iP) wont be called multiple times
+	var bool m_bParts;
+	var bool m_bFirstStage;
+	var bool m_bSecondStage;
+	var CObjList 	m_xDummies;
+	
+	export constructor()
+		m_bActive=false;
+		m_bParts=false;
+		m_bFirstStage=false;
+		m_bSecondStage=false;
+	endconstructor;
 
 	export proc void Load(^CUOFReaderNode p_pxReaderNode)
 		if(p_pxReaderNode^.GetType()=="PbLP")then
@@ -11050,6 +11062,10 @@ class CNinigiPirateBossLaunchpad inherit CBuilding
 			var int iVersion=p_pxReaderNode^.GetVersion();
 			if(iVersion>=1)then
 				pxArc^<<m_bActive;
+				pxArc^<<m_bParts;
+				pxArc^<<m_bFirstStage;
+				pxArc^<<m_bSecondStage;
+				m_xDummies.DoKArc(pxArc^);
 			endif;
 		else
 			super.Load(p_pxReaderNode);
@@ -11062,6 +11078,10 @@ class CNinigiPirateBossLaunchpad inherit CBuilding
 		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,2);
 		var ^CArc pxArc=^(pxWalk^.GetArc());
 		pxArc^ << m_bActive;
+		pxArc^ << m_bParts;
+		pxArc^ << m_bFirstStage;
+		pxArc^ << m_bSecondStage;
+		m_xDummies.DoKArc(pxArc^);
 		pxWalk^.Close();
 	endproc;
 	
@@ -11071,7 +11091,24 @@ class CNinigiPirateBossLaunchpad inherit CBuilding
 		SetCanSwim(false);
 		SetCanFly(false);
 		if(!p_bLoad)then
-			m_bActive=false;
+			var vec3 vPos;
+			var vec3 vRot;
+			var Quat qRot;
+			var CFourCC xLink="Bl_1";
+			GetLinkPosRotWorld(xLink,vPos,qRot);
+			qRot.ToVec3(vRot);
+			xLink="NONE";
+			var ^CMirageDeco pxGameObj=cast<CMirageDeco>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_deco_0",GetOwner(),vPos,vRot));
+			pxGameObj^.LinkAction(GetHandle(),xLink,vPos-GetPos());
+			AddGroupedChildren(pxGameObj^.GetGuid());
+			m_xDummies.Include(pxGameObj^.GetHandle());
+		endif;
+	endproc;
+	
+	//This function makes building always with 1 HP and always Not Builded, if Placed through SDK
+	export proc void OnPostLoad()
+		if(!CSrvWrap.GetCurLevel()^.IsEditable() && !IsReady()&&GetCurTaskName()!="BuildUpB")then
+			BuildUp("/Actions/"+GetTribeName()+"/Build/BLDG/"+GetClassName());
 		endif;
 	endproc;
 	
@@ -11079,7 +11116,60 @@ class CNinigiPirateBossLaunchpad inherit CBuilding
 		return;
 	endproc;
 	
+	export proc void SetProcess(int p_iP)
+		super.SetProcess(p_iP);
+		if(p_iP==40 && !m_bParts)then
+			m_bParts=true;
+			var ^CMirageDeco pxParentObj=cast<CMirageDeco>(m_xDummies[0].GetObj());
+			var CFourCC xLink="NONE";
+			var vec3 vPos=pxParentObj^.GetPos();
+			var vec3 vRot=pxParentObj^.GetRotation();
+			pxParentObj^.SetVisible(false);
+			var ^CMirageDeco pxGameObj=cast<CMirageDeco>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_deco_1",GetOwner(),vPos,vRot));
+			AddGroupedChildren(pxGameObj^.GetGuid());
+			pxGameObj^.LinkAction(GetHandle(),xLink,{0.0,-11.36,0.01});
+			pxGameObj^.SetDestructLevel(2);
+			m_xDummies.Include(pxGameObj^.GetHandle());
+			pxGameObj=cast<CMirageDeco>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_deco_2",GetOwner(),vPos,vRot));
+			AddGroupedChildren(pxGameObj^.GetGuid());
+			pxGameObj^.LinkAction(GetHandle(),xLink,{0.0,0.0,0.0});
+			pxGameObj^.SetDestructLevel(2);
+			m_xDummies.Include(pxGameObj^.GetHandle());
+			pxGameObj=cast<CMirageDeco>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_deco_3",GetOwner(),vPos,vRot));
+			AddGroupedChildren(pxGameObj^.GetGuid());
+			pxGameObj^.LinkAction(GetHandle(),xLink,{0.0,12.6,0.0});
+			pxGameObj^.SetDestructLevel(2);
+			m_xDummies.Include(pxGameObj^.GetHandle());
+			pxGameObj=cast<CMirageDeco>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_ship_deco_4",GetOwner(),vPos,vRot));
+			AddGroupedChildren(pxGameObj^.GetGuid());
+			pxGameObj^.LinkAction(GetHandle(),xLink,{0.0,0.0,0.0});
+			pxGameObj^.SetDestructLevel(2);
+			m_xDummies.Include(pxGameObj^.GetHandle());
+			AddGroupedChildren(pxGameObj^.GetGuid());
+			m_xDummies[0]=CObjHndl.Invalid();
+			RemGroupedChildren(pxParentObj^.GetGuid());
+			pxParentObj^.Delete();
+		elseif(p_iP==60 && !m_bFirstStage)then
+			m_bFirstStage=true;
+			var int i, iC=m_xDummies.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(m_xDummies[i].IsValid())then
+					m_xDummies[i].GetObj()^.SetDestructLevel(1);
+				endif;
+			endfor;
+		elseif(p_iP==80 && !m_bSecondStage)then
+			m_bSecondStage=true;
+			var int i, iC=m_xDummies.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(m_xDummies[i].IsValid())then
+					m_xDummies[i].GetObj()^.SetDestructLevel(0);
+				endif;
+			endfor;
+		endif;
+	endproc;
+	
 	export proc void SetReady()
+		SetVisible(false);
 		super.SetReady();
 		if(m_bBuildingReady)then
 			var string sGFX=m_xTechTree.GetValueS(GetObjPath()+"/gfx","");
@@ -11091,7 +11181,18 @@ class CNinigiPirateBossLaunchpad inherit CBuilding
 		m_bActive=true;
 		SetSelectable(false);
 		SetHitable(false);
-		var ^CPirateShip pxShip=cast<CPirateShip>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_boss_ship",GetOwner(),GetPos(),GetRotation()));
+		//
+		var vec3 vPos=m_xDummies[2].GetObj()^.GetPos();
+		var vec3 vRot=m_xDummies[2].GetObj()^.GetRotation();
+		var int i, iC=m_xDummies.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_xDummies[i].IsValid())then
+				RemGroupedChildren(m_xDummies[i].GetObj()^.GetGuid());
+				m_xDummies[i].GetObj()^.Delete();
+			endif;
+		endfor;
+		//
+		var ^CPirateShip pxShip=cast<CPirateShip>(CSrvWrap.GetObjMgr()^.CreateObj("ninigi_pirate_boss_ship",GetOwner(),vPos,vRot));
 		if(pxShip!=null)then
 			var ^CAttribs pxAttr=pxShip^.GetAttribs();
 			if(pxAttr!=null)then
@@ -11130,6 +11231,16 @@ class CNinigiPirateBossLaunchpad inherit CBuilding
 	endproc;
 	
 	export proc void Die()
+		if(!m_bBuildingReady)then
+			SetVisible(false);
+			var int i, iC=m_xDummies.NumEntries();
+			for(i=0)cond(i<iC)iter(i++)do
+				if(m_xDummies[i].IsValid())then
+					RemGroupedChildren(m_xDummies[i].GetObj()^.GetGuid());
+					m_xDummies[i].GetObj()^.Delete();
+				endif;
+			endfor;
+		endif;
 		super.Die();
 	endproc;
 	
