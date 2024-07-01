@@ -95,6 +95,7 @@ SEAS:
 AI:
 - Fixed bug, that AI were able to delete pirate ship decks separately from the main unit one by one. Now, no longer.
 - Fixed bug, that AI were able to detect pirate ship parts as attack target and kill them by splash damage, which lead to animation break up. Now, no longer.
+- AI from now on able to convert Babbage hero to the Mobile Suit as SEAS tribe
 
 SDK:
 - Level terrain can be saved as .obj mesh with "Export to .obj" button at icons bar
