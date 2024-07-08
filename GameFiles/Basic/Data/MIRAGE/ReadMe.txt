@@ -66,6 +66,8 @@ Dragon Clan:
 - Fixed bug with death animation being played, when the rocket ramp being not fully built while was killed
 
 Norsemen:
+- Stone Guardian is buildable as a separate structure (like a seas scorpion)
+- Producing Stone Guardian in Machine Maker as unit no longer available
 - Harbour placing ghost from now on has missing crane displaying
 - Fixed broken warpgate model
 - Fixed bug with bunker dissapearing from build menu, once first tier of walls upgrade was researched
@@ -97,6 +99,7 @@ AI:
 - Fixed bug, that AI were able to detect pirate ship parts as attack target and kill them by splash damage, which lead to animation break up. Now, no longer.
 - AI from now on able to convert Babbage hero to the Mobile Suit as SEAS tribe
 - AI from now on able to use defensive mode for norsemen common, jetpack and zombie warriors
+- AI from now on ablet construct Stone Statue as building
 
 SDK:
 - Level terrain can be saved as .obj mesh with "Export to .obj" button at icons bar

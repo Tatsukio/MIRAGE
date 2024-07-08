@@ -4353,6 +4353,194 @@ class CHuAvatar inherit CVehicle
 	endproc;
 	
 endclass;
+
+class CHuAvatarLaunchpad inherit CBuilding
+
+	var bool 		m_bActive;
+	var bool 		m_bFirstStage;
+	var bool 		m_bSecondStage;
+	var bool 		m_bThirdStage;
+	var bool 		m_bFinalStage;
+	var CObjHndl 	m_xBuildDeco;
+	
+	export constructor()
+		m_bActive=false;
+		m_bFirstStage=false;
+		m_bSecondStage=false;
+		m_bThirdStage=false;
+		m_bFinalStage=false;
+	endconstructor;
+	
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="AvLP")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			var int iVersion=p_pxReaderNode^.GetVersion();
+			if(iVersion>=1)then
+				pxArc^<<m_bActive;
+				pxArc^<<m_bFirstStage;
+				pxArc^<<m_bSecondStage;
+				pxArc^<<m_bThirdStage;
+				pxArc^<<m_bFinalStage;
+				m_xBuildDeco.DoKArc(pxArc^);
+			endif;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xBase="AvLP";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xBase,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		pxArc^ << m_bActive;
+		pxArc^<<m_bFirstStage;
+		pxArc^<<m_bSecondStage;
+		pxArc^<<m_bThirdStage;
+		pxArc^<<m_bFinalStage;
+		m_xBuildDeco.DoKArc(pxArc^);
+		pxWalk^.Close();
+	endproc;
+	
+	export proc void OnInit(bool p_bLoad)
+		super.OnInit(p_bLoad);
+		SetCanWalk(false);
+		SetCanSwim(false);
+		SetCanFly(false);
+		if(!p_bLoad)then
+			if(!CMirageSrvMgr.SDK())then
+				var ^CMirageDeco pxO=cast<CMirageDeco>(CSrvWrap.GetObjMgr()^.CreateObj("hu_colossi_launchpad_misc_0",GetOwner(),GetPos(),GetRotation()));
+				pxO^.SetVisible(false);
+				pxO^.SetRndInvMaskSingleFlagInv(VIS_FLAG_CHTR_HEAD,false);
+				pxO^.SetRndInvMaskSingleFlagInv(VIS_FLAG_CHTR_BODY,false);
+				pxO^.SetRndInvMaskSingleFlagInv(VIS_FLAG_CHTR_LEGS,false);
+				AddGroupedChildren(pxO^.GetGuid());
+				var CFourCC xLink="NONE";
+				pxO^.LinkAction(GetHandle(),xLink,{0.0,0.0,0.0});
+				m_xBuildDeco=pxO^.GetHandle();
+			else
+				var ^CHuAvatar pxAvatar=cast<CHuAvatar>(CSrvWrap.GetObjMgr()^.CreateObj("hu_colossi",GetOwner(),GetPos(),GetRotation()));
+				if(pxAvatar!=null)then
+					var ^CAttribs pxAttr=pxAvatar^.GetAttribs();
+					if(pxAttr!=null)then
+						pxAttr^.SetValue("clientpyramid_replacecard", GetName());
+					endif;
+					pxAvatar^.SetLevelClean(4);
+					pxAvatar^.SetIdleAnim();
+					pxAvatar^.ExamineEnemies(false);
+					Delete();
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	export proc void IgniteBuilding(real p_fDmg, int p_iMaxCount, CObjHndl p_xSource, int p_iSource)
+		return;
+	endproc;
+	
+	export proc void SetProcess(int p_iP)
+		super.SetProcess(p_iP);
+		if(p_iP==26 && !m_bFirstStage)then
+			m_bFirstStage=true;
+			m_xBuildDeco.GetObj()^.SetVisible(true);
+		elseif(p_iP==51 && !m_bSecondStage)then
+			m_bSecondStage=true;
+			m_xBuildDeco.GetObj()^.SetRndInvMaskSingleFlagInv(VIS_FLAG_CHTR_BODY,true);	//arms
+		elseif(p_iP==76 && !m_bThirdStage)then
+			m_bThirdStage=true;
+			m_xBuildDeco.GetObj()^.SetRndInvMaskSingleFlagInv(VIS_FLAG_CHTR_HEAD,true);
+		elseif(p_iP==95 && !m_bFinalStage)then
+			m_bFinalStage=true;
+			m_xBuildDeco.GetObj()^.SetRndInvMaskSingleFlagInv(VIS_FLAG_CHTR_LEGS,true);	//weapon
+		endif;
+	endproc;
+	
+	export proc void SetReady()
+		super.SetReady();
+		if(!CMirageSrvMgr.SDK())then
+			if(m_bBuildingReady)then
+				var string sGFX=m_xTechTree.GetValueS(GetObjPath()+"/gfx","");
+				if(!sGFX.IsEmpty()&&sGFX!=GetGfxName())then
+					super.SetGFX(sGFX);
+				endif;
+			endif;
+			if(m_bActive)then return; endif;
+			m_bActive=true;
+			SetSelectable(false);
+			SetHitable(false);
+			if(m_xBuildDeco.IsValid())then
+				RemGroupedChildren(m_xBuildDeco.GetObj()^.GetGuid());
+				m_xBuildDeco.GetObj()^.Delete();
+			endif;
+			var ^CHuAvatar pxAvatar=cast<CHuAvatar>(CSrvWrap.GetObjMgr()^.CreateObj("hu_colossi",GetOwner(),GetPos(),GetRotation()));
+			if(pxAvatar!=null)then
+				var ^CAttribs pxAttr=pxAvatar^.GetAttribs();
+				if(pxAttr!=null)then
+					pxAttr^.SetValue("clientpyramid_replacecard", GetName());
+				endif;
+				pxAvatar^.SetLevelClean(GetLevel());
+				pxAvatar^.SetIdleAnim();
+				pxAvatar^.ExamineEnemies(false);
+				Die();
+			endif;
+		endif;
+	endproc;
+	
+	export proc bool IsAbleToFight()
+		return false;
+	endproc;
+	
+	//ParaworldFan: HACK
+	export proc void SetGFX(string p_sString)
+		if(p_sString==GetFakeGfx())then
+			super.SetGFX(p_sString);
+		else
+			return;
+		endif;
+	endproc;
+	
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		if(m_bActive)then return; endif;
+		super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+	endproc;
+	
+	proc bool UpdateDestructionFlags()
+		return false;
+	endproc;
+	
+	export proc bool CreateBuildingCorpse()
+		return true;
+	endproc;
+	
+	export proc void Die()
+		if(!m_bBuildingReady)then
+			SetVisible(false);
+			if(m_xBuildDeco.IsValid())then
+				RemGroupedChildren(m_xBuildDeco.GetObj()^.GetGuid());
+				m_xBuildDeco.GetObj()^.Delete();
+			endif;
+		endif;
+		super.Die();
+	endproc;
+	
+	export proc void OnKill()
+		if(m_bActive)then return; endif;
+		return super.OnKill();
+	endproc;
+	
+	export proc bool DoesCountInUnitLimit()
+		return true;
+	endproc;
+	
+	export proc void DoSelfRepair()
+		return;
+	endproc;
+	
+	export proc string GetReportCode()
+		return "unit";
+	endproc;
+	
+endclass;
 	
 class CHuStoneKiller inherit CVehicle
 	
