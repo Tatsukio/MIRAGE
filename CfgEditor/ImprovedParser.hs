@@ -328,19 +328,22 @@ parsePath path =
              putStrLn $ "Invalid tree structure - Root node wrapper expected, instead got \"" ++ root ++  "\" at start"
              hClose contents1h
              return (Node ("грешка","") [],True)
-          else do
-          let formated = format1 contents1
-          let save = runParser parseTree formated
-          case save of
-             (Result (s,d)) -> if all (`elem` "\n\t\r ") s || null s then do 
-              hClose contents1h 
-              return (d,isBom) else do 
-              putStrLn $ "There are elements or multiple \\n at line: "++show (length $ (lines . show) d)++" after Root {} class"
-              hClose contents1h
-              return (Node ("грешка","") [],isBom)
-             _ -> do 
-              putStrLn $show save
-              return (Node ("грешка","") [],isBom)
+          else do 
+            let formated = format1 contents1
+            let save = runParser parseTree formated
+            case save of
+              (Result (s,d)) -> if all (`elem` "\n\t\r ") s || null s then 
+                do 
+                    hClose contents1h 
+                    return (d,isBom) 
+                else 
+                      do 
+                          putStrLn $ "There are elements or multiple \\n at line: "++show (length $ (lines . show) d)++" after Root {} class"
+                          hClose contents1h
+                          return (Node ("грешка","") [],isBom)
+              _ -> do 
+                    putStrLn $show save
+                    return (Node ("грешка","") [],isBom)
       else do
        c2 <- openFile path ReadMode 
        contents3 <- hGetContents c2
@@ -353,19 +356,19 @@ parsePath path =
             hClose c2
             return (Node ("грешка","") [],True)
        else do
-       case a of
-        (Result (s,d)) ->if all (`elem` "\n\t\r ") s || null s 
-          then do 
-           hClose c2 
-           return (d,isBom) 
-           else do
-            putStrLn $  "There are elements or multiple \\n at line: "++show (length $ (lines . show) d)++" after Root {} class"
-            hClose c2
-            return (Node ("грешка","") [],isBom)
-        _ -> do 
-          putStrLn $show a
-          hClose c2
-          return (Node ("грешка","") [],isBom)
+              case a of
+                (Result (s,d)) ->if all (`elem` "\n\t\r ") s || null s 
+                  then do 
+                  hClose c2 
+                  return (d,isBom) 
+                  else do
+                    putStrLn $  "There are elements or multiple \\n at line: "++show (length $ (lines . show) d)++" after Root {} class"
+                    hClose c2
+                    return (Node ("грешка","") [],isBom)
+                _ -> do 
+                  putStrLn $show a
+                  hClose c2
+                  return (Node ("грешка","") [],isBom)
 
 removeLastN [] = []
 removeLastN str = if last str == '\n' then initN str else str
