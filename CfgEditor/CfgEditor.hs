@@ -27,91 +27,103 @@ iotest b hpath =
      (ptr,isBom) <- parsePath hpath
      if not$ eqTree ptr (Node ("грешка","") []) then do
        putStrLn "Parsing Successful"
-       if b then do
+       if b then 
+        do
           putStrLn "Commands are:\n Set(path,value) - set argpath argvalue \n Get(path) - get argpath \n Remove(path) - remove path \n Q - exit \n CD path - change directory \n PWD - current directory"
           iotest False hpath
-       else do
-       arg<-getLine
-       if map toUpper arg=="Q" then return "Exit"
-       else if map toUpper (head (cdfix arg)) =="CD" then do
-        let p = head $ tail $cdfix arg
-        putStrLn $ "Command: CD \n| argpath = "++p++"\n"
-        check<-checkMonadSingle p
-        if check then do
-        iotest False p
-        else do
-          putStrLn "Not a valid path"
-          iotest False hpath
-       else if map toUpper arg=="PWD" then do
-        putStrLn $ "Command: PWD \n |Current Dir:\n"++hpath
-        iotest False hpath else do
-       let com = trComm arg
-       let cs = "-s"
-       let get = "-g"
-       let rem = "-r"
-       if length com == 3 && head com == cs then do
-          let arg1 = com!!1
-          let arg2 = com!!2
-          putStrLn $ "Command: Set \n| argpath = "++arg1++"\n| argvalue = "++arg2
-          let carg1= convertSet (arg1,arg2)
-          --putStrLn $ show carg1
-          let set = uncurry (addToTree ptr) carg1
-          if strongEqTree set ptr || not (parseCheck set) then do
-                  putStrLn $"Set Failed | Nothing was changed"
-                  iotest False hpath
-          else do
-            checks <- checkMonadSingleDangerous hpath
-            if not checks then do die "" else do
-            if isBom then do
-             BS.writeFile hpath bom
-             appendFile hpath $show set
-             iotest False hpath
-             else
-               do
-                 (tempName, tempHandle) <- openTempFile tempPath "temp"
-                 hPutStr tempHandle $ show set
-                 hClose tempHandle
-                 renameFile tempName hpath
-                 iotest False hpath
-        else if length com == 2 then
-            if head com == get then do
-               putStrLn $ "Command: Get \n| argpath = "++com!!1
-               let carg = convertGet $com!!1
-               putStrLn $ "Value:"++getTree ptr carg
-               iotest False hpath
-            else if head com == rem then do
-               checks <- checkMonadSingleDangerous hpath
-               if not checks then do die "" else do
-               putStrLn $ "Command: Remove \n| argpath = "++com!!1
-               let carg2 = convertGet $ com!!1
-               let r = deleteTree ptr carg2
-               if strongEqTree r ptr then do
-                  putStrLn "Remove Failed | Nothing was changed"
-                  iotest False hpath
-               else
-                do 
-                   if isBom then do
-                    BS.writeFile hpath bom
-                    appendFile hpath $show r
-                    iotest False hpath
-                    else do
-                       (tempName, tempHandle) <- openTempFile tempPath "temp"
-                       hPutStr tempHandle $ show r
-                       hClose tempHandle
-                       renameFile tempName hpath
-                       iotest False hpath
+       else 
+        do
+            arg<-getLine
+            if map toUpper arg=="Q" then return "Exit"
+            else if map toUpper (head (cdfix arg)) =="CD" then do
+              let p = head $ tail $cdfix arg
+              putStrLn $ "Command: CD \n| argpath = "++p++"\n"
+              check<-checkMonadSingle p
+              if check then do
+                 iotest False p
+               else do
+                putStrLn "Not a valid path"
+                iotest False hpath
+               else if map toUpper arg=="PWD" then do
+                    putStrLn $ "Command: PWD \n |Current Dir:\n"++hpath
+                    iotest False hpath else 
+                      do
+                                    let com = trComm arg
+                                    let cs = "-s"
+                                    let get = "-g"
+                                    let rem = "-r"
+                                    if length com == 3 && head com == cs then do
+                                        let arg1 = com!!1
+                                        let arg2 = com!!2
+                                        putStrLn $ "Command: Set \n| argpath = "++arg1++"\n| argvalue = "++arg2
+                                        let carg1= convertSet (arg1,arg2)
+                                        --putStrLn $ show carg1
+                                        let set = uncurry (addToTree ptr) carg1
+                                        if strongEqTree set ptr || not (parseCheck set) then do
+                                                putStrLn $"Set Failed | Nothing was changed"
+                                                iotest False hpath
+                                        else 
+                                          do
+                                                checks <- checkMonadSingleDangerous hpath
+                                                if not checks then do 
+                                                  die "" 
+                                                  else 
+                                                    do
+                                                        if isBom then 
+                                                          do
+                                                              BS.writeFile hpath bom
+                                                              appendFile hpath $show set
+                                                              iotest False hpath
+                                                        else
+                                                          do
+                                                            (tempName, tempHandle) <- openTempFile tempPath "temp"
+                                                            hPutStr tempHandle $ show set
+                                                            hClose tempHandle
+                                                            renameFile tempName hpath
+                                                            iotest False hpath
+                                      else if length com == 2 then
+                                          if head com == get then do
+                                            putStrLn $ "Command: Get \n| argpath = "++com!!1
+                                            let carg = convertGet $com!!1
+                                            putStrLn $ "Value:"++getTree ptr carg
+                                            iotest False hpath
+                                          else if head com == rem then 
+                                            do
+                                                checks <- checkMonadSingleDangerous hpath
+                                                if not checks then do die "" else 
+                                                  do
+                                                      putStrLn $ "Command: Remove \n| argpath = "++com!!1
+                                                      let carg2 = convertGet $ com!!1
+                                                      let r = deleteTree ptr carg2
+                                                      if strongEqTree r ptr then do
+                                                          putStrLn "Remove Failed | Nothing was changed"
+                                                          iotest False hpath
+                                                      else
+                                                        do 
+                                                          if isBom then do
+                                                            BS.writeFile hpath bom
+                                                            appendFile hpath $show r
+                                                            iotest False hpath
+                                                            else do
+                                                              (tempName, tempHandle) <- openTempFile tempPath "temp"
+                                                              hPutStr tempHandle $ show r
+                                                              hClose tempHandle
+                                                              renameFile tempName hpath
+                                                              iotest False hpath
 
-            else do
-              putStrLn $ "Not a valid command with "++show (length com-1)++" arguments"
-              iotest False hpath
-          else do
-            putStrLn $"Not a valid command with "++show (length com-1)++" arguments"
-            iotest False hpath
-        else
-          do
-             putStrLn "Parsing Failed"
-             return "False"
-     --writeFile "Settings1.cfg" $show d
+                                          else 
+                                            do
+                                              putStrLn $ "Not a valid command with "++show (length com-1)++" arguments"
+                                              iotest False hpath
+                                        else 
+                                          do
+                                            putStrLn $"Not a valid command with "++show (length com-1)++" arguments"
+                                            iotest False hpath
+                                      else
+                                        do
+                                          putStrLn "Parsing Failed"
+                                          return "False"
+                                  --writeFile "Settings1.cfg" $show d
 
 strongEqTree::Tree->Tree->Bool
 strongEqTree (Node n1 t1) (Node n2 t2) = n1 == n2 && length t1==length t2 && and (zipWith strongEqTree t1 t2)
@@ -232,32 +244,55 @@ checkMonadSpam path = do
       (Just h) ->do
          hClose h
          return True
+
+checkMonadLock :: String -> IO Bool
+checkMonadLock path = do
+     tryopen <- openMonad path
+     case tryopen of
+      Nothing -> 
+        do
+           checkMonadLock path
+      (Just h) ->
+        do
+           hClose h
+           return True
+
+
 mhm::[String]->IO () --microHandleMonad
 mhm com@[r,p,path]
  |r=="-r" || r=="--remove" = do
                check <- checkMonadSingleDangerous path
                if not check then die $"Exit with Error: "
                else do
-               (ptr,isBom) <- parsePath path
-               if eqTree ptr (Node ("грешка","") []) then die "Exit with Code (100) - Parse Error"
-               else do
-               let carg2 = convertGet p
-               let r = deleteTree ptr carg2
-               if strongEqTree r ptr then
-                die "Exit with Code (201) - Nothing was changed" --Remove changed nothing
-               else do
-                 let tempPath = sp path
-                
-                 if isBom then 
-                  do
-                    BS.writeFile path bom
-                    appendFile path $show r
+                  (ptr,isBom) <- parsePath path
+                  if eqTree ptr (Node ("грешка","") []) then die "Exit with Code (100) - Parse Error"
                   else do
+                          let carg2 = convertGet p
+                          let r = deleteTree ptr carg2
+                          if strongEqTree r ptr then
+                            die "Exit with Code (201) - Nothing was changed" --Remove changed nothing
+                          else do
+                            let tempPath = sp path
+                            
+                            if isBom then 
+                              do
+                                BS.writeFile path bom
+                                appendFile path $show r
+                              else do
+                                        available<- checkMonadLock path
+                                        (tempName, tempHandle) <- openTempFile tempPath "rem.txt"
+                                        hPutStr tempHandle $ show r
+                                        hClose tempHandle
+                                        rename <- try (renameFile tempName path):: IO (Either SomeException ())
+                                        case rename of
+                                              Left ex -> do
+                                                 (removeFile tempName)
+                                                 return ()
+                                              Right _ -> return ()
 
-                       (tempName, tempHandle) <- openTempFile tempPath "temp"
-                       hPutStr tempHandle $ show r
-                       hClose tempHandle
-                       renameFile tempName path
+
+
+                                    
 
                 
 
@@ -266,25 +301,47 @@ mhm com@[c,p,value,path]
                check <- checkMonadSingleDangerous path
                if not check then die "Exit with Error: "
                else do
-               (ptr,isBom) <- parsePath path
-               if eqTree ptr (Node ("грешка","") []) then die "Exit with Code (100) - Parse Error"
-               else do
-               let carg1= convertSet (p,value)
-               --putStrLn $ p++","++value++"|"++show ptr
-               let set = uncurry (addToTree ptr) carg1
-               if not (parseCheck set) then do
-                die "Set failed , nothing was changed"
-               else do
-               let tempPath =sp path
-              
-               if isBom then do
-                    BS.writeFile path bom
-                    appendFile path $show set
-                  else do
-                    (tempName, tempHandle) <- openTempFile tempPath "temp"
-                    hPutStr tempHandle $ show set
-                    hClose tempHandle
-                    renameFile tempName path
+                    (ptr,isBom) <- parsePath path
+                    if eqTree ptr (Node ("грешка","") []) then die "Exit with Code (100) - Parse Error"
+                    else do
+                          let carg1= convertSet (p,value)
+                          --putStrLn $ p++","++value++"|"++show ptr
+                          let set = uncurry (addToTree ptr) carg1
+                          if not (parseCheck set) then 
+                            do
+                               die "Set failed , nothing was changed"
+                          else 
+                            do
+                                let tempPath =sp path
+                                
+                                if isBom then do
+                                      BS.writeFile path bom
+                                      appendFile path $show set
+                                    else do
+                                      available<- checkMonadLock path
+                                      if available then do 
+                                          (tempName, tempHandle) <- openTempFile tempPath "set.txt"
+                                          hPutStr tempHandle $ show set
+                                          hClose tempHandle
+                                          rename <- try (renameFile tempName path):: IO (Either SomeException ())
+                                          case rename of
+                                              Left ex -> do
+                                                (removeFile tempName)
+                                                return ()
+                                              Right _ -> return ()
+                                      else 
+                                        do
+                                              checkMonadLock path
+                                              (tempName, tempHandle) <- openTempFile tempPath "set.txt"
+                                              hPutStr tempHandle $ show set
+                                              hClose tempHandle
+                                              rename <- try (renameFile tempName path):: IO (Either SomeException ())
+                                              case rename of
+                                                Left ex -> 
+                                                  do
+                                                    (removeFile tempName)
+                                                    return ()
+                                                Right _ -> return ()
   |otherwise = die "If you get to this error you are insane"
 mhm com  = die $"Set didn't have the right arguments"++concatMap ("\n"++) com
 main:: IO String
@@ -309,23 +366,32 @@ main =
                tempPath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld"
                check <- checkMonadSingle hcodepath
                if not check then die "No Settings file found in AppData:\n"
-               else do
-               (ptr,isBom) <- parsePath hcodepath --
-               checks <- checkMonadSingleDangerous hcodepath
-               if not checks then do die "" else do
-               let carg1= convertSet (path,value)
-               let set = uncurry (addToTree ptr) carg1
-               if not (parseCheck set) then die "Set failed nothing was changed" else do
-               if isBom then do
-                     BS.writeFile hcodepath bom
-                     appendFile hcodepath $show set
-                     return "Spawned"
-                  else do
-                     (tempName, tempHandle) <- openTempFile tempPath "temp"
-                     hPutStr tempHandle $ show set
-                     hClose tempHandle
-                     renameFile tempName hcodepath
-                     return "Spawned"
+               else 
+                do
+                  (ptr,isBom) <- parsePath hcodepath --
+                  checks <- checkMonadSingleDangerous hcodepath
+                  if not checks then do die "" else 
+                    do
+                      let carg1= convertSet (path,value)
+                      let set = uncurry (addToTree ptr) carg1
+                      if not (parseCheck set) then die "Set failed nothing was changed" else 
+                        do
+                            if isBom then do
+                                  BS.writeFile hcodepath bom
+                                  appendFile hcodepath $show set
+                                  return "Spawned"
+                                else 
+                                  do
+                                            (tempName, tempHandle) <- openTempFile tempPath "Set.txt"
+                                            hPutStr tempHandle $ show set
+                                            hClose tempHandle
+                                            rename <- try (renameFile tempName hcodepath):: IO (Either SomeException ())
+                                            case rename of
+                                              Left ex -> do
+                                                (removeFile tempName)
+                                                return 0
+                                              Right _ -> return 1
+                                            return "Spawned"
               |com `elem` [["-g",path,value],["--get",path,value]] ->
               do
                 check1 <- checkMonadSingle value
@@ -354,43 +420,53 @@ main =
                  check <- checkMonadSingle hcodepath
                  if not check then die "No Settings file found in AppData:\n"
                  else do
-                 (ptr,isBom) <- parsePath hcodepath --
-                 checks <- checkMonadSingleDangerous hcodepath
-                 if not checks then do die "" else do
-                 let carg2 = convertGet path
-                 let r = deleteTree ptr carg2
-                 if strongEqTree r ptr then
-                  die "Exit with Code (201) - Nothing was changed" --Remove changed nothing
-                 else do
-                  hcodepath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld\\Settings.cfg"
-                  tempPath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld"
-                  check <- checkMonadSingle hcodepath
-                  if not check then die "No Settings file found in AppData:\n"
-                  else do
-                  (ptr,isBom) <- parsePath hcodepath --
-                  if isBom then do
-                     BS.writeFile hcodepath bom
-                     appendFile hcodepath $show r
-                     return "Deded"
-                  else do
-                     (tempName, tempHandle) <- openTempFile tempPath "temp"
-                     hPutStr tempHandle $ show r
-                     hClose tempHandle
-                     renameFile tempName hcodepath --
-                     return "Deded"
+                      (ptr,isBom) <- parsePath hcodepath --
+                      checks <- checkMonadSingleDangerous hcodepath
+                      if not checks then do die "" else 
+                        do
+                          let carg2 = convertGet path
+                          let r = deleteTree ptr carg2
+                          if strongEqTree r ptr then
+                            die "Exit with Code (201) - Nothing was changed" --Remove changed nothing
+                          else do
+                            hcodepath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld\\Settings.cfg"
+                            tempPath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld"
+                            check <- checkMonadSingle hcodepath
+                            if not check then die "No Settings file found in AppData:\n"
+                            else 
+                              do 
+                                  (ptr,isBom) <- parsePath hcodepath 
+                                  if isBom then do
+                                    BS.writeFile hcodepath bom
+                                    appendFile hcodepath $show r
+                                    return "Deded"
+                                  else do
+                                    available<- checkMonadLock hcodepath
+                                    (tempName, tempHandle) <- openTempFile tempPath "rem.txt"
+                                    hPutStr tempHandle $ show r
+                                    hClose tempHandle
+                                    rename <- try (renameFile tempName hcodepath):: IO (Either SomeException ())
+                                    case rename of
+                                              Left ex -> do
+                                                (removeFile tempName)
+                                                return 0
+                                              Right _ -> return 1
+                                    return "Deded"
              |com `elem` [["-g",path],["--get",path]] ->
               do
                   hcodepath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld\\Settings.cfg"
                   tempPath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld"
                   check <- checkMonadSingle hcodepath
                   if not check then die "No Settings file found in AppData:\n"
-                  else do
-                  (ptr,isBom) <- parsePath hcodepath --
-                  let carg = convertGet path
-                  if getTree ptr carg == "Err:No value found" then die "Exit with Code (301) - Get returned nothing"-- !vfound
-                  else do
-                   putStrLn $ getTree ptr carg
-                   return "GetLow"
+                  else 
+                    do
+                      (ptr,isBom) <- parsePath hcodepath --
+                      let carg = convertGet path
+                      if getTree ptr carg == "Err:No value found" then die "Exit with Code (301) - Get returned nothing"-- !vfound
+                      else 
+                        do
+                          putStrLn $ getTree ptr carg
+                          return "GetLow"
              |otherwise -> die "Exit with Code (102) - Wrong Command"
 
             [] -> do 
@@ -398,13 +474,14 @@ main =
                    tempPath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld"
                    check <- checkMonadSingle hcodepath
                    if not check then die "No Settings file found in AppData:\n"
-                   else do
-                   (ptr,isBom) <- parsePath hcodepath --
-                   if not$ eqTree ptr (Node ("грешка","") []) then do
-                      putStrLn hcodepath
-                      iotest True hcodepath
-                      return "reworked"
-                   else return "lol"
+                   else 
+                    do
+                      (ptr,isBom) <- parsePath hcodepath --
+                      if not$ eqTree ptr (Node ("грешка","") []) then do
+                          putStrLn hcodepath
+                          iotest True hcodepath
+                          return "reworked"
+                      else return "lol"
             _ -> die "Exit with Code (666) No valid arguments"
               --unparsedPart filt
 
