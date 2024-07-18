@@ -13,7 +13,7 @@ General:
 - Empty sub-menus in the command bar are now hidden
 - All menus are centered now (can be reverted by disabling "center menu" checkbox in the options menu)
 - New game-mechanics server setting added: "Ally controll" - if enabled you can control your ally's units, and they can control yours
-- Improved cutscenes for Boosterpack1 singleplayer campaign for classis and SEAS versions
+- Improved cutscenes for Boosterpack1 singleplayer campaign for classic and SEAS versions
 - Holy city gates on skirmish maps and in mission 13 are playing "Open" animation from now on
 - Pirate ship chain on skirmish maps and in mission 6 are playing "Open" & "Close" animation from now on
 - Fixed bug with Holy City gates destruction animation wasnt playing
@@ -67,6 +67,7 @@ Dragon Clan:
 
 Norsemen:
 - Stone Guardian is buildable as a separate structure (like a seas scorpion)
+- Stone Guardian from now on has destruction stages. If it has low hitpoints left, it loses it's head.
 - Producing Stone Guardian in Machine Maker as unit no longer available
 - Harbour placing ghost from now on has missing crane displaying
 - Fixed broken warpgate model
@@ -91,21 +92,25 @@ SEAS:
 - Improved big cannon build sequnece. The base platform are not placed by default, it appears during construction process, as well as the rotator.
 - Buildable and campaign big cannon from on have destruction stages
 - Fixed bug, where not fully built big cannon were playing destruction animation, if it was killed
-- Fixed bug when death animation being played, when the pub or laboratory being not fully built while were killed
+- Fixed bug when death animation being played, while pub or laboratory being not fully built and were killed
+- Fixed bug, when seas poison ammo upgrade wasnt applied to playable babbage mobile suit, if "Free Specials" server option was enabled
+- Fixed bug of disabled build icon for scorpion wasnt displaying properly if "Supply system" were enabled on the server
 - Added SEAS laboratory work animation, that plays when building produces unit or research upgrade
 - Restored SEAS laboratory crane, that was deleted long time ago
 
 AI:
-- Fixed bug, that AI were able to delete pirate ship decks separately from the main unit one by one. Now, no longer.
-- Fixed bug, that AI were able to detect pirate ship parts as attack target and kill them by splash damage, which lead to animation break up. Now, no longer.
+- Fixed bug, where AI were able to delete pirate ship decks separately from the main unit one by one. Now, no longer.
+- Fixed bug, where AI were able to detect pirate ship parts as attack target and kill them by splash damage, which lead to animation break up. Now, no longer.
 - AI from now on able to convert Babbage hero to the Mobile Suit as SEAS tribe
 - AI from now on able to use defensive mode for norsemen common, jetpack and zombie warriors
-- AI from now on ablet construct Stone Statue as building
+- AI from now on able to construct Stone Statue as building
+- AI from now on able to construct The Main Pirate ship as building
 
 SDK:
 - Level terrain can be saved as .obj mesh with "Export to .obj" button at icons bar
 - Northland setting textures for icewaste vegetation added
 - Fixed seas_great_cannon placing
+- Fixed seas_final_boss level placing. ALways placed on level 5 by default now.
 
 MIRAGE 2.6.6
 ------------------
