@@ -1,17 +1,21 @@
 class CPlaceController inherit CInputController
 
+	var color 			m_xPlaceable;
+	var color 			m_xNotPlaceable;
+
 	var bool			m_bActive;
-	var string		m_sGfxClass;
-	var string		m_sClass;
-	var string		m_sTTPath;
-	var string		m_sAction;
-	var string		m_sTribe;
+	var string			m_sGfxClass;
+	var string			m_sClass;
+	var string			m_sTTPath;
+	var string			m_sAction;
+	var string			m_sTribe;
 	var bool			m_bWall;
 	var bool			m_bGate;
 	var bool			m_bTower;
 	var bool			m_bRallyPoint;
 	var bool			m_bCoastal;
 
+	var bool 			m_bLBtnHovered;
 	var bool			m_bRotateBegin;
 	var bool			m_bPlaceBegin;
 	var real			m_fGhostRot;
@@ -24,9 +28,13 @@ class CPlaceController inherit CInputController
 	var int				m_iResNumPossible;
 
 	var int				m_iNumTilesHold;
+	
 	var CWallMap.CWall	m_xWall;
 
 	export constructor()
+		m_xPlaceable = {{0,255,0,255}};
+		m_xNotPlaceable = {{255,0,0,255}};
+		
 		m_bActive=false;
 		m_bValid=false;
 
@@ -38,10 +46,13 @@ class CPlaceController inherit CInputController
 		m_vPlacement={0.0,0.0,0.0};
 		m_fGhostRot=0.0;
 
+		m_bLBtnHovered = false;
 		m_bRotateBegin = false;
 		m_bPlaceBegin = false;
 		
-		if(!CSettings.Get("Game/GUIOptions/BuildingRotation/Steps",m_iBuildingRotSteps)) then
+		CClientWrap.GetObjMgr().GetObjPlaceChecker()^.SetGridSize(15);
+		
+		if(!CSettings.Get("Game/GUIOptions/BuildingRotation/Steps",m_iBuildingRotSteps))then
 			m_iBuildingRotSteps=16;
 			CSettings.Set("Game/GUIOptions/BuildingRotation/Steps",m_iBuildingRotSteps);
 		else
@@ -58,9 +69,10 @@ class CPlaceController inherit CInputController
 		m_bRallyPoint=false;
 		m_vPlacement={0.0,0.0,0.0};
 		m_fGhostRot=0.0;
+		m_bLBtnHovered = false;
 		m_bRotateBegin = false;
 		m_bPlaceBegin = false;
-		if(!CSettings.Get("Game/GUIOptions/BuildingRotation/Steps",m_iBuildingRotSteps)) then
+		if(!CSettings.Get("Game/GUIOptions/BuildingRotation/Steps",m_iBuildingRotSteps))then
 			m_iBuildingRotSteps=16;
 			CSettings.Set("Game/GUIOptions/BuildingRotation/Steps",m_iBuildingRotSteps);
 		else
@@ -81,9 +93,10 @@ class CPlaceController inherit CInputController
 	export proc void Render()
 		if(!m_bActive || m_bValid)then return; endif;
 		if(!m_bWall)then
-			if(!m_bRotateBegin)then
-				CheckPlacebility();
-			endif;
+			//if(!m_bRotateBegin || m_bLBtnHovered)then
+			//	CheckPlacebility();
+			//endif;
+			CheckPlacebility();
 		else
 			AddWall();
 		endif;
@@ -104,6 +117,9 @@ class CPlaceController inherit CInputController
 			CGameWrap.LogError("Controller.Place","Player invalid!");
 			return;
 		endif;
+		
+		CClientWrap.GetObjMgr().DeleteGhost();
+		
 		m_fGhostRot=0.0;
 		// HACK
 		/*if(p_sObjClass.Find("hu_ladder")!=-1)then
@@ -135,7 +151,7 @@ class CPlaceController inherit CInputController
 		endif;
 */
 		m_bCoastal = (xTechTree.GetValueI(p_sObjClass+"/coastal",0) != 0);
-		if(p_sObjClass.Find("rally_point")>=0) then m_bCoastal=false; endif;
+		if(p_sObjClass.Find("rally_point")>=0)then m_bCoastal=false; endif;
 
 		m_sClass = p_sObjClass.Mid(p_sObjClass.FindRev('/')+1);
 		var string sChunk = p_sObjClass;
@@ -152,12 +168,12 @@ class CPlaceController inherit CInputController
 		var bitset dwWC=CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap()^.GetWallClass(m_sClass);
 		m_bTower=dwWC==CWallMapCln.WC_Tower;
 
-		//KLog.LogSpam("MaZi", "Class: "+m_sClass+" Action: "+m_sAction);
+		//KLog.LogError("MaZi", "Class: "+m_sClass+" Action: "+m_sAction);
 
 		if(/*m_bWall || */m_bGate)then
 			m_sGfxClass = m_sClass;
 		endif;
-		if(p_sObjClass.Find("rally_point")>=0) then
+		if(p_sObjClass.Find("rally_point")>=0)then
 			m_bRallyPoint=true;
 		else
 			m_bRallyPoint=false;
@@ -176,82 +192,181 @@ class CPlaceController inherit CInputController
 			elseif(m_sGfxClass=="hu_launchpad_colossi")then
 				m_sGfxClass="hu_colossi";
 			endif;
-			CClientWrap.GetObjMgr().CreateGhost(m_sGfxClass);
-			CClientWrap.GetObjMgr().GetObjPlaceChecker()^.EnableGridRendering(!m_bRallyPoint);
-			var ^CGhost pxGhost=CClientWrap.GetObjMgr().GetGhost();
-			if(pxGhost!=null)then
-				// Hack
-				if(m_sGfxClass=="aje_floating_harbour")then
-					//Henry: to improve ghost objects ;)
-					var int i;
-					for(i=0)cond(i<4)iter(i++)do
-						var CFourCC xLink;
-						if(i==0)then
-							xLink = "Cr_1";
-						elseif(i==1)then
-							xLink = "Cr_2";
-						elseif(i==2)then
-							xLink = "Cr_3";
-						else
-							xLink = "Cr_4";
-						endif;
-						var int iLinkID = pxGhost^.GetLinkID(xLink);
-						pxGhost^.LinkGfx(iLinkID, "Macrolemys_Water");
-					endfor;
-				elseif(m_sGfxClass=="hu_harbour")then
-					var CFourCC xLink = "Cr_3";
-					var int iLinkID = pxGhost^.GetLinkID(xLink);
-					pxGhost^.LinkGfx(iLinkID, "hu_harbour_crane");
-				elseif(m_sGfxClass=="ninigi_launchpad_pirate_boss")then
-					var CFourCC xLink = "Bl_1";
-					var int iLinkID = pxGhost^.GetLinkID(xLink);
-					pxGhost^.LinkGfx(iLinkID, "pirate_boss_dest");
-				elseif(m_sGfxClass=="ninigi_rocket_ramp")then
-					var CFourCC xLink = "RE_1";
-					var int iLinkID = pxGhost^.GetLinkID(xLink);
-					pxGhost^.LinkGfx(iLinkID, "ninigi_rb_top");
-				elseif(m_sGfxClass=="seas_carrier")then
-					var CFourCC xLink = "we";
-					var int iLinkID = pxGhost^.GetLinkID(xLink);
-					pxGhost^.LinkGfx(iLinkID, "seas_carrier_turret");
-				elseif(m_sGfxClass=="seas_great_cannon")then
-					var CFourCC xLink = "we";
-					var int iLinkID = pxGhost^.GetLinkID(xLink);
-					pxGhost^.LinkGfx(iLinkID, "seas_hq_big_cannon_cannon");
-				elseif(m_sGfxClass=="seas_mg_nest")then
-					var CFourCC xLink = "we";
-					var int iLinkID = pxGhost^.GetLinkID(xLink);
-					pxGhost^.LinkGfx(iLinkID, "seas_hq_machinegun_nest_top");
-				elseif(m_sGfxClass=="seas_shore_cannon")then
-					var CFourCC xLink = "we";
-					var int iLinkID = pxGhost^.GetLinkID(xLink);
-					pxGhost^.LinkGfx(iLinkID, "seas_shore_cannon");
-				elseif(m_sGfxClass=="seas_small_cannon")then
-					var CFourCC xLink = "we";
-					var int iLinkID = pxGhost^.GetLinkID(xLink);
-					pxGhost^.LinkGfx(iLinkID, "seas_hq_defense_turret_top");
-				elseif(m_sGfxClass.Find("_launchpad_zeppelin")!=-1)then
-					pxGhost^.SetConstructLevel(2);
-				endif;
-				// Endhack
-				
-				var ^CAttribs pxPlA = pxPlayer^.GetAttribs();
-				//Henry: fix for seas headquarters
-				if(pxPlA!=null && (m_sGfxClass.Find("fireplace")>=0 || m_sGfxClass.Find("resource_collector")>=0) || m_sGfxClass.Find("headquarters")>=0) then
-					pxGhost^.SetAge(pxPlA^.GetValueInt("age"));
-				endif;
-				var real fTmp;
-				if(!CSettings.Get("Game/GUIOptions/BuildingRotation/Value",fTmp))then
-					CSettings.Set("Game/GUIOptions/BuildingRotation/Value",0.0f);
-					fTmp=0.0f;
-				endif;
-				fTmp-=CMultiCameraController.Get().GetGameCameraModule()^.m_fAngle;
-				m_fGhostRot=fTmp;
-				MoveGhost();
-				ApplyGhostRot();
+
+			if(m_sGfxClass.Find("_launchpad_zeppelin")!=-1)then
+				AddGhostAdvanced(0, 0, m_sGfxClass, 2);
+			elseif(m_sGfxClass=="seas_wall_gate")then
+				AddGhostAdvanced(0, 0, m_sGfxClass, {0.0,0.0,-1.0});
+			elseif(m_sGfxClass=="seas_fortress")then
+				AddGhostAdvanced(0, 0, m_sGfxClass, {0.0,0.0,3.99});
+			elseif(m_sGfxClass=="aje_sensor_tower")then
+				AddGhostAdvanced(0, 0, m_sGfxClass, {0.0,0.0,-11.0});
+			elseif(m_sGfxClass=="hu_launchpad_colossi")then
+				AddGhostAdvanced(0, 0, "hu_colossi");
+			elseif(m_sGfxClass=="hu_mud_pit")then
+				AddGhostAdvanced(0, 0, m_sGfxClass, {0.0,0.0,0.5});
+			elseif(m_sGfxClass=="seas_shore_cannon")then
+				AddGhostAdvanced(0, 0, m_sGfxClass, {0.0,0.0,-7.05});
+			else
+				AddGhostAdvanced(0, 0, m_sGfxClass);
 			endif;
+			
+			if(m_sGfxClass=="aje_floating_harbour")then
+				//AddGhostAdvanced(1, 0, "Macrolemys_Water", "Cr_1");
+				//AddGhostAdvanced(2, 0, "Macrolemys_Water", "Cr_2");
+				//AddGhostAdvanced(3, 0, "Macrolemys_Water", "Cr_3");
+				//AddGhostAdvanced(4, 0, "Macrolemys_Water", "Cr_4");
+			elseif(m_sGfxClass=="hu_fireplace")then
+				AddGhostAdvanced(1, 0, "hu_final_stage_deco_0", {-0.5,11.0,0.0});
+				AddGhostAdvanced(2, 0, "hu_final_stage_deco_1", {-5.38,2.74,0.0});
+			elseif(m_sGfxClass=="hu_harbour")then
+				AddGhostAdvanced(1, 0, "hu_harbour_crane", "Cr_3");
+			elseif(m_sGfxClass=="ninigi_fireplace")then
+				AddGhostAdvanced(1, 0, "ninigi_final_stage_deco_0", {-7.35,-7.86,-2.9}, {0.0,0.0,180.0});
+				AddGhostAdvanced(2, 0, "ninigi_final_stage_deco_1", {6.36,-7.94,-2.9}, {0.0,0.0,90.0});
+			elseif(m_sGfxClass=="ninigi_launchpad_pirate_boss")then
+				//AddGhostAdvanced(1, 0, "pirate_boss_tail", {0.0,-11.36,0.0});
+				//AddGhostAdvanced(2, 0, "pirate_boss_sail", {0.0,0.0,0.0});
+				//AddGhostAdvanced(3, 0, "pirate_boss_row", {0.0,12.6,0.0});
+				//AddGhostAdvanced(4, 0, "pirate_boss_cannons", {0.0,0.0,0.0});
+			elseif(m_sGfxClass=="ninigi_rocket_ramp")then
+				AddGhostAdvanced(1, 0, "ninigi_rb_top", "RE_1");
+				AddGhostAdvanced(2, 1, "ninigi_rb_bird", "we");
+			elseif(m_sGfxClass=="seas_headquarters")then
+				AddGhostAdvanced(1, 0, "seas_final_stage_deco_0", {-3.31,-4.11,-14.06});
+				AddGhostAdvanced(2, 0, "seas_final_stage_deco_1", {-0.05,7.99,-0.52});
+				AddGhostAdvanced(3, 0, "seas_final_stage_deco_2", {0.08,3.98,-0.52}, {0.0,0.0,180.0});
+				AddGhostAdvanced(4, 0, "seas_final_stage_deco_3", {-8.77,8.71,-3.98});
+			elseif(m_sGfxClass=="seas_carrier")then
+				//AddGhostAdvanced(1, 0, "seas_carrier_turret", "we");
+			elseif(m_sGfxClass=="seas_shore_cannon")then
+				AddGhostAdvanced(1, 0, "seas_shore_cannon", "we");
+			elseif(m_sGfxClass=="seas_mg_nest")then
+				AddGhostAdvanced(1, 0, "seas_hq_machinegun_nest_top", "we");
+			elseif(m_sGfxClass=="seas_mine")then
+				AddGhostAdvanced(1, 0, "seas_mine_misc_0", {1.82,6.54,0.0});
+				AddGhostAdvanced(2, 0, "seas_mine_misc_1", {-1.75,4.54,3.01});
+				AddGhostAdvanced(3, 0, "seas_mine_misc_2", {-4.89,-0.41,-3.07});
+				AddGhostAdvanced(4, 0, "seas_mine_misc_3", {-1.43,0.39,6.39});
+				AddGhostAdvanced(5, 0, "seas_mine_misc_4", {6.94,-0.02,0.0});
+				AddGhostAdvanced(6, 0, "seas_mine_misc_5", {1.63,-6.16,0.0});
+			elseif(m_sGfxClass=="seas_pub")then
+				AddGhostAdvanced(1, 0, "seas_pub_misc_0", {-1.0,3.05,-0.3});
+				AddGhostAdvanced(2, 0, "seas_pub_misc_1", {5.17,2.28,3.34});
+			elseif(m_sGfxClass=="seas_staircase")then
+				AddGhostAdvanced(1, 0, "seas_staircase_misc_0", {-2.7,6.3,-2.8});
+				AddGhostAdvanced(2, 0, "seas_staircase_misc_1", {-2.7,2.0,0.0});
+			elseif(m_sGfxClass=="seas_laboratory")then
+				AddGhostAdvanced(1, 0, "seas_laboratory_misc_1", {-9.2,-8.4,-0.4});
+			elseif(m_sGfxClass=="seas_portal_terminus" || m_sGfxClass=="seas_warpgate")then
+				AddGhostAdvanced(1, 0, "seas_wg_misc_0", {0.0,-1.47,-5.67});	
+			elseif(m_sGfxClass=="seas_small_cannon")then
+				AddGhostAdvanced(1, 0, "seas_hq_defense_turret_top", "we");
+			elseif(m_sGfxClass=="seas_great_cannon")then
+				AddGhostAdvanced(1, 0, "seas_hq_big_cannon_rotator", "we");
+				AddGhostAdvanced(2, 1, "seas_hq_big_cannon_cannon", "we");
+			elseif(m_sGfxClass.Find("_special_box")!=-1)then
+				AddGhostAdvanced(1, 0, "special_box_misc_0", {-1.35,0.0,0.3});
+				AddGhostAdvanced(2, 0, "special_box_misc_1", {1.35,0.0,0.3});
+			endif;
+			
+			CClientWrap.GetObjMgr().GetObjPlaceChecker()^.EnableGridRendering(!m_bRallyPoint);
+
+			var real fTmp;
+			if(!CSettings.Get("Game/GUIOptions/BuildingRotation/Value",fTmp))then
+				CSettings.Set("Game/GUIOptions/BuildingRotation/Value",0.0f);
+				fTmp=0.0f;
+			endif;
+			fTmp-=CMultiCameraController.Get().GetGameCameraModule()^.m_fAngle;
+			m_fGhostRot=fTmp;
+			MoveGhost();
+			ApplyGhostRot();
 		endif;
 		CWindowMgr.Get().BringWindowToTop(CClientWrap.GetDesktop(),true);
+	endproc;
+	
+	export proc void AddGhostAdvanced(int p_iIndex, int p_iParentGhostIndex, string p_sObjClass)
+		AddGhostAdvanced(p_iIndex, p_iParentGhostIndex, p_sObjClass, {0.0,0.0,0.0}, {0.0,0.0,0.0}, "NONE", 4);
+	endproc;
+	
+	export proc void AddGhostAdvanced(int p_iIndex, int p_iParentGhostIndex, string p_sObjClass, string p_sLink)
+		AddGhostAdvanced(p_iIndex, p_iParentGhostIndex, p_sObjClass, {0.0,0.0,0.0}, {0.0,0.0,0.0}, p_sLink, 4);
+	endproc;
+	
+	export proc void AddGhostAdvanced(int p_iIndex, int p_iParentGhostIndex, string p_sObjClass, int p_iConstructLvl)
+		AddGhostAdvanced(p_iIndex, p_iParentGhostIndex, p_sObjClass, {0.0,0.0,0.0}, {0.0,0.0,0.0}, "NONE", p_iConstructLvl);
+	endproc;
+	
+	export proc void AddGhostAdvanced(int p_iIndex, int p_iParentGhostIndex, string p_sObjClass, vec3 p_vPosOffset)
+		AddGhostAdvanced(p_iIndex, p_iParentGhostIndex, p_sObjClass, p_vPosOffset, {0.0,0.0,0.0}, "NONE", 4);
+	endproc;
+	
+	export proc void AddGhostAdvanced(int p_iIndex, int p_iParentGhostIndex, string p_sObjClass, vec3 p_vPosOffset, vec3 p_vRotAddDeg)
+		AddGhostAdvanced(p_iIndex, p_iParentGhostIndex, p_sObjClass, p_vPosOffset, p_vRotAddDeg, "NONE", 4);
+	endproc;
+	
+	export proc void AddGhostAdvanced(int p_iIndex, int p_iParentGhostIndex, string p_sObjClass, vec3 p_vPosOffset, vec3 p_vRotAddDeg, string p_sLink)
+		AddGhostAdvanced(p_iIndex, p_iParentGhostIndex, p_sObjClass, p_vPosOffset, p_vRotAddDeg, p_sLink, 4);
+	endproc;
+	
+	export proc void AddGhostAdvanced(int p_iIndex, int p_iParentGhostIndex, string p_sObjClass, vec3 p_vPosOffset, vec3 p_vRotAddDeg, string p_sLink, int p_iConstructLvl)
+		var ^CObjMgr pxObjMgr = ^(CClientWrap.GetObjMgr());
+		pxObjMgr^.AddGhost(p_sObjClass);
+		var ^CGhost pxGhost = pxObjMgr^.GetGhostIndex(p_iIndex);
+		if(pxGhost == null)then return; endif;
+		
+		var vec3 vPos = {0.0,0.0,0.0};
+		var Quat qRot;
+
+		if(p_sLink != "NONE")then
+			var CFourCC xLink = p_sLink;
+			var ^CGhost pxParentGhost = pxObjMgr^.GetGhostIndex(p_iParentGhostIndex);
+			if(pxParentGhost == null)then return; endif;
+			var vec3 vPosOffset;
+			pxParentGhost^.GetLinkPosRotWorld(xLink,vPosOffset,qRot);
+			vPos+=vPosOffset;
+		endif;
+		
+		vPos+=p_vPosOffset;
+		qRot.RotateX(DegToRad(p_vRotAddDeg.GetX()));
+		qRot.RotateY(DegToRad(p_vRotAddDeg.GetY()));
+		qRot.RotateZ(DegToRad(p_vRotAddDeg.GetZ()));
+		
+		//HACK
+		//Store ghost pos offset and own rot as ghost name to read it later
+		pxGhost^.SetName(vPos.ToString() + "#" + qRot.ToString());
+		pxGhost^.SetLookAtPos(vPos);
+		//ENDHACK
+		
+		pxGhost^.SetPos(vPos);
+		pxGhost^.SetRot(qRot);
+		
+		pxGhost^.SetConstructLevel(p_iConstructLvl);
+	endproc;
+	
+	proc void GetLocalTransform(string p_sGhostName, ref vec3 p_rvLocalPos, ref Quat p_rqLocalRot)
+		var array string asLocalPosRot;
+		var vec3 vNewPos;
+		var Quat qNewRot;
+		if(p_sGhostName.IsEmpty() || p_sGhostName.Find("#")==-1)then
+			p_rvLocalPos = vNewPos;
+			p_rqLocalRot = qNewRot;
+			return;
+		endif;
+
+		p_sGhostName.Split(asLocalPosRot, "#", false);
+		vNewPos.FromString(asLocalPosRot[0]);
+		var string sRot = asLocalPosRot[1];
+		var array string asXYZW;
+		sRot.Split(asXYZW, " ", false);
+		qNewRot.SetXYZW(asXYZW[0].ToReal(),asXYZW[1].ToReal(),asXYZW[2].ToReal(),asXYZW[3].ToReal());
+
+		p_rvLocalPos = vNewPos;
+		p_rqLocalRot = qNewRot;
+	endproc;
+	
+	export proc real DegToRad(real p_fDeg)
+		return p_fDeg*Math.Pi()/180.0;
 	endproc;
 
 	export proc bool HandleCatchedMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
@@ -262,23 +377,15 @@ class CPlaceController inherit CInputController
 	endproc;
 
 	export proc bool HandleMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
-		if(p_dwType==CInputController.MT_Tick)then return false;
-		elseif(p_dwType==CInputController.MT_MouseWheel)then return false;
-		elseif(p_dwType==CInputController.MT_MouseMBtnDown)then return false;
-		elseif(p_dwType==CInputController.MT_MouseMBtnUp)then return false;
-		elseif(p_dwType==CInputController.MT_MouseMBtnDoubleClick)then return false;
+		if(p_dwType==CInputController.MT_Tick || p_dwType==CInputController.MT_MouseWheel || p_dwType==CInputController.MT_MouseMBtnDown || p_dwType==CInputController.MT_MouseMBtnUp || p_dwType==CInputController.MT_MouseMBtnDoubleClick)then
+			return false;
 		endif;
 
 		var bool bCtrl = ((p_dwFlags&Msg.KM_CONTROL)!=0d);
 		var bool bShift = ((p_dwFlags&Msg.KM_SHIFT)!=0d);
 		var bool bAlt = ((p_dwFlags&Msg.KM_ALT)!=0d);
-		
-		if(m_bTower) then
-			//Henry: to allow rotation of towers before placement
-			if(bShift) then bShift=true; bCtrl=true; endif;
-		endif;
 
-		if(m_bRotateBegin && !bShift)then
+		if(m_bRotateBegin && (!bShift || !m_bLBtnHovered))then
 			m_bRotateBegin=false;
 		endif;
 
@@ -286,13 +393,19 @@ class CPlaceController inherit CInputController
 			if(p_dwType==CInputController.MT_MouseLBtnDown && !m_bPlaceBegin)then
 				m_vPlacement = GetPickpoint();
 				m_bPlaceBegin=true;
+				if((p_dwType&CInputController.MT_MouseLBtnDown)!=0d)then
+					m_bLBtnHovered = true;
+				endif;
+			elseif((p_dwType&CInputController.MT_MouseLBtnUp)!=0d)then
+				m_bLBtnHovered = false;
 			elseif(p_dwType==CInputController.MT_MouseRBtnUp)then
 				SetActive(false);
 				return true;
 			endif;
+
 			if(!m_bWall)then
 				if(p_dwType==CInputController.MT_MouseMove)then
-					if(!bShift)then
+					if(!bShift && !m_bLBtnHovered)then
 						m_xMousePlacement.SetX(p_iX);
 						m_xMousePlacement.SetY(p_iY);
 						MoveGhost();
@@ -301,11 +414,11 @@ class CPlaceController inherit CInputController
 						m_bRotateBegin=true;
 						CWindowMgr.Get().SetMousePosNoMMove(m_xMousePlacement);
 					endif;
-				elseif(p_dwType==CInputController.MT_MouseLBtnUp) then
+				elseif(p_dwType==CInputController.MT_MouseLBtnUp)then
 					m_vPlacement = GetPickpoint();
 					var bool bPlaced=PlaceGhost(bCtrl);
 					var bool bActive=!bPlaced || bCtrl;
-					if(!bActive||!m_bGate) then
+					if(!bActive||!m_bGate)then
 						SetActive(bActive);
 					endif;
 					m_bPlaceBegin=false;
@@ -315,11 +428,12 @@ class CPlaceController inherit CInputController
 				if(!m_bPlaceBegin)then
 					m_vPlacement = GetPickpoint();
 				endif;
-				if(p_dwType==CInputController.MT_MouseLBtnUp) then
+				if(p_dwType==CInputController.MT_MouseLBtnUp)then
 					if(!bShift)then
 						PlaceWall(bCtrl);
-						//SetActive(bShift||bCtrl);
-						if(!bCtrl) then SetActive(false); endif;
+						if(!bCtrl)then
+							SetActive(false);
+						endif;
 						m_vPlacement = GetPickpoint();
 						m_bValid = false;
 						m_bPlaceBegin=false;
@@ -354,6 +468,7 @@ class CPlaceController inherit CInputController
 			m_bWall=false;
 			m_bCoastal=false;
 			m_bPlaceBegin=false;
+			m_bLBtnHovered = false;
 			CClientWrap.GetObjMgr().DeleteGhost();
 			m_iNumTilesHold=0;
 			ClearWall();
@@ -375,8 +490,8 @@ class CPlaceController inherit CInputController
 	endproc;
 
 	export proc void RotateGhost(int p_iX, int p_iY)
-		if (m_bCoastal || m_bGate) then return; endif;
-		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
+		if(m_bCoastal || m_bGate)then return; endif;
+		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhostIndex(0);
 		if(pxGhost==null)then return; endif;
 		var int iDiffX = (p_iX - m_xMousePlacement.GetX())%360;
 		m_fGhostRot+=(iDiffX.ToReal()/360.0)*Math.Pi()*2.0;
@@ -384,85 +499,134 @@ class CPlaceController inherit CInputController
 	endproc;
 	
 	export proc void ApplyGhostRot()
-		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
-		if(pxGhost==null)then return; endif;
+		var int i, iNumGhosts=CClientWrap.GetObjMgr().NumGhosts();
 		var real fRotStep=(2.0f*Math.Pi())/m_iBuildingRotSteps.ToReal(); //-> 16 steps = 22.5°
 		var real fGR=m_fGhostRot;
+		var vec3 vBaseGhostPos;
+		var Quat qBaseGhostRot;
+		var real fStepRot=0.0f;
 		fGR/=fRotStep;
 		fGR=(fGR+0.5f).ToInt().ToReal();
 		fGR*=fRotStep;
-		var vec3 vRotation;
-		vRotation.SetZ(fGR);
-		pxGhost^.SetRotation(vRotation);
+		for(i=0)cond(i<iNumGhosts)iter(i++)do
+			var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhostIndex(i);
+			if(pxGhost==null)then return; endif;
+			var vec3 vLocalPos;
+			var Quat qLocalRot;
+			GetLocalTransform(pxGhost^.GetName(), vLocalPos, qLocalRot);
+			qLocalRot.RotateZ(fGR);
+			pxGhost^.SetRot(qLocalRot);
+			if(i == 0)then
+				vBaseGhostPos = pxGhost^.GetPos();
+			else
+				var vec3 vPosAfterRot = GetPosByRot(vLocalPos+vBaseGhostPos,vBaseGhostPos,-fGR);
+				pxGhost^.SetPos(vPosAfterRot);
+				//HACK
+				//Store rel pos after rot as LookAtPos vec3
+				pxGhost^.SetLookAtPos(vPosAfterRot - vBaseGhostPos);
+				//ENDHACK
+			endif;
+		endfor;
 	endproc;
 
 	export proc void MoveGhost()
-		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
-		if(pxGhost==null)then return; endif;
-		if(m_bGate)then
-			CClientWrap.GetObjMgr().CreateGhost(m_sGfxClass);
-			pxGhost=CClientWrap.GetObjMgr().GetGhost();
+		var int i, iNumGhosts=CClientWrap.GetObjMgr().NumGhosts();
+		var string sBaseGhostClass;
+		var vec3 vBaseGhostPos;
+		var Quat qBaseGhostRot;
+		
+		var vec3 vCoastalNewPos;
+		var Quat qCoastalNewRot;
+		var bool bValidCoastalPos = false;
+		
+		for(i=0)cond(i<iNumGhosts)iter(i++)do
+			var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhostIndex(i);
 			if(pxGhost==null)then return; endif;
-		endif;
-		var vec3 vPickpoint = GetPickpoint();
-		if(vPickpoint!={0.0,0.0,0.0})then
-			if (m_bCoastal) then
-				var vec3 vNewPos;
-				var Quat qNewRot;
-				if (CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(pxGhost^.GetGhostClass(), vPickpoint, vNewPos, qNewRot) ) then
-					pxGhost^.SetPos(vNewPos);
-					pxGhost^.SetRot(qNewRot);
-					pxGhost^.SetColor({{0,255,0,255}});
-				else
-					pxGhost^.SetPos(vNewPos);
-					if (vNewPos!=vPickpoint) then
-						pxGhost^.SetRot(qNewRot);
-					endif;
-					pxGhost^.SetColor({{255,0,0,255}});
-				endif;
-			else
-				//Ghost position tuning
-				if(m_sGfxClass=="seas_wall_gate")then
-					pxGhost^.SetPos(vPickpoint+{0.0,0.0,-1.0});
-				elseif(m_sGfxClass=="seas_fortress")then
-					pxGhost^.SetPos(vPickpoint+{0.0,0.0,3.99});
-				//elseif(m_sGfxClass=="aje_sensor_tower")then
-				//	pxGhost^.SetPos(vPickpoint+{0.0,0.0,-11.0});
-				elseif(m_sGfxClass=="hu_mud_pit")then
-					pxGhost^.SetPos(vPickpoint+{0.0,0.0,0.5});
-				elseif(m_sGfxClass=="seas_shore_cannon")then
-					pxGhost^.SetPos(vPickpoint+{0.0,0.0,-7.05});
-				else
-					pxGhost^.SetPos(vPickpoint);
-				endif;
-				if(m_bRallyPoint) then pxGhost^.SetColor({{0,255,0,255}}); endif;
+			if(m_bGate)then
+				CClientWrap.GetObjMgr().CreateGhost(m_sGfxClass);
+				pxGhost=CClientWrap.GetObjMgr().GetGhost();
+				if(pxGhost==null)then return; endif;
 			endif;
-		endif;
-		m_vPlacement=vPickpoint;
+			if(i == 0)then
+				sBaseGhostClass = pxGhost^.GetGhostClass();
+			endif;
+			var vec3 vPickpoint = GetPickpoint();
+			if(vPickpoint!={0.0,0.0,0.0})then
+				var vec3 vGhostOffset = pxGhost^.GetLookAtPos();
+				if(m_bCoastal)then
+					if(i == 0)then
+						vBaseGhostPos = pxGhost^.GetPos();
+						qBaseGhostRot = pxGhost^.GetRot();
+						bValidCoastalPos = CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(sBaseGhostClass, vPickpoint, vCoastalNewPos, qCoastalNewRot);
+						pxGhost^.SetPos(vCoastalNewPos);
+					else
+						pxGhost^.SetPos(vCoastalNewPos);
+					endif;
+					if(bValidCoastalPos)then
+						pxGhost^.SetRot(qCoastalNewRot);
+						ColorGhosts(m_xPlaceable);
+					else
+						if(vCoastalNewPos!=vPickpoint)then
+							pxGhost^.SetRot(qCoastalNewRot);
+						endif;
+						ColorGhosts(m_xNotPlaceable);
+					endif;
+					pxGhost^.SetPos(vPickpoint + vGhostOffset);
+				else
+					pxGhost^.SetPos(vPickpoint + vGhostOffset);
+					if(m_bRallyPoint)then ColorGhosts(m_xPlaceable); endif;
+				endif;
+			endif;
+			m_vPlacement=vPickpoint;
+		endfor;
+	endproc;
+
+	proc vec3 GetPosByRot(vec3 p_vPos, vec3 p_vParentPos, real p_fRad)
+		var vec3 vNewPos = p_vPos;
+		var real fNewX = (p_vPos.GetX() - p_vParentPos.GetX()) * Math.Cos(p_fRad) - (p_vPos.GetY() - p_vParentPos.GetY()) * Math.Sin(p_fRad) + p_vParentPos.GetX();
+		var real fNewY = (p_vPos.GetX() - p_vParentPos.GetX()) * Math.Sin(p_fRad) + (p_vPos.GetY() - p_vParentPos.GetY()) * Math.Cos(p_fRad) + p_vParentPos.GetY();
+		vNewPos.SetX(fNewX);
+		vNewPos.SetY(fNewY);
+		return vNewPos;
 	endproc;
 
 	proc void CheckPlacebility()
-		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhost();
+		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhostIndex(0);
 		if(pxGhost==null)then return; endif;
-		pxGhost^.SetColored(true);
 		if(m_bGate)then
 			ClearWall();
 			var ^CWallMapCln pxWM=CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap();
 			var bool bFound=pxWM^.CalcWall(-1,m_sClass,m_vPlacement,m_vPlacement,m_xWall);
 			if(bFound)then
-				pxWM^.PreviewWall(m_xWall,m_sGfxClass,{{0,255,0,255}});
+				pxWM^.PreviewWall(m_xWall,m_sGfxClass,m_xPlaceable);
+				ColorGhosts(m_xPlaceable);
+				return;
 			else
-				pxGhost^.SetColor({{255,0,0,255}});
+				ColorGhosts(m_xNotPlaceable);
+				return;
 			endif;
 		elseif(m_bCoastal)then
+			//None
 		else
 			//Henry: allowing bigger buildings be placed on smaller terrain
 			if((CClientWrap.GetObjMgr().GetObjPlaceChecker()^.Check(UseSmallerGfx(pxGhost),pxGhost^.GetPos(),pxGhost^.GetRotation())) || m_bRallyPoint)then
-				pxGhost^.SetColor({{0,255,0,255}});
+				ColorGhosts(m_xPlaceable);
+				return;
 			else
-				pxGhost^.SetColor({{255,0,0,255}});
+				ColorGhosts(m_xNotPlaceable);
+				return;
 			endif;
 		endif;
+	endproc;
+
+	proc void ColorGhosts(color p_xColor)
+		var int i, iNumGhosts=CClientWrap.GetObjMgr().NumGhosts();
+		for(i=0)cond(i<iNumGhosts)iter(i++)do
+			var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhostIndex(i);
+			if(pxGhost==null)then return; endif;
+			pxGhost^.SetColored(true);
+			pxGhost^.SetColor(p_xColor);
+		endfor;
 	endproc;
 
 	export proc void AddWall()
@@ -478,8 +642,8 @@ class CPlaceController inherit CInputController
 		if(bFound)then
 			var ^CGhost pxGhost=pxWM^.PreviewWall(m_xWall,m_sGfxClass,{{0,255,0,255}},m_iResNumPossible,{{255,255,0,255}});
 			pxWM^.ShowPlacement(m_xWall,vPickpoint);
-			if(pxGhost!=null) then
-				if(m_sGfxClass=="aje_tesla_tower") then
+			if(pxGhost!=null)then
+				if(m_sGfxClass=="aje_tesla_tower")then
 					var CFourCC xLink = "we";
 					var int iLinkID = pxGhost^.GetLinkID(xLink);
 					pxGhost^.LinkGfx(iLinkID, "aje_tesla_tower_canon");
@@ -550,24 +714,10 @@ class CPlaceController inherit CInputController
 
 		if(m_vPlacement!={0.0,0.0,0.0})then
 			if(m_bGate)then
-				// HACK
-/* Henry: no need for that anymore
-				if(m_sClass.Find("hu_ladder")!=-1)then
-					var ^CWallMapCln pxWM=CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap();
-					var ^CObj pxWall=pxWM^.GetWall(m_xWall);
-					if(pxWall!=null) then
-						var CObjList xList=CClientWrap.GetSelection();
-						xList.Validate();
-						CEvt_GamePlayCommand.Send(xList,"Action",pxWall^.GetHandle(),m_vPlacement,"/Actions/Hu/Build/BLDG/hu_ladder");
-						return true;
-					endif;
-					return false;
-				endif;
-*/
 				var ^CObjList pxSel = ^(CClientWrap.GetSelection());
 				CEvt_PlaceWall.Send(m_xWall,pxSel^,p_bQueued);
 				ClearWall();
-//					CClientWrap.GetObjMgr().DeleteGhost();
+//				CClientWrap.GetObjMgr().DeleteGhost();
 				return true;
 			elseif(m_bCoastal)then
 
@@ -575,14 +725,15 @@ class CPlaceController inherit CInputController
 				var Quat qNewRot;
 				var vec3 vPickpoint = GetPickpoint();
 
-				if (CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(pxGhost^.GetGhostClass(), vPickpoint, vNewPos, qNewRot)) then
-					pxGhost^.SetPos(vNewPos);
+				var vec3 vGhostOffset = pxGhost^.GetLookAtPos();
+				if(CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(pxGhost^.GetGhostClass(), vPickpoint, vNewPos, qNewRot))then
+					pxGhost^.SetPos(vNewPos + vGhostOffset);
 					pxGhost^.SetRot(qNewRot);
 					CEvt_PlaceObj.Send(m_sClass+";"+m_sTribe+";"+m_sAction,m_vPlacement,pxGhost^.GetRotation(),pxSel^,p_bQueued);
 					return true;
 				else
-					pxGhost^.SetPos(vPickpoint);
-					pxGhost^.SetColor({{255,0,0,255}});
+					pxGhost^.SetPos(vPickpoint + vGhostOffset);
+					ColorGhosts(m_xNotPlaceable);
 					CFeedback.Print(CLocalizer.Get().Translate("_PlaceController_Object"));
 					CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("ui_click_error","",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
 					CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("voice_click_error","",CSoundMgrCln.SOUND_VOLTRACK_SPEECH_ACK);
