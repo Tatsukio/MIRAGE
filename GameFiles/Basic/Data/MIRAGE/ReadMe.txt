@@ -9,6 +9,7 @@ MIRAGE 2.6.7
 Special:
 
 General:
+- Buildings can be rotated by holding LMB + mouse movement
 - Added a separate sub-menu to the build menu to display buildable units (seas scorpion, trader zeppelin)
 - Empty sub-menus in the command bar are now hidden
 - All menus are centered now (can be reverted by disabling "center menu" checkbox in the options menu)
@@ -31,6 +32,8 @@ General:
 - Walls and gates are available from epoch 1 for each tribe now
 - Idle animations for non-activated valhalla campaign statues was disabled
 - Missing objbrushes added for landscape smoothing at building placement
+- Buildings placeability is now calculated after each building rotation step
+- Buildings placeability grid rendering distance was increased
 
 Maps:
 - Northland version of Yggdrasil map added
