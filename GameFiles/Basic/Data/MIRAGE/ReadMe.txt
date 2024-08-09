@@ -25,6 +25,8 @@ General:
 - Fixed missing tooltips in some languages
 - Fixed missing translation in some languages
 - Fixed syntax errors in russain language tooltips
+- Fixed Pirates flag not being added to some preplaced||spawned pirate units
+- Fixed amazon warrior enemy selection voicelines
 - Various fixes in the options menu
 - Wild animals will play selection sounds when selected
 - Neutral buildings and resources will play selection sounds when selected
