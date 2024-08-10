@@ -39,6 +39,7 @@ General:
 
 Maps:
 - Northland version of Yggdrasil map added
+- Heilige Stage's production buildings always visible in FOW for all players from now on
 
 Campaign maps:
 - Amazon warrior have female voiceover instead of male one from now on
