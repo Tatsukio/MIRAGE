@@ -73,7 +73,7 @@ Dragon Clan:
 
 Norsemen:
 - Stone Guardian is buildable as a separate structure (like a seas scorpion)
-- Stone Guardian from now on has destruction stages. If it has low hitpoints left, it loses it's head.
+- Stone Guardian from now on has destruction stages. If it has half health, its starts starts to steam, if more than half health, its starts to fire and if very low on health, it loses it's head.
 - Producing Stone Guardian in Machine Maker as unit no longer available
 - Harbour placing ghost from now on has missing crane displaying
 - Fixed broken warpgate model
