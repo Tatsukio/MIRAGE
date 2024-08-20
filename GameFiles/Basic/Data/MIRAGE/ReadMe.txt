@@ -111,6 +111,7 @@ AI:
 - AI from now on able to use defensive mode for norsemen common, jetpack and zombie warriors
 - AI from now on able to construct Stone Statue as building
 - AI from now on able to construct The Main Pirate ship as building
+- AI from now on able to research Tree camouflage upgrade as Norsemen tribe
 
 SDK:
 - Level terrain can be saved as .obj mesh with "Export to .obj" button at icons bar
