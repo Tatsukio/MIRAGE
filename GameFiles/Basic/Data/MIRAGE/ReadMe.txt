@@ -80,7 +80,7 @@ Norsemen:
 - Fixed bug with bunker dissapearing from build menu, once first tier of walls upgrade was researched
 
 SEAS:
-- New mercenary model
+- New mercenary model and icon
 - New epoch 6 unit: MG Walker
 - Executioner can harvest food and wood (and stone after upgrade) from now on
 - Warpgate model was updated
