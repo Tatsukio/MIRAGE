@@ -25,7 +25,7 @@ General:
 - Fixed missing tooltips in some languages
 - Fixed missing translation in some languages
 - Fixed syntax errors in russain language tooltips
-- Fixed Pirates flag not being added to some preplaced||spawned pirate units
+- Fixed Pirates flag not being added to some preplaced or spawned pirate units
 - Fixed amazon warrior enemy selection voicelines
 - Various fixes in the options menu
 - Wild animals will play selection sounds when selected
@@ -45,7 +45,8 @@ Campaign maps:
 - Amazon warrior have female voiceover instead of male one from now on
 - Fixed floating buildings, units and incorrect camera's angles on mission 13 in three cutscenes
 - Classic pirate ship from now on plays destruction animation of decks, once the unit being deleted. Ship decks and cannons no longer stuck in the air. Animation based on the amount, how many decks the ship had, when got order for Deletion.
-- Classis pirate ship no longer can do any actions, once all its decks being destroyed.
+- Classic pirate ship no longer can do any actions, once all its decks being destroyed.
+- Captain Miyagi from now has Pirate flag as well when fighting for pirates.
 
 Heroes:
 - Larry, Barry and Harry are affected by Dustriders Town Center Resource tool upgrades 1,2,3 and 4
