@@ -115,6 +115,7 @@ AI:
 - AI from now on able to research Tree camouflage upgrade as Norsemen tribe
 
 SDK:
+- Added new trigger condition, which allows to check if the specific player is an AI
 - Level terrain can be saved as .obj mesh with "Export to .obj" button at icons bar
 - Northland setting textures for icewaste vegetation added
 - Fixed seas_great_cannon placing
