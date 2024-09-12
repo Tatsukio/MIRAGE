@@ -19,6 +19,8 @@ General:
 - Pirate ship chain on skirmish maps and in mission 6 are playing "Open" & "Close" animation from now on
 - Fixed bug with Holy City gates destruction animation wasnt playing
 - Campaing avatar on mission "Single B42: Cold Day in Hell" has a corpse damage, corpse resources and death animation from now on
+- Fixed missing animal flags for preplaced SDK units/spawned through trigger
+- Fixed incorrect animal flags for animals/vehicles/ships if the starting tribe not matching the unit tribe
 - Fixed missing stances icons
 - Fixed non working corpse resources values for campaign valhalla stone statues and campaign avatar
 - Fixed incorrect heroes tooltips in all languages
