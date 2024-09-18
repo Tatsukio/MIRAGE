@@ -28,13 +28,7 @@ class CPlaceController inherit CInputController
 	var int				m_iResNumPossible;
 
 	var int				m_iNumTilesHold;
-	
-	static var vec3			m_vBaseGhostPos;
-	static var Quat			m_qBaseGhostRot;
-	static var vec3			m_vPickpoint;
-	static var vec3			m_vCoastalNewPos;
-	static var Quat			m_qCoastalNewRot;
-	
+
 	var CWallMap.CWall	m_xWall;
 
 	export constructor()
@@ -43,12 +37,7 @@ class CPlaceController inherit CInputController
 		
 		m_bActive=false;
 		m_bValid=false;
-		
-		m_vBaseGhostPos = {0.0,0.0,0.0};
-		m_qBaseGhostRot.SetIdentity();
-		m_vCoastalNewPos = {0.0,0.0,0.0};
-		m_qCoastalNewRot.SetIdentity();
-		m_vPickpoint = GetPickpoint();
+
 		m_bWall=false;
 		m_bGate=false;
 		m_bTower=false;
@@ -583,32 +572,26 @@ class CPlaceController inherit CInputController
 				sBaseGhostClass = pxGhost^.GetGhostClass();
 			endif;
 			var vec3 vPickpoint = GetPickpoint();
-			m_vPickpoint = vPickpoint;
 			if(vPickpoint!={0.0,0.0,0.0})then
-				var vec3 vGhostOffset = pxGhost^.GetLookAtPos();
 				if(m_bCoastal)then
 					if(i == 0)then
-						m_vBaseGhostPos = pxGhost^.GetPos();
-						m_qBaseGhostRot = pxGhost^.GetRot();
-						KLog.LogError("m_vBaseGhostPos",m_vBaseGhostPos.ToString());
-						KLog.LogError("m_qBaseGhostRot",m_qBaseGhostRot.ToString());
-						bValidCoastalPos = CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(sBaseGhostClass, vPickpoint, m_vCoastalNewPos, m_qCoastalNewRot);
-						pxGhost^.SetPos(m_vCoastalNewPos);
+						bValidCoastalPos = CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(sBaseGhostClass, vPickpoint, vCoastalNewPos, qCoastalNewRot);
+						pxGhost^.SetPos(vCoastalNewPos);
+						pxGhost^.SetRot(qCoastalNewRot);
 					else
-						var vec3 vPosAfterRot = pxGhost^.GetPos();
-						vPosAfterRot = RotateAroundZAxis(m_vCoastalNewPos + vGhostOffset,m_vCoastalNewPos,CalcRotAngle(m_qBaseGhostRot, m_qCoastalNewRot));
-						pxGhost^.SetPos(vPosAfterRot);
+						var vec3 vLocalPos = {0.0,0.0,0.0};
+						var Quat qLocalRot; qLocalRot.SetIdentity();
+						GetLocalTransform(pxGhost^.GetName(), vLocalPos, qLocalRot);
+						pxGhost^.SetPos(RotateAroundZAxis(vCoastalNewPos + vLocalPos,vCoastalNewPos,CalcRotAngle(qBaseGhostRot, qCoastalNewRot)));
 					endif;
+					pxGhost^.SetRot(qCoastalNewRot);
 					if(bValidCoastalPos)then
-						pxGhost^.SetRot(m_qCoastalNewRot);
 						ColorGhosts(m_xPlaceable);
 					else
-						if(vCoastalNewPos!=vPickpoint)then
-							pxGhost^.SetRot(m_qCoastalNewRot);
-						endif;
 						ColorGhosts(m_xNotPlaceable);
 					endif;
 				else
+					var vec3 vGhostOffset = pxGhost^.GetLookAtPos();	
 					pxGhost^.SetPos(vPickpoint + vGhostOffset);
 					if(m_bRallyPoint)then ColorGhosts(m_xPlaceable); endif;
 				endif;
@@ -617,34 +600,12 @@ class CPlaceController inherit CInputController
 		endfor;
 	endproc;
 	
-	export static proc void RotateTest()
-		var vec3 vPointPos = {445.8,727.2,16.0};
-		var vec3 vGhostPos = {437.0,736.3,16.0};
-	
-		var int i, iNumGhosts=CClientWrap.GetObjMgr().NumGhosts();
-		
-		var Quat qRot1; qRot1.SetIdentity();
-		var Quat qRot2; qRot2.SetIdentity();
-		qRot2.RotateZ(1.570796f);
-		
-		for(i=1)cond(i<iNumGhosts)iter(i++)do
-			var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhostIndex(i);
-			if(pxGhost==null)then return; endif;
-			var vec3 vGhostOffset = pxGhost^.GetLookAtPos();
-			var vec3 vPosAfterRot = m_vCoastalNewPos + vGhostOffset;
-			KLog.LogError("Before",vPosAfterRot.ToString());
-			vPosAfterRot = RotateAroundZAxis(pxGhost^.GetPos(),m_vPickpoint,CalcRotAngle(qRot1, qRot2));
-			pxGhost^.SetPos(vPosAfterRot);
-			KLog.LogError("After",vPosAfterRot.ToString());
-		endfor;
-	endproc;
-
 	export static proc real CalcRotAngle(Quat p_qOldRot, Quat p_qNewRot)
 		var Quat qOldRot = p_qOldRot; qOldRot.Conjugate();
 		var Quat qNewRot = p_qNewRot;
 		var Quat qDelta = qNewRot * qOldRot;
-		var real fAngleZ = 2.0f * Math.ATan2(qDelta.GetZ(), qDelta.GetW());
-		return fAngleZ;
+		var real fRadZ = 2.0f * Math.ATan2(qDelta.GetZ(), qDelta.GetW());
+		return fRadZ;
 	endproc;
 	
 	static proc vec3 RotateAroundZAxis(vec3 p_vObjPos, vec3 p_ZAxisPos, real p_fRadAngle)
