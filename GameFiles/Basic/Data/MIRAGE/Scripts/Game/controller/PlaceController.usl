@@ -321,8 +321,7 @@ class CPlaceController inherit CInputController
 
 		//HACK
 		//Store ghost pos offset and own rot as ghost name to read it later
-		pxGhost^.SetName(vPos.ToString() + "#" + qRot.ToString());
-		pxGhost^.SetLookAtPos(vPos);
+		pxGhost^.SetName(vPos.ToString() + "#" + qRot.ToString() + "#" + vPos.ToString());
 		//ENDHACK
 		
 		pxGhost^.SetPos(vPos);
@@ -483,8 +482,9 @@ class CPlaceController inherit CInputController
 				return;
 			endif;
 			var vec3 vLocalPos = {0.0,0.0,0.0};
+			var vec3 vLocalPos2 = {0.0,0.0,0.0};
 			var Quat qLocalRot; qLocalRot.SetIdentity();
-			GetLocalTransform(pxGhost^.GetName(), vLocalPos, qLocalRot);
+			GetLocalTransform(pxGhost^.GetName(), vLocalPos, qLocalRot, vLocalPos2);
 			qLocalRot.RotateZ(fGR);
 			pxGhost^.SetRot(qLocalRot);
 			if(i == 0)then
@@ -493,32 +493,37 @@ class CPlaceController inherit CInputController
 				var vec3 vPosAfterRot = Math2.RotateAroundZAxis(vLocalPos+vBaseGhostPos,vBaseGhostPos,-fGR);
 				pxGhost^.SetPos(vPosAfterRot);
 				//HACK
-				//Store rel pos after rot as LookAtPos vec3
-				pxGhost^.SetLookAtPos(vPosAfterRot - vBaseGhostPos);
+				//Store rel pos after rot
+				GetLocalTransform(pxGhost^.GetName(), vLocalPos, qLocalRot, vLocalPos2);
+				vLocalPos2 = vPosAfterRot - vBaseGhostPos;
+				pxGhost^.SetName(vLocalPos.ToString() + "#" + qLocalRot.ToString() + "#" + vLocalPos2.ToString());
 				//ENDHACK
 			endif;
 		endfor;
 	endproc;
 	
-	proc void GetLocalTransform(string p_sGhostName, ref vec3 p_rvLocalPos, ref Quat p_rqLocalRot)
+	proc void GetLocalTransform(string p_sGhostName, ref vec3 p_rvLocalPos, ref Quat p_rqLocalRot, ref vec3 p_rvLocalPos2)
 		var array string asLocalPosRot;
 		var vec3 vNewPos = {0.0,0.0,0.0};
 		var Quat qNewRot; qNewRot.SetIdentity();
+		var vec3 vNewPos2 = {0.0,0.0,0.0};
 		if(p_sGhostName.IsEmpty() || p_sGhostName.Find("#")==-1)then
 			p_rvLocalPos = vNewPos;
 			p_rqLocalRot = qNewRot;
+			p_rvLocalPos2 = vNewPos2;
 			KLog.LogError("GetLocalTransform","GhostName empty");
 			return;
 		endif;
 
 		p_sGhostName.Split(asLocalPosRot, "#", false);
-		if(asLocalPosRot.NumEntries() < 2) then
-			KLog.LogError("GetLocalTransform","asLocalPosRot < 2");
+		if(asLocalPosRot.NumEntries() < 3) then
+			KLog.LogError("GetLocalTransform","asLocalPosRot < 3");
 			return;
 		endif;
 
 		vNewPos.FromString(asLocalPosRot[0]);
 		var string sRot = asLocalPosRot[1];
+		vNewPos2.FromString(asLocalPosRot[2]);
 		var array string asXYZW;
 		
 		sRot.Split(asXYZW, " ", false);
@@ -531,6 +536,7 @@ class CPlaceController inherit CInputController
 
 		p_rvLocalPos = vNewPos;
 		p_rqLocalRot = qNewRot;
+		p_rvLocalPos2 = vNewPos2;
 	endproc;
 
 	export proc void MoveGhost()
@@ -554,15 +560,15 @@ class CPlaceController inherit CInputController
 			endif;
 			var vec3 vPickpoint = GetPickpoint();
 			if(vPickpoint!={0.0,0.0,0.0})then
+				var vec3 vLocalPos = {0.0,0.0,0.0};
+				var Quat qLocalRot; qLocalRot.SetIdentity();
+				var vec3 vLocalPos2 = {0.0,0.0,0.0};
+				GetLocalTransform(pxGhost^.GetName(), vLocalPos, qLocalRot, vLocalPos2);
 				if(m_bCoastal)then
 					if(i == 0)then
 						bValidCoastalPos = CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(sBaseGhostClass, vPickpoint, vCoastalNewPos, qCoastalNewRot);
 						pxGhost^.SetPos(vCoastalNewPos);
-						pxGhost^.SetRot(qCoastalNewRot);
 					else
-						var vec3 vLocalPos = {0.0,0.0,0.0};
-						var Quat qLocalRot; qLocalRot.SetIdentity();
-						GetLocalTransform(pxGhost^.GetName(), vLocalPos, qLocalRot);
 						pxGhost^.SetPos(Math2.RotateAroundZAxis(vCoastalNewPos + vLocalPos,vCoastalNewPos,-(2.0f * Math.ATan2(qCoastalNewRot.GetZ(), qCoastalNewRot.GetW()))));
 					endif;
 					pxGhost^.SetRot(qCoastalNewRot);
@@ -572,8 +578,7 @@ class CPlaceController inherit CInputController
 						ColorGhosts(m_xNotPlaceable);
 					endif;
 				else
-					var vec3 vGhostOffset = pxGhost^.GetLookAtPos();	
-					pxGhost^.SetPos(vPickpoint + vGhostOffset);
+					pxGhost^.SetPos(vPickpoint + vLocalPos2);
 					if(m_bRallyPoint)then ColorGhosts(m_xPlaceable); endif;
 				endif;
 			endif;
@@ -716,14 +721,13 @@ class CPlaceController inherit CInputController
 				var Quat qNewRot; qNewRot.SetIdentity();
 				var vec3 vPickpoint = GetPickpoint();
 
-				var vec3 vGhostOffset = pxGhost^.GetLookAtPos();
 				if(CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(pxGhost^.GetGhostClass(), vPickpoint, vNewPos, qNewRot))then
-					pxGhost^.SetPos(vNewPos + vGhostOffset);
+					pxGhost^.SetPos(vNewPos);
 					pxGhost^.SetRot(qNewRot);
 					CEvt_PlaceObj.Send(m_sClass+";"+m_sTribe+";"+m_sAction,m_vPlacement,pxGhost^.GetRotation(),pxSel^,p_bQueued);
 					return true;
 				else
-					pxGhost^.SetPos(vPickpoint + vGhostOffset);
+					pxGhost^.SetPos(vPickpoint);
 					ColorGhosts(m_xNotPlaceable);
 					CFeedback.Print(CLocalizer.Get().Translate("_PlaceController_Object"));
 					CGameInputController.ms_xUISoundMgr.PlayFeedbackSoundEvent("ui_click_error","",CSoundMgrCln.SOUND_VOLTRACK_GLOBAL);
