@@ -117,69 +117,46 @@ class CPlaceController inherit CInputController
 			CGameWrap.LogError("Controller.Place","Player invalid!");
 			return;
 		endif;
-		
-		CClientWrap.GetObjMgr().DeleteGhost();
-		
-		m_fGhostRot=0.0;
-		// HACK
-		/*if(p_sObjClass.Find("hu_ladder")!=-1)then
-			CMainController.Get().SetSecondaryInputController(true);
-			CMainController.Get().GetSecInputCtrl().SetCommand("Build_Ladder");
-			CMainController.Get().GetSecInputCtrl().SetTTPath("/Actions/Hu/Build/BLDG/hu_ladder");
-			return;
-		endif;*/
-		// END HACK
 
 		var CTechTree xTechTree = pxPlayer^.GetPlayerTechTree();
 		var string sObjGfx = xTechTree.GetValueS(p_sObjClass+"/gfx","Dummy");
-		var string sObjGhost = xTechTree.GetValueS(p_sObjClass+"/ghost","");
-
 		if(sObjGfx=="Dummy")then
 			CGameWrap.LogError("Controller.Place","Invalid Gfx: "+p_sObjClass);
 			return;
 		endif;
+		
+		CClientWrap.GetObjMgr().DeleteGhost();
+		m_fGhostRot=0.0;
+		m_vPlacement = GetPickpoint();
 
 		m_bActive = true;
 		m_bValid = false;
 		m_sGfxClass = sObjGfx;
-
+		m_sClass = p_sObjClass.Mid(p_sObjClass.FindRev('/') + 1);
+		
+		var bitset dwWC = CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap()^.GetWallClass(m_sClass);
+		m_bTower = (dwWC == CWallMapCln.WC_Tower);
 		m_bWall=(xTechTree.GetValueI(p_sObjClass+"/wall",0) != 0);
 		m_bGate= (xTechTree.GetValueI(p_sObjClass+"/gate",0) != 0);
-		
-/*		if(m_bGate)then
-			m_bWall=true;
-		endif;
-*/
 		m_bCoastal = (xTechTree.GetValueI(p_sObjClass+"/coastal",0) != 0);
-		if(p_sObjClass.Find("rally_point")>=0)then m_bCoastal=false; endif;
-
-		m_sClass = p_sObjClass.Mid(p_sObjClass.FindRev('/')+1);
-		var string sChunk = p_sObjClass;
-		if(sChunk.GetAt(0)=='/')then
-			sChunk.Delete(0,1);
-		endif;
-		sChunk = sChunk.Mid(sChunk.Find('/')+1);
-		m_sTribe = sChunk.Left(sChunk.Find('/'));
-		if(m_sTribe != "Aje" && m_sTribe != "Hu" && m_sTribe != "Ninigi" && m_sTribe != "SEAS" && m_sTribe != "Special")then
-			m_sTribe = pxPlayer^.GetPlayerSlot()^.GetTribe();
-		endif;
-		m_sTTPath=p_sObjClass;
-		m_sAction = p_sAction;
-		var bitset dwWC=CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap()^.GetWallClass(m_sClass);
-		m_bTower=dwWC==CWallMapCln.WC_Tower;
-
-		//KLog.LogError("MaZi", "Class: "+m_sClass+" Action: "+m_sAction);
-
-		if(/*m_bWall || */m_bGate)then
-			m_sGfxClass = m_sClass;
-		endif;
+		
 		if(p_sObjClass.Find("rally_point")>=0)then
-			m_bRallyPoint=true;
+			m_bCoastal = false;
+			m_bRallyPoint = true;
 		else
 			m_bRallyPoint=false;
 		endif;
 
-		m_vPlacement = GetPickpoint();
+		var string sChunk = p_sObjClass;
+		sChunk.TrimLeft('/');
+		sChunk = sChunk.Mid(sChunk.Find('/') + 1);
+		m_sTribe = sChunk.Left(sChunk.Find('/'));
+
+		if(m_sTribe != "Aje" && m_sTribe != "Hu" && m_sTribe != "Ninigi" && m_sTribe != "SEAS" && m_sTribe != "Special")then
+			m_sTribe = pxPlayer^.GetPlayerSlot()^.GetTribe();
+		endif;
+		m_sTTPath = p_sObjClass;
+		m_sAction = p_sAction;
 		if(m_bWall)then
 			// wall specific
 			m_bPlaceBegin=false;
@@ -187,7 +164,7 @@ class CPlaceController inherit CInputController
 			CClientWrap.GetObjMgr().GetObjPlaceChecker()^.GetWallMap()^.EnableGridRendering(true);
 		else
 			var string sBuilding=p_sAction.Right(p_sAction.GetLength()-(p_sAction.FindRev('/')+1));
-			if(m_sGfxClass!=sBuilding && m_sGfxClass.Find("rally_point")<0 && sObjGhost.IsEmpty())then
+			if(m_sGfxClass!=sBuilding && m_sGfxClass.Find("rally_point")<0 && xTechTree.GetValueS(p_sObjClass+"/ghost","").IsEmpty())then
 				m_sGfxClass=sBuilding;
 			endif;
 
@@ -309,8 +286,11 @@ class CPlaceController inherit CInputController
 	
 	export proc void AddGhostAdvanced(int p_iParentGhostIndex, string p_sObjClass, vec3 p_vPosOffset, vec3 p_vRotAddDeg, string p_sLink, int p_iConstructLvl)
 		var ^CObjMgr pxObjMgr = ^(CClientWrap.GetObjMgr());
-		if(pxObjMgr == null)then return; endif;
-		
+		if(pxObjMgr == null)then
+			KLog.LogError("AddGhostAdvanced","pxObjMgr == null");
+			return;
+		endif;
+
 		var int iGhostIndex = pxObjMgr^.AddGhost(p_sObjClass);
 		var ^CGhost pxGhost = pxObjMgr^.GetGhostIndex(iGhostIndex);
 		if(pxGhost == null)then
@@ -349,7 +329,7 @@ class CPlaceController inherit CInputController
 		pxGhost^.SetRot(qRot);
 		
 		var ^CAttribs pxPlA = CGameWrap.GetClient().GetPlayer().GetAttribs();
-		if(pxPlA!=null && iGhostIndex==0 && (m_sGfxClass.Find("fireplace")>=0 || m_sGfxClass.Find("headquarters")>=0)then
+		if(pxPlA!=null && iGhostIndex==0 && (m_sGfxClass.Find("fireplace")>=0 || m_sGfxClass.Find("headquarters")>=0)) then
 			pxGhost^.SetAge(pxPlA^.GetValueInt("age"));
 		endif;
 		
@@ -479,7 +459,10 @@ class CPlaceController inherit CInputController
 	export proc void RotateGhost(int p_iX, int p_iY)
 		if(m_bCoastal || m_bGate)then return; endif;
 		var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhostIndex(0);
-		if(pxGhost==null)then return; endif;
+		if(pxGhost == null)then
+			KLog.LogError("RotateGhost","pxGhost == null");
+			return;
+		endif;
 		var int iDiffX = (p_iX - m_xMousePlacement.GetX() + 360) % 360;
 		m_fGhostRot+=(iDiffX.ToReal()/360.0)*Math.Pi()*2.0;
 		ApplyGhostRot();
@@ -497,7 +480,10 @@ class CPlaceController inherit CInputController
 		fGR*=fRotStep;
 		for(i=0)cond(i<iNumGhosts)iter(i++)do
 			var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhostIndex(i);
-			if(pxGhost==null)then return; endif;
+			if(pxGhost == null)then
+				KLog.LogError("ApplyGhostRot","pxGhost == null");
+				return;
+			endif;
 			var vec3 vLocalPos = {0.0,0.0,0.0};
 			var Quat qLocalRot; qLocalRot.SetIdentity();
 			GetLocalTransform(pxGhost^.GetName(), vLocalPos, qLocalRot);
@@ -552,9 +538,7 @@ class CPlaceController inherit CInputController
 	export proc void MoveGhost()
 		var int i, iNumGhosts=CClientWrap.GetObjMgr().NumGhosts();
 		var string sBaseGhostClass;
-		var vec3 vBaseGhostPos = {0.0,0.0,0.0};
-		var Quat qBaseGhostRot; qBaseGhostRot.SetIdentity();
-		
+
 		var vec3 vCoastalNewPos = {0.0,0.0,0.0};
 		var Quat qCoastalNewRot; qCoastalNewRot.SetIdentity();
 		var bool bValidCoastalPos = false;
@@ -581,7 +565,7 @@ class CPlaceController inherit CInputController
 						var vec3 vLocalPos = {0.0,0.0,0.0};
 						var Quat qLocalRot; qLocalRot.SetIdentity();
 						GetLocalTransform(pxGhost^.GetName(), vLocalPos, qLocalRot);
-						pxGhost^.SetPos(RotateAroundZAxis(vCoastalNewPos + vLocalPos,vCoastalNewPos,-CalcRotAngle(qBaseGhostRot, qCoastalNewRot)));
+						pxGhost^.SetPos(RotateAroundZAxis(vCoastalNewPos + vLocalPos,vCoastalNewPos,-(2.0f * Math.ATan2(qCoastalNewRot.GetZ(), qCoastalNewRot.GetW()))));
 					endif;
 					pxGhost^.SetRot(qCoastalNewRot);
 					if(bValidCoastalPos)then
