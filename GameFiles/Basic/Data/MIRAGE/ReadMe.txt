@@ -104,6 +104,7 @@ SEAS:
 - Fixed bug of disabled build icon for scorpion wasnt displaying properly if "Supply system" were enabled on the server
 - Added SEAS laboratory work animation, that plays when building produces unit or research upgrade
 - Restored SEAS laboratory crane, that was deleted long time ago
+- Rocketman was constantly spamming the shot effect -> this has been fixed
 
 AI:
 - Fixed bug, where AI were able to delete pirate ship decks separately from the main unit one by one. Now, no longer.
