@@ -29,6 +29,7 @@ General:
 - Fixed syntax errors in russain language tooltips
 - Fixed Pirates flag not being added to some preplaced or spawned pirate units
 - Fixed amazon warrior enemy selection voicelines
+- Fixed wrong frozen effect texture by using another model
 - Various fixes in the options menu
 - Wild animals will play selection sounds when selected
 - Neutral buildings and resources will play selection sounds when selected
@@ -39,6 +40,7 @@ General:
 - Buildings placeability is now calculated after each building rotation step
 - Buildings placeability grid rendering distance was increased
 - New placement ghosts system that supports custom addons and linking (all models with custom addons now have proper placement ghosts)
+- Ships and floating buildings can now be frozen
 
 Maps:
 - Northland version of Yggdrasil map added
