@@ -13,7 +13,7 @@ General:
 - Added a separate sub-menu to the build menu to display buildable units (seas scorpion, trader zeppelin)
 - Empty sub-menus in the command bar are now hidden
 - All menus are centered now (can be reverted by disabling "center menu" checkbox in the options menu)
-- New game-mechanics server setting added: "Ally controll" - if enabled you can control your ally's units, and they can control yours
+- New game-mechanics server setting added: "Ally control" - if enabled you can control your ally's units, and they can control yours
 - Improved cutscenes for Boosterpack1 singleplayer campaign for classic and SEAS versions
 - Holy city gates on skirmish maps and in mission 13 are playing "Open" animation from now on
 - Pirate ship chain on skirmish maps and in mission 6 are playing "Open" & "Close" animation from now on
@@ -38,6 +38,7 @@ General:
 - Missing objbrushes added for landscape smoothing at building placement
 - Buildings placeability is now calculated after each building rotation step
 - Buildings placeability grid rendering distance was increased
+- New placement ghosts system that supports custom addons and linking (all models with custom addons now have proper placement ghosts)
 
 Maps:
 - Northland version of Yggdrasil map added
@@ -64,7 +65,6 @@ Dustriders:
 - Better tools upgrade from now on adds icon to infantry once was researched
 - Better tools from now also increase upgrade duration for medium and tesla towers, big tent, clay walls and gates
 - Better tools description were updated
-- Floating Harbour placing ghost from now on has turtles displaying
 - Tesla tower upgrade duration was rised from 30 to 90 seconds
 
 Dragon Clan:
@@ -78,7 +78,6 @@ Norsemen:
 - Stone Guardian is buildable as a separate structure (like a seas scorpion)
 - Stone Guardian from now on has destruction stages. If it has half health, its starts starts to steam, if more than half health, its starts to fire and if very low on health, it loses it's head.
 - Producing Stone Guardian in Machine Maker as unit no longer available
-- Harbour placing ghost from now on has missing crane displaying
 - Fixed broken warpgate model
 - Fixed bug with bunker dissapearing from build menu, once first tier of walls upgrade was researched
 
@@ -88,7 +87,6 @@ SEAS:
 - Executioner can harvest food and wood (and stone after upgrade) from now on
 - Warpgate model was updated
 - Black widows are rebuildable from now on
-- Carrier placing ghost from now on has missing turret displaying
 - Regular Babbage mobile suit from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
 - Regular Babbage mobile suit now properly shows Poison Rounds upgrade icon when Kleeman is tier 4
 - Regular Babbage mobile suit now properly shows Maelstorm Rounds upgrade icon
