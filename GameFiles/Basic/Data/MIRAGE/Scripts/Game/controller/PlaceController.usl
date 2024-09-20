@@ -56,7 +56,7 @@ class CPlaceController inherit CInputController
 			m_iBuildingRotSteps=16;
 			CSettings.Set("Game/GUIOptions/BuildingRotation/Steps",m_iBuildingRotSteps);
 		else
-			m_iBuildingRotSteps=Math.Clamp(m_iBuildingRotSteps,0,360); // 64 before
+			m_iBuildingRotSteps=Math.Clamp(m_iBuildingRotSteps,1,360); // 64 before
 		endif;
 		m_iNumTilesHold=0;
 	endconstructor;
@@ -76,7 +76,7 @@ class CPlaceController inherit CInputController
 			m_iBuildingRotSteps=16;
 			CSettings.Set("Game/GUIOptions/BuildingRotation/Steps",m_iBuildingRotSteps);
 		else
-			m_iBuildingRotSteps=Math.Clamp(m_iBuildingRotSteps,0,360); // 64 before
+			m_iBuildingRotSteps=Math.Clamp(m_iBuildingRotSteps,1,360); // 64 before
 		endif;
 		m_bActive=false;
 		CClientWrap.GetObjMgr().DeleteGhost();
@@ -321,7 +321,7 @@ class CPlaceController inherit CInputController
 
 		//HACK
 		//Store ghost pos offset and own rot as ghost name to read it later
-		pxGhost^.SetName(vPos.ToString() + "#" + qRot.ToString() + "#" + vPos.ToString());
+		pxGhost^.SetName(vPos.ToString() + "#" + qRot.ToString());
 		//ENDHACK
 		
 		pxGhost^.SetPos(vPos);
@@ -470,11 +470,10 @@ class CPlaceController inherit CInputController
 	export proc void ApplyGhostRot()
 		var int i, iNumGhosts=CClientWrap.GetObjMgr().NumGhosts();
 		var real fRotStep=Math2.DegToRad(360.0f / m_iBuildingRotSteps.ToReal()); //-> 16 steps = 22.5°
-		var real fGR=m_fGhostRot;
 		var vec3 vBaseGhostPos = {0.0,0.0,0.0};
-		fGR/=fRotStep;
-		fGR=(fGR+0.5f).ToInt().ToReal();
-		fGR*=fRotStep;
+		m_fGhostRot/=fRotStep;
+		m_fGhostRot=(m_fGhostRot+0.5f).ToInt().ToReal();
+		m_fGhostRot*=fRotStep;
 		for(i=0)cond(i<iNumGhosts)iter(i++)do
 			var ^CGhost pxGhost = CClientWrap.GetObjMgr().GetGhostIndex(i);
 			if(pxGhost == null)then
@@ -482,61 +481,16 @@ class CPlaceController inherit CInputController
 				return;
 			endif;
 			var vec3 vLocalPos = {0.0,0.0,0.0};
-			var vec3 vLocalPos2 = {0.0,0.0,0.0};
 			var Quat qLocalRot; qLocalRot.SetIdentity();
-			GetLocalTransform(pxGhost^.GetName(), vLocalPos, qLocalRot, vLocalPos2);
-			qLocalRot.RotateZ(fGR);
+			GetLocalTransform(pxGhost^.GetName(), vLocalPos, qLocalRot);
+			qLocalRot.RotateZ(m_fGhostRot);
 			pxGhost^.SetRot(qLocalRot);
 			if(i == 0)then
 				vBaseGhostPos = pxGhost^.GetPos();
 			else
-				var vec3 vPosAfterRot = Math2.RotateAroundZAxis(vLocalPos+vBaseGhostPos,vBaseGhostPos,-fGR);
-				pxGhost^.SetPos(vPosAfterRot);
-				//HACK
-				//Store rel pos after rot
-				GetLocalTransform(pxGhost^.GetName(), vLocalPos, qLocalRot, vLocalPos2);
-				vLocalPos2 = vPosAfterRot - vBaseGhostPos;
-				pxGhost^.SetName(vLocalPos.ToString() + "#" + qLocalRot.ToString() + "#" + vLocalPos2.ToString());
-				//ENDHACK
+				pxGhost^.SetPos(Math2.RotateAroundZAxis(vLocalPos+vBaseGhostPos,vBaseGhostPos,-m_fGhostRot));
 			endif;
 		endfor;
-	endproc;
-	
-	proc void GetLocalTransform(string p_sGhostName, ref vec3 p_rvLocalPos, ref Quat p_rqLocalRot, ref vec3 p_rvLocalPos2)
-		var array string asLocalPosRot;
-		var vec3 vNewPos = {0.0,0.0,0.0};
-		var Quat qNewRot; qNewRot.SetIdentity();
-		var vec3 vNewPos2 = {0.0,0.0,0.0};
-		if(p_sGhostName.IsEmpty() || p_sGhostName.Find("#")==-1)then
-			p_rvLocalPos = vNewPos;
-			p_rqLocalRot = qNewRot;
-			p_rvLocalPos2 = vNewPos2;
-			KLog.LogError("GetLocalTransform","GhostName empty");
-			return;
-		endif;
-
-		p_sGhostName.Split(asLocalPosRot, "#", false);
-		if(asLocalPosRot.NumEntries() < 3) then
-			KLog.LogError("GetLocalTransform","asLocalPosRot < 3");
-			return;
-		endif;
-
-		vNewPos.FromString(asLocalPosRot[0]);
-		var string sRot = asLocalPosRot[1];
-		vNewPos2.FromString(asLocalPosRot[2]);
-		var array string asXYZW;
-		
-		sRot.Split(asXYZW, " ", false);
-		if(asXYZW.NumEntries() < 4) then
-			KLog.LogError("GetLocalTransform","asXYZW < 4");
-			return;
-		endif;
-		
-		qNewRot.SetXYZW(asXYZW[0].ToReal(),asXYZW[1].ToReal(),asXYZW[2].ToReal(),asXYZW[3].ToReal());
-
-		p_rvLocalPos = vNewPos;
-		p_rqLocalRot = qNewRot;
-		p_rvLocalPos2 = vNewPos2;
 	endproc;
 
 	export proc void MoveGhost()
@@ -562,8 +516,7 @@ class CPlaceController inherit CInputController
 			if(vPickpoint!={0.0,0.0,0.0})then
 				var vec3 vLocalPos = {0.0,0.0,0.0};
 				var Quat qLocalRot; qLocalRot.SetIdentity();
-				var vec3 vLocalPos2 = {0.0,0.0,0.0};
-				GetLocalTransform(pxGhost^.GetName(), vLocalPos, qLocalRot, vLocalPos2);
+				GetLocalTransform(pxGhost^.GetName(), vLocalPos, qLocalRot);
 				if(m_bCoastal)then
 					if(i == 0)then
 						bValidCoastalPos = CClientWrap.GetObjMgr().GetObjPlaceChecker()^.CheckGetCoastal(sBaseGhostClass, vPickpoint, vCoastalNewPos, qCoastalNewRot);
@@ -578,12 +531,45 @@ class CPlaceController inherit CInputController
 						ColorGhosts(m_xNotPlaceable);
 					endif;
 				else
-					pxGhost^.SetPos(vPickpoint + vLocalPos2);
+					pxGhost^.SetPos(Math2.RotateAroundZAxis(vPickpoint + vLocalPos,vPickpoint,-m_fGhostRot));
 					if(m_bRallyPoint)then ColorGhosts(m_xPlaceable); endif;
 				endif;
 			endif;
 			m_vPlacement=vPickpoint;
 		endfor;
+	endproc;
+	
+	proc void GetLocalTransform(string p_sGhostName, ref vec3 p_rvLocalPos, ref Quat p_rqLocalRot)
+		var array string asLocalPosRot;
+		var vec3 vNewPos = {0.0,0.0,0.0};
+		var Quat qNewRot; qNewRot.SetIdentity();
+		if(p_sGhostName.IsEmpty() || p_sGhostName.Find("#")==-1)then
+			p_rvLocalPos = vNewPos;
+			p_rqLocalRot = qNewRot;
+			KLog.LogError("GetLocalTransform","GhostName empty");
+			return;
+		endif;
+
+		p_sGhostName.Split(asLocalPosRot, "#", false);
+		if(asLocalPosRot.NumEntries() < 2) then
+			KLog.LogError("GetLocalTransform","asLocalPosRot < 2");
+			return;
+		endif;
+
+		vNewPos.FromString(asLocalPosRot[0]);
+		var string sRot = asLocalPosRot[1];
+		var array string asXYZW;
+		
+		sRot.Split(asXYZW, " ", false);
+		if(asXYZW.NumEntries() < 4) then
+			KLog.LogError("GetLocalTransform","asXYZW < 4");
+			return;
+		endif;
+		
+		qNewRot.SetXYZW(asXYZW[0].ToReal(),asXYZW[1].ToReal(),asXYZW[2].ToReal(),asXYZW[3].ToReal());
+
+		p_rvLocalPos = vNewPos;
+		p_rqLocalRot = qNewRot;
 	endproc;
 
 	proc void CheckPlacebility()
