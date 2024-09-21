@@ -41,6 +41,7 @@ General:
 - Buildings placeability grid rendering distance was increased
 - New placement ghosts system that supports custom addons and linking (all models with custom addons now have proper placement ghosts)
 - Ships and floating buildings can now be frozen
+- Small and medium stones will not block buildings during placement and will be removed after
 
 Maps:
 - Northland version of Yggdrasil map added
