@@ -9,6 +9,7 @@ MIRAGE 2.6.7
 Special:
 
 General:
+- Identical buildings batch placement added (except towers and harbors). Press alt + e with a building selected to add another one (up to 9)
 - Buildings can be rotated by holding LMB + mouse movement
 - Added a separate sub-menu to the build menu to display buildable units (seas scorpion, trader zeppelin)
 - Empty sub-menus in the command bar are now hidden
