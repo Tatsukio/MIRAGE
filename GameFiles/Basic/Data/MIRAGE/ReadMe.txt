@@ -60,6 +60,7 @@ Heroes:
 - Bela composite bow range per level changed from 40/42/44/46/50 to 50/50/50/50/50
 - Ada Loven musket range per level changed from 35/35/35/35/35 to 45/45/45/45/45
 - Ada Loven from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
+- Ada Loven will now randomly perform a sniper "high roll" critical shot with 3%/6%/11%/20%/33%/50% chance per level (-1 penalty when on transport)   
 - Babbage lvl 5 now correctly no longer gives global +50% buildup speed, instead giving +20 melee and ranged defense to all infantry
 - Taslow lvl 5 now correctly grants +33% buildup speed globally
 
@@ -109,6 +110,7 @@ SEAS:
 - Added SEAS laboratory work animation, that plays when building produces unit or research upgrade
 - Restored SEAS laboratory crane, that was deleted long time ago
 - Rocketman was constantly spamming the shot effect -> this has been fixed
+- Sniper will now randomly perform a sniper "high roll" critical shot with 3%/6%/11%/20%/33%/50% chance per level (-1 penalty when on transport)  
 
 AI:
 - Fixed bug, where AI were able to delete pirate ship decks separately from the main unit one by one. Now, no longer.
