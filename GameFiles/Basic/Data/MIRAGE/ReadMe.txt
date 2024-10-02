@@ -110,7 +110,7 @@ SEAS:
 - Added SEAS laboratory work animation, that plays when building produces unit or research upgrade
 - Restored SEAS laboratory crane, that was deleted long time ago
 - Rocketman was constantly spamming the shot effect -> this has been fixed
-- Sniper will now randomly perform a sniper "high roll" critical shot with 3%/6%/11%/20%/33%/50% chance per level (-1 penalty when on transport) dealing -50%/+400%/+100%/+0%(bypasses -60% from TT) vs Hero/Infantry/Animal/Vehichle
+- Sniper will now randomly perform a sniper "high roll" critical shot with 3%/6%/11%/20%/33%/50% chance per level (-1 level penalty when on transport) dealing -50%/+400%/+100%/+0%(bypasses -60% from TT) vs Hero/Infantry/Animal/Vehichle
 
 AI:
 - Fixed bug, where AI were able to delete pirate ship decks separately from the main unit one by one. Now, no longer.
