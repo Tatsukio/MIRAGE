@@ -43,6 +43,7 @@ General:
 - Ships and floating buildings can now be frozen
 - Small and medium stones will not block buildings during placement and will be removed after
 - Gates and towers will adapt terrain during placement from now on
+- Changed default MaxEpoch value from 5 to 6;
 
 Maps:
 - Northland version of Yggdrasil map added
@@ -78,6 +79,7 @@ Dragon Clan:
 - Pirate ship is buildable as a separate structure (like a seas scorpion)
 - Pirate ship death animation being improved. Ships decks are no logner just dissapear once the ship being killed. They are playing death animation, as well as ship's hull.
 - Fixed bug with death animation being played, when the rocket ramp being not fully built while was killed
+- The parasaurolophus war drums once got weapon upgrade from now change their stance from "agressive" to "stand ground";
 
 Norsemen:
 - Stone Guardian is buildable as a separate structure (like a seas scorpion)
