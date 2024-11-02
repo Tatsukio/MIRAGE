@@ -7,6 +7,25 @@ MIRAGE 2.6.7
 ------------------
 
 Special:
+- Multiplayer Campaing Custom UI;
+- Multiplayer Campaign Custom Player Settings are all displayed in lobby from now on;
+- Multiplayer Campaign Game Modefrom now on displays all custom Player Info in lobby;
+- Multiplayer Campaign Game Modefrom now on displays in Host and Player UI all presettled custom settings that activated when the Map has been selected;
+- Multiplayer Campaign Game Mode from now on has affect Lobby UI choices in game. What was selected in lobby will be actually in game;
+- Multiplayer Campaign Game Mode from now on has Map Difficulty levels just in regular Campaign;
+- Multiplayer Campaign Game Mode from now on has Custom PointBuy, just like in regular Campaign;
+- Multiplayer Campaign Game Mode from now on has Points System, just like in regular Campaign;
+- Multiplayer Campaign Game Mode from now on has Custom Map Preview Image, just like in regular Campaign;
+- Multiplayer Campaign Game Mode from now on has Campaign Background Overlay for Map Preview Image, just like in regular Campaign;
+- Multiplayer Campaign Game Mode from now on has Custom LoadScreen Background, just like in regular Campaign;
+- Multiplayer Campaign Game Mode from now on has Heroes Diaries on LoadScreen with audio, just like in regular Campaign;
+- Multiplayer Campaign Game Mode from now on Marked as "Campaign" instead of regular "DeathMatch" in Host List;
+- Multiplayer Campaign Game Mode from now on has hidden AI players not displayed in EndScreen Statistics window;
+- Multiplayer Campaign Game Mode from now on can be started with just one Player in lobby. The remaining slots will be filled up with AI automatically;
+- Added Custom Map creation workspace with lots of options to set up specific settings for your own Custom Maps;
+- Custom Maps from now on has their own Game Mode "Custom";
+- Multiple Custom Maps game mechanic were improved and reworked;
+- All Custom Maps presettled settings from now on visible before the game in Lobby and in Map List;
 
 General:
 - Buildings can be rotated by holding LMB + mouse movement
@@ -19,6 +38,7 @@ General:
 - Pirate ship chain on skirmish maps and in mission 6 are playing "Open" & "Close" animation from now on
 - Fixed bug with Holy City gates destruction animation wasnt playing
 - Campaing avatar on mission "Single B42: Cold Day in Hell" has a corpse damage, corpse resources and death animation from now on
+- Fixed minor issue when Singleplayer type Map PreviewImage was incorrectly displaying if you try to Load/Save/Overwrite Map during gameplay;
 - Fixed missing animal flags for preplaced SDK units/spawned through trigger
 - Fixed incorrect animal flags for animals/vehicles/ships if the starting tribe not matching the unit tribe
 - Fixed missing stances icons

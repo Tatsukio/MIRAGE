@@ -48,6 +48,15 @@ class CMirageClnMgr
 	var ^CPropDB.CNode m_pxSupply;
 	var ^CPropDB.CNode m_pxCommands;
 	var ^CPropDB.CNode m_pxDieAck;
+	//Kr1s1m: ====DBs to retrieve and apply custom map mirage and level settings====================
+	var ^CPropDB.CNode m_pxCustomMapMirageSettingsDB;
+	var ^CPropDB.CNode m_pxCustomMapSettingsDB;
+	//============DBs to backup, restore, persist mirage and level settings in User Profile=========
+	var ^CPropDB m_pxMirageSettingsBackupDB;
+	var ^CPropDB m_pxLevelSettingsBackupDB;
+	//==============================================================================================
+	var string 					m_sSettingsBackupPath;
+	var string					m_sSettingsBackupTemplatePath;
 	var array string			m_asClasses;
 	var array string			m_asValidNames;
 	var string						m_sPlayerTribe;
@@ -151,6 +160,53 @@ class CMirageClnMgr
 		else
 			m_pxDieAck = null;
 		endif;
+		
+		//Kr1s1m: Custom map mirage settings DB init
+		var ^CPropDB pxCustomMapMirageSettingsDB = new CPropDB();
+		if(pxCustomMapMirageSettingsDB^.Load(CClientWrap.GetUrsRelPath()+"/Data/Base/Scripts/Game/misc/CustomMapMirageSettings.txt"))then
+			m_pxCustomMapMirageSettingsDB = ^((pxCustomMapMirageSettingsDB^).GetRoot());
+		else
+			m_pxCustomMapMirageSettingsDB = null;
+		endif;
+		
+		//Kr1s1m: Custom map level settings DB init
+		var ^CPropDB pxCustomMapSettingsDB = new CPropDB();
+		if(pxCustomMapSettingsDB^.Load(CClientWrap.GetUrsRelPath()+"/Data/Base/Scripts/Game/misc/CustomMapSettings.txt"))then
+			m_pxCustomMapSettingsDB = ^((pxCustomMapSettingsDB^).GetRoot());
+		else
+			m_pxCustomMapSettingsDB = null;
+		endif;
+		
+		m_sSettingsBackupTemplatePath=CClientWrap.GetUrsRelPath()+"/Data/MIRAGE/Scripts/Game/misc";
+		m_sSettingsBackupPath=CSettings.GetUserSettingsDir();
+		m_sSettingsBackupPath+=CMirageClnMgr.MODNAME+"_"+(CMirageClnMgr.VERSION).ToString()+"_Settings_backup";
+		if(!Filesystem.DirExists(m_sSettingsBackupPath))then
+			Filesystem.MkDir(m_sSettingsBackupPath);
+			//KLog.LogSpam("Kr1s1m",  "=========> Mirage/Level settings backup path created. <=========");
+		endif;
+		
+		//Kr1s1m: Mirage settings backup DB init
+		m_pxMirageSettingsBackupDB = new CPropDB();
+		//Kr1s1m: Attempt to load mirage settings backup db from user settings in Roaming folder...
+		if(m_pxMirageSettingsBackupDB^.Load(m_sSettingsBackupPath+"/mirage_settings_backup.txt"))then
+			//KLog.LogSpam("Kr1s1m",  "-------------> mirage settings backup db ready <--------------");
+		//Kr1s1m: ...and if that fails attempt loading from the db template inside MIRAGE/Scripts/Game/misc
+		elseif(m_pxMirageSettingsBackupDB^.Load(m_sSettingsBackupTemplatePath+"/MirageSettingsBackup.txt"))then
+			//KLog.LogSpam("Kr1s1m",  "----------> mirage settings backup template loaded <----------");
+		else//Kr1s1m: The two loading attempts have failed, so set the value to null to signal that.
+			m_pxMirageSettingsBackupDB = null;
+		endif;
+		
+		//Kr1s1m: Level settings backup DB init
+		m_pxLevelSettingsBackupDB = new CPropDB();
+		if(m_pxLevelSettingsBackupDB^.Load(m_sSettingsBackupPath+"/level_settings_backup.txt"))then
+			//KLog.LogSpam("Kr1s1m",  "-------------> level settings backup db ready <--------------");
+		elseif(m_pxLevelSettingsBackupDB^.Load(m_sSettingsBackupTemplatePath+"/LevelSettingsBackup.txt"))then
+			//KLog.LogSpam("Kr1s1m",  "----------> level settings backup template loaded <----------");
+		else
+			m_pxLevelSettingsBackupDB = null;
+		endif;
+		
 		m_abFeedbacks=FEEDBACK_TYPES;
 		m_bSupChecked = false;
 		m_bResLimitChecked = false;
@@ -228,6 +284,10 @@ class CMirageClnMgr
 		m_asValidNames = 0;
 		m_asPlayerNames = 0;
 		m_aiCasualties = 0;
+		//Kr1s1m:=====Save mirage and level settings backups on disk when CMirageClnMgr dies=====
+		m_pxMirageSettingsBackupDB^.Save(m_sSettingsBackupPath+"/mirage_settings_backup.txt");
+		m_pxLevelSettingsBackupDB^.Save(m_sSettingsBackupPath+"/level_settings_backup.txt");
+		//=======================================================================================
 		CMirageClnMgr.ms_xGPCE.Invalidate();
 		ShutStatic();
 	enddestructor;
@@ -668,17 +728,416 @@ class CMirageClnMgr
 		return true;
 	endproc;
 	
-	export static proc bool IsCustomMap(^CLevelInfo p_pxLevelInfo)
-		var string sName = "";
-		if(p_pxLevelInfo==null)then return false; endif;
-		var ^CPropDB.CNode pxBaseNode=^((p_pxLevelInfo^.GetGenericData())["Base"]);
-		if(pxBaseNode!=null)then
-			sName=pxBaseNode^.GetValueS("LevelName");
+	export proc bool IsCustomMap(string p_sLevelName)
+		var bool bCustom = false;
+		if(m_pxCustomMapSettingsDB!=null)then
+			//KLog.LogSpam("Kr1s1m-ALERT", "root node != null");
+			var ^CPropDB.CNode pxLevelsNode=m_pxCustomMapSettingsDB^.Get("Levels");
+			if(pxLevelsNode!=null)then
+				p_sLevelName.Replace(" ", "_");
+				//KLog.LogSpam("Kr1s1m-ALERT", "CMirageClnMgr:CheckCustomMap Looking for "+p_sLevelName+" with replaced spaces ...");
+				var ^CPropDB.CNode pxLevelNameNode = pxLevelsNode^.Get(p_sLevelName);
+				if(pxLevelNameNode!=null)then
+					bCustom = true;
+				endif;
+			endif;
 		endif;
-		if(sName.Find("BfPW - Highland")!=-1||sName.Find("BfPW - HL")!=-1||sName.Find("BfPW - Holy City")!=-1||sName=="_CU_MP_4_ASS_CREED"||sName=="_CU_MP_6_CRASH_RPG"||sName=="_CU_MP_6_BFPW_HIGHLAND")then
-			return true;
+		return bCustom;
+	endproc;
+	
+	export proc bool CheckCustomMap(string p_sLevelName, string p_sCategory)
+		//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:CheckCustomMap("+p_sLevelName+", "+p_sCategory+") begin");
+		var bool bCustom = false;
+		var bool bMirageSettings = false;
+		var bool bLevelSettings = false;  
+		var ^CPropDB.CNode pxRootNode = null;
+		if(p_sCategory == "MirageSettings")then
+			pxRootNode = m_pxCustomMapMirageSettingsDB;
+			bMirageSettings = true;
+		else
+			if(p_sCategory == "LevelSettings")then
+				bLevelSettings = true;
+			endif;
+			pxRootNode = m_pxCustomMapSettingsDB;
 		endif;
-		return false;
+		if(pxRootNode!=null)then
+			//KLog.LogSpam("Kr1s1m-ALERT", "root node != null");
+			var ^CPropDB.CNode pxLevelsNode=pxRootNode^.Get("Levels");
+			if(pxLevelsNode!=null)then
+				p_sLevelName.Replace(" ", "_");
+				//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:CheckCustomMap Looking for "+p_sLevelName+" with replaced spaces ...");
+				var ^CPropDB.CNode pxLevelNameNode = pxLevelsNode^.Get(p_sLevelName);
+				if(pxLevelNameNode!=null)then
+					//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:CheckCustomMap LevelNameNode "+pxLevelNameNode^.Name()+" matched.");
+					var string sPrefix = "";
+					if(!bMirageSettings && !bLevelSettings)then sPrefix = "Custom/"; endif;
+					var ^CPropDB.CNode pxCustomCategoryNode = pxLevelNameNode^.FindNode(sPrefix+p_sCategory, false);
+					if(pxCustomCategoryNode!=null)then
+					//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:CheckCustomMap Custom Category "+p_sCategory+" found.");
+						var string sValue = pxCustomCategoryNode^.Value();
+						bCustom = (sValue=="" || sValue.ToInt()==1);
+					else//Kr1s1m: ...custom category was not found, so check for modifications in the LevelSettings branches
+						bCustom = pxLevelNameNode^.FindNode("LevelSettings/CheckBox/"+p_sCategory, false)!=null ||
+								  pxLevelNameNode^.FindNode("LevelSettings/DropList/"+p_sCategory, false)!=null;
+					endif;
+				endif;
+			endif;
+		endif;
+		//var string sCustom = "non-custom";
+		//if(bCustom)then sCustom = "custom"; endif;
+		//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:CheckCustomMap Level "+p_sLevelName+" has "+sCustom+" "+p_sCategory);
+		//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:CheckCustomMap("+p_sLevelName+", "+p_sCategory+") end");
+		return bCustom;
+	endproc;
+	
+	export proc string GetCustomPlayerException(string p_sLevelName, string p_sPlayerID, string p_sKey)
+		//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomPlayerException("+p_sLevelName+", "+p_sKey+") begin");
+		var string sValue;
+		if(m_pxCustomMapSettingsDB!=null)then
+			//KLog.LogSpam("ParaworldFan-ALERT", "root node != null");
+			var ^CPropDB.CNode pxLevelsNode=m_pxCustomMapSettingsDB^.Get("Levels");
+			if(pxLevelsNode!=null)then
+				p_sLevelName.Replace(" ", "_");
+				//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomPlayerException Looking for "+p_sLevelName+" with replaced spaces ...");
+				var ^CPropDB.CNode pxLevelNameNode = pxLevelsNode^.Get(p_sLevelName);
+				if(pxLevelNameNode!=null)then
+					//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomPlayerException LevelNameNode "+pxLevelNameNode^.Name()+" matched.");
+					var ^CPropDB.CNode pxCategoriesNode = pxLevelNameNode^.Get("Custom");
+					if(pxCategoriesNode!=null)then
+						var ^CPropDB.CNode pxPlayersNode = pxCategoriesNode^.Get("Players");
+						if(pxPlayersNode!=null)then
+							var ^CPropDB.CNode pxPlayerNode = pxPlayersNode^.Get("Player_"+p_sPlayerID);
+							if(pxPlayerNode!=null)then
+								var ^CPropDB.CNode pxPlayerExceptionsNode = pxPlayerNode^.Get("Exceptions");
+								if(pxPlayerExceptionsNode!=null)then
+									var ^CPropDB.CNode pxPlayerExceptionNode = pxPlayerExceptionsNode^.FindNode(p_sKey, false);
+									if(pxPlayerExceptionNode!=null)then
+										//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomPlayerException Custom Category "+p_sKey+" found.");
+										sValue = pxPlayerExceptionNode^.Value();
+									endif;
+								endif;
+							endif;
+						endif;
+					endif;
+				endif;
+			endif;
+		endif;
+		var string sCustom = "non-custom";
+		if(!sValue.IsEmpty())then sCustom = "custom"; endif;
+		//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomPlayerException Level "+p_sLevelName+" has "+sCustom+" "+p_sKey);
+		//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomPlayerException("+p_sLevelName+", "+p_sKey+") end");
+		return sValue;
+	endproc;
+	
+	export proc array string OperateLevelSettingsBackupDB(bool p_bRestore)
+		//KLog.LogSpam("Kr1s1m", "MirageClnMgr:OperateLevelSettingsBackupDB begin");
+		var array string asRestoreSettingNames;
+		//var string sRestore = "backup";
+		//if(p_bRestore)then sRestore = "restore"; endif;
+		//KLog.LogSpam("Kr1s1m", "Initializing " + sRestore + " operation...");
+		if(m_pxLevelSettingsBackupDB==null)then return asRestoreSettingNames; endif; 
+		var ^CPropDB.CNode pxLevelSettingsBackupRootNode = ^(m_pxLevelSettingsBackupDB^.GetRoot());
+		if(pxLevelSettingsBackupRootNode==null)then return asRestoreSettingNames; endif; 
+		var ^CPropDB.CNode pxLevelSettingsBackupNode = pxLevelSettingsBackupRootNode^.Get("LevelSettingsBackup");
+		if(pxLevelSettingsBackupNode!=null)then
+			var bool bUpdateBackup=false;
+			var ^CPropDB.CNode pxMultiplayerNode = pxLevelSettingsBackupNode^.Get("Multiplayer");
+			var ^CPropDB.CNode pxServerNode = pxLevelSettingsBackupNode^.Get("Server");
+			if(pxMultiplayerNode!=null)then
+				var int i, iM=pxMultiplayerNode^.NumSubs();
+				for(i=0)cond(i<iM)iter(i++)do
+					var ^CPropDB.CNode pxMultiplayerSettingNode = ^(pxMultiplayerNode^.Get(i));
+					var string sSettingName = pxMultiplayerSettingNode^.Name();
+					var string sValue = pxMultiplayerSettingNode^.Value();
+					var string sPath = pxMultiplayerNode^.Name() + "/" + sSettingName;
+					var string sConfValue = CClientWrap.GetUserProfileValue(sPath, "");
+					if(sValue!=sConfValue)then
+						if(p_bRestore)then
+							CClientWrap.SetUserProfileValue(sPath, sValue);
+							asRestoreSettingNames.AddEntry(sSettingName);
+							//KLog.LogSpam("Kr1s1m", "UserProfile value " + sPath + " restored to " + sValue);
+							//Kr1s1m: Map some setting name values from their config names to their attrib names...
+							if(sSettingName=="ChooseColor")then sSettingName="RandomColor"; endif;
+							if(sSettingName=="DisableWarpgate")then sSettingName="DimGateForbidden"; endif;
+							if(sSettingName=="DisableFOW")then sSettingName="FOWEnabled"; endif;
+							if(sSettingName=="LockDiplomacy")then sSettingName="DiplomacyLocked"; endif;
+							CGameWrap.GetGame().SetAttrib(sSettingName, sValue);
+							//KLog.LogSpam("Kr1s1m", "CGameWrap.GetGame().SetAttrib("+sSettingName+", "+sValue+")");
+						else
+							bUpdateBackup=true;
+							pxMultiplayerNode^.SetValue(sSettingName, sConfValue);
+							//KLog.LogSpam("Kr1s1m", pxLevelSettingsBackupNode^.Name() + "/" + sPath + " set to " + sConfValue);
+						endif;
+					endif;
+				endfor;
+			endif;
+			if(pxServerNode!=null)then
+				var ^CPropDB.CNode pxGameplayOptionsNode = pxServerNode^.Get("GameplayOptions");
+				if(pxGameplayOptionsNode!=null)then
+					var CConfig xConf;
+					var int i, iG=pxGameplayOptionsNode^.NumSubs();//Kr1s1m: Currently only contains DiploLocked value
+					for(i=0)cond(i<iG)iter(i++)do
+						var ^CPropDB.CNode pxGameplayOptionNode = ^(pxGameplayOptionsNode^.Get(i));
+						var string sSettingName = pxGameplayOptionNode^.Name();
+						var int iValue = pxGameplayOptionNode^.ValueI();
+						var string sPath = pxServerNode^.Name() + "/" + pxGameplayOptionsNode^.Name() + "/" + sSettingName;
+						var int iConfValue = xConf.GetSetI(sPath, 0);
+						if(iValue!=iConfValue)then
+							if(p_bRestore)then
+								xConf.SetI(sPath, iValue);
+								asRestoreSettingNames.AddEntry(sSettingName);
+								//KLog.LogSpam("Kr1s1m", "UserProfile value " + sPath + " restored to " + iValue.ToString());
+								CGameWrap.GetGame().SetAttrib(sSettingName, iValue);
+								//KLog.LogSpam("Kr1s1m", "CGameWrap.GetGame().SetAttrib("+sSettingName+", "+iValue.ToString()+")");
+							else
+								bUpdateBackup=true;
+								pxGameplayOptionsNode^.SetValue(sSettingName, iConfValue);
+								//KLog.LogSpam("Kr1s1m", pxLevelSettingsBackupNode^.Name() + "/" + sPath + " set to " + iConfValue.ToString());
+							endif;
+						endif;
+					endfor; 
+				endif;
+			endif;
+			if(bUpdateBackup)then m_pxLevelSettingsBackupDB^.Save(m_sSettingsBackupPath+"/level_settings_backup.txt"); endif; //Kr1s1m: If level settings backup was updated, save it on disk.
+		endif;
+		//KLog.LogSpam("Kr1s1m", "MirageClnMgr:OperateLevelSettingsBackupDB end");
+		return asRestoreSettingNames;
+	endproc;
+	
+	export proc array string BackupLevelSettings()
+		var bool bRestore = false;
+		return OperateLevelSettingsBackupDB(bRestore);
+	endproc;
+	
+	export proc array string RestoreLevelSettings()
+		var bool bRestore = true;
+		return OperateLevelSettingsBackupDB(bRestore);
+	endproc;
+	
+	export proc void OperateMirageServerSettingsBackupDB(bool p_bRestore)
+		//KLog.LogSpam("Kr1s1m", "MirageClnMgr:OperateMirageServerSettingsBackupDB begin");
+		//var string sRestore = "backup";
+		//if(p_bRestore)then sRestore = "restore"; endif;
+		//KLog.LogSpam("Kr1s1m", "Initializing " + sRestore + " operation...");
+		if(m_pxMirageSettingsBackupDB==null)then return; endif; 
+		var ^CPropDB.CNode pxMirageSettingsBackupRootNode = ^(m_pxMirageSettingsBackupDB^.GetRoot());
+		if(pxMirageSettingsBackupRootNode==null)then return; endif; 
+		var ^CPropDB.CNode pxMirageSettingsBackupNode = pxMirageSettingsBackupRootNode^.Get("MirageSettingsBackup");
+		if(pxMirageSettingsBackupNode!=null)then
+			var bool bUpdateBackup=false;
+			var CConfig xConf;
+			var ^CPropDB.CNode pxServerNode = pxMirageSettingsBackupNode^.Get("Server");
+			var ^CPropDB.CNode pxGameNode = pxMirageSettingsBackupNode^.Get("Game");
+			if(pxServerNode!=null)then
+				var ^CPropDB.CNode pxGameplayOptionsNode = pxServerNode^.Get("GameplayOptions");
+				if(pxGameplayOptionsNode!=null)then
+					var int i, iG=pxGameplayOptionsNode^.NumSubs();
+					for(i=0)cond(i<iG)iter(i++)do
+						var ^CPropDB.CNode pxGameplayOptionNode = ^(pxGameplayOptionsNode^.Get(i));
+						var string sSettingName = pxGameplayOptionNode^.Name();
+						var int iValue = pxGameplayOptionNode^.ValueI();
+						var string sPath = pxServerNode^.Name() + "/" + pxGameplayOptionsNode^.Name() + "/" + sSettingName;
+						var int iConfValue = xConf.GetSetI(sPath, 0);
+						if(iValue!=iConfValue)then
+							if(p_bRestore)then
+								xConf.SetI(sPath, iValue);
+								//KLog.LogSpam("Kr1s1m", "UserProfile value " + sPath + " restored to " + iValue.ToString());
+								CGameWrap.GetGame().SetAttrib(sSettingName, iValue);
+								//KLog.LogSpam("Kr1s1m", "CGameWrap.GetGame().SetAttrib("+sSettingName+", "+iValue.ToString()+")");
+							else
+								bUpdateBackup=true;
+								pxGameplayOptionsNode^.SetValue(sSettingName, iConfValue);
+								//KLog.LogSpam("Kr1s1m", pxMirageSettingsBackupNode^.Name() + "/" + sPath + " set to " + iConfValue.ToString());
+							endif;
+						endif;
+					endfor;
+				endif;
+				var ^CPropDB.CNode pxAllowAlienCommandsNode = pxServerNode^.Get("AllowAlienCommands");
+				if(pxAllowAlienCommandsNode!=null)then
+					var string sSettingName = pxAllowAlienCommandsNode^.Name();
+					var int iValue = pxAllowAlienCommandsNode^.ValueI();
+					var string sPath = pxServerNode^.Name() + "/" + sSettingName;
+					var int iConfValue = xConf.GetSetI(sPath, 0);
+					if(iValue!=iConfValue)then
+						if(p_bRestore)then
+							xConf.SetI(sPath, iValue);
+							//KLog.LogSpam("Kr1s1m", "UserProfile value " + sPath + " restored to " + iValue.ToString());
+							CGameWrap.GetGame().SetAttrib(sSettingName, iValue);
+							//KLog.LogSpam("Kr1s1m", "CGameWrap.GetGame().SetAttrib("+sSettingName+", "+iValue.ToString()+")");
+						else
+							bUpdateBackup=true;
+							pxServerNode^.SetValue(sSettingName, iConfValue);
+							//KLog.LogSpam("Kr1s1m", pxMirageSettingsBackupNode^.Name() + "/" + sPath + " set to " + iConfValue.ToString());
+						endif;
+					endif;
+				endif;
+			endif;
+			if(pxGameNode!=null)then
+				var ^CPropDB.CNode pxMPSettingsNode = pxGameNode^.Get("MPSettings");
+				if(pxMPSettingsNode!=null)then
+					var int i, iM=pxMPSettingsNode^.NumSubs();
+					for(i=0)cond(i<iM)iter(i++)do
+						var ^CPropDB.CNode pxMPSettingNode = ^(pxMPSettingsNode^.Get(i));
+						var string sSettingName = pxMPSettingNode^.Name();
+						var int iValue = pxMPSettingNode^.ValueI();
+						var string sPath = pxGameNode^.Name() + "/" + pxMPSettingsNode^.Name() + "/" + sSettingName;
+						var int iConfValue = xConf.GetSetI(sPath, 0);
+						if(iValue!=iConfValue)then
+							if(p_bRestore)then
+								xConf.SetI(sPath, iValue);
+								//KLog.LogSpam("Kr1s1m", "UserProfile value " + sPath + " restored to " + iValue.ToString());
+								CGameWrap.GetGame().SetAttrib(sSettingName, iValue);
+								//KLog.LogSpam("Kr1s1m", "CGameWrap.GetGame().SetAttrib("+sSettingName+", "+iValue.ToString()+")");
+							else
+								bUpdateBackup=true;
+								pxMPSettingsNode^.SetValue(sSettingName, iConfValue);
+								//KLog.LogSpam("Kr1s1m", pxMirageSettingsBackupNode^.Name() + "/" + sPath + " set to " + iConfValue.ToString());
+							endif;
+						endif;
+					endfor;
+				endif;
+			endif;
+			if(bUpdateBackup)then m_pxMirageSettingsBackupDB^.Save(m_sSettingsBackupPath+"/mirage_settings_backup.txt"); endif; //Kr1s1m: If mirage settings backup was updated, save it on disk.
+		endif;
+		//KLog.LogSpam("Kr1s1m", "MirageClnMgr:OperateMirageServerSettingsBackupDB end");
+	endproc;
+	
+	export proc void BackupMirageServerSettings()
+		var bool bRestore = false;
+		OperateMirageServerSettingsBackupDB(bRestore);
+	endproc;
+	
+	export proc void RestoreMirageServerSettings()
+		var bool bRestore = true;
+		OperateMirageServerSettingsBackupDB(bRestore);
+	endproc;
+	
+	export proc void UpdateCustomMapAttribs(string p_sLevelName)
+		//KLog.LogSpam("Kr1s1m", "MirageClnMgr:UpdateCustomMapAttribs("+p_sLevelName+") begin");
+		if(m_pxCustomMapMirageSettingsDB==null)then return; endif;
+		var ^CPropDB.CNode pxLevelsNode = m_pxCustomMapMirageSettingsDB^.Get("Levels");
+		if(pxLevelsNode!=null)then
+			p_sLevelName.Replace(" ", "_");
+			var ^CPropDB.CNode pxLevelNameNode = pxLevelsNode^.Get(p_sLevelName);
+			if(pxLevelNameNode!=null)then
+				//KLog.LogSpam("Kr1s1m", pxLevelNameNode^.Name()+" custom map level matched");
+				var ^CPropDB.CNode pxMirageSettingsNode = pxLevelNameNode^.Get("MirageSettings");
+				if(pxMirageSettingsNode==null)then /*KLog.LogSpam("Kr1s1m", "Mirage settings not found");*/ return; endif;
+				var CConfig xConf;
+				var int k, kC=pxMirageSettingsNode^.NumSubs();
+				for(k=0)cond(k<kC)iter(k++)do//Kr1s1m: Iterate the adjust categories inside the level name node
+					var ^CPropDB.CNode pxAdjustCategoryNode = ^(pxMirageSettingsNode^.Get(k));
+					//KLog.LogSpam("Kr1s1m", "adjusting "+pxAdjustCategoryNode^.Name()+" mirage settings");
+					var int i, iC=pxAdjustCategoryNode^.NumSubs();
+					for(i=0)cond(i<iC)iter(i++)do//Kr1s1m: Iterate the setting types inside a given adjust category node
+						var ^CPropDB.CNode pxSettingTypeNode = ^(pxAdjustCategoryNode^.Get(i));
+						var string sSettingType = pxSettingTypeNode^.Name();
+						var int j, jC=pxSettingTypeNode^.NumSubs();
+						for(j=0)cond(j<jC)iter(j++)do//Kr1s1m: Iterate the setting nodes inside a given setting type node
+							var ^CPropDB.CNode pxSettingNode = ^(pxSettingTypeNode^.Get(j));
+							var string sSettingName = pxSettingNode^.Name();
+							var int iValue = pxSettingNode^.ValueI();
+							xConf.SetI("Server/GameplayOptions/"+sSettingName, iValue);
+							CGameWrap.GetGame().SetAttrib(sSettingName, iValue);
+							//KLog.LogSpam("Kr1s1m", "CGameWrap.GetGame().SetAttrib("+sSettingName+", "+iValue.ToString()+")");
+						endfor;
+					endfor;
+				endfor;
+			else
+				//KLog.LogSpam("Kr1s1m", p_sLevelName+" is not a custom map. Nothing has been updated.");
+				return;
+			endif;
+		endif;
+		//KLog.LogSpam("Kr1s1m", "MirageClnMgr:UpdateCustomMapAttribs("+p_sLevelName+") end");
+	endproc;
+	
+	export static proc void UpdateCustomMapBoniTotal(string p_sCurLevel)
+		//KLog.LogSpam("Kr1s1m", "MirageClnMgr:UpdateCustomMapBoniTotal begin");
+		//KLog.LogSpam("Kr1s1m", "-------> Custom Multiplayer Campaign "+p_sCurLevel+" completed <--------");
+		p_sCurLevel.Replace(" ","_");
+		p_sCurLevel.MakeLower();
+		if(p_sCurLevel=="single_b43")then return; endif; //Kr1s1m: ... single_04, [single_b41, ... , single_b43], single_05 ...
+		var ^CPropDB pxUserProfile=^(CClientWrap.GetUserProfile());
+		var ^CPropDB.CNode pxMultiplayerCampaignNode=^(pxUserProfile^.GetRoot().Get("MultiplayerCampaign"));
+		if(pxMultiplayerCampaignNode!=null)then//Kr1s1m: If MultiplayerCampaign node is now valid, handle boni 
+			var ^CPropDB.CNode pxLevelsNode=pxMultiplayerCampaignNode^.Get("Levels");
+			if(pxLevelsNode!=null)then
+				var int iNumLevels=pxLevelsNode^.NumSubs();
+				var int iCurLevelIdx=pxLevelsNode^.Find(p_sCurLevel);
+				if(iNumLevels>0 && iCurLevelIdx>-1 && iCurLevelIdx<(iNumLevels-1))then
+					var int iNextLevelIdx=iCurLevelIdx+1;
+					if(p_sCurLevel=="single_04")then//Kr1s1m: ... single_04, [single_b41, ... , single_b43], single_05 ...
+						iNextLevelIdx=pxLevelsNode^.Find("single_05");
+					endif;
+					var ^CPropDB.CNode pxNextLevelNode=^((pxLevelsNode^)[iNextLevelIdx]);
+					var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
+					var ^CGameAttribs pxAttribs=^(pxLevelInfo^.GetAttribs());
+					var int iLevelBoni=pxAttribs^.GetValueInt("BoniTotal");
+					var int iCurCredits=pxNextLevelNode^.GetValueI("Credits",0);
+					if(iLevelBoni>iCurCredits)then
+						pxNextLevelNode^.SetValue("Credits",iLevelBoni);
+						//KLog.LogSpam("Kr1s1m", "-------> "+pxNextLevelNode^.Name()+" Boni updated to "+iLevelBoni.ToString()+" <--------");
+					endif;
+					CClientWrap.UpdateUserProfile();
+				endif;
+			endif;
+		endif;
+		//KLog.LogSpam("Kr1s1m", "MirageClnMgr:UpdateCustomMapBoniTotal end");
+	endproc;
+	
+	export static proc void ExtractCustomMapPoints(ref array string p_rasCustomLevels, ref array string p_rasCustomPoints)
+		//KLog.LogSpam("Kr1s1m", "MirageClnMgr:ExtractCustomMapPoints begin");
+		var CPropDB pxMultiplayerCampaignsDB;
+		var ^CPropDB pxUserProfile=^(CClientWrap.GetUserProfile());
+		var ^CPropDB.CNode pxMultiplayerCampaignNode=^(pxUserProfile^.GetRoot().Get("MultiplayerCampaign"));
+		if(pxMultiplayerCampaignNode==null)then//Kr1s1m: If the MultiplayerCampaign node is not present in profile_user.cfg then...
+			pxMultiplayerCampaignsDB.Load(CClientWrap.GetUrsRelPath()+"/data/base/scripts/server/settings/MultiplayerCampaigns.txt");
+			//Kr1s1m: ...fallback to loading it from the MultiplayerCampaigns.txt config template...
+			pxMultiplayerCampaignNode=pxMultiplayerCampaignsDB.GetRoot().Get("MultiplayerCampaign");
+			//Kr1s1m: ...and save it inside the user profile for next time
+			begin SaveMultiplayerCampaignsTemplateIntoUserProfile;
+				if(pxMultiplayerCampaignNode!=null && ^(pxUserProfile^.GetRoot())!=null)then
+					var ^CPropDB pxSave=new CPropDB();//Kr1s1m: Init the db to insert and save inside user profile
+					var ^CPropDB.CNode pxSaveRoot=^(pxSave^.GetRoot());
+					pxSaveRoot^.Name()="Levels";//Kr1s1m: Rename the root of the save db to Levels
+					var ^CPropDB.CNode pxLevelsNode=pxMultiplayerCampaignNode^.Get("Levels");
+					if(pxLevelsNode!=null)then
+						var int i, iL=pxLevelsNode^.NumSubs();
+						for(i=0)cond(i<iL)iter(i++)do//Kr1s1m: Iterate the template's level nodes under Levels node...
+							//Kr1s1m: ...and insert them under save db root Levels node
+							(pxSaveRoot^.Insert(i))^=pxLevelsNode^.Get(i);
+						endfor;
+						//Kr1s1m: insert the prepared save db inside user profile at new path MultiplayerCampaign/Levels
+						(pxUserProfile^)["MultiplayerCampaign/Levels"] = pxSaveRoot^;
+						//Kr1s1m: Update user profile cfg file on disk
+						CClientWrap.UpdateUserProfile();
+						//KLog.LogSpam("Kr1s1m-ALERT", "MultiplayerCampaign tree created in profile_user.cfg");
+					endif;
+				endif;
+			end SaveMultiplayerCampaignsTemplateIntoUserProfile;
+		endif;
+		//Kr1s1m: If MultiplayerCampaign node is now valid, extract the custom points information from it into arrays
+		if(pxMultiplayerCampaignNode!=null)then
+			var ^CPropDB.CNode pxLevelsNode=pxMultiplayerCampaignNode^.Get("Levels");
+			if(pxLevelsNode!=null)then
+				var int i, iL=pxLevelsNode^.NumSubs();
+				for(i=0)cond(i<iL)iter(i++)do//Kr1s1m: Iterate the level nodes under Level node
+					var ^CPropDB.CNode pxLevelNode = ^(pxLevelsNode^.Get(i));
+					if(pxLevelNode!=null)then
+						var string sLevelName = pxLevelNode^.Name();
+						p_rasCustomLevels.AddEntry(sLevelName); //Kr1s1m: Save the name of the level node
+						var string sCredits = pxLevelNode^.Get("Credits")^.Value();
+						var string sMinCredits = pxLevelNode^.Get("MinCredits")^.Value();
+						if(sCredits.ToInt() < sMinCredits.ToInt())then//Kr1s1m: If min points > boni collected from quests...
+							sCredits = sMinCredits;//Kr1s1m: ...prefer min points value.
+						endif;
+						p_rasCustomPoints.AddEntry(sCredits);//Kr1s1m: Save the greater value between nodes Credits and MinCredits
+					endif;
+				endfor;
+				//KLog.LogSpam("Kr1s1m", "-------> Custom Multiplayer Campaign [PointBuy data] generated <--------");
+			endif;
+		endif;
+		//KLog.LogSpam("Kr1s1m", "CMirageClnMgr:ExtractCustomMapPoints end");
 	endproc;
 	
 	export static proc bool IsWinReason(string p_sReason)
@@ -703,6 +1162,19 @@ class CMirageClnMgr
 		return true;
 	endproc;
 	
+	///////
+	//	GetHostMapInfo()
+	//	This function gets MapInfo of currently selected map
+	//	Warning! Do not use this function for non Host Clients
+	///////
+	export proc ^CMapInfoList.CMapInfo GetHostMapInfo()
+		var string sFileName=CClientWrap.GetUserProfileValue("Multiplayer/LastSelectedMap","");
+		//Adding MapInfoList
+		var ^CMapInfoList pxMapInfoList=CMultiPlayerClientMgr.Get().GetMapInfoList();
+		//
+		return (pxMapInfoList^.GetMapInfo(sFileName));
+	endproc;
+	
 	export static proc bool HostDifficulty(^CLevelInfo p_pxLevelInfo)
 		var string sName = "";
 		if(p_pxLevelInfo==null)then return false; endif;
@@ -714,6 +1186,26 @@ class CMirageClnMgr
 			return true;
 		endif;
 		return false;
+	endproc;
+	
+	export static proc void SetMapDifficulty(int p_iDifficulty)
+		var ^CPropDB pxUserProfile=^(CClientWrap.GetUserProfile());
+		if(pxUserProfile^.FindNode("Multiplayer/Difficulty",false) == null)then
+			pxUserProfile^.FindNode("Multiplayer/Difficulty",true);
+			CClientWrap.UpdateUserProfile();
+		endif;
+		if(p_iDifficulty!=CGameWrap.GetGame().GetAttribInt("LobbyDifficulty"))then
+			CGameWrap.GetGame().SetAttrib("LobbyDifficulty",p_iDifficulty);
+		endif;
+		CClientWrap.SetUserProfileValue("Multiplayer/Difficulty",p_iDifficulty);
+	endproc;
+	
+	export static proc int GetMapDifficulty()
+		if(CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID())then
+			return CClientWrap.GetUserProfileValueI("Multiplayer/Difficulty",1);
+		else
+			return CGameWrap.GetGame().GetAttribInt("LobbyDifficulty");
+		endif;
 	endproc;
 	
 	export proc bool IsOkAndReadyForAction(string p_sTTName, CClntHndl p_xHandle, ref bool p_rbLocked, bool p_bMultiSelection)
@@ -1097,6 +1589,22 @@ class CMirageClnMgr
 			po_rsVersion = pxBaseNode^.GetValueS("Edit_Version","");
 		endif;
 		return true;
+	endproc;
+	
+	export static proc string GetPreviewImageDataFromDB(string p_sLevelName)
+		p_sLevelName.Replace(" ", "_");
+		p_sLevelName.MakeLower();
+		var CPropDB xPreviewImageDB;
+		xPreviewImageDB.Load(CClientWrap.GetUrsRelPath()+"/data/base/scripts/game/misc/PreviewImages.txt");
+		var string sImagePath;
+		var ^CPropDB.CNode pxLevelsNode = xPreviewImageDB.GetRoot().Get("Levels");
+		if(pxLevelsNode!=null)then
+			var ^CPropDB.CNode pxLevelNode = pxLevelsNode^.Get(p_sLevelName);
+			if(pxLevelNode!=null)then
+				pxLevelNode^.GetValue("image",sImagePath);
+			endif;
+		endif;
+		return sImagePath;
 	endproc;
 	
 	export proc bool GetServerIP(ref string p_rsIP)
@@ -1631,11 +2139,17 @@ class CMirageClnMgr
 		return sRes;
 	endproc;
 	
-	export static proc string GetMapName(^CLevelInfo p_pxLevelInfo)
+	export proc string GetMapName()
 		var string sName = "";
-		var ^CPropDB.CNode pxBaseNode=^((p_pxLevelInfo^.GetGenericData())["Base"]);
-		if(pxBaseNode!=null)then
-			sName=pxBaseNode^.GetValueS("LevelName");
+		if(CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID())then
+			sName=CMirageClnMgr.Get().GetHostMapInfo()^.GetMapName();
+		else
+			var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelPreview());
+			if(pxLevelInfo==null)then return sName; endif;
+			var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+			if(pxBaseNode!=null)then
+				sName=pxBaseNode^.GetValueS("LevelName");
+			endif;
 		endif;
 		return sName;
 	endproc;

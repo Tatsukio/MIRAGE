@@ -486,7 +486,115 @@ class CMirageServer inherit CWindow
 		return(true);
 	endproc;
 	
-	class CAdjustWorld inherit CStateUIWnd;
+	class CAdjustMirage inherit CStateUIWnd
+		
+		var string m_sAdjustCategory;
+		var string m_sLevelName;
+		
+		var bool m_bInit;
+		
+		export constructor()
+			m_sAdjustCategory = "?";
+			m_sLevelName = "?";
+			m_bInit = false;
+		endconstructor;
+		
+		export constructor(string p_sAdjustCategory)
+			Init(p_sAdjustCategory);
+		endconstructor;
+		
+		export proc bool Init(string p_sAdjustCategory)
+			m_sAdjustCategory = p_sAdjustCategory;
+			var ^CPropDB pxGenericData=^(CGameWrap.GetClient().GetLevelInfo().GetGenericData());
+			m_sLevelName=(pxGenericData^)["Base/LevelName"].Value();
+			//if(m_sLevelName=="")then m_sLevelName=CUIStateMgr.Get().GetLoadScreenInfo().m_sLevelName; endif;
+			//KLog.LogSpam("Kr1s1m","Mirage_UI_scripts::CAdjust"+m_sAdjustCategory+" m_sLevelName="+m_sLevelName);
+			m_bInit = m_sAdjustCategory!="" && m_sAdjustCategory!="?" && m_sLevelName!="" && m_sLevelName!="?";
+			return m_bInit;
+		endproc;
+		
+		export proc void UpdateCustomMapMirageSettings()
+			//KLog.LogSpam("Kr1s1m", "CMirageServer::UpdateCustomMapMirageSettings begin");
+			var CPropDB xCustomMapMirageSettingsDB;
+			if(!xCustomMapMirageSettingsDB.Load(CClientWrap.GetUrsRelPath()+"/data/base/scripts/game/misc/CustomMapMirageSettings.txt"))then
+				//KLog.LogSpam("Kr1s1m", "Custom map Mirage Settings DB failed to load");
+				return;
+			endif;
+			var ^CPropDB.CNode pxLevelsNode = xCustomMapMirageSettingsDB.GetRoot().Get("Levels");
+			if(pxLevelsNode!=null)then
+				var string sLevelName = m_sLevelName;
+				sLevelName.Replace(" ", "_");
+				var ^CPropDB.CNode pxLevelNameNode = pxLevelsNode^.Get(sLevelName);
+				if(pxLevelNameNode!=null)then
+					//KLog.LogSpam("Kr1s1m", pxLevelNameNode^.Name()+" custom map level matched");
+					var ^CPropDB.CNode pxMirageSettingsNode = pxLevelNameNode^.Get("MirageSettings");
+					if(pxMirageSettingsNode==null)then /*KLog.LogSpam("Kr1s1m", "Mirage settings not found");*/ return; endif;
+					var int k, kC=pxMirageSettingsNode^.NumSubs();
+					//Kr1s1m: TODO: replace for loop with .Get(m_sAdjustCategory)
+					for(k=0)cond(k<kC)iter(k++)do//Kr1s1m: Iterate the adjust categories inside the level name node
+						var ^CPropDB.CNode pxAdjustCategoryNode = ^(pxMirageSettingsNode^.Get(k));
+						if(pxAdjustCategoryNode^.Name()!=m_sAdjustCategory)then
+							continue; //Kr1s1m: skip the categories which don't match the adjust category field
+						else
+							//KLog.LogSpam("Kr1s1m", "adjusting mirage "+pxAdjustCategoryNode^.Name()+" settings");
+						endif;
+						var int i, iC=pxAdjustCategoryNode^.NumSubs();
+						for(i=0)cond(i<iC)iter(i++)do//Kr1s1m: Iterate the setting types inside a given adjust category node
+							var ^CPropDB.CNode pxSettingTypeNode = ^(pxAdjustCategoryNode^.Get(i));
+							var string sSettingType = pxSettingTypeNode^.Name();
+							var int j, jC=pxSettingTypeNode^.NumSubs();
+							for(j=0)cond(j<jC)iter(j++)do//Kr1s1m: Iterate the setting nodes inside a given setting type node
+								var ^CPropDB.CNode pxSettingNode = ^(pxSettingTypeNode^.Get(j));
+								var string sSettingName = pxSettingNode^.Name();
+								var string sValue = pxSettingNode^.Value();
+								SetAndLockMirageSetting(sSettingType, sSettingName, sValue, true);
+							endfor;
+						endfor;
+					endfor;
+				else
+					//KLog.LogSpam("Kr1s1m", m_sLevelName+" is not a custom map. Nothing has been updated.");
+					return;
+				endif;
+			endif;
+			//KLog.LogSpam("Kr1s1m", "CMirageServer::UpdateCustomMapMirageSettings end");
+		endproc;
+	
+		export proc void SetAndLockMirageSetting(string p_sSettingType, string p_sSettingName, string p_sValue, bool p_bLock);
+			//KLog.LogSpam("Kr1s1m", "CMirageServer::SetAndLockMirageSetting begin");
+			if(p_sValue=="")then return; endif;
+			var CConfig xConf;
+			var int iOldValue = xConf.GetSetI("Server/GameplayOptions/"+p_sSettingName, 0);
+			var int iValue = p_sValue.ToInt();
+			if(p_sSettingType=="CheckBox")then
+				var ^CCheckBox pxCheckBox = cast<CCheckBox>(GetControl(p_sSettingName));
+				pxCheckBox^.SetChecked(iValue);
+				pxCheckBox^.SetDisabled(p_bLock);
+			elseif(p_sSettingType=="DropList")then
+				var ^CDropList pxDrop = cast<CDropList>(GetControl(p_sSettingName+"Droplist"));
+				if(pxDrop^.NumItems()>iValue && pxDrop^.NumItems()>0)then
+					pxDrop^.Select(iValue);
+				endif;
+				pxDrop^.SetDisabled(p_bLock);
+			elseif(p_sSettingType=="SpinCtrlNumber")then
+				var ^CSpinCtrlNumber pxSpinCtrl = cast<CSpinCtrlNumber>(GetControl(p_sSettingName+"SpinCtrl"));
+				pxSpinCtrl^.SetValue(iValue);
+				pxSpinCtrl^.SetEditable(false);
+				pxSpinCtrl^.SetDisabled(p_bLock);
+			endif;
+			if(iValue!=iOldValue)then
+				xConf.SetI("Server/GameplayOptions/"+p_sSettingName, iValue);
+				CGameWrap.GetGame().SetAttrib(p_sSettingName,iValue);
+				//KLog.LogSpam("Kr1s1m", "CGameWrap.GetGame().SetAttrib("+p_sSettingName+", "+p_sValue+")");
+			endif;
+			//var string sLocked = "";
+			//if(p_bLock)then sLocked = "(locked)"; endif;
+			//KLog.LogSpam("Kr1s1m", "p_sSettingType: "+p_sSettingType+" p_sSettingName: "+p_sSettingName+" ====> "+p_sValue+sLocked);
+			//KLog.LogSpam("Kr1s1m", "CMirageServer::SetAndLockMirageSetting end");
+		endproc;
+	
+	endclass;
+	
+	class CAdjustWorld inherit CAdjustMirage;
 		
 		export constructor()
 			if(!InitFromResource("UI/MirageSettings","AdjustWorld"))then
@@ -569,6 +677,10 @@ class CMirageServer inherit CWindow
 			pxCheckBox^.m_xOnStateChange=OnEnableCorpseDamage;
 			pxGame^.SetAttrib(sName,bEnabled);
 			
+			if(super.Init("World"))then
+				super.UpdateCustomMapMirageSettings();
+			endif;
+			
 			pxButton = cast<CButton>(GetControl("OkButton"));
 			pxButton^.m_xOnClick=OnOk;
 			
@@ -635,7 +747,7 @@ class CMirageServer inherit CWindow
 		
 	endclass;
 	
-	class CAdjustBuilding inherit CStateUIWnd;
+	class CAdjustBuilding inherit CAdjustMirage;
 		
 		export constructor()
 			if(!InitFromResource("UI/MirageSettings","AdjustBuilding"))then
@@ -725,6 +837,10 @@ class CMirageServer inherit CWindow
 			pxCheckBox^.m_xOnStateChange=OnEnableAllyBuildup;
 			pxGame^.SetAttrib(sName,bEnabled);
 			
+			if(super.Init("Building"))then
+				super.UpdateCustomMapMirageSettings();
+			endif;
+			
 			pxButton = cast<CButton>(GetControl("OkButton"));
 			pxButton^.m_xOnClick=OnOk;
 			
@@ -799,7 +915,7 @@ class CMirageServer inherit CWindow
 		
 	endclass;
 	
-	class CAdjustUnit inherit CStateUIWnd;
+	class CAdjustUnit inherit CAdjustMirage;
 		
 		export constructor()
 			if(!InitFromResource("UI/MirageSettings","AdjustUnit"))then
@@ -995,6 +1111,10 @@ class CMirageServer inherit CWindow
 			pxSpinCtrl^.m_xOnChange=OnChangeTransportHealing;
 			pxGame^.SetAttrib(sName,iSetting);
 			
+			if(super.Init("Unit"))then
+				super.UpdateCustomMapMirageSettings();
+			endif;
+			
 			pxButton = cast<CButton>(GetControl("OkButton"));
 			pxButton^.m_xOnClick=OnOk;
 			
@@ -1182,7 +1302,7 @@ class CMirageServer inherit CWindow
 		
 	endclass;
 	
-	class CAdjustGameMechanic inherit CStateUIWnd;
+	class CAdjustGameMechanic inherit CAdjustMirage;
 		
 		export constructor()
 			if(!InitFromResource("UI/MirageSettings","AdjustGameMechanic"))then
@@ -1407,6 +1527,11 @@ class CMirageServer inherit CWindow
 			pxCheckBox^.m_xOnStateChange=OnEnableAlienCommands;
 			pxGame^.SetAttrib(sName,bEnabled);
 			
+			
+			if(super.Init("GameMechanic"))then
+				super.UpdateCustomMapMirageSettings();
+			endif;
+			
 			pxButton = cast<CButton>(GetControl("OkButton"));
 			pxButton^.m_xOnClick=OnOk;
 			
@@ -1591,7 +1716,7 @@ class CMirageServer inherit CWindow
 		
 	endclass;
 	
-	class CAdjustTimer inherit CStateUIWnd;
+	class CAdjustTimer inherit CAdjustMirage;
 		
 		export constructor()
 			if(!InitFromResource("UI/MirageSettings","AdjustTimer"))then
@@ -1752,6 +1877,10 @@ class CMirageServer inherit CWindow
 			pxSpinCtrl^.m_xOnChange=OnChangeSandGlass;
 			pxGame^.SetAttrib(sName,iSetting);
 			
+			if(super.Init("Timer"))then
+				super.UpdateCustomMapMirageSettings();
+			endif;
+			
 			pxButton = cast<CButton>(GetControl("OkButton"));
 			pxButton^.m_xOnClick=OnOk;
 			
@@ -1899,7 +2028,7 @@ class CMirageServer inherit CWindow
 		
 	endclass;
 	
-	class CAdjustPhantomMode inherit CStateUIWnd;
+	class CAdjustPhantomMode inherit CAdjustMirage;
 		
 		var bool m_bOff, m_bRandom;
 		var int m_iAvailable, m_iPlayers, m_iMid;
@@ -2072,6 +2201,10 @@ class CMirageServer inherit CWindow
 			pxCheckBox^.SetDisabled(m_bOff);
 			pxGame^.SetAttrib(sName,pxCheckBox^.GetChecked());
 			m_apxBoxes.AddEntry(pxCheckBox);
+			
+			if(super.Init("PhantomMode"))then
+				super.UpdateCustomMapMirageSettings();
+			endif;
 			
 			pxButton = cast<CButton>(GetControl("OkButton"));
 			pxButton^.m_xOnClick=OnOk;

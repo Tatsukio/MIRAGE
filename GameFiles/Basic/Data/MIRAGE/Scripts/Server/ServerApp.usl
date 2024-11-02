@@ -13,8 +13,6 @@ class CServerApp inherit IServerApp
 	static var array bool			ms_abActionViewActive;
 	var bool						m_bSTPlacementMode;
 	var array string			m_asCodes;
-	
-	var int							m_iDifficulty;
 
 	export constructor()
 		//L CSrvWrap.LogSpam("ServerApp","CServerApp::ctor()");
@@ -283,16 +281,7 @@ class CServerApp inherit IServerApp
 		var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
 		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
 		var string sLevelName = (pxGenericDB^)["Base/LevelName"].Value();
-		if(pxLevelInfo^.IsMultiplayer()&&(sLevelName=="Single 01"||
-		sLevelName=="Single 02"||sLevelName=="Single 03"||sLevelName=="Single 04"||
-		sLevelName=="Single 05"||sLevelName=="Single 06"||sLevelName=="Single 07"||
-		sLevelName=="Single 08"||sLevelName=="Single 09"||sLevelName=="Single 10"||
-		sLevelName=="Single 11"||sLevelName=="Single 12"||sLevelName=="Single 13"||
-		sLevelName=="Single 14"||sLevelName=="Single 15"||sLevelName=="Single 16"||
-		sLevelName=="Single B41"||sLevelName=="Single B42"||sLevelName=="Single B43"))then
-			var string sSend="GameOver\tCampaign\tLose\t_GAOV_Failed";
-			CSrvWrap.SendGenericEvtToPlayer(p_iOwner, sSend);
-		elseif(pxLevelInfo^.IsMultiplayer())then
+		if(pxLevelInfo^.IsMultiplayer()&&!CMirageSrvMgr.Get().CheckCustomMap(sLevelName,"EndScreen/CampaignScreen"))then
 			CGameOverMgr.Get().OnAbandonGame(p_iOwner);
 		else
 			var string sSend="GameOver\tCampaign\tLose\t_GAOV_Failed";
@@ -393,8 +382,6 @@ class CServerApp inherit IServerApp
 		var string sLNFHCTTF = sLevelName; // Henry: LevelNameForHardCodedTechTreeFilters
 		sLNFHCTTF.Replace(" ","_");
 		sLNFHCTTF.MakeLower();
-		//modified by Paraworldfan
-		sLevelName.Replace(" ","_");
 		
 		var bool bRandomHQ=(CSrvWrap.GetGame().GetChooseHQ()==false);
 		var bool bRandomColor=(CSrvWrap.GetGame().GetAttribInt("RandomColor")==1);
@@ -409,8 +396,8 @@ class CServerApp inherit IServerApp
 		var int iRandomHQFlag=(pxGenericDB^)["Base/RandomHQFlag"].ValueI();
 		var int iRandomColorFlag=(pxGenericDB^)["Base/RandomColorFlag"].ValueI();
 		var string sValue;
-		if(CMirageSrvMgr.Get().GetCustomSettingS(sLevelName,"random_hq",sValue)&&pxLevelInfo^.IsMultiplayer())then
-			bRandomHQ = sValue=="1";
+		if(CMirageSrvMgr.Get().GetCustomSettingS(sLevelName,"random_hq",sValue)&&pxLevelInfo^.IsMultiplayer())then	//gets "RandomHq" value from external config file "custom_level_data.txt"
+			bRandomHQ = sValue=="1";	//sets availability of Random Server Option on the currently loading map
 		endif;
 		if(bRandomHQ && bMultiplayer && iRandomHQFlag==0 && iMaxPlayers>0)then
 			(pxGenericDB^)["Base"].SetValue("RandomHQFlag",1);
@@ -449,7 +436,7 @@ class CServerApp inherit IServerApp
 				pxPlayerHQInfo^.m_pxPlayerNode^.Name()=sNewNodeName;
 			endfor;
 		endif;
-		if(bRandomColor && bMultiplayer && iRandomColorFlag==0)then
+		if(bRandomColor && !CMirageSrvMgr.Get().CheckCustomMap(sLevelName,"PlayerColor") && bMultiplayer && iRandomColorFlag==0)then
 			(pxGenericDB^)["Base"].SetValue("RandomColorFlag",1);
 			var array int aiAllColorList;
 			var array CPlayerColorInfo axPlayerColorInfoList;
@@ -483,25 +470,14 @@ class CServerApp inherit IServerApp
 		endif;
 		//pxGenericDB^.Save("c:/LevelInfo_Danach.txt");
 		var int i,iC=pxLevelInfo^.GetNumPlayers();
-		if(!bMultiplayer)then
-			iC=iMaxPlayers;
-			if(iC==0)then
-				KLog.LogError("ServerApp","CreatePlayers failed, num players=0");
-			endif;
-		elseif(bMultiplayer && (sLevelName=="Single 01"||
-		sLevelName=="Single 02"||sLevelName=="Single 03"||sLevelName=="Single 04"||
-		sLevelName=="Single 05"||sLevelName=="Single 06"||sLevelName=="Single 07"||
-		sLevelName=="Single 08"||sLevelName=="Single 09"||sLevelName=="Single 10"||
-		sLevelName=="Single 11"||sLevelName=="Single 12"||sLevelName=="Single 13"||
-		sLevelName=="Single 14"||sLevelName=="Single 15"||sLevelName=="Single 16"||
-		sLevelName=="Single B41"||sLevelName=="Single B42"||sLevelName=="Single B43"))then
+		if(!bMultiplayer||CMirageSrvMgr.Get().CheckCustomMap(sLevelName,"MultiplayerCampaign"))then	//unfortunately cant detect the locked for Player's selection unplayble AI's HQ's StartLocation's. Still needed to be settled up through "custom_level_data.txt"
 			iC=iMaxPlayers;
 			if(iC==0)then
 				KLog.LogError("ServerApp","CreatePlayers failed, num players=0");
 			endif;
 		endif;
-		if(CMirageSrvMgr.Get().GetCustomSettingI(sLevelName,"num_slots",iMaxPlayers)&&pxLevelInfo^.IsMultiplayer())then
-			iC=iMaxPlayers;
+		if(CMirageSrvMgr.Get().GetCustomSettingI(sLevelName,"num_slots",iMaxPlayers)&&pxLevelInfo^.IsMultiplayer())then	//gets "max players" value from external config file "custom_level_data.txt"
+			iC=iMaxPlayers;	//sets max players value on the currently loading map
 		endif;
 		CSrvWrap.GetDiplomacyMgr().ResetAllRelations();
 		begin WorldPlayer;
@@ -530,13 +506,15 @@ class CServerApp inherit IServerApp
 		endfor;
 		var bool bHandicap=CSrvWrap.GetGame().GetAllowHandicap();
 		xCurSlotID=CPlayerSlotID.First();
-		for(i=0)cond(i<iC)iter(i++)do
+		for(i=0)cond(i<iC)iter(i++)do	//set ups PlayerSlots that only were added in lobby or listed in custom_level_data.txt
+			var bool bForced=false;
 			var ^CLevelInfo.CPlayerSlot pxWalk=^(pxLevelInfo^.GetPlayerSlot(xCurSlotID));
 			if(pxWalk^.IsFree())then
 				if(CMirageSrvMgr.Get().IsSlotForced(sLevelName,i))then
 					pxWalk^.SetValue("forced","true");
+					bForced=true;
 				else
-					continue;
+					continue;	//SKIPS the PlayerSlots that were not added in lobby and that are not enlisted in custom_level_data.txt
 				endif;
 			endif;
 			var string sHandicap=CSrvWrap.GetGame().GetAttribInt("new_hc_"+i.ToString()).ToString();
@@ -562,6 +540,12 @@ class CServerApp inherit IServerApp
 			endif;
 			//pxWalk^.SetOwner(iOwner);
 			var string sType=pxWalk^.GetType();
+			//fixing "invalid" Behaviour Type for AI players on hidden player slots for CUSTOM maps
+			if(sType!="human" && CMirageSrvMgr.Get().IsSlotForced(sLevelName,i) && CMirageSrvMgr.Get().CheckCustomMap(sLevelName,"Players/Player_"+i.ToString()+"/AddIfEmpty") && pxLevelInfo^.IsMultiplayer())then
+				sType="ai_Mikrobe";
+				pxWalk^.SetType(sType);
+			endif;
+			//
 			begin CheckRandomTribe;
 				var string sTribe=pxWalk^.GetTribe();
 				var bool bServerUpdate=false, bCustom=false, bAI=sType.Left(3)=="ai_";
@@ -648,7 +632,7 @@ class CServerApp inherit IServerApp
 					pxWalk^.SetTribe(sTribe);
 				endif;
 			end CheckRandomTribe;
-			if(sType!="human" && sType!="closed")then
+			if(sType!="human" && sType!="closed" && bForced)then
 				if(CMirageSrvMgr.Get().GetCustomSlotType(sLevelName,iHQ,sType)&&pxLevelInfo^.IsMultiplayer())then
 					pxWalk^.SetType(sType);
 				endif;
@@ -704,7 +688,7 @@ class CServerApp inherit IServerApp
 			endif;
 			var string sNew;
 			// Henry: add custom player names on specific maps
-			if(CMirageSrvMgr.Get().GetCustomSlotName(sLevelName,iHQ, sNew)&&pxLevelInfo^.IsMultiplayer())then
+			if(CMirageSrvMgr.Get().GetCustomSlotName(sLevelName,iHQ, sNew)&&pxLevelInfo^.IsMultiplayer())then	//gets "PlayerName" value from external config file "custom_level_data.txt"
 				pxWalk^.SetName(sNew);
 				var ^CPropDB.CNode pxNameNode =
 				pxGenericDB^.FindNode("PlayerSettings/Player_"+iHQ.ToString(), true);
@@ -713,9 +697,9 @@ class CServerApp inherit IServerApp
 				endif;
 				CSrvWrap.GetGame().SendLevelInfoUpdate();
 			// AyCe: If player is an AI AND level is multiplayer AND level is not in the "special" list
-			elseif(cast<CAiPlayer>(pxPlayer)!=null && pxLevelInfo^.IsMultiplayer() && CMirageSrvMgr.Get().UseAINames(((pxLevelInfo^.GetGenericData())["Base/LevelName"]).Value(), iHQ))then
-				pxWalk^.SetName(CMirageSrvMgr.Get().GetRandomAIName()+" [AI"+i.ToString()+"]");
-			else
+			elseif(cast<CAiPlayer>(pxPlayer)!=null && !CMirageSrvMgr.Get().CheckCustomMap(sLevelName,"PlayerName") && pxLevelInfo^.IsMultiplayer() && CMirageSrvMgr.Get().UseAINames(((pxLevelInfo^.GetGenericData())["Base/LevelName"]).Value(), iHQ))then
+				pxWalk^.SetName(CMirageSrvMgr.Get().GetRandomAIName()+" [AI"+i.ToString()+"]");	//make exception for CUSTOM map type
+			else	// ParaworldFan: sets player's name fot any other cases
 				sNew=pxWalk^.GetName();
 			endif;
 			var ^CBasePlayer pxTmpBP=cast<CBasePlayer>(pxPlayer);
@@ -736,12 +720,11 @@ class CServerApp inherit IServerApp
 				CSrvWrap.LogError("Players","Player '"+sType+"' konnte nicht erzeugt werden"+" PlayerSlot: "+i.ToString());
 				return false;
 			endif;
-			// Paraworldfan: force AIplayers into certain difficulty level on specific maps
-			//var int iDifficulty;
-			
-			if(sType!="human")then
-				if(CMirageSrvMgr.Get().GetCustomSlotDifficulty(sLevelName,iHQ, m_iDifficulty)&&pxLevelInfo^.IsMultiplayer())then
-					pxWalk^.SetValue("Difficulty",m_iDifficulty);
+			// ParaworldFan: force AI players into certain difficulty level on specific maps
+			if(sType!="human"&&bForced)then
+				var int iDifficulty;
+				if(CMirageSrvMgr.Get().GetCustomSlotDifficulty(sLevelName,iHQ, iDifficulty)&&pxLevelInfo^.IsMultiplayer())then
+					pxWalk^.SetValue("Difficulty",iDifficulty);
 				endif;
 			endif;
 			// Henry: force players into certain teams on specific maps
@@ -773,7 +756,7 @@ class CServerApp inherit IServerApp
 				if(iHQ==0)then
 					iTemp=1;
 				endif;
-				begin TeamCheck;
+				begin TeamCheck;	//Teams changing for defender
 					var array string asTeams;
 					var ^CPropDB.CNode pxTeams=pxGenericDB^.FindNode("ClientSettings/DefendTeams",false);
 					if(pxTeams!=null)then
@@ -817,29 +800,8 @@ class CServerApp inherit IServerApp
 			endif;
 			p_pxLevel^.AddPlayer(pxPlayer);
 			//pxWalk^.SetValue("point_buy_costs", ms_pxPointBuyTable^.ToString());
-			// set the dipl-stuff (modified by ParaworldFan)
-			if(bMultiplayer && (sLevelName=="Single 01"||
-			sLevelName=="Single 02"||sLevelName=="Single 03"||sLevelName=="Single 04"||
-			sLevelName=="Single 05"||sLevelName=="Single 06"||sLevelName=="Single 07"||
-			sLevelName=="Single 08"||sLevelName=="Single 09"||sLevelName=="Single 10"||
-			sLevelName=="Single 11"||sLevelName=="Single 12"||sLevelName=="Single 13"||
-			sLevelName=="Single 14"||sLevelName=="Single 15"||sLevelName=="Single 16"||
-			sLevelName=="Single B41"||sLevelName=="Single B42"||sLevelName=="Single B43"))then
-				var ^CDiplomacySrvMgr pxDiplMgr=^(CSrvWrap.GetDiplomacyMgr());
-				var ^CPropDB.CNode pxDiplNode=pxGenericDB^.FindNode("PlayerSettings/Player_"+iHQ.ToString()+"/Diplomacy",false);
-				if(pxDiplNode!=null)then
-					var ^CBasePlayer pxBasePlayer=CBasePlayer.GetPlayer(iHQ);
-					var string sVal=pxDiplNode^.Value();
-					var int j, iJC=sVal.GetLength();
-					for(j=0) cond(j<iJC) iter(++j) do
-						var int iRel=sVal.GetAt(j).ToString().ToInt();
-						pxDiplMgr^.SetRelation(iHQ, j, iRel);
-						if(pxBasePlayer!=null)then
-							pxBasePlayer^.SetDiplomacySilent(j, iRel, true);
-						endif;
-					endfor;
-				endif;
-			elseif(!bMultiplayer)then
+			// set the dipl-stuff for singleplayer and CUSTOM map mode
+			if(!bMultiplayer||CMirageSrvMgr.Get().CheckCustomMap(sLevelName,"Diplomacy/UseRelations"))then
 				var ^CDiplomacySrvMgr pxDiplMgr=^(CSrvWrap.GetDiplomacyMgr());
 				var ^CPropDB.CNode pxDiplNode=pxGenericDB^.FindNode("PlayerSettings/Player_"+iHQ.ToString()+"/Diplomacy",false);
 				if(pxDiplNode!=null)then
@@ -856,14 +818,22 @@ class CServerApp inherit IServerApp
 				endif;
 			endif;
 		endfor;
-		// set the dipl-stuff
-		if(bMultiplayer && (sLevelName!="Single 01"&&
-		sLevelName!="Single 02"&&sLevelName!="Single 03"&&sLevelName!="Single 04"&&
-		sLevelName!="Single 05"&&sLevelName!="Single 06"&&sLevelName!="Single 07"&&
-		sLevelName!="Single 08"&&sLevelName!="Single 09"&&sLevelName!="Single 10"&&
-		sLevelName!="Single 11"&&sLevelName!="Single 12"&&sLevelName!="Single 13"&&
-		sLevelName!="Single 14"&&sLevelName!="Single 15"&&sLevelName!="Single 16"&&
-		sLevelName!="Single B41"&&sLevelName!="Single B42"&&sLevelName!="Single B43"))then
+		
+		//ParaworldFan: Map Difficulty Update
+		if(CMirageSrvMgr.Get().CheckCustomMap(sLevelName,"PointBuy/MapDifficulty"))then
+			var ^CPropDB pxUserProfile=^(CSrvWrap.GetCurUserProfile()^.GetPropDB());
+			var int iCurDifficulty=(pxUserProfile^)["Multiplayer/Difficulty"].ValueI();
+			//KLog.LogSpam("ParaworldFan","ServerApp: CreatePlayers() iCurDifficulty=="+iCurDifficulty.ToString());
+			if(iCurDifficulty!=(pxGenericDB^)["Base/Difficulty"].ValueI())then
+				(pxGenericDB^)["Base"].SetValue("Difficulty",iCurDifficulty);
+			endif;
+		elseif((pxGenericDB^)["Base/Difficulty"].ValueI()!=1)then
+			(pxGenericDB^)["Base"].SetValue("Difficulty",1);
+		endif;
+		//
+		
+		// set the dipl-stuff for multiplayer mode
+		if(bMultiplayer&&!CMirageSrvMgr.Get().CheckCustomMap(sLevelName,"Diplomacy/UseRelations"))then
 			var ^CDiplomacySrvMgr pxDiplMgr=^(CSrvWrap.GetDiplomacyMgr());
 			var CPlayerSlotID xSlotIDA;
 			for(xSlotIDA=CPlayerSlotID.First())cond(xSlotIDA<=CPlayerSlotID.Last())iter(xSlotIDA.Incr())do
@@ -890,6 +860,7 @@ class CServerApp inherit IServerApp
 						if(iTeamA==iTeamB)then
 							iRelation=2;//friend
 						else
+							//iRelation=1;//neutral
 							iRelation=0;//enemy
 						endif;
 					endif;
