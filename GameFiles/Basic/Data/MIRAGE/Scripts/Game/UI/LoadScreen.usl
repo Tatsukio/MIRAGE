@@ -43,6 +43,13 @@ class CLoadScreen inherit CDialogWindow
 	var bool			m_bShowQuotes, m_bShowLoadingDescription;
 	var int				m_iQuotes;
 	
+	const string		PREVIEWIMAGE="LoadScreen/PreviewImage";
+	const string		BACKGROUND="LoadScreen/BackgroundImage";
+	const string		DESCRIPTION="LoadScreen/ShowMapDescription";
+	const string		HERODIARY="LoadScreen/LoadDiary";
+	const string		STARTBUTTON="LoadScreen/ShowStartButton";
+	const string		HIDDENPLAYERS="LoadScreen/ShowPlayers/ShowHiddenPlayers";
+	
 	export constructor()
 		if(!InitFromResource("UI/LoadScreen","LoadScreen")) then
 			return;
@@ -121,7 +128,6 @@ class CLoadScreen inherit CDialogWindow
 
 	proc bool GetLoadingScreenDataFromDB(ref string p_rsImage, ref string p_rsTitle, ref string p_rsText, ref string p_rsAudio)
 		var ^CUIStateMgr.CLoadScreenInfo pxLoadScreenInfo = ^(CUIStateMgr.Get().GetLoadScreenInfo());
-		
 		if(pxLoadScreenInfo^.m_iGameType==CUIStateMgr.CLoadScreenInfo.LOADSCR_INVALID)then
 			p_rsImage = RandomLoadImage();
 			return false;
@@ -178,20 +184,23 @@ class CLoadScreen inherit CDialogWindow
 	endproc;
 	
 	proc void PrepareMultiplayerData(^CLevelInfo p_pxLevelInfo, ^CMapInfoList.CMapInfo p_pxMapInfo, ref string p_rsImage, ref string p_rsTitle, ref string p_rsText, ref CBitmapPtr p_rpPreviewPic)
+			var string sLevelName,sMapType,sDescription;
 			if(p_pxMapInfo!=null)then
+				sLevelName = p_pxMapInfo^.GetMapName();
+				sMapType = p_pxMapInfo^.GetMapType();
+				sDescription = p_pxMapInfo^.GetDescription();
 				p_rpPreviewPic = p_pxMapInfo^.GetPreviewBitmap();
 			endif;
 			
 			if(p_pxLevelInfo!=null)then
 				var ^CPropDB pxDB = ^(p_pxLevelInfo^.GetGenericData());
 				
-				var string sLevelName,sMapType,sDescription;
 				var int iNumPlayers = p_pxLevelInfo^.GetNumPlayers();
 				var ^CPropDB.CNode pxBaseNode=^((p_pxLevelInfo^.GetGenericData())["Base"]);
 				if(pxBaseNode!=null)then
-					sLevelName = pxBaseNode^.GetValueS("LevelName");
-					sMapType = pxBaseNode^.GetValueS("MapType");
-					sDescription = pxBaseNode^.GetValueS("Description");
+					if(sLevelName.IsEmpty())then sLevelName = pxBaseNode^.GetValueS("LevelName"); endif;
+					if(sMapType.IsEmpty())then sMapType = pxBaseNode^.GetValueS("MapType"); endif;
+					if(sDescription.IsEmpty())then sDescription = pxBaseNode^.GetValueS("Description"); endif;
 				endif;
 				
 				var string sResultText="";
@@ -236,6 +245,88 @@ class CLoadScreen inherit CDialogWindow
 			endif;
 	endproc;
 	
+	proc void PrepareCustomMapData(^CLevelInfo p_pxLevelInfo, ^CMapInfoList.CMapInfo p_pxMapInfo, ref string p_rsImage, ref string p_rsTitle, ref string p_rsText, ref string p_rsAudio, ref CBitmapPtr p_rpPreviewPic)
+			var string sLevelName,sMapType,sDescription;
+			if(p_pxMapInfo!=null)then
+				sLevelName = p_pxMapInfo^.GetMapName();
+				sMapType = p_pxMapInfo^.GetMapType();
+				sDescription = p_pxMapInfo^.GetDescription();
+				p_rpPreviewPic = p_pxMapInfo^.GetPreviewBitmap();
+			endif;
+			
+			if(p_pxLevelInfo!=null)then
+				var ^CPropDB pxDB = ^(p_pxLevelInfo^.GetGenericData());
+				
+				var int iNumPlayers = p_pxLevelInfo^.GetNumPlayers();
+				var ^CPropDB.CNode pxBaseNode=^((p_pxLevelInfo^.GetGenericData())["Base"]);
+				if(pxBaseNode!=null)then
+					if(sLevelName.IsEmpty())then sLevelName = pxBaseNode^.GetValueS("LevelName"); endif;
+					if(sMapType.IsEmpty())then sMapType = pxBaseNode^.GetValueS("MapType"); endif;
+					if(sDescription.IsEmpty())then sDescription = pxBaseNode^.GetValueS("Description"); endif;
+				endif;
+				
+				if(CMirageClnMgr.Get().CheckCustomMap(sLevelName,PREVIEWIMAGE))then
+					p_rpPreviewPic = CMultiPlayerClientMgr.Get().GetMapData()^.GetImage();
+				endif;
+				
+				var string sResultText="";
+				
+				// description
+				if(CMirageClnMgr.Get().CheckCustomMap(sLevelName,DESCRIPTION))then
+					sResultText+="\\{cogiw_1} "+CLocalizer.Get().Translate(sLevelName)+"\\{cp}\\{br}\\{cogiw_2}"+CLocalizer.Get().Translate(sDescription)+"\\{cp}\\{p}\\{p}";
+				endif;
+				
+				// player list
+				if(CMirageClnMgr.Get().CheckCustomMap(sLevelName,"LoadScreen/ShowPlayers"))then
+					if(iNumPlayers>0)then
+						sResultText+="\\{ps10}";
+					endif;
+					var CPlayerSlotID xSlotID;
+					var int iSlotID=0;
+					for(xSlotID=CPlayerSlotID.First())cond(xSlotID<=CPlayerSlotID.Last())iter(xSlotID.Incr())do
+						var ^CLevelInfo.CPlayerSlot pxSlot=^(p_pxLevelInfo^.GetPlayerSlot(xSlotID));
+						if(pxSlot==null)then iSlotID++; continue; endif;
+						var bool bShowHidden=CMirageClnMgr.Get().CheckCustomMap(sLevelName,HIDDENPLAYERS);
+						if(pxSlot^.IsFree() && (!bShowHidden || !pxSlot^.GetValueBool("forced")))then iSlotID++; continue; endif;
+						var string sType = pxSlot^.GetType();
+						if(sType=="invalid" && !pxSlot^.GetValueBool("forced"))then iSlotID++; continue; endif;
+						var ^CPropDB.CNode pxStatsNode=^((pxDB^)["PlayerSettings/Player_"+iSlotID.ToString()+"/Restrictions/Base"]);
+						var int iShowStats=pxStatsNode^.GetValueI("ShowStatistics");
+						if(iShowStats==0)then iSlotID++; continue; endif;
+						var int iStartLocation = pxSlot^.GetHeadQuater();
+						var string sHQ="";
+						var int iTeam = pxSlot^.GetTeam();
+						var int iColor = pxSlot^.GetColor();
+						var string sTribe = pxSlot^.GetTribe();
+						var string sName = pxSlot^.GetName();
+						sName = CLocalizer.Get().Translate(sName);
+						var string sPlayer=sName;
+						var ^CGame pxGame = ^(CGameWrap.GetGame());
+						if(pxGame^.GetAttribInt("RandomColor")==0 || CMirageClnMgr.Get().CheckCustomMap(sLevelName,"PlayerColor"))then
+							sPlayer="\\{codc"+iColor.ToString()+"}"+sName+"\\{/cp}";
+						endif;
+						if(pxGame^.GetAttribInt("ChooseHQ")==1)then
+							sHQ="\\{ii-1;layer hq_icon_"+(iStartLocation+1).ToString()+"}";
+						endif;
+						sResultText+=sHQ+"\\{io5}\\{ii-1;layer tribeicon_"+sTribe+"}"+sPlayer+"\\{/cp}\\{br}";
+						iSlotID++;
+					endfor;
+				endif;
+
+				// diary
+				if(CMirageClnMgr.Get().CheckCustomMap(sLevelName,HERODIARY))then
+					GetLoadingScreenDataFromDB(p_rsImage,p_rsTitle,p_rsText,p_rsAudio);
+					sResultText+= p_rsText;
+				else
+					p_rsImage = GetBackgroundImageForSettingFromDB(p_pxLevelInfo^.GetLevelSetting());
+					p_rsTitle = CLocalizer.Get().Translate("_LoadScreen_LoadingGame");
+				endif;
+
+				// write back results
+				p_rsText = sResultText;
+			endif;
+	endproc;
+	
 	proc void PrepareSingleplayerData(ref string p_rsImage, ref string p_rsTitle, ref string p_rsText,ref string p_rsAudio)
 		GetLoadingScreenDataFromDB(p_rsImage,p_rsTitle,p_rsText,p_rsAudio);
 	endproc;
@@ -250,17 +341,35 @@ class CLoadScreen inherit CDialogWindow
 		var ^CLevelInfo pxLevelInfo;
 
 		var string sLevelName,sMapType,sDescription;
-		var bool bIsMultiplayer,bIsSaveGame;
+		var bool bIsMultiplayer,bIsSaveGame,bIsCustomMap=false;
 		var int iNumPlayers;
 
 		var ^CUIStateMgr.CLoadScreenInfo pxLoadScreenInfo = ^(CUIStateMgr.Get().GetLoadScreenInfo());
-		//L KLog.LogSpam("UI.LoadScreen",""+pxLoadScreenInfo^.ToString());
+		KLog.LogSpam("UI.LoadScreen",""+pxLoadScreenInfo^.ToString());
+		//Getting new MapName because pxLoadScreenInfo^.m_sLevelName without spaces and with all letters are small
+		if(pxLoadScreenInfo^.m_iGameType==CUIStateMgr.CLoadScreenInfo.LOADSCR_MULTIPLAYER)then
+			pxMapInfo = CMultiPlayerClientMgr.Get().GetMapInfoList()^.GetMapInfo_CheckSumme(pxLoadScreenInfo^.m_sLevelCheckSumme);
+			sLevelName = pxMapInfo^.GetMapName();
+			bIsCustomMap=CMirageClnMgr.Get().CheckCustomMap(sLevelName,"LoadScreen");
+		endif;
+		
 		if(pxLoadScreenInfo^.m_iGameType==CUIStateMgr.CLoadScreenInfo.LOADSCR_SINGLEPLAYER)then
-			//L KLog.LogSpam("UI.LoadScreen","SINGLEPLAYERGAME");
+			KLog.LogSpam("UI.LoadScreen","SINGLEPLAYERGAME");
 			PrepareSingleplayerData(p_rsImage,p_rsTitle,p_rsText,p_rsAudio);
 			p_rbIsMultiplayer = false;
+		elseif(pxLoadScreenInfo^.m_iGameType==CUIStateMgr.CLoadScreenInfo.LOADSCR_MULTIPLAYER && bIsCustomMap)then
+			KLog.LogSpam("UI.LoadScreen","CUSTOMAPGAME");
+			sFilePath = CClientWrap.GetUrsRelPath()+"/Data/Base/Maps/Multiplayer/";
+			CGameWrap.GetMapInfoList(sFilePath,xMapInfoList,200,200);
+			pxMapInfo = xMapInfoList.GetMapInfo_CheckSumme(pxLoadScreenInfo^.m_sLevelCheckSumme);
+			pxLevelInfo=^(CGameWrap.GetClient().GetLevelPreview());
+			PrepareCustomMapData(pxLevelInfo,pxMapInfo,p_rsImage,p_rsTitle,p_rsText,p_rsAudio,p_rpPreviewPic);
+			var bool bCustomPreview=CMirageClnMgr.Get().CheckCustomMap(pxMapInfo^.GetMapName(),PREVIEWIMAGE);
+			//!bCustomPreview set singleplayer type PreviewImage layout
+			//else set multiplayer type PreviewImage layout
+			p_rbIsMultiplayer = !bCustomPreview;
 		elseif(pxLoadScreenInfo^.m_iGameType==CUIStateMgr.CLoadScreenInfo.LOADSCR_MULTIPLAYER)then
-			//L KLog.LogSpam("UI.LoadScreen","MULTIPLAYERGAME");
+			KLog.LogSpam("UI.LoadScreen","MULTIPLAYERGAME");
 			sFilePath = CClientWrap.GetUrsRelPath()+"/Data/Base/Maps/Multiplayer/";
 			CGameWrap.GetMapInfoList(sFilePath,xMapInfoList,200,200);
 			pxMapInfo = xMapInfoList.GetMapInfo_CheckSumme(pxLoadScreenInfo^.m_sLevelCheckSumme);
@@ -268,20 +377,28 @@ class CLoadScreen inherit CDialogWindow
 			PrepareMultiplayerData(pxLevelInfo,pxMapInfo,p_rsImage,p_rsTitle,p_rsText,p_rpPreviewPic);
 			p_rbIsMultiplayer = true;
 		elseif(pxLoadScreenInfo^.m_iGameType==CUIStateMgr.CLoadScreenInfo.LOADSCR_SAVEGAME)then
-			//L KLog.LogSpam("UI.LoadScreen","SAVEGAME");
+			KLog.LogSpam("UI.LoadScreen","SAVEGAME");
 			var ^CUserProfileList pxList = ^(CClientWrap.GetUserProfileList());
 			sFilePath = pxList^.GetSaveGamePath();
 			CGameWrap.GetMapInfoList(sFilePath,xMapInfoList,200,200);
 			pxMapInfo = xMapInfoList.GetMapInfo_CheckSumme(pxLoadScreenInfo^.m_sLevelCheckSumme);
+			bIsCustomMap = CMirageClnMgr.Get().CheckCustomMap(pxMapInfo^.GetMapName(),"LoadScreen");
 			if(pxMapInfo!=null)then
 				pxLevelInfo = ^(pxMapInfo^.GetLevelInfo());
 				if(pxLevelInfo!=null)then
-					if(!pxLevelInfo^.IsMultiplayer())then // singleplayer savegame
-						//L KLog.LogSpam("UI.LoadScreen","SINGLEPLAYER SAVEGAME");
+					if(!pxLevelInfo^.IsMultiplayer())then
+						KLog.LogSpam("UI.LoadScreen","SINGLEPLAYER SAVEGAME");
 						PrepareSingleplayerData(p_rsImage,p_rsTitle,p_rsText,p_rsAudio);
 						p_rbIsMultiplayer = false;
+					elseif(pxLevelInfo^.IsMultiplayer() && bIsCustomMap)then // CUSTOM map savegame
+						KLog.LogSpam("UI.LoadScreen","CUSTOMMAP SAVEGAME");
+						PrepareCustomMapData(pxLevelInfo,pxMapInfo,p_rsImage,p_rsTitle,p_rsText,p_rsAudio,p_rpPreviewPic);
+						var bool bCustomPreview=CMirageClnMgr.Get().CheckCustomMap(pxMapInfo^.GetMapName(),PREVIEWIMAGE);
+						//!bCustomPreview set singleplayer type PreviewImage layout
+						//else set multiplayer type PreviewImage layout
+						p_rbIsMultiplayer = !bCustomPreview;
 					else // multiplayer savegame
-						//L KLog.LogSpam("UI.LoadScreen","MULTIPLAYER SAVEGAME");
+						KLog.LogSpam("UI.LoadScreen","MULTIPLAYER SAVEGAME");
 						p_rbIsMultiplayer = true;
 						PrepareMultiplayerData(pxLevelInfo,pxMapInfo,p_rsImage,p_rsTitle,p_rsText,p_rpPreviewPic);
 					endif;
@@ -291,7 +408,7 @@ class CLoadScreen inherit CDialogWindow
 			// suppress audio on loading game because there is no continue button
 			p_rsAudio = "";
 		else // LOADSCR_INVALID or LOADSCR_EMPTY
-			//L KLog.LogSpam("UI.LoadScreen","IVALID OR EMPTY");
+			KLog.LogSpam("UI.LoadScreen","IVALID OR EMPTY");
 		endif;
 		
 		if(p_rsImage.IsEmpty())then
@@ -308,7 +425,7 @@ class CLoadScreen inherit CDialogWindow
 	endproc;
 	
 	export proc bool Init(string p_sTask, int p_iReturnState, procref<bool> p_xCallBack)
-		//L KLog.LogSpam("UI.LoadScreen","p_sTask="+p_sTask+" p_iReturnState="+p_iReturnState.ToString());
+		KLog.LogSpam("UI.LoadScreen","p_sTask="+p_sTask+" p_iReturnState="+p_iReturnState.ToString());
 
 		var ^CUIStateMgr.CLoadScreenInfo pxLoadScreenInfo = ^(CUIStateMgr.Get().GetLoadScreenInfo());
 
@@ -441,7 +558,7 @@ class CLoadScreen inherit CDialogWindow
 
 	proc bool OnTimer(int p_iTimerID)
 		if(p_iTimerID==m_iServerTimer || p_iTimerID==m_iServerAndGameStartTimer)then
-			//L KLog.LogSpam("UI.LoadScreen","timer m_iServerTimer m_iServerAndGameStartTimer");
+			KLog.LogSpam("UI.LoadScreen","timer m_iServerTimer m_iServerAndGameStartTimer");
 			if(CGameWrap.GetClient().GetPlayerSlotID().IsValid())then
 				UnsetTimer(p_iTimerID);
 				if(false)then
@@ -477,14 +594,14 @@ class CLoadScreen inherit CDialogWindow
 			endif;
 		//client is ready for starting game		
 		elseif(p_iTimerID==m_iGameStartTimer)then
-			//L KLog.LogSpam("UI.LoadScreen","timer m_iGameStartTimer");
+			KLog.LogSpam("UI.LoadScreen","timer m_iGameStartTimer");
 
 			var ^CInGameScreen pxIngameScreen=CUIStateMgr.Get().GetInGameScreen();
 			if((pxIngameScreen!=null && pxIngameScreen^.GetGameActive()) || (m_pxProgressBar!=null && m_pxProgressBar^.GetProgress()>=1.0f))then	
-				//L KLog.LogSpam("UI.LoadScreen","Loading Done");
+				KLog.LogSpam("UI.LoadScreen","Loading Done");
 				UnsetTimer(p_iTimerID);
 				
-				var string sLevelName,sMapType;
+				var string sLevelName,sMapName,sMapType;
 				var bool bIsMultiplayer, bIsSaveGame;
 				var int iNumPlayers;
 				var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
@@ -496,6 +613,7 @@ class CLoadScreen inherit CDialogWindow
 					var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
 					if(pxBaseNode!=null)then
 						sLevelName = pxBaseNode^.GetValueS("LevelName");
+						sMapName = sLevelName;
 						sLevelName.MakeLower();
 						sLevelName.Replace(" ","_");
 						sMapType = pxBaseNode^.GetValueS("MapType");
@@ -503,6 +621,13 @@ class CLoadScreen inherit CDialogWindow
 				endif;
 
 				if(!sLevelName.IsEmpty() && !bIsMultiplayer && !bIsSaveGame)then
+					m_pxReadyButtonBackground^.SetDisabled(false);
+					m_pxReadyButtonBackground^.SetVisible(true);
+					SetDefButtonOk(m_pxReadyButton);
+					if(CUIMgr.MakroRunning())then
+						OnContinue();
+					endif;
+				elseif(!sLevelName.IsEmpty() && bIsMultiplayer && !bIsSaveGame && (CMirageClnMgr.Get().CheckCustomMap(sMapName,STARTBUTTON)))then
 					m_pxReadyButtonBackground^.SetDisabled(false);
 					m_pxReadyButtonBackground^.SetVisible(true);
 					SetDefButtonOk(m_pxReadyButton);
@@ -517,9 +642,9 @@ class CLoadScreen inherit CDialogWindow
 			endif;
 		//Waiting for the other clients to synchron start the game 
 		elseif(p_iTimerID==m_iWaitForReadyTimer) then
-			//L KLog.LogSpam("UI.LoadScreen","timer m_iWaitForReadyTimer");
+			KLog.LogSpam("UI.LoadScreen","timer m_iWaitForReadyTimer");
 			if(CGameWrap.LetTheGamesBegin())then
-				//L KLog.LogSpam("UI.LoadScreen","LetTheGamesBegin");
+				KLog.LogSpam("UI.LoadScreen","LetTheGamesBegin");
 				UnsetTimer(p_iTimerID);
 				Destroy();
 				if(!m_xCallBack.IsNull())then
@@ -531,7 +656,7 @@ class CLoadScreen inherit CDialogWindow
 				endif;
 			endif;
 		elseif(p_iTimerID==m_iShutTimer)then
-			//L KLog.LogSpam("UI.LoadScreen","timer m_iShutTimer");
+			KLog.LogSpam("UI.LoadScreen","timer m_iShutTimer");
 			UnsetTimer(p_iTimerID);
 			Destroy();
 			if(!m_xCallBack.IsNull())then
@@ -562,7 +687,7 @@ class CLoadScreen inherit CDialogWindow
 	endproc;
 	
 	export proc void SetProgress(real p_fProgress, string p_sDescription)
-		//L KLog.LogSpam("UI.LoadScreen","SetProgress("+p_fProgress.ToString()+", "+p_sDescription+")");
+		KLog.LogSpam("UI.LoadScreen","SetProgress("+p_fProgress.ToString()+", "+p_sDescription+")");
 		if(m_pxProgressBar==null)then endif;
 		if(m_pxLoadingDescription==null)then endif;
 		if(m_pxProgressBar==null || m_pxLoadingDescription==null)then return; endif;
@@ -607,7 +732,7 @@ class CLoadScreen inherit CDialogWindow
 	endproc;
 	
 	export proc bool OnContinue()
-		//L KLog.LogSpam("UI.LoadScreen","OnContinue");
+		KLog.LogSpam("UI.LoadScreen","OnContinue");
 		m_pxReadyButtonBackground^.SetDisabled(true);
 		SetDefButtonOk(null);
 		
@@ -630,7 +755,7 @@ class CLoadScreen inherit CDialogWindow
 			CMusicMgr.OnEndJournalSound();
 		endif;
 	endproc;
-
+	
 endclass;
 
 class CLoadInfoWindow inherit CFrameWindow
@@ -639,6 +764,8 @@ class CLoadInfoWindow inherit CFrameWindow
 	var ^CStaticCtrlEx	m_pxPicForeground;
 	var ^CStaticCtrlEx	m_pxPicBackground;
 	var bool			m_bIsMPLayout;
+	
+	const string		HIDEPREVIEW="LoadScreen/HidePreviewImage";
 	
 	export constructor()
 		m_pxPicBackground = new CStaticCtrlEx;
@@ -665,7 +792,7 @@ class CLoadInfoWindow inherit CFrameWindow
 		var int iHeight = GetFrameHeight();
 		
 		if(m_bIsMPLayout)then
-			var int iOffset = ((iWidth-232 * CGameInst.ms_iUIScaleFactor)/2);		
+			var int iOffset = ((iWidth-232 * CGameInst.ms_iUIScaleFactor)/2);
 			m_pxPicBackground^.SetPos(iOffset,0);
 			m_pxPicForeground^.SetPos(iOffset,0);
 			
@@ -694,14 +821,26 @@ class CLoadInfoWindow inherit CFrameWindow
 	export proc void SetMPLayout(bool p_bValue)
 		m_bIsMPLayout = p_bValue;
 
+		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelPreview());
+		var string sLevelName=(pxLevelInfo^.GetGenericData())["Base/LevelName"].Value();
+		if(sLevelName.IsEmpty())then
+			pxLevelInfo=^(CCampaignMgr.Get().GetCurLevelInfo());
+			sLevelName=CCampaignMgr.Get().GetCurLevel();
+		endif;
+		var bool bShowPreview=(!CMirageClnMgr.Get().CheckCustomMap(sLevelName,HIDEPREVIEW));
 		if(m_bIsMPLayout)then
 			SetBackgroundPic(CClientWrap.GetUrsRelPath()+"/Data/Base/UI/menue/decoration/levelimage_background_mp.tga");
-			m_pxPicBackground^.SetVisible(true);
-			m_pxPicForeground^.SetVisible(true);
+			m_pxPicBackground^.SetVisible(bShowPreview);
+			m_pxPicForeground^.SetVisible(bShowPreview);
 		else
 			SetBackgroundPic(CClientWrap.GetUrsRelPath()+"/Data/Base/UI/menue/decoration/levelimage_background.tga");
-			m_pxPicBackground^.SetVisible(false);
-			m_pxPicForeground^.SetVisible(false);
+			if(pxLevelInfo^.IsMultiplayer())then
+				m_pxPicBackground^.SetVisible(bShowPreview);
+				m_pxPicForeground^.SetVisible(bShowPreview);
+			else //singleplayer
+				m_pxPicBackground^.SetVisible(false);
+				m_pxPicForeground^.SetVisible(false);
+			endif;
 		endif;
 
 		OnResize();

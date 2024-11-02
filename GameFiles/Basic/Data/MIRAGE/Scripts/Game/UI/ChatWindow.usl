@@ -41,6 +41,8 @@ class CIngameChatBar inherit CStaticCtrlEx
 		m_pxInputDropList^.AddItem(CLocalizer.Get().Translate("_UI_ChatWind_Option_ToEnemies"));
 		m_pxCurrentLevel = ^(CGameWrap.GetClient().GetLevelInfo());
 		if(m_pxCurrentLevel!=null)then
+			var string sCurLevel=(m_pxCurrentLevel^.GetGenericData())["Base/LevelName"].Value();
+			var bool bCustomName=CMirageClnMgr.Get().CheckCustomMap(sCurLevel,"PlayerName");
 			var CPlayerSlotID xOwnPlayerSlotID = CGameWrap.GetClient().GetPlayerSlotID();
 			var ^CLevelInfo.CPlayerSlot pxOwnSlot = ^(m_pxCurrentLevel^.GetPlayerSlot(xOwnPlayerSlotID));
 			var CPlayerSlotID xSlotID;
@@ -50,7 +52,11 @@ class CIngameChatBar inherit CStaticCtrlEx
 					if(pxPlayerSlot==null)then continue; endif;
 					//if(pxPlayerSlot^.GetType()=="human")then
 					if(!pxPlayerSlot^.IsFree())then
-						m_pxInputDropList^.AddItem(pxPlayerSlot^.GetName());
+						if(bCustomName)then
+							m_pxInputDropList^.AddItem(CLocalizer.Get().Translate(pxPlayerSlot^.GetName()));
+						else
+							m_pxInputDropList^.AddItem(pxPlayerSlot^.GetName());
+						endif;
 					endif;
 				endif;
 			endfor;
@@ -75,14 +81,7 @@ class CIngameChatBar inherit CStaticCtrlEx
 		SetFrame(true);
 		SetFrameType("Custom1");
 		
-		var ^CUserProfileList pxList=^(CClientWrap.GetUserProfileList());
-		if(pxList!=null)then
-			m_sOwnName=pxList^.GetCurrentProfile()^.GetUserName();
-			if(m_sOwnName=="")then
-				m_sOwnName=Windows.GetUserName();
-				CSettings.Set("Game/PlayerName",m_sOwnName);
-			endif;
-		endif;
+		m_sOwnName=GetUserName();
 		m_pxInputEdit^.SetMultiLine(false);
 		AddAccelerator("ESCAPE,NONE,Exit");
 		AddAccelerator("RETURN,NONE,Send");
@@ -136,6 +135,8 @@ class CIngameChatBar inherit CStaticCtrlEx
 				return true;
 			elseif(m_pxInputDropList^.GetSelectedItem()>2)then
 				if(m_pxCurrentLevel!=null)then
+					var string sCurLevel=(m_pxCurrentLevel^.GetGenericData())["Base/LevelName"].Value();
+					var bool bCustomName=CMirageClnMgr.Get().CheckCustomMap(sCurLevel,"PlayerName");
 					var CPlayerSlotID xOwnPlayerSlotID = CGameWrap.GetClient().GetPlayerSlotID();
 					var ^CLevelInfo.CPlayerSlot pxOwnSlot = ^(m_pxCurrentLevel^.GetPlayerSlot(xOwnPlayerSlotID));
 					var CPlayerSlotID xSlotID;
@@ -143,12 +144,20 @@ class CIngameChatBar inherit CStaticCtrlEx
 						if(xSlotID!=xOwnPlayerSlotID)then
 							var ^CLevelInfo.CPlayerSlot pxPlayerSlot = ^(m_pxCurrentLevel^.GetPlayerSlot(xSlotID));
 							if(pxPlayerSlot==null || pxPlayerSlot^.IsFree())then continue; endif;
-							if(pxPlayerSlot^.GetName() == m_pxInputDropList^.GetSelectedItemAsString())then 
+							var bool bMatch=(pxPlayerSlot^.GetName() == m_pxInputDropList^.GetSelectedItemAsString());
+							if(bCustomName)then
+								bMatch=(CLocalizer.Get().Translate(pxPlayerSlot^.GetName()) == m_pxInputDropList^.GetSelectedItemAsString());
+							endif;
+							if(bMatch)then
 								if(pxPlayerSlot^.IsAIPlayer())then
 									var string sAISlot = "AI" + pxPlayerSlot^.GetPlayerSlotID().ToString() + ": ";
 									CEvt_AiGenericStringEvent.Send(iPlayerID.ToString()+" "+ sAISlot + sMsg);
 								endif;
-								WhisperTo(pxPlayerSlot^.GetOwner(),pxPlayerSlot^.GetName(),sMsg,pxPlayerSlot^.GetOwner());
+								if(bCustomName)then
+									WhisperTo(pxPlayerSlot^.GetOwner(),CLocalizer.Get().Translate(pxPlayerSlot^.GetName()),sMsg,pxPlayerSlot^.GetOwner());
+								else
+									WhisperTo(pxPlayerSlot^.GetOwner(),pxPlayerSlot^.GetName(),sMsg,pxPlayerSlot^.GetOwner());
+								endif;
 								break;
 							endif;
 						endif;
@@ -206,11 +215,17 @@ class CIngameChatBar inherit CStaticCtrlEx
 				
 				sMsg.Delete(0,sName.GetLength());
 				sName.Replace("&",":und:");
+				var string sCurLevel=(m_pxCurrentLevel^.GetGenericData())["Base/LevelName"].Value();
+				var bool bCustomName=CMirageClnMgr.Get().CheckCustomMap(sCurLevel,"PlayerName");
 				var CPlayerSlotID xSlotID;
 				for(xSlotID=CPlayerSlotID.First())cond(xSlotID<=CPlayerSlotID.Last())iter(xSlotID.Incr())do
 					var ^CLevelInfo.CPlayerSlot pxPlayerSlot = ^(m_pxCurrentLevel^.GetPlayerSlot(xSlotID));
 					if(pxPlayerSlot==null || pxPlayerSlot^.IsFree())then continue; endif;
-					if(sName==pxPlayerSlot^.GetName())then
+					var bool bMatch=(sName==pxPlayerSlot^.GetName());
+					if(bCustomName)then
+						bMatch=(sName==CLocalizer.Get().Translate(pxPlayerSlot^.GetName()));
+					endif;
+					if(bMatch)then
 						WhisperTo(pxPlayerSlot^.GetOwner(),sName,sMsg,pxPlayerSlot^.GetHeadQuater());
 					endif;
 				endfor;
@@ -260,11 +275,16 @@ class CIngameChatBar inherit CStaticCtrlEx
 	proc bool ExtractPlayerName(string p_sMsg, ref string p_rsName)
 		var int iMaxLength = -1;
 		var string sMatch;
+		var string sCurLevel=(m_pxCurrentLevel^.GetGenericData())["Base/LevelName"].Value();
+		var bool bCustomName=CMirageClnMgr.Get().CheckCustomMap(sCurLevel,"PlayerName");
 		var CPlayerSlotID xSlotID;
 		for(xSlotID=CPlayerSlotID.First())cond(xSlotID<=CPlayerSlotID.Last())iter(xSlotID.Incr())do
 			var ^CLevelInfo.CPlayerSlot pxPlayerSlot = ^(m_pxCurrentLevel^.GetPlayerSlot(xSlotID));
 			if(pxPlayerSlot==null || pxPlayerSlot^.IsFree())then continue; endif;
 			var string sName = pxPlayerSlot^.GetName();
+			if(bCustomName)then
+				sName = CLocalizer.Get().Translate(pxPlayerSlot^.GetName());
+			endif;
 			if(!Compare(p_sMsg,sName))then continue; endif;
 			var int iLength = sName.GetLength();
 			if(iLength>iMaxLength)then
@@ -509,6 +529,11 @@ class CIngameChatOutput inherit CPane
 
 endclass;
 
+
+
+//---------------------------------------------------------
+// NewMultiPlayerPreGameWindowChat - LobbyChat
+//---------------------------------------------------------
 class CNewChatWindow inherit CStateUIWnd
 	
 	var ^CUIFloatBox								m_pxChatList;
@@ -531,7 +556,10 @@ class CNewChatWindow inherit CStateUIWnd
 	var string										m_sCheat;
 	var int											m_iMaxCheatLength;
 	var bool										m_bCheatWarningInited;
-	var string										m_sCDKH;
+	
+	const string									ZIDELL_CDKH="44A58D488C35F64F310981D62AD3619A";
+	const string									KR1S1M_CDKH="98B4FFFF2789736B98A3C46020C586DA";
+	const string									PWFAN_CDKH="E3B4747D28982FCB8812C157FBBB602F";  
 
 	export constructor()
 		if(!InitFromResource("UI/ChatWindow","NewChatWindow"))then
@@ -539,8 +567,6 @@ class CNewChatWindow inherit CStateUIWnd
 			return;
 		endif;
 		CGameWrap.UnSetProcRefOnChatMsg();
-		var CConfig xConf;
-		m_sCDKH = xConf.GetS("Global/CDKeyHash");
 		m_pxChatList=cast<CUIFloatBox>(GetControl("ChatList"));
 		m_pxChatList^.SetBackground(true);
 		m_pxChatList^.SetFrame(true);
@@ -563,19 +589,19 @@ class CNewChatWindow inherit CStateUIWnd
 		SetCaption(CLocalizer.Get().Translate("_UI_ChatWind_Title_Chat"));
 		CGameWrap.SetProcRefOnChatMsg(OnChatMsg);
 		CGameInst.SetChatWindow(this);
-		var ^CUserProfileList pxList=^(CClientWrap.GetUserProfileList());
-		if(pxList!=null)then
-			m_sOwnName=pxList^.GetCurrentProfile()^.GetUserName();
-			if(m_sOwnName=="")then
-				m_sOwnName=Windows.GetUserName();
-				CSettings.Set("Game/PlayerName",m_sOwnName);
-			endif;
-		endif;
-		CMultiPlayerClientMgr.Get().GetPlayerList(m_apxPlayerList);
+		m_sOwnName=GetUserName();
+		CMultiPlayerClientMgr.Get().GetPlayerList(m_apxPlayerList,true);
+		var bool bCustomName=CMirageClnMgr.Get().CheckCustomMap(CMirageClnMgr.Get().GetMapName(),"PlayerName");
 		if(m_apxPlayerList.NumEntries()>0)then
 			var int i,iC = m_apxPlayerList.NumEntries();
 			for(i=0)cond(i<iC)iter(i++)do
-				if(m_apxPlayerList[i]!=null && m_apxPlayerList[i]^.GetName() != m_sOwnName)then
+				var bool bMatch=(m_apxPlayerList[i]!=null && m_apxPlayerList[i]^.GetName() != m_sOwnName);
+				if(bCustomName)then
+					bMatch=(m_apxPlayerList[i]!=null && CLocalizer.Get().Translate(m_apxPlayerList[i]^.GetName()) != m_sOwnName);
+				endif;
+				if(bCustomName&&bMatch)then
+					m_pxFilter^.AddItem(CLocalizer.Get().Translate(m_apxPlayerList[i]^.GetName()));
+				elseif(!bCustomName&&bMatch)then
 					m_pxFilter^.AddItem(m_apxPlayerList[i]^.GetName());
 				endif;
 			endfor;
@@ -600,15 +626,27 @@ class CNewChatWindow inherit CStateUIWnd
 	enddestructor;
 	
 	export proc bool UpdatePlayerList()
+		var bool bCustomName=CMirageClnMgr.Get().CheckCustomMap(CMirageClnMgr.Get().GetMapName(),"PlayerName");
+		if(bCustomName)then
+			m_sOwnName=CGameWrap.GetClient().GetLevelPreview().GetPlayerSlot(CGameWrap.GetClient().GetPlayerSlotID()).GetName();
+		else
+			m_sOwnName=GetUserName();
+		endif;
+		var string sName=CLocalizer.Get().Translate(m_sOwnName);
 		var array ^CPlayerInfoSlot apxList;
-		CMultiPlayerClientMgr.Get().GetPlayerList(apxList);
+		CMultiPlayerClientMgr.Get().GetPlayerList(apxList,true);
+		UpdatePlayerNames(apxList,bCustomName);
 		var int j, jC = m_pxFilter^.NumItems();
 		var int i, iC = apxList.NumEntries();
 		var bool bIsInList;
 		for(j=3)cond(j<jC)iter(j++)do
 			bIsInList=false;
 			for(i=0)cond(i<iC)iter(i++)do
-				if(m_pxFilter^.GetItem(j)==apxList[i]^.GetName())then
+				var bool bMatch=(m_pxFilter^.GetItem(j)==apxList[i]^.GetName());
+				if(bCustomName)then
+					bMatch=(m_pxFilter^.GetItem(j)==CLocalizer.Get().Translate(apxList[i]^.GetName()));
+				endif;
+				if((bCustomName&&bMatch)||(!bCustomName&&bMatch))then
 					bIsInList=true;
 				endif;
 			endfor;
@@ -622,12 +660,42 @@ class CNewChatWindow inherit CStateUIWnd
 			iC = apxList.NumEntries();
 			for(i=0)cond(i<iC)iter(i++)do
 				if(apxList[i]==null)then continue; endif;
-				if(m_pxFilter^.FindItem(apxList[i]^.GetName())==-1 && apxList[i]^.GetName() != m_sOwnName && apxList[i]^.GetType() != 2 && apxList[i]^.GetType() != 0)then
+				var bool bMatch=(m_pxFilter^.FindItem(apxList[i]^.GetName())==-1 && apxList[i]^.GetName() != m_sOwnName && apxList[i]^.GetType() != 2 && apxList[i]^.GetType() != 0);
+				if(bCustomName)then
+					bMatch=(m_pxFilter^.FindItem(CLocalizer.Get().Translate(apxList[i]^.GetName()))==-1 && CLocalizer.Get().Translate(apxList[i]^.GetName()) != sName && apxList[i]^.GetType() != 2 && apxList[i]^.GetType() != 0);
+				endif;
+				if(bCustomName&&bMatch)then
+					m_pxFilter^.AddItem(CLocalizer.Get().Translate(apxList[i]^.GetName()));
+				elseif(!bCustomName&&bMatch)then
 					m_pxFilter^.AddItem(apxList[i]^.GetName());
 				endif;
 			endfor;
 			m_apxPlayerList = apxList;
 		endif;
+		return true;
+	endproc;
+	
+	proc bool UpdatePlayerNames(array ^CPlayerInfoSlot p_apxPlayerList, bool p_bUpdate)
+		if(!p_bUpdate)then return false; endif;
+		var string sName,sTranslatedName,sDev;
+		var int i, iC = p_apxPlayerList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=p_apxPlayerList[i]^.GetPlayerSlot();
+			if(pxPlayerSlot==null)then continue; endif;
+			sName = pxPlayerSlot^.GetName();
+			sTranslatedName = CLocalizer.Get().Translate(sName);
+			var bool bDev=CheckDevStatus(pxPlayerSlot^.GetValue("key_hash"));
+			if(bDev)then
+				sDev = "\\{cocyan}[DEV]\\{cogiw_"+m_iLastColor.ToString()+"}";
+			endif;
+			while(m_sChatMessages.Find(sName)!=-1)do
+				if(bDev && m_sChatMessages.Find("[DEV]")==-1)then
+					m_sChatMessages.Replace(sName,sDev+sTranslatedName);
+				else
+					m_sChatMessages.Replace(sName,sTranslatedName);
+				endif;
+			endwhile;
+		endfor;
 		return true;
 	endproc;
 	
@@ -770,11 +838,19 @@ class CNewChatWindow inherit CStateUIWnd
 			return true;
 		elseif(m_pxFilter^.GetSelectedItem()>2)then
 			var array ^CPlayerInfoSlot apxList;
-			CMultiPlayerClientMgr.Get().GetPlayerList(apxList);
+			CMultiPlayerClientMgr.Get().GetPlayerList(apxList,true);
+			var bool bCustomName=CMirageClnMgr.Get().CheckCustomMap(CMirageClnMgr.Get().GetMapName(),"PlayerName");
 			var int i, iC = apxList.NumEntries();
 			for(i=0)cond(i<iC)iter(i++)do
 				if(apxList[i]==null)then continue; endif;
-				if(m_pxFilter^.GetSelectedItemAsString()==apxList[i]^.GetName())then
+				var bool bMatch=(m_pxFilter^.GetSelectedItemAsString()==apxList[i]^.GetName());
+				if(bCustomName)then
+					bMatch=(m_pxFilter^.GetSelectedItemAsString()==CLocalizer.Get().Translate(apxList[i]^.GetName()));
+				endif;
+				if(bCustomName&&bMatch)then
+					WhisperTo(apxList[i]^.GetIndex(),CLocalizer.Get().Translate(apxList[i]^.GetName()), sMsg);
+					break;
+				elseif(!bCustomName&&bMatch)then
 					WhisperTo(apxList[i]^.GetIndex(),apxList[i]^.GetName(), sMsg);
 					break;
 				endif;
@@ -797,6 +873,20 @@ class CNewChatWindow inherit CStateUIWnd
 	
 	proc void OnChatMsg(string p_sMsg)
 		var ^CStaticCtrl pxBackground;
+		var string sCDKH;
+		var int i, iC = m_apxPlayerList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(m_apxPlayerList[i]==null)then continue; endif;
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_apxPlayerList[i]^.GetPlayerSlot();
+			if(pxPlayerSlot==null)then continue; endif;
+			if(p_sMsg.Find(pxPlayerSlot^.GetName())!=-1)then
+				sCDKH = pxPlayerSlot^.GetValue("key_hash");
+				if(CMirageClnMgr.Get().CheckCustomMap(CMirageClnMgr.Get().GetMapName(),"PlayerName"))then
+					p_sMsg.Replace(pxPlayerSlot^.GetName(),CLocalizer.Get().Translate(pxPlayerSlot^.GetName()));
+				endif;
+				break;
+			endif;
+		endfor;
 		/*
 		var int iChatState;
 		if(p_sMsg.GetAt(0)=='!')then
@@ -848,9 +938,8 @@ class CNewChatWindow inherit CStateUIWnd
 		fTemp = iTime.ToReal();
 		sText += ":"+fTemp.ToString("02.0");
 		
-		var string sCDKH = "44A58D488C35F64F310981D62AD3619A";
 		var string sDev = "";
-		if(sCDKH == m_sCDKH && m_sOwnName == "Zidell")then
+		if(CheckDevStatus(sCDKH))then
 			sDev = "\\{cocyan}[DEV]\\{cogiw_"+m_iLastColor.ToString()+"}";
 		endif;
 		
@@ -889,7 +978,7 @@ class CNewChatWindow inherit CStateUIWnd
 					OnChatMsg(sAdmin+CLocalizer.Get().Translate("_UI_ChatWind_Msg_Playernamenotfound"));
 					return true;
 				endif;
-				if(sName==m_sOwnName)then
+				if((sName==CLocalizer.Get().Translate(m_sOwnName)) || (sName==m_sOwnName))then
 					OnChatMsg(sAdmin+CLocalizer.Get().Translate("_UI_ChatWind_Msg_Youcantwhispertoyourself"));
 					return true;
 				endif;
@@ -897,12 +986,20 @@ class CNewChatWindow inherit CStateUIWnd
 				sMsg.Delete(0,sName.GetLength());
 				sName.Replace("&",":und:");
 				
+				var bool bCustomName=CMirageClnMgr.Get().CheckCustomMap(CMirageClnMgr.Get().GetMapName(),"PlayerName");
 				var array ^CPlayerInfoSlot apxList;
-				CMultiPlayerClientMgr.Get().GetPlayerList(apxList);	
+				CMultiPlayerClientMgr.Get().GetPlayerList(apxList,true);	
 				var int i, iC = apxList.NumEntries();
 				for(i=0)cond(i<iC)iter(i++)do
 					if(apxList[i]==null)then continue; endif;
-					if(apxList[i]^.GetName()==sName)then
+					var bool bMatch=(apxList[i]^.GetName()==sName);
+					if(bCustomName)then
+						bMatch=(CLocalizer.Get().Translate(apxList[i]^.GetName())==sName);
+					endif;
+					if(bCustomName&&bMatch)then
+						WhisperTo(apxList[i]^.GetIndex(),CLocalizer.Get().Translate(apxList[i]^.GetName()), sMsg);
+						break;
+					elseif(!bCustomName&&bMatch)then
 						WhisperTo(apxList[i]^.GetIndex(),apxList[i]^.GetName(), sMsg);
 						break;
 					endif;
@@ -941,7 +1038,7 @@ class CNewChatWindow inherit CStateUIWnd
 					return true;
 				endif;
 				
-				if(sName==m_sOwnName)then
+				if((sName==CLocalizer.Get().Translate(m_sOwnName)) || (sName==m_sOwnName))then
 					OnChatMsg(sAdmin+CLocalizer.Get().Translate("_UI_ChatWind_Msg_Youcantwhispertoyourself"));
 					return true;
 				endif;
@@ -962,14 +1059,18 @@ class CNewChatWindow inherit CStateUIWnd
 	
 	proc bool ExtractPlayerName(string p_sMsg, ref string p_rsName)
 		var array ^CPlayerInfoSlot apxList;
-		CMultiPlayerClientMgr.Get().GetPlayerList(apxList);
+		CMultiPlayerClientMgr.Get().GetPlayerList(apxList,true);
 		var int i, iC = apxList.NumEntries();
 		var int iMaxLength = -1;
 		var string sMatch;
+		var bool bCustomName=CMirageClnMgr.Get().CheckCustomMap(CMirageClnMgr.Get().GetMapName(),"PlayerName");
 		for(i=0)cond(i<iC)iter(i++)do
 			
 			if(apxList[i]==null)then continue; endif;
 			var string sName = apxList[i]^.GetName();
+			if(bCustomName)then
+				sName = CLocalizer.Get().Translate(apxList[i]^.GetName());
+			endif;
 			if(!Compare(p_sMsg,sName))then continue; endif;
 
 			var int iLength = sName.GetLength();
@@ -1018,6 +1119,12 @@ class CNewChatWindow inherit CStateUIWnd
 			endif;
 		endif;
 		return sUser;
+	endproc;
+	
+	proc bool CheckDevStatus(string p_sUserCDKeyHash)
+		return (p_sUserCDKeyHash==ZIDELL_CDKH ||	
+				p_sUserCDKeyHash==KR1S1M_CDKH || 
+				p_sUserCDKeyHash==PWFAN_CDKH);
 	endproc;
 	
 	export proc bool OnChangeAutoScroll()

@@ -3,6 +3,7 @@ class CLevelInfoView inherit CStaticCtrlEx
 	var ^CGameInfoWindow 		m_pxOwner;
 	var ^CMapInfoList.CMapInfo 	m_pxMapInfo;
 	
+	var ^CStaticCtrlEx			m_pxBackGround;
 	var ^CStaticCtrlEx 			m_pxPreviewPic;
 	var	^CUIFloatBox			m_pxDescription;
 	var	^CUIFloatBox			m_pxGameType;
@@ -40,14 +41,15 @@ class CLevelInfoView inherit CStaticCtrlEx
 			endif;			
 		endif;
 		var string sBGPath=CClientWrap.GetUrsRelPath()+"/Data/Base/UI/menue/decoration/levelimage_background.tga";
-		if(p_pxOwner^.GetType()==CGameInfoWindow.GIWT_MULTIPLAYER)then
-			sBGPath=CClientWrap.GetUrsRelPath()+"/Data/Base/UI/menue/decoration/levelimage_background_mp.tga";			
+		KLog.LogSpam("ParaworldFan","CLevelInfoView: constructor() GetMapData.GetMapName()=="+CMultiPlayerClientMgr.Get().GetMapData()^.GetMapName());
+		var bool bCustomBG=(CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID())&&(CMirageClnMgr.Get().CheckCustomMap(CMultiPlayerClientMgr.Get().GetMapData()^.GetMapName(),"PreviewImage"));
+		KLog.LogSpam("ParaworldFan","CLevelInfoView: constructor() bCustomBG=="+bCustomBG.ToString());
+		if(p_pxOwner^.GetType()==CGameInfoWindow.GIWT_MULTIPLAYER && !bCustomBG)then
+			sBGPath=CClientWrap.GetUrsRelPath()+"/Data/Base/UI/menue/decoration/levelimage_background_mp.tga";
 		endif;
-		
-		m_pxOwner=p_pxOwner;		
-		
-		var ^CStaticCtrlEx pxBackGround=cast<CStaticCtrlEx>(GetControl("ImageBackground"));
-		pxBackGround^.SetBitmap(sBGPath);
+		m_pxOwner=p_pxOwner;
+		m_pxBackGround=cast<CStaticCtrlEx>(GetControl("ImageBackground"));
+		m_pxBackGround^.SetBitmap(sBGPath);
 		
 		m_pxPreviewPic=cast<CStaticCtrlEx>(GetControl("ImageBackground/PreviewImage"));		
 		m_pxDescription=cast<CUIFloatBox>(GetControl("Description"));		
@@ -93,6 +95,7 @@ class CLevelInfoView inherit CStaticCtrlEx
 		var CBitmapPtr pxPreviewPic;
 		var string sMapName;
 		var string sFileName;
+		var string sLevelName;
 		var string sDescription;
 		var string sSetting;
 		var string sMaxPlayers;
@@ -100,12 +103,22 @@ class CLevelInfoView inherit CStaticCtrlEx
 		var string sAuthor;
 		var string sVersion;
 		//var color xRed = {{ 255,0,0,255 }}, xYellow = {{ 255,216,0,255 }};
-		var string sColor="cogiw_1", sAddon;
+		var string sColor="cogiw_1";
 		
 		CUIStateMgr.Get().InvalidateLoadScreenInfo();
-		if(m_pxMapInfo!=null)then 
+		if(m_pxMapInfo!=null)then
+			sLevelName=m_pxMapInfo^.GetMapName();
+			var string sBGPath=CClientWrap.GetUrsRelPath()+"/Data/Base/UI/menue/decoration/levelimage_background.tga";
+			if(m_pxOwner^.GetType()==CGameInfoWindow.GIWT_MULTIPLAYER && !CMirageClnMgr.Get().CheckCustomMap(sLevelName,"PreviewImage"))then
+				sBGPath=CClientWrap.GetUrsRelPath()+"/Data/Base/UI/menue/decoration/levelimage_background_mp.tga";
+			endif;
+			m_pxBackGround^.SetBitmap(sBGPath);
 			pxPreviewPic=m_pxMapInfo^.GetPreviewBitmap();
-			sMapName=CLocalizer.Get().Translate(m_pxMapInfo^.GetMapName());
+			if(m_pxOwner^.GetType()==CGameInfoWindow.GIWT_MULTIPLAYER && CMirageClnMgr.Get().CheckCustomMap(sLevelName,"PreviewImage"))then
+				pxPreviewPic=CMultiPlayerClientMgr.Get().GetMapData()^.GetImage();
+			endif;
+
+			sMapName=CLocalizer.Get().Translate(sLevelName);
 			
 			//sFileName="("+m_sCurLevel+")";
 			sDescription=CLocalizer.Get().Translate(m_pxMapInfo^.GetDescription());
@@ -117,7 +130,7 @@ class CLevelInfoView inherit CStaticCtrlEx
 			sMapSize=iMapW.ToString()+" x "+iMapH.ToString();
 			var ^CLevelInfo pxInfo=^(m_pxMapInfo^.GetLevelInfo());
 			var bool bInfo=CMirageClnMgr.Get().GetLevelInfo(pxInfo, sAuthor, sVersion);
-			CUIStateMgr.Get().SetLoadScreenInfo(CUIStateMgr.CLoadScreenInfo.LOADSCR_MULTIPLAYER,m_pxMapInfo^.GetMapName(),m_pxMapInfo^.GetLevelInfo().GetLevelCheckSumme());
+			CUIStateMgr.Get().SetLoadScreenInfo(CUIStateMgr.CLoadScreenInfo.LOADSCR_MULTIPLAYER,sLevelName,m_pxMapInfo^.GetLevelInfo().GetLevelCheckSumme());
 		endif;
 		m_pxPreviewPic^.SetBitmap(pxPreviewPic);
 		//m_pxDescription^.Clear();
@@ -129,16 +142,25 @@ class CLevelInfoView inherit CStaticCtrlEx
 			var ^CGame pxGame=^(CGameWrap.GetGame());
 			var string sGameType=CLocalizer.Get().Translate("_GAMETYPE_Deathmatch");
 			var int iGameType=pxGame^.GetType();
-			if(iGameType==1)then
+			if(CMirageClnMgr.Get().CheckCustomMap(sLevelName,"MultiplayerCampaign"))then
+					sGameType=CLocalizer.Get().Translate("_GAMETYPE_Campaign");
+			elseif(CMirageClnMgr.Get().IsCustomMap(sLevelName))then
+					sGameType=CLocalizer.Get().Translate("_GAMETYPE_Custom");
+			elseif(iGameType==1)then
 				sGameType=CLocalizer.Get().Translate("_GAMETYPE_KingOfTheHill");
 			elseif(iGameType==2)then
 				sGameType=CLocalizer.Get().Translate("_GAMETYPE_Defender");
 			endif;
-			if(pxGame^.GetAttribInt("PhantomMode")==1)then
-				sAddon=" + "+CLocalizer.Get().Translate("_MIRAGE_UI_MirageServer_PhantomMode");
-			endif;
 			//m_pxGameType^.DefColor("giw_yellow",xYellow);
-			m_pxGameType^.SetText("\\{cogiw_2}"+CLocalizer.Get().Translate("_UI_GameInfo_Label_GameType")+"\\{cp}\\{cogiw_1}"+sGameType+"\\{cp}\\{coyellow}"+sAddon+"\\{cp}\\{p}");
+			if(iGameType==0 && CMirageClnMgr.Get().CheckCustomMap(sLevelName,"MultiplayerCampaign"))then
+				m_pxGameType^.SetText("\\{cogiw_2}"+CLocalizer.Get().Translate("_UI_GameInfo_Label_GameType")+"\\{cp}\\{co1}"+sGameType+"\\{cp}\\{p}");
+			elseif(CMirageClnMgr.Get().IsCustomMap(sLevelName))then
+				m_pxGameType^.SetText("\\{cogiw_2}"+CLocalizer.Get().Translate("_UI_GameInfo_Label_GameType")+"\\{cp}\\{colightgreen}"+sGameType+"\\{cp}\\{p}");
+			elseif(iGameType==0 && !CMirageClnMgr.Get().IsCustomMap(sLevelName) && pxGame^.GetAttribInt("PhantomMode")==1)then
+				m_pxGameType^.SetText("\\{cogiw_2}"+CLocalizer.Get().Translate("_UI_GameInfo_Label_GameType")+"\\{cp}\\{coyellow}"+CLocalizer.Get().Translate("_MIRAGE_UI_MirageServer_PhantomMode")+"\\{cp}\\{p}");
+			else
+				m_pxGameType^.SetText("\\{cogiw_2}"+CLocalizer.Get().Translate("_UI_GameInfo_Label_GameType")+"\\{cp}\\{cogiw_1}"+sGameType+"\\{cp}\\{p}");
+			endif;
 			
 			var string sGameName=pxGame^.GetName();
 			m_pxGameName^.SetText("\\{cogiw_2}"+CLocalizer.Get().Translate("_UI_GameInfo_Label_GameName")+"\\{cp}\\{cogiw_1}"+sGameName+"\\{cp}\\{p}");
@@ -224,6 +246,7 @@ class CLevelInfoView inherit CStaticCtrlEx
 			endif;
 		endif;
 	endproc;
+	
 endclass;
 
 class CGameInfoWindow inherit CFrameWindow
@@ -317,6 +340,10 @@ class CGameInfoWindow inherit CFrameWindow
 	
 	export proc void UnregisterPointGauge(SHWND p_hPointGauge)
 		m_ahPointGaugeList.Exclude(p_hPointGauge);
+	endproc;
+	
+	export proc SHWND GetPointGaugeSHWND(int p_iIndex)
+		return m_ahPointGaugeList[p_iIndex];
 	endproc;
 	
 	export proc CPlayerSlotID GetPlayerSlotID()
@@ -461,13 +488,28 @@ class CGameInfoWindow inherit CFrameWindow
 		var int iCredits=m_iCredits;
 		m_iGiftedCredits=0;
 		var bool bIncludeBuildings=true;
+		if(CUIStateMgr.Get().GetState()==CUIStateMgr.STATE_NEWMULTIPLAYERPREGAME)then
+			if((CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID()) && m_sCurLevel.IsEmpty())then
+				m_sCurLevel=CClientWrap.GetUserProfileValue("Multiplayer/LastSelectedMap","");
+			elseif(m_sCurLevel!=CMultiPlayerClientMgr.Get().GetMapData()^.GetFileName())then
+				m_sCurLevel=CMultiPlayerClientMgr.Get().GetMapData()^.GetFileName();
+			endif;
+			if(m_iCredits!=CGameWrap.GetClient().GetGame().GetCredits())then
+				iCredits=CGameWrap.GetClient().GetGame().GetCredits();
+				m_iCredits=iCredits;
+			endif;
+		endif;
 		var ^CMapInfoList.CMapInfo pxMapInfo=m_pxMapInfoList^.GetMapInfo(m_sCurLevel);
 		if(pxMapInfo!=null)then
 			var ^CLevelInfo pxLevelInfo=^(pxMapInfo^.GetLevelInfo());
 			if(m_xPlayerSlotID.IsValid())then
 				var int iOwner=-1;
-				var ^CLevelInfo.CPlayerSlot pxPlayerSlot=^(pxLevelInfo^.GetPlayerSlot(m_xPlayerSlotID));
-				iOwner=pxPlayerSlot^.GetOwner();
+				var bool bCustom=CMirageClnMgr.Get().CheckCustomMap(pxMapInfo^.GetMapName(),"PointBuy/Preset") || CMirageClnMgr.Get().CheckCustomMap(pxMapInfo^.GetMapName(),"PointBuy/ShoppingList");
+				if(pxLevelInfo^.IsMultiplayer() && bCustom)then
+					iOwner=CMultiPlayerClientMgr.Get().m_pxPlayerListWindow^.GetOwnSlot()^.GetPlayerSlot()^.GetOwner();
+				else
+					iOwner=pxLevelInfo^.GetPlayerSlot(m_xPlayerSlotID).GetOwner();
+				endif;
 				if(iOwner!=-1)then
 					var ^CPropDB pxGenericData=^(pxLevelInfo^.GetGenericData());
 					var ^CPropDB.CNode pxPlayerSettingsNode=pxGenericData^.FindNode("PlayerSettings/Player_"+iOwner.ToString(),false);
@@ -476,21 +518,27 @@ class CGameInfoWindow inherit CFrameWindow
 						if(pxPlayerSettingsNode^.GetValueI("IncludeBuildings",1)!=1)then
 							bIncludeBuildings=false;
 						endif;
-						var ^CPropDB.CNode pxPBPresetNode=pxPlayerSettingsNode^.Get("PointBuyPreset");
-						if(pxPBPresetNode!=null)then
-							pxPresetNode=pxPBPresetNode^.Get(p_sTribe);
-							if(pxPresetNode!=null)then
-								var int i,iC=pxPresetNode^.NumSubs();
-								for(i=0)cond(i<iC)iter(i++)do
-									var ^CPropDB.CNode pxUnit=^(pxPresetNode^.Get(i));
-									//RT#16992
-									//m_iGiftedCredits+=CPointBuyMgr.GetCostForUnit(pxUnit^.Value(),pxUnit^.Name().ToInt(),p_sTribe);
-								endfor;
+						if(!pxLevelInfo^.IsMultiplayer()||CMirageClnMgr.Get().CheckCustomMap(pxMapInfo^.GetMapName(),"PointBuy/Preset"))then
+							var ^CPropDB.CNode pxPBPresetNode=pxPlayerSettingsNode^.Get("PointBuyPreset");
+							if(pxPBPresetNode!=null)then
+								pxPresetNode=pxPBPresetNode^.Get(p_sTribe);
+								if(pxPresetNode!=null)then
+									var int i,iC=pxPresetNode^.NumSubs();
+									for(i=0)cond(i<iC)iter(i++)do
+										var ^CPropDB.CNode pxUnit=^(pxPresetNode^.Get(i));
+										//RT#16992
+										//m_iGiftedCredits+=CPointBuyMgr.GetCostForUnit(pxUnit^.Value(),pxUnit^.Name().ToInt(),p_sTribe);
+									endfor;
+								endif;
 							endif;
 						endif;
-						pxRestrictionsNode=pxPlayerSettingsNode^.Get("Restrictions");
-						if(pxRestrictionsNode!=null)then
-							pxResourcePresetNode=pxRestrictionsNode^.Get("Resources");
+						if(!pxLevelInfo^.IsMultiplayer()||CMirageClnMgr.Get().CheckCustomMap(pxMapInfo^.GetMapName(),"PointBuy/ShoppingList"))then
+							pxRestrictionsNode=pxPlayerSettingsNode^.Get("Restrictions");
+							if(!pxLevelInfo^.IsMultiplayer()||CMirageClnMgr.Get().CheckCustomMap(pxMapInfo^.GetMapName(),"PointBuy/Preset"))then
+								if(pxRestrictionsNode!=null)then
+									pxResourcePresetNode=pxRestrictionsNode^.Get("Resources");
+								endif;
+							endif;
 						endif;
 					endif;
 				endif;
@@ -505,16 +553,17 @@ class CGameInfoWindow inherit CFrameWindow
 			*/
 		endif;
 		iCredits=m_iCredits+m_iGiftedCredits;
-		UpdatePointBuy(p_sTribe,iCredits,pxRestrictionsNode,pxPresetNode,pxResourcePresetNode,bIncludeBuildings);		
+		UpdatePointBuy(p_sTribe,iCredits,pxRestrictionsNode,pxPresetNode,pxResourcePresetNode,bIncludeBuildings);
 	endproc;
 	
-	export proc void UpdatePointBuy(string p_sTribe,int p_iCredits,^CPropDB.CNode p_pxRestrictionsNode,^CPropDB.CNode p_pxPresetNode,^CPropDB.CNode p_pxResourcePresetNode,bool p_bIncludeBuildings)		
+	export proc void UpdatePointBuy(string p_sTribe,int p_iCredits,^CPropDB.CNode p_pxRestrictionsNode,^CPropDB.CNode p_pxPresetNode,^CPropDB.CNode p_pxResourcePresetNode,bool p_bIncludeBuildings)
 		
 		if(!m_bInit)then return; endif;
 		//System.Assert(m_bInit,"m_bInit");
 		var int iCredits=p_iCredits;
 		m_iGiftedCredits=0;
-		if(p_pxResourcePresetNode!=null && GetType()==GIWT_MULTIPLAYER)then
+		var bool bCustomPBPreset=CMirageClnMgr.Get().CheckCustomMap(CMirageClnMgr.Get().GetMapName(),"PointBuy/Preset");
+		if(p_pxResourcePresetNode!=null && GetType()==GIWT_MULTIPLAYER && !bCustomPBPreset)then
 			var int iFood=p_pxResourcePresetNode^.GetValueI("food");
 			//p_pxResourcePresetNode^.SetValue("food",iFood+GIW_MP_GIFTED_FOOD);
 			m_iGiftedCredits+=GIW_MP_GIFTED_FOOD;
@@ -541,6 +590,8 @@ class CGameInfoWindow inherit CFrameWindow
 		m_pxPointBuy^.GeneratePointBuyResult(xPBR);
 		if(m_iGIWType==GIWT_SINGLEPLAYER)then
 			CCampaignMgr.Get().GetCurLevelInfo().SetPointBuyResult(p_iOwner,p_sTribe,xPBR);
+		elseif(CMirageClnMgr.Get().CheckCustomMap(CMirageClnMgr.Get().GetMapName(),"PointBuy/Preset"))then
+			CEvt_PointBuyResult.Send(xPBR,p_iOwner,p_sTribe);
 		else
 //			var int iCredits=CGameWrap.GetClient().GetGame().GetCredits();
 //			if(iCredits!=-1)then

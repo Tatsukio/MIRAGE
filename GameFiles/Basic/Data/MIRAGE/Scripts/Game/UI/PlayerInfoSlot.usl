@@ -23,9 +23,11 @@ class CPlayerInfoSlot inherit CStaticCtrl
 	var int							m_iCredits;
 	var int							m_iSlotID;
 	var string					m_sName;
+	var string					m_sCustomName;
 	var string					m_sArmy;
 	var string					m_sTribe;
 	var string					m_sType;
+	var string				m_sLevelName;
 	var bool						m_bReady;
 	var bool						m_bIsSkirmishMode;
 	var array string		m_asAIPersonalities;
@@ -35,9 +37,11 @@ class CPlayerInfoSlot inherit CStaticCtrl
 	export var procref <bool,bool>	m_xOnDisableArmy;
 	export var procref <bool,bool>	m_xOnDisablePB;
 	
+	export var procref <bool>		m_xOnUpdateDifficulty;
+	
 	const int TYPE_OPEN		=0;
 	const int TYPE_HUMAN	=1;
-	const int TYPE_AI			=2;
+	const int TYPE_AI		=2;
 	const int TYPE_CLOSED	=3;
 	
 	export constructor()
@@ -85,6 +89,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 		m_asRandomTribes.AddEntry("SEAS_Aje");
 		m_asRandomTribes.AddEntry("Aje_Hu");
 		m_asRandomTribes.AddEntry("Ninigi_SEAS");
+		m_xOnUpdateDifficulty=OnUpdateDifficulty;
 	endconstructor;
 	
 	export destructor()
@@ -186,6 +191,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 			var bool bAiPlayer = m_sType.Left(3)=="ai_";
 			var bool bResetArmy = false;
 			var int iNewCredits = CGameWrap.GetClient().GetGame().GetCredits();
+			m_sLevelName=CMirageClnMgr.Get().GetMapName();
 			if(m_iCredits != iNewCredits)then
 				m_iCredits = iNewCredits;
 				if(bOwn)then
@@ -220,11 +226,25 @@ class CPlayerInfoSlot inherit CStaticCtrl
 			m_iHP = m_pxPlayerSlot^.GetHP();
 			if(m_iHP==0)then m_iHP=100; endif;
 			m_iHeadQuater = m_pxPlayerSlot^.GetHeadQuater();
+			//Updating PlayerSlot HeadQuater if necessary
+			if(CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"Players/Player_"+m_iSlotID.ToString()+"/AddIfEmpty") && m_pxPlayerSlot^.IsFree())then
+				//calling function for players that wasnt added in Lobby, but will be added in Game
+				m_pxOwner^.UpdateSlotHeadQuater(m_iSlotID, m_iHeadQuater);
+			endif;
+			if(m_iHeadQuater!=m_pxPlayerSlot^.GetHeadQuater()) then
+				m_pxHQDropList^.Select(m_iHeadQuater);
+				OnChangeHeadQuater();
+			endif;
+			//
 			begin check_HQ;
 				var int iMaxPlayers=0;
-				var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
-				if(pxLevelInfo!=null)then
-					iMaxPlayers=(pxLevelInfo^.GetGenericData())["Base/MaxPlayers"].ValueI();
+				if(bHost)then
+					iMaxPlayers=CMirageClnMgr.Get().GetHostMapInfo()^.GetMaxPlayers();
+				else
+					iMaxPlayers=CMultiPlayerClientMgr.Get().GetLevelInfo()^.GetMaxPlayers();
+				endif;
+				if(CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"Players/Player_"+m_iSlotID.ToString()+"/AddIfEmpty") && m_pxPlayerSlot^.IsFree() && (m_pxPlayerSlot^.GetPlayerSlotID()>=iMaxPlayers))then
+					iMaxPlayers=8;
 				endif;
 				if(m_pxHQDropList^.NumItems()!=iMaxPlayers)then
 					m_pxHQDropList^.m_xOnChange.Clear();
@@ -241,12 +261,21 @@ class CPlayerInfoSlot inherit CStaticCtrl
 					m_pxHQDropList^.Select(m_iHeadQuater);
 				endif;
 			end check_HQ;
+			//Initializing MapInfo PlayerSettings
+			GetCustomInfoData();
 			m_bReady = m_pxPlayerSlot^.IsReady();
 			m_pxGoButton^.SetVisible(true);
 			if(m_sType=="human")then
 				m_iType = TYPE_HUMAN;
+			//use THIS instead of bAiPlayer, because variable outdated when its checked 
 			elseif(m_sType.Left(3)=="ai_")then
 				m_iType = TYPE_AI;
+				if(CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerName"))then
+					m_sName=CLocalizer.Get().Translate(m_sCustomName);
+					if(m_sCustomName!=m_pxPlayerSlot^.GetName())then
+						m_pxPlayerSlot^.SetName(m_sCustomName);
+					endif;
+				endif;
 //				m_pxGoButton^.SetVisible(false);
 			elseif(m_sType=="closed")then
 				m_iType = TYPE_CLOSED;
@@ -264,6 +293,130 @@ class CPlayerInfoSlot inherit CStaticCtrl
 				SetID();
 			endif;
 		endif;
+	endproc;
+	
+	proc void GetCustomInfoData()
+		var string sColor;
+		var bool bNameException=CheckForPlayerException("PlayerName",m_sCustomName);
+		var bool bColorException=CheckForPlayerException("PlayerColor",sColor);
+		if(!sColor.IsEmpty())then m_iColor=sColor.ToInt(); endif;
+		var ^CLevelInfo pxLevelInfo;
+		if(CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID())then
+			pxLevelInfo=CMultiPlayerClientMgr.Get().GetLevelInfo();
+			if(pxLevelInfo==null)then
+				pxLevelInfo=^(CMirageClnMgr.Get().GetHostMapInfo()^.GetLevelInfo());
+			endif;
+		else
+			pxLevelInfo=CMultiPlayerClientMgr.Get().GetLevelInfo();
+		endif;
+		if(pxLevelInfo!=null)then
+			//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: GetCustomInfoData() m_iHeadQuater=="+m_iHeadQuater.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+			//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: GetCustomInfoData() m_pxPlayerSlot^.GetHeadQuater()=="+m_pxPlayerSlot^.GetHeadQuater().ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+			var ^CPropDB.CNode pxPlayerNode=^((pxLevelInfo^.GetGenericData())["PlayerSettings/Player_"+m_iHeadQuater.ToString()]);
+			var ^CPropDB.CNode pxPlayerBaseNode=^((pxLevelInfo^.GetGenericData())["PlayerSettings/Player_"+m_iHeadQuater.ToString()+"/Restrictions/Base"]);
+			if(pxPlayerNode!=null)then
+				//Getting Campaign Name values
+				if(!bNameException)then
+					m_sCustomName=pxPlayerNode^.GetValueS("PlayerName",m_pxPlayerSlot^.GetName());
+					//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: GetCustomInfoData() m_sCustomName=="+m_sCustomName+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+				endif;
+			endif;
+			if(pxPlayerBaseNode!=null)then
+				//Nullifying Difficulty values for human players
+				if(m_sType=="human")then
+					m_iDifficulty=0;
+					if(m_iDifficulty!=m_pxPlayerSlot^.GetValueInt("Difficulty"))then
+						m_pxPlayerSlot^.SetValue("Difficulty",m_iDifficulty);
+					endif;
+				//Getting Campaign Difficulty values
+				elseif(CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PointBuy/MapDifficulty"))then
+					var int iEasy=pxPlayerBaseNode^.GetValueI("AI_Difficulty_Easy",m_pxPlayerSlot^.GetValueInt("Difficulty"));
+					//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: GetCustomInfoData() iEasy=="+iEasy.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+					var int iMedium=pxPlayerBaseNode^.GetValueI("AI_Difficulty_Medium",m_pxPlayerSlot^.GetValueInt("Difficulty"));
+					//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: GetCustomInfoData() iMedium=="+iMedium.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+					var int iHard=pxPlayerBaseNode^.GetValueI("AI_Difficulty_Hard",m_pxPlayerSlot^.GetValueInt("Difficulty"));
+					//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: GetCustomInfoData() iHard=="+iHard.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+					var int iCurDifficulty=CMirageClnMgr.GetMapDifficulty();
+					if(iCurDifficulty==CCampaignMgr.DIFFICULTY_EASY)then
+						if(m_iDifficulty!=iEasy)then
+							m_iDifficulty=iEasy;
+							//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: GetCustomInfoData() EASY m_iDifficulty=="+m_iDifficulty.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+						endif;
+					elseif(iCurDifficulty==CCampaignMgr.DIFFICULTY_MEDIUM)then
+						if(m_iDifficulty!=iMedium)then
+							m_iDifficulty=iMedium;
+							//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: GetCustomInfoData() MEDIUM m_iDifficulty=="+m_iDifficulty.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+						endif;
+					elseif(iCurDifficulty==CCampaignMgr.DIFFICULTY_HARD)then
+						if(m_iDifficulty!=iHard)then
+							m_iDifficulty=iHard;
+							//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: GetCustomInfoData() HARD m_iDifficulty=="+m_iDifficulty.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+						endif;
+					endif;
+					if(m_iDifficulty!=m_pxPlayerSlot^.GetValueInt("Difficulty"))then
+						m_pxPlayerSlot^.SetValue("Difficulty",m_iDifficulty);
+					endif;
+				endif;
+				if(CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerName") && m_sType=="human")then
+					if(m_sCustomName!=m_pxPlayerSlot^.GetName())then
+						m_pxPlayerSlot^.SetName(m_sCustomName);
+					endif;
+				elseif(!CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerName") && (m_xPlayerSlotID==CGameWrap.GetClient().GetPlayerSlotID()))then
+					var ^CUserProfileList pxList=^(CClientWrap.GetUserProfileList());
+					var string sTmp;
+					if(pxList!=null)then
+						sTmp=pxList^.GetCurrentProfile()^.GetUserName();	//getting "human" player Name for Lobby
+						if(sTmp=="")then
+							sTmp=Windows.GetUserName();
+							CSettings.Set("Game/PlayerName",sTmp);
+						endif;
+					endif;
+					if(sTmp!=m_pxPlayerSlot^.GetName())then
+						m_pxPlayerSlot^.SetName(sTmp);
+					endif;
+				endif;
+				//Getting Campaign Color values
+				//CRUTCH to fix bug
+				if(CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerColor") && m_sType=="human")then
+					//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: GetCustomInfoData() DefColor=="+(pxPlayerBaseNode^.GetValueI("DefColor")).ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+					//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: GetCustomInfoData() colortouse=="+(m_pxPlayerSlot^.GetValue("colortouse")).ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+					if(!bColorException)then
+						m_iColor = pxPlayerBaseNode^.GetValueI("DefColor",m_pxPlayerSlot^.GetColor());
+					endif;
+					if(m_iColor!=m_pxPlayerSlot^.GetColor())then
+						m_pxPlayerSlot^.SetColor(m_iColor);
+						//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: GetCustomInfoData() m_iColor=="+m_iColor.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+					endif;
+				elseif(!CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerColor")&&(m_xPlayerSlotID==CGameWrap.GetClient().GetPlayerSlotID()))then
+					var int iColor=CClientWrap.GetUserProfileValueI("Multiplayer/Color",m_pxPlayerSlot^.GetColor());
+					//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: GetCustomInfoData() iColor=="+iColor.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+					if(iColor!=m_pxPlayerSlot^.GetColor())then
+						m_iColor = iColor;
+						m_pxPlayerSlot^.SetColor(m_iColor);
+					endif;
+				endif;
+			endif;
+		endif;
+	endproc;
+	
+	proc bool CheckForPlayerException(string p_sParam, ref string p_rsValue)
+		var string sPlayerID=m_pxPlayerSlot^.GetHeadQuater().ToString();
+		var string sValue=CMirageClnMgr.Get().GetCustomPlayerException(m_sLevelName,sPlayerID,p_sParam+"/"+m_pxPlayerSlot^.GetTribe());
+		if(!sValue.IsEmpty())then
+			p_rsValue=sValue;
+		else
+			return false;
+		endif;
+		if(p_sParam=="PlayerName")then
+			var string sLocalizedCustomName=CLocalizer.Get().Translate(p_rsValue);
+			if(m_sName!=sLocalizedCustomName)then
+				m_sName=sLocalizedCustomName;
+			endif;
+			if(p_rsValue!=m_pxPlayerSlot^.GetName())then
+				m_pxPlayerSlot^.SetName(p_rsValue);
+			endif;
+		endif;
+		return true;
 	endproc;
 	
 	proc void SetID()
@@ -285,6 +438,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 		var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
 		var bool bHost = (CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
 		var bool bAiPlayer = m_sType.Left(3)=="ai_";
+		var bool bTeamException=(m_sLevelName=="_CU_MP_4_ASS_CREED" && m_iHeadQuater==3);
 		var int iIdx;
 		begin UpdateContent;
 			m_pxNameDropList^.m_xOnChange.Clear();
@@ -317,6 +471,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 				else
 					m_pxTeamDropList^.AddItem(iTeam.ToString());
 				endif;
+				if(bTeamException)then iTeam=4; m_pxTeamDropList^.AddItem(iTeam.ToString()); endif;
 				m_pxTeamDropList^.m_xOnChange = OnChangeTeam;
 				var int iItemIdx=m_pxTeamDropList^.FindItem(iTeam.ToString());
 				if(iItemIdx==-1)then
@@ -362,18 +517,18 @@ class CPlayerInfoSlot inherit CStaticCtrl
 				OnChangeTeam();
 			end TeamUpdate;
 			var int iOwnColor=-1;
-			if(bOwn)then
+			if(bOwn && !CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerColor"))then
 				iOwnColor=CClientWrap.GetUserProfileValueI("Multiplayer/Color",m_pxPlayerSlot^.GetColor());
 				if(m_pxPlayerSlot^.GetValue("colortouse")!="")then
 					iOwnColor=m_pxPlayerSlot^.GetValue("colortouse").ToInt();
 					m_pxPlayerSlot^.SetValue("colortouse","");
 					CClientWrap.SetUserProfileValue("Multiplayer/Color",iOwnColor);
 				endif;
-			elseif(bAiPlayer && bHost)then
+			elseif((bAiPlayer && bHost) || !CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerColor"))then
 				iOwnColor=m_pxPlayerSlot^.GetColor();
 			endif;
 			m_pxColorDropList^.m_xOnChange.Clear();
-			if(iOwnColor!=-1)then
+			if(iOwnColor!=-1 && !CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerColor"))then
 				m_iColor=iOwnColor;
 			endif;
 			m_pxColorDropList^.Select(m_iColor);
@@ -450,6 +605,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 				m_pxTribeDropList^.Clear();
 				var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
 				if(pxLevelInfo!=null)then
+					var bool bCustomPointBuy=(CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PointBuy/Preset")||CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PointBuy/MapDifficulty"));
 					var array string asTribes;
 					var string sAllTribes=(pxLevelInfo^.GetGenericData())["PlayerSettings/Player_"+m_pxPlayerSlot^.GetHeadQuater().ToString()+"/Restrictions/Base/Tribes"].Value();
 					bLILoaded=sAllTribes!="";
@@ -457,7 +613,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 					iIdx=-1;
 					var int iMultiply=22;
 //					if(asTribes.NumEntries()>1||(CGameWrap.GetGame().GetAttribInt("ChooseHQ")==0 && bLILoaded))then
-					if(asTribes.NumEntries()>1)then
+					if(!bCustomPointBuy && asTribes.NumEntries()>1)then
 						asTribes.AddEntry("Random");
 						if(asTribes.NumEntries()>3)then
 							var array string asRT;
@@ -568,6 +724,13 @@ class CPlayerInfoSlot inherit CStaticCtrl
 		var bool bHost = (CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
 		var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
 		var bool bAiPlayer = m_sType.Left(3)=="ai_";
+		var bool bTeamException=(m_sLevelName=="_CU_MP_4_ASS_CREED" && m_iHeadQuater==3);	//non-config USL custom map exception
+		var bool bHiddenPlayer = CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"Players/Player_"+m_iSlotID.ToString()+"/HiddenSlot");
+		var bool bCustomName = CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerName");
+		var bool bCustomArmy = CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PointBuy/Disabled") || (CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PointBuy/Preset"));
+		var bool bCustomTeam = (CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerTeam") || bTeamException);
+		var bool bCustomColor = CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerColor");
+		var bool bCustomDifficulty = CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PointBuy/MapDifficulty");
 		var int iGameType = CGameWrap.GetGame().GetType();
 		var int iCredits = CGameWrap.GetGame().GetCredits();
 		m_pxNameDropList^.SetDisabled(!bHost);
@@ -579,16 +742,16 @@ class CPlayerInfoSlot inherit CStaticCtrl
 		//m_pxDifficultyDropList^.SetVisible(bAiPlayer);
 		if(!m_bIsSkirmishMode) then
 			//m_pxDifficultyDropList^.SetDisabled(bGeneralDisabled);
-			m_pxTeamDropList^.SetDisabled(bGeneralDisabled);
+			m_pxTeamDropList^.SetDisabled(bCustomTeam || bGeneralDisabled);
 //			m_pxColorDropList^.SetDisabled(bGeneralDisabled);
 //			if(bAiPlayer&&iChooseColor==0)then
-			if(bAiPlayer&&iRandomColor==1)then
+			if(bAiPlayer&&iRandomColor==1&&!bCustomColor)then
 				m_pxColorDropList^.SetDisabled(true);
 				m_pxColorDropList^.SetVisible(false);
 			else
-				m_pxColorDropList^.SetDisabled(bGeneralDisabled);
+				m_pxColorDropList^.SetDisabled(bGeneralDisabled||bCustomColor);
 //				m_pxColorDropList^.SetVisible(iChooseColor!=0);
-				m_pxColorDropList^.SetVisible(iRandomColor==0);
+				m_pxColorDropList^.SetVisible(iRandomColor==0||bCustomColor);
 			endif;
 			if((bAiPlayer&&!bHost)||iAllowHandicap==0)then
 				m_pxHPDropList^.SetDisabled(true);
@@ -604,14 +767,14 @@ class CPlayerInfoSlot inherit CStaticCtrl
 				m_pxHQDropList^.SetVisible(iChooseHQ!=0);
 			endif;
 			m_pxTribeDropList^.SetDisabled(bGeneralDisabled);
-			m_pxArmyDropList^.SetDisabled(bGeneralDisabled);
+			m_pxArmyDropList^.SetDisabled(bCustomArmy || bGeneralDisabled);
 			m_pxGoButton^.SetDisabled(!(bOwn || (bHost && bAiPlayer)));
 		else
 			//m_pxDifficultyDropList^.SetDisabled(false);
 			m_pxTeamDropList^.SetDisabled(false);
 //			m_pxColorDropList^.SetDisabled(false);
 //			if(iChooseColor==0)then
-			if(iRandomColor==1)then
+			if(iRandomColor==1&&!bCustomColor)then
 				m_pxColorDropList^.SetVisible(false);
 			else
 				m_pxColorDropList^.SetVisible(true);
@@ -624,15 +787,17 @@ class CPlayerInfoSlot inherit CStaticCtrl
 				m_pxHQDropList^.SetVisible(true);
 			endif;
 			m_pxTribeDropList^.SetDisabled(false);
-			m_pxArmyDropList^.SetDisabled(false);
+			m_pxArmyDropList^.SetDisabled(bCustomArmy);
 			m_pxGoButton^.SetDisabled(false);
 		endif;
+		//the next variable checks, if the server host's DifficultyDropList should be unlocked for custom maps
 		var bool bAiHack=bAiPlayer||(m_iIndex==0&&CMirageClnMgr.HostDifficulty(CMultiPlayerClientMgr.Get().GetLevelInfo()));
-		if(m_pxPlayerSlot!=null && !bAiHack)then
+		if(m_pxPlayerSlot!=null && (!bHiddenPlayer && !bAiHack))then
+			//m_pxDifficultyDropList^.Select(5);
 			m_pxDifficultyDropList^.Select(0);
 			m_pxPlayerSlot^.SetValue("Difficulty",0);
 		endif;
-		m_pxDifficultyDropList^.SetDisabled(!bAiHack || bGeneralDisabled);
+		m_pxDifficultyDropList^.SetDisabled(!bAiHack || ((bCustomDifficulty && bAiPlayer) || bGeneralDisabled));
 		if(bOwn)then
 			if(!m_xOnDisableArmy.IsNull())then
 //				m_xOnDisableArmy.Call(m_sTribe=="Random");
@@ -665,7 +830,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 			endif;
 			
 			//check locked army
-			if(iCredits==-1 || p_bReady)then
+			if(iCredits==-1 || bCustomArmy || p_bReady)then	//disabling changing army presets for "CUSTOM" maps
 				m_pxArmyDropList^.SetDisabled(true);
 			else
 				m_pxArmyDropList^.SetDisabled(false);
@@ -673,7 +838,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 		endif;
 		if(bOwn ||(bHost && bAiPlayer))then
 			//Team
-			if(iGameType==2 || p_bReady)then
+			if(iGameType==2 || bCustomTeam || p_bReady)then	//disabling changing teams for "Defender" mode
 				m_pxTeamDropList^.SetDisabled(true);
 			else
 				m_pxTeamDropList^.SetDisabled(false);
@@ -683,7 +848,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 		m_pxTeamDropList^.SetVisible(bVisible);
 //		m_pxColorDropList^.SetVisible(bVisible);
 //		if(iChooseColor==0)then
-		if(iRandomColor==1)then
+		if(iRandomColor==1&&!bCustomColor)then
 			m_pxColorDropList^.SetVisible(false);
 		else
 			m_pxColorDropList^.SetVisible(bVisible);
@@ -704,28 +869,43 @@ class CPlayerInfoSlot inherit CStaticCtrl
 	
 	proc void ReloadNameList()
 		var bool bHost = (CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
+		var bool bCustom = CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerName");
 		if(m_bIsSkirmishMode) then
 			bHost=true;
 		endif;
 		var bool bFirst = m_iIndex==0;
 		m_pxNameDropList^.Clear();
 		if(m_iType==TYPE_HUMAN)then
-			m_pxNameDropList^.AddItem(m_sName);
+			if(bCustom)then
+				m_pxNameDropList^.AddItem(CLocalizer.Get().Translate(m_sCustomName));
+			else
+				m_pxNameDropList^.AddItem(m_sName);
+			endif;
 		endif;
 		if(bHost && !bFirst)then
 			if(!m_bIsSkirmishMode)then
 				m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Open"));
 			endif;
-			m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_AI"));
+			//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: ReloadNameList() (bHost && !bFirst)==true for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+			if(bCustom)then
+				m_pxNameDropList^.AddItem(CLocalizer.Get().Translate(m_sCustomName));
+			else
+				m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_AI"));
+			endif;
 			//m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Closed"));
 		endif;
 		if(!bHost && !bFirst) then
 			m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Open"));
-			m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_AI"));
+			if(bCustom)then
+				m_pxNameDropList^.AddItem(CLocalizer.Get().Translate(m_sCustomName));
+			else
+				m_pxNameDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_AI"));
+			endif;
 		endif;
 	endproc;
 	
 	proc void ReloadArmyList()
+		var bool bCustom = (CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PointBuy/Disabled") || CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PointBuy/Preset"));
 		m_pxArmyDropList^.Clear();
 		if(m_iType==TYPE_OPEN||m_iType==TYPE_CLOSED)then
 			//m_pxArmyDropList^.AddItem(" ");
@@ -739,11 +919,15 @@ class CPlayerInfoSlot inherit CStaticCtrl
 			sRusher.Replace(" ","_");
 			var string sStandard = CLocalizer.Get().Translate("_pb_standard");
 			sStandard.Replace(" ","_");
+			var string sPreCustom = CLocalizer.Get().Translate("_UI_PlLiWind_Option_Special");
+			sPreCustom.Replace(" ","_");
 			var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
 //			if(m_sTribe=="Random")then
 			if(m_asRandomTribes.FindEntry(m_sTribe)!=-1)then
-				if(iCredits==-1)then
+				if(iCredits==-1 && !bCustom)then
 					m_pxArmyDropList^.AddItem(sPreDef);
+				elseif(bCustom)then
+					m_pxArmyDropList^.AddItem(sPreCustom);
 				elseif(bOwn)then
 					m_pxArmyDropList^.AddItem(sBoomer);
 					m_pxArmyDropList^.AddItem(sRusher);
@@ -754,10 +938,13 @@ class CPlayerInfoSlot inherit CStaticCtrl
 				endif;
 				return;
 			endif;
-			if(iCredits==-1)then
+			if(iCredits==-1 && !bCustom)then
 				m_pxArmyDropList^.AddItem(sPreDef);
 				m_pxArmyDropList^.Select(0);
-			else
+			elseif(bCustom)then
+				m_pxArmyDropList^.AddItem(sPreCustom);
+				m_pxArmyDropList^.Select(0);
+			elseif(m_pxOwner^.GetMultiPlayerPreGameWindow()^.GetPresetWindow()^.GetType()==CPresetWindow.PWT_MULTIPLAYER)then	//Presets used only for non-CUSTOM type maps
 				var array string asPresets;
 				var ^CPresetWindow pxPresetWindow=m_pxOwner^.GetMultiPlayerPreGameWindow()^.GetPresetWindow();
 				System.Assert(pxPresetWindow!=null);
@@ -788,6 +975,13 @@ class CPlayerInfoSlot inherit CStaticCtrl
 			if(iMask>=1)then iMask-=1;bDef=true;endif;
 			var int iIndex=0;
 			m_asAIPersonalities=0;
+			if(bCustom)then
+				bRand=false;
+				bDef=false;
+				bBal=false;
+				bOff=false;
+				bPas=true;
+			endif;
 			if(bRand)then
 				m_asAIPersonalities.AddEntry("Random");
 				m_pxArmyDropList^.AddItem(CLocalizer.Get().Translate("_Random"));
@@ -805,8 +999,13 @@ class CPlayerInfoSlot inherit CStaticCtrl
 				m_pxArmyDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Offensive"));
 			endif;
 			if(bPas)then
-				m_asAIPersonalities.AddEntry("Passive");
-				m_pxArmyDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Passive"));
+				if(!bCustom)then
+					m_asAIPersonalities.AddEntry("Passive");
+					m_pxArmyDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Passive"));
+				else
+					m_asAIPersonalities.AddEntry("Special");
+					m_pxArmyDropList^.AddItem(CLocalizer.Get().Translate("_UI_PlLiWind_Option_Special"));
+				endif;
 			endif;
 			iIndex=m_asAIPersonalities.FindEntry(m_sArmy);
 //			if(iIndex==-1)then iIndex=0;endif;
@@ -856,7 +1055,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 		elseif(m_iType==TYPE_HUMAN)then
 			m_pxNameDropList^.Clear();
 			if(m_sName!=("-1"))then
-				m_pxNameDropList^.AddItem(m_sName);
+				m_pxNameDropList^.AddItem(m_sName);	//adds User Name into Droplist as only option and uses it as a SLOT name
 			endif;
 			if(bHost&&m_iIndex!=0)then
 				if(!m_bIsSkirmishMode)then
@@ -942,7 +1141,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 		return(m_iIndex);
 	endproc;
 	
-	export proc void SetPlayerSlotID(CPlayerSlotID p_xPlayerSlotID, bool p_bSkirmishMode)
+	export proc void SetPlayerSlotID(CPlayerSlotID p_xPlayerSlotID, bool p_bSkirmishMode)	//called by CPlayerListWindow
 		m_xPlayerSlotID = p_xPlayerSlotID;
 		m_pxPlayerSlot = ^(CGameWrap.GetClient().GetLevelPreview().GetPlayerSlot(m_xPlayerSlotID));
 		var CPlayerSlotID xIter;
@@ -974,7 +1173,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 			else
 				m_pxPlayerSlot^.SetType("ai_Mikrobe");
 			endif;
-			m_pxPlayerSlot^.SetName("AI");
+			m_pxPlayerSlot^.SetName("AI");	//setting "AI" player fake Name for Lobby
 			var int iIdx = m_pxDifficultyDropList^.FindItem(m_iDifficulty.ToString());
 			if(iIdx==-1)then iIdx = 0; endif;
 			m_pxDifficultyDropList^.Select(iIdx);
@@ -984,13 +1183,13 @@ class CPlayerInfoSlot inherit CStaticCtrl
 			var ^CUserProfileList pxList=^(CClientWrap.GetUserProfileList());
 			var string sTmp;
 			if(pxList!=null)then
-				sTmp=pxList^.GetCurrentProfile()^.GetUserName();
+				sTmp=pxList^.GetCurrentProfile()^.GetUserName();	//getting "human" player Name for Lobby
 				if(sTmp=="")then
 					sTmp=Windows.GetUserName();
 					CSettings.Set("Game/PlayerName",sTmp);
 				endif;
 			endif;
-			m_pxPlayerSlot^.SetName(sTmp);
+			m_pxPlayerSlot^.SetName(sTmp);	//setting up in the Slot name real player's name for "Human" player
 			m_pxPlayerSlot^.SetReady(false);
 		elseif(!p_bSkirmishMode && bOwn) then
 			/*var ^CPropDB pxUserProfile=^(CClientWrap.GetUserProfile());
@@ -1060,6 +1259,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 		var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
 		var bool bHost = (CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
 		var bool bAiPlayer = m_sType.Left(3)=="ai_";
+		var bool bEnablePointBuy=!CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PointBuy/Disabled");
 		if(m_bIsSkirmishMode)then
 			bOwn=true;
 		endif;
@@ -1073,7 +1273,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 				endif;
 			endif;
 //			m_pxOwner^.GetGameInfoWindow()^.EnablePointBuyPage(!bReady && m_sTribe!="Random");
-			m_pxOwner^.GetGameInfoWindow()^.EnablePointBuyPage(!bReady && m_asRandomTribes.FindEntry(m_sTribe) == -1);
+			m_pxOwner^.GetGameInfoWindow()^.EnablePointBuyPage(bEnablePointBuy && !bReady && m_asRandomTribes.FindEntry(m_sTribe) == -1);
 			m_pxOwner^.EnableSettingsPage(!bReady);
 			//m_pxOwner^.DisableBackButton(p_bReady);
 		endif;
@@ -1118,10 +1318,10 @@ class CPlayerInfoSlot inherit CStaticCtrl
 					if(bOwn)then
 						var ^CPresetWindow pxPresetWindow=m_pxOwner^.GetMultiPlayerPreGameWindow()^.GetPresetWindow();
 						System.Assert(pxPresetWindow!=null);
-						pxPresetWindow^.UpdateImmidiatly(sTribe, false);
+						pxPresetWindow^.UpdateImmidiatly(sTribe, false);	//calls PointBuy Update for "multiplayer" mode in CPresetWindow
 					endif;
 				endif;
-				if(!m_pxOwner^.GetGameInfoWindow()^.WriteResultToLevelInfo(m_pxPlayerSlot^.GetOwner(),sTribe))then
+				if(!m_pxOwner^.GetGameInfoWindow()^.WriteResultToLevelInfo(m_pxPlayerSlot^.GetOwner(),sTribe))then	//saves PointBuy result for "multiplayer" map type
 					var ^CPresetWindow pxPresetWindow=m_pxOwner^.GetMultiPlayerPreGameWindow()^.GetPresetWindow();
 //					CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Warning"),CLocalizer.Get().Translate("_PointBuyMenu_PoinBuyIsEmpty"));
 					CMessageBox.MsgBox(CLocalizer.Get().Translate("_Game_Warning"),CLocalizer.Get().Translate("_MIRAGE_PointBuyMenu_PoinBuyIsEmpty"));
@@ -1177,6 +1377,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 	proc bool OnChangeTribe()
 		var string sTribe;
 		var bool bSelected=false;
+		var bool bEnablePointBuy=!CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PointBuy/Disabled");
 		var int iIdx=m_pxTribeDropList^.GetSelectedItem();
 		if(iIdx!=-1)then
 			var ^CItemDataString pxIDS=cast<CItemDataString>(m_pxTribeDropList^.GetItemData(iIdx));
@@ -1193,9 +1394,9 @@ class CPlayerInfoSlot inherit CStaticCtrl
 			endif;
 			var ^CPresetWindow pxPresetWindow=m_pxOwner^.GetMultiPlayerPreGameWindow()^.GetPresetWindow();
 			System.Assert(pxPresetWindow!=null);
-			pxPresetWindow^.UpdateImmidiatly(sTribe, false);
+			pxPresetWindow^.UpdateImmidiatly(sTribe, false);	//calls PointBuy Update for "multiplayer" mode in PresetWindow
 //			m_pxOwner^.GetGameInfoWindow()^.EnablePointBuyPage(sTribe!="Random");
-			m_pxOwner^.GetGameInfoWindow()^.EnablePointBuyPage(!m_pxPlayerSlot^.IsReady() && m_asRandomTribes.FindEntry(m_sTribe)==-1);
+			m_pxOwner^.GetGameInfoWindow()^.EnablePointBuyPage(bEnablePointBuy && !m_pxPlayerSlot^.IsReady() && m_asRandomTribes.FindEntry(m_sTribe)==-1);
 		endif;
 		var bool bAiPlayer = m_sType.Left(3)=="ai_";
 		if(bAiPlayer && CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID() && bSelected)then
@@ -1210,7 +1411,8 @@ class CPlayerInfoSlot inherit CStaticCtrl
 	proc bool OnChangeArmy()
 		if(m_pxPlayerSlot!=null)then
 			var string sArmy = m_pxArmyDropList^.GetSelectedItemAsString();
-			if(m_sType.Left(3)=="ai_")then
+			var bool bAiPlayer = m_sType.Left(3)=="ai_";
+			if(bAiPlayer)then
 				var int iSel=m_pxArmyDropList^.GetSelectedItem();
 				if(iSel!=-1)then 
 					sArmy=m_asAIPersonalities[iSel];
@@ -1225,6 +1427,8 @@ class CPlayerInfoSlot inherit CStaticCtrl
 						sNewType += "Mikrobe";
 					elseif(sArmy=="Random")then
 						sNewType += "Random";
+					elseif(sArmy=="Special")then
+						sNewType += "Mikrobe";
 					endif;
 					if(sNewType!=m_sType)then
 						m_pxPlayerSlot^.SetType(sNewType);
@@ -1242,21 +1446,33 @@ class CPlayerInfoSlot inherit CStaticCtrl
 	
 	proc bool OnChangeName()
 		var string sSelected=m_pxNameDropList^.GetSelectedItemAsString();
-		var int iType = 1;
-		if(sSelected==CLocalizer.Get().Translate("_UI_PlLiWind_Option_Open"))then
+		var int iType;
+		if(m_pxPlayerSlot^.GetType()=="human")then
+			iType=1;
+		elseif(sSelected==CLocalizer.Get().Translate("_UI_PlLiWind_Option_Open"))then
 			iType=0;
+			//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeName() iType=="+iType.ToString()+" sSelected=="+sSelected+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
 		elseif(sSelected==CLocalizer.Get().Translate("_UI_PlLiWind_Option_AI"))then
 			iType=2;
+			//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeName() iType=="+iType.ToString()+" sSelected=="+sSelected+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
 		elseif(sSelected==CLocalizer.Get().Translate("_UI_PlLiWind_Option_Closed"))then
 			iType=3;
+			//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeName() iType=="+iType.ToString()+" sSelected=="+sSelected+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+		elseif(sSelected==CLocalizer.Get().Translate(m_sCustomName))then
+			iType=4;
+			//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeName() iType=="+iType.ToString()+" sSelected=="+sSelected+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
 		endif;
 		/*if(m_bIsSkirmishMode)then
 			iType--;
 		endif;*/
 		if(m_pxPlayerSlot!=null)then
 			if(iType==0)then
-				m_pxDifficultyDropList^.Select(0);
-				m_pxPlayerSlot^.SetValue("Difficulty",0);
+				//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeName() m_pxPlayerSlot!=null and iType=="+iType.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+				var bool bIsHidden=CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"Players/Player_"+m_iSlotID.ToString()+"/HiddenSlot");
+				if(!bIsHidden)then
+					m_pxDifficultyDropList^.Select(0);
+					m_pxPlayerSlot^.SetValue("Difficulty",0);
+				endif;
 				m_pxPlayerSlot^.SetType("invalid");
 				m_pxPlayerSlot^.SetName("Open");
 				m_pxPlayerSlot^.SetReady(false);
@@ -1264,10 +1480,11 @@ class CPlayerInfoSlot inherit CStaticCtrl
 					ClearID();
 				endif;
 			elseif(iType==1)then
+				//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeName() m_pxPlayerSlot!=null and iType=="+iType.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
 				m_pxPlayerSlot^.SetType("human");
 				m_pxDifficultyDropList^.Select(0);
 				OnChangeDifficulty();
-			elseif(iType==2)then
+			elseif(iType==2||iType==4)then
 				var string sArmy=m_sArmy;
 				if(sArmy=="")then
 					sArmy=m_asAIPersonalities[0];
@@ -1285,9 +1502,16 @@ class CPlayerInfoSlot inherit CStaticCtrl
 				else
 					m_pxPlayerSlot^.SetType("ai_Mikrobe");
 				endif;
-				m_pxPlayerSlot^.SetName("AI");
+				if(iType==2)then
+					m_pxPlayerSlot^.SetName("AI");
+					//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeName() SetName+iType=="+iType.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+				elseif(iType==4)then
+					m_pxPlayerSlot^.SetName(m_sCustomName);
+					//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeName() SetName=="+m_sCustomName+"; iType=="+iType.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+				endif;
 				var CConfig xConf;
 				var int iDif = xConf.GetSetI("Server/GameplayOptions/DefAI",9);
+				//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeName() iDif=="+iDif.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
 				if(iDif<0)then
 					iDif = 0;
 					xConf.SetI("Server/GameplayOptions/DefAI",iDif);
@@ -1299,6 +1523,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 				m_iDifficulty = iDif;
 				var int iIdx = 0;
 				iIdx = m_pxDifficultyDropList^.FindItem(m_iDifficulty.ToString());
+				//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeName() Difficulty iIdx=="+iIdx.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
 				m_pxDifficultyDropList^.Select(iIdx);
 				var int iNumTeams=CGameWrap.GetGame().GetAttribInt("NumTeams");
 				if(iNumTeams<=0)then
@@ -1331,6 +1556,19 @@ class CPlayerInfoSlot inherit CStaticCtrl
 						endif;
 					end TeamCheck;
 				endif;
+				//CUSTOM map Update
+				if(CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerTeam"))then
+					begin TeamCheck;
+						var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+						if(pxLevelInfo!=null)then
+							var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+							if(pxGenericDB!=null)then
+								iTeam=(pxGenericDB^)["PlayerSettings/Player_"+m_pxPlayerSlot^.GetHeadQuater().ToString()+"/Restrictions/Base/DefTeam"].ValueI();
+								//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeName() iTeam=="+iTeam.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+							endif;
+						endif;
+					end TeamCheck;
+				endif;
 				m_pxPlayerSlot^.SetTeam(iTeam);
 				m_pxPlayerSlot^.SetReady(false);
 				var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
@@ -1355,6 +1593,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 	
 	proc bool OnChangeDifficulty()
 		m_iDifficulty=m_pxDifficultyDropList^.GetSelectedItem();
+		//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeDifficulty() m_iDifficulty=="+m_iDifficulty.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
 		if(m_pxPlayerSlot!=null)then
 			m_pxPlayerSlot^.SetValue("Difficulty",m_pxDifficultyDropList^.GetSelectedItem());
 		endif;
@@ -1364,6 +1603,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 	proc bool OnChangeTeam()
 		if(m_pxPlayerSlot!=null)then
 			var int iTeam=m_pxTeamDropList^.GetSelectedItemAsString().ToInt();
+			//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeTeam() iTeam=="+iTeam.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
 			m_pxPlayerSlot^.SetTeam(iTeam);
 		endif;
 		return(true);
@@ -1379,6 +1619,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 					var int iColor=pxItemData^.m_iData;
 					var int iRandomColor = CGameWrap.GetGame().GetAttribInt("RandomColor");
 					if(iRandomColor==0)then
+						//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeColor() iColor=="+iColor.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
 						m_pxPlayerSlot^.SetColor(iColor);
 						if(bOwn)then
 							CClientWrap.SetUserProfileValue("Multiplayer/Color",iColor);
@@ -1397,6 +1638,7 @@ class CPlayerInfoSlot inherit CStaticCtrl
 			if(iSelItem!=-1)then
 				var ^CItemDataInt pxItemData=cast<CItemDataInt>(m_pxHPDropList^.GetItemData(iSelItem));
 				if(pxItemData!=null)then
+					//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeHP() iHP=="+pxItemData^.m_iData.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
 					m_pxPlayerSlot^.SetHP(pxItemData^.m_iData);
 				endif;
 				var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
@@ -1413,19 +1655,182 @@ class CPlayerInfoSlot inherit CStaticCtrl
 	proc bool OnChangeHeadQuater()
 		if(m_pxPlayerSlot!=null)then
 			var int iSelItem=m_pxHQDropList^.GetSelectedItem();
+			//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeHeadQuater() iSelItem=="+iSelItem.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+			var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
 			if(iSelItem!=-1)then
 				var ^CItemDataInt pxItemData=cast<CItemDataInt>(m_pxHQDropList^.GetItemData(iSelItem));
 				if(pxItemData!=null)then
+					//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeHeadQuater() pxItemData^.m_iData=="+(pxItemData^.m_iData).ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
 					m_pxPlayerSlot^.SetHeadQuater(pxItemData^.m_iData);
 					var int iGameType = CGameWrap.GetGame().GetType();
-					if(iGameType==2)then//Defender
-//						if(pxItemData^.m_iData==0)then
-//							m_pxPlayerSlot^.SetTeam(1);
-//							//KLog.LogSpam("AnTr","a) PlayerSlot -> SetTeam 1");
-//						else
-//							m_pxPlayerSlot^.SetTeam(2);
-//							//KLog.LogSpam("AnTr","a) PlayerSlot -> SetTeam 2");
-//						endif;
+					if(iGameType==2)then//Defender	//Changing Team while HQ is Changed
+/*						//Old system of DefenderTeams, Base 1.05
+						if(pxItemData^.m_iData==0)then
+							m_pxPlayerSlot^.SetTeam(1);
+							//KLog.LogSpam("AnTr","a) PlayerSlot -> SetTeam 1");
+						else
+							m_pxPlayerSlot^.SetTeam(2);
+							//KLog.LogSpam("AnTr","a) PlayerSlot -> SetTeam 2");
+						endif;	*/
+						var int iTeam=2;
+						if(pxItemData^.m_iData==0)then
+							iTeam=1;
+						endif;
+						begin TeamCheck;
+							var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+							if(pxLevelInfo!=null)then
+								var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+								if(pxGenericDB!=null)then
+									var ^CPropDB.CNode pxTeams=pxGenericDB^.FindNode("ClientSettings/DefendTeams",false);
+									if(pxTeams!=null)then
+										var array string asTeams;
+										var string sTeams=pxTeams^.Value();
+										if(sTeams!="")then
+											sTeams.Split(asTeams,":",true);
+											if(asTeams.NumEntries()>pxItemData^.m_iData)then
+												iTeam=Math.Clamp(asTeams[pxItemData^.m_iData].ToInt(),1,2);
+											endif;
+										endif;
+									endif;
+								endif;
+							endif;
+						end TeamCheck;
+						m_pxPlayerSlot^.SetTeam(iTeam);
+					endif;
+					//CUSTOM map Update
+					var bool bUpdatePointBuy=(CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PointBuy/Preset")||CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PointBuy/ShoppingList"));
+					if(bUpdatePointBuy)then
+						var string sAllTribes,sTribe;
+						var array string asTribes;
+						begin TribeCheck;
+							var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+							if(pxLevelInfo!=null)then
+								var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+								if(pxGenericDB!=null)then
+									var ^CPropDB.CNode pxPlayerBaseNode=^((pxGenericDB^)["PlayerSettings/Player_"+pxItemData^.m_iData.ToString()+"/Restrictions/Base"]);
+									if(pxPlayerBaseNode!=null)then
+										sAllTribes=pxPlayerBaseNode^.GetValueS("Tribes");
+										//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeHeadQuater() sAllTribes=="+sAllTribes+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+										//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeHeadQuater() Default Tribe=="+pxPlayerBaseNode^.GetValueS("Tribes/Default")+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+									endif;
+								endif;
+							endif;
+							if(!sAllTribes.IsEmpty())then
+								sAllTribes.Split(asTribes,":",true);
+								sTribe=asTribes[0];
+								//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeHeadQuater() sTribe=="+sTribe+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+							endif;
+						end TribeCheck;
+						if(!sAllTribes.IsEmpty())then
+							m_pxPlayerSlot^.SetTribe(sTribe);
+							if(bOwn)then
+								m_pxOwner^.GetGameInfoWindow()^.UpdatePointBuy(sTribe);
+							endif;
+						endif;
+					endif;
+					if(CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerName"))then
+						var string sName;
+						var bool bNameException=CheckForPlayerException("PlayerName",sName);
+						if(!bNameException)then
+							begin NameCheck;
+								var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+								if(pxLevelInfo!=null)then
+									var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+									if(pxGenericDB!=null)then
+										sName=(pxGenericDB^)["PlayerSettings/Player_"+pxItemData^.m_iData.ToString()+"/PlayerName"].Value();
+										//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeHeadQuater() sName=="+sName+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+									endif;
+								endif;
+							end NameCheck;
+						endif;
+						m_pxPlayerSlot^.SetName(sName);
+					endif;
+					if(CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerTeam"))then
+						var int iTeam;
+						begin TeamCheck;
+							var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+							if(pxLevelInfo!=null)then
+								var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+								if(pxGenericDB!=null)then
+									iTeam=(pxGenericDB^)["PlayerSettings/Player_"+pxItemData^.m_iData.ToString()+"/Restrictions/Base/DefTeam"].ValueI();
+									//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeHeadQuater() iTeam=="+iTeam.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+								endif;
+							endif;
+						end TeamCheck;
+						m_pxPlayerSlot^.SetTeam(iTeam);
+					endif;
+					if(CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PlayerColor"))then
+						var int iColor;
+						var string sColor;
+						var bool bColorException=CheckForPlayerException("PlayerColor",sColor);
+						if(!sColor.IsEmpty())then iColor=sColor.ToInt(); endif;
+						if(!bColorException)then
+							begin ColorCheck;
+								var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+								if(pxLevelInfo!=null)then
+									var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+									if(pxGenericDB!=null)then
+										iColor=(pxGenericDB^)["PlayerSettings/Player_"+pxItemData^.m_iData.ToString()+"/Restrictions/Base/DefColor"].ValueI();
+										//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeHeadQuater() iColor=="+iColor.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+									endif;
+								endif;
+							end ColorCheck;
+						endif;
+						m_pxPlayerSlot^.SetColor(iColor);
+					endif;
+					if(CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PointBuy/MapDifficulty"))then
+						if(m_sType.Left(3)=="ai_")then
+							var int iDifficulty;
+							begin DifficultyCheck;
+								var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+								if(pxLevelInfo!=null)then
+									var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+									if(pxGenericDB!=null)then
+										var ^CPropDB.CNode pxPlayerBaseNode=^((pxGenericDB^)["PlayerSettings/Player_"+pxItemData^.m_iData.ToString()+"/Restrictions/Base"]);
+										if(pxPlayerBaseNode!=null)then
+											var int iEasy=pxPlayerBaseNode^.GetValueI("AI_Difficulty_Easy");
+											//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeHeadQuater() iEasy=="+iEasy.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+											var int iMedium=pxPlayerBaseNode^.GetValueI("AI_Difficulty_Medium");
+											//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeHeadQuater() iMedium=="+iMedium.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+											var int iHard=pxPlayerBaseNode^.GetValueI("AI_Difficulty_Hard");
+											//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeHeadQuater() iHard=="+iHard.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+											var int iCurDifficulty=CMirageClnMgr.GetMapDifficulty();
+											if(iCurDifficulty==CCampaignMgr.DIFFICULTY_EASY)then
+												iDifficulty=iEasy;
+											elseif(iCurDifficulty==CCampaignMgr.DIFFICULTY_MEDIUM)then
+												iDifficulty=iMedium;
+											elseif(iCurDifficulty==CCampaignMgr.DIFFICULTY_HARD)then
+												iDifficulty=iHard;
+											endif;
+											//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeHeadQuater() iDifficulty=="+iDifficulty.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+										endif;
+									endif;
+								endif;
+							end DifficultyCheck;
+							m_pxPlayerSlot^.SetValue("Difficulty",iDifficulty);
+						endif;
+					endif;
+				endif;
+				if(bOwn && !m_bIsSkirmishMode) then
+					var ^CPropDB pxUserProfile=^(CClientWrap.GetUserProfile());
+					(pxUserProfile^)["Multiplayer/HeadQuater"].Value() = pxItemData^.m_iData.ToString();
+					CClientWrap.UpdateUserProfile();
+				endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+	
+	export proc bool OnChangeMapExt()
+		if(m_pxPlayerSlot!=null)then
+			//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeMapExt() function being called up for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+			var int iSelItem=m_pxHQDropList^.GetSelectedItem();
+			if(iSelItem!=-1)then
+				var ^CItemDataInt pxItemData=cast<CItemDataInt>(m_pxHQDropList^.GetItemData(iSelItem));
+				if(pxItemData!=null)then
+//					m_pxPlayerSlot^.SetHeadQuater(pxItemData^.m_iData);
+					var int iGameType = CGameWrap.GetGame().GetType();
+					if(iGameType==2)then//Defender	//Something related to teams in defender
 						var int iTeam=2;
 						if(pxItemData^.m_iData==0)then
 							iTeam=1;
@@ -1452,50 +1857,48 @@ class CPlayerInfoSlot inherit CStaticCtrl
 						m_pxPlayerSlot^.SetTeam(iTeam);
 					endif;
 				endif;
-				var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
-				if(bOwn && !m_bIsSkirmishMode) then
-					var ^CPropDB pxUserProfile=^(CClientWrap.GetUserProfile());
-					(pxUserProfile^)["Multiplayer/HeadQuater"].Value() = pxItemData^.m_iData.ToString();
-					CClientWrap.UpdateUserProfile();
-				endif;
 			endif;
 		endif;
 		return true;
 	endproc;
 	
-	export proc bool OnChangeMapExt()
+	export proc bool OnUpdateDifficulty()
 		if(m_pxPlayerSlot!=null)then
 			var int iSelItem=m_pxHQDropList^.GetSelectedItem();
 			if(iSelItem!=-1)then
 				var ^CItemDataInt pxItemData=cast<CItemDataInt>(m_pxHQDropList^.GetItemData(iSelItem));
 				if(pxItemData!=null)then
-//					m_pxPlayerSlot^.SetHeadQuater(pxItemData^.m_iData);
-					var int iGameType = CGameWrap.GetGame().GetType();
-					if(iGameType==2)then//Defender
-						var int iTeam=2;
-						if(pxItemData^.m_iData==0)then
-							iTeam=1;
-						endif;
-						begin TeamCheck;
-							var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
-							if(pxLevelInfo!=null)then
-								var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
-								if(pxGenericDB!=null)then
-									var ^CPropDB.CNode pxTeams=pxGenericDB^.FindNode("ClientSettings/DefendTeams",false);
-									if(pxTeams!=null)then
-										var array string asTeams;
-										var string sTeams=pxTeams^.Value();
-										if(sTeams!="")then
-											sTeams.Split(asTeams,":",true);
-											if(asTeams.NumEntries()>pxItemData^.m_iData)then
-												iTeam=Math.Clamp(asTeams[pxItemData^.m_iData].ToInt(),1,2);
+					if(CMirageClnMgr.Get().CheckCustomMap(m_sLevelName,"PointBuy/MapDifficulty"))then
+						if(m_sType.Left(3)=="ai_")then
+							var int iDifficulty;
+							begin DifficultyCheck;
+								var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+								if(pxLevelInfo!=null)then
+									var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+									if(pxGenericDB!=null)then
+										var ^CPropDB.CNode pxPlayerBaseNode=^((pxGenericDB^)["PlayerSettings/Player_"+pxItemData^.m_iData.ToString()+"/Restrictions/Base"]);
+										if(pxPlayerBaseNode!=null)then
+											var int iEasy=pxPlayerBaseNode^.GetValueI("AI_Difficulty_Easy");
+											//KLog.LogSpam("ParaworldFan","OnUpdateDifficulty() iEasy=="+iEasy.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+											var int iMedium=pxPlayerBaseNode^.GetValueI("AI_Difficulty_Medium");
+											//KLog.LogSpam("ParaworldFan","OnUpdateDifficulty() iMedium=="+iMedium.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+											var int iHard=pxPlayerBaseNode^.GetValueI("AI_Difficulty_Hard");
+											//KLog.LogSpam("ParaworldFan","OnUpdateDifficulty() iHard=="+iHard.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
+											var int iCurDifficulty=CMirageClnMgr.GetMapDifficulty();
+											if(iCurDifficulty==CCampaignMgr.DIFFICULTY_EASY)then
+												iDifficulty=iEasy;
+											elseif(iCurDifficulty==CCampaignMgr.DIFFICULTY_MEDIUM)then
+												iDifficulty=iMedium;
+											elseif(iCurDifficulty==CCampaignMgr.DIFFICULTY_HARD)then
+												iDifficulty=iHard;
 											endif;
+											//KLog.LogSpam("ParaworldFan","OnUpdateDifficulty() iDifficulty=="+iDifficulty.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
 										endif;
 									endif;
 								endif;
-							endif;
-						end TeamCheck;
-						m_pxPlayerSlot^.SetTeam(iTeam);
+							end DifficultyCheck;
+							m_pxPlayerSlot^.SetValue("Difficulty",iDifficulty);
+						endif;
 					endif;
 				endif;
 			endif;
