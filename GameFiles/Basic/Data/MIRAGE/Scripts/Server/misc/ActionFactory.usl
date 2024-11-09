@@ -529,7 +529,19 @@ class CActionQuit inherit CTrigger.IAction
 	enddestructor;
 	
 	export proc bool OnPush(ref CEvtPointer p_rxEP)
-		CSrvWrap.SendGenericEvtToPlayer(0,"GameOver\tCampaign\tWin");
+		var ^CLevelInfoHost pxLevelInfo=^(CSrvWrap.GetCurLevel()^.GetLevelInfo());
+		var ^CPropDB pxGenericData=^(pxLevelInfo^.GetGenericData());
+		var string sLevelName=(pxGenericData^)["Base/LevelName"].Value();
+		var string sMapType=pxLevelInfo^.GetAttribs().GetValue("GTMapType");
+		if(!pxLevelInfo^.IsMultiplayer())then
+			CSrvWrap.SendGenericEvtToPlayer(0,"GameOver\tCampaign\tWin");
+/*		elseif(CMirageSrvMgr.Get().IsCustomMap(sLevelName))then	//unfinished, thats why commented
+			//TODO: probably not all custom maps will have campaign screen
+*/		elseif(pxLevelInfo^.GetNumHumanPlayers()==1)then
+			CSrvWrap.SendGenericEvtToPlayer(0,"GameOver\tSkirmish\tWin");
+		else//multiplayer
+			CSrvWrap.SendGenericEvtToPlayer(0,"GameOver\tMultiplayer\tWin");
+		endif;
 		return true;
 	endproc;
 	
@@ -3840,8 +3852,6 @@ class CActionAiBehavior inherit CTrigger.IAction
 	
 	export proc bool OnPush(ref CEvtPointer p_rxEP)
 		KLog.LogSpam("CyGi","Executing Trigger Action AIBV (PlayerID="+m_iPlayerID.ToString()+", Module="+m_sModule+", Behavior="+m_sBehavior+")");
-		var bool bSuccess=false;
-		var bitset dwModId;
 		
 		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
 		if(pxLevel==null)then
@@ -3851,7 +3861,7 @@ class CActionAiBehavior inherit CTrigger.IAction
 		
 		var ^CPlayer pxPlayer = pxLevel^.GetPlayer(m_iPlayerID);
 		if(pxPlayer==null)then
-			KLog.LogError("CActionAiBehavior","Player [" + m_iPlayerID.ToString() + "] is null");
+			KLog.LogError("CActionAiBehavior","Player_" + m_iPlayerID.ToString() + " is null");
 			return false;
 		endif;
 		
@@ -3861,8 +3871,10 @@ class CActionAiBehavior inherit CTrigger.IAction
 			return false;
 		endif;
 		
-		if(pxSlot^.GetType()=="human")then return true; endif;
+		if(!pxSlot^.IsAIPlayer())then return false; endif;
 		
+		var bool bSuccess=false;
+		var bitset dwModId;
 		if(m_sModule=="CTRL")then
 			dwModId=CAiInterface.AiModule_Control;
 			KLog.LogSpam("CyGi","AiModule_Control");
@@ -3882,22 +3894,14 @@ class CActionAiBehavior inherit CTrigger.IAction
 			dwModId=CAiInterface.AiModule_Unknown;
 			KLog.LogSpam("CyGi","AiModule_Unknown");
 		endif;
-		//ParaworldFan Trigger buff
+		bSuccess = CAiInterface.SetModuleBehavior(m_iPlayerID,dwModId,m_sBehavior);
 		
-		//var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
-		//var ^CPlayer pxPlayer = pxLevel^.GetPlayer(m_iPlayerID);
-		
-		//var ^CLevelInfo.CPlayerSlot pxSlot=pxPlayer^.GetPlayerSlot();
-
-		//if(pxSlot^.GetType()!="human")then
-			bSuccess = CAiInterface.SetModuleBehavior(m_iPlayerID,dwModId,m_sBehavior);
-		//endif;
-		//end PwFan
 		if(bSuccess==true)then
 			KLog.LogSpam("CyGi","AIBV: Execution was successful");
 		else
 			KLog.LogSpam("CyGi","AIBV: Execution was a failure");
 		endif;
+		
 		return true;
 	endproc;
 	
