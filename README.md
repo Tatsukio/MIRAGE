@@ -9,7 +9,7 @@
 </details>
 
 ## Requirements:
-- Base game ([1.05 Gold Edition](https://discord.com/channels/272363082309828610/310790311649607690/446334621106438164)) + BoosterPack 3 ([Tatsukio/BoosterPack3](https://github.com/Tatsukio/BoosterPack3))
+- Base game (1.05 Gold Edition) + BoosterPack 3 ([Tatsukio/BoosterPack3](https://github.com/Tatsukio/BoosterPack3))
 
 ## Build Requirements:
 - Visual Studio
