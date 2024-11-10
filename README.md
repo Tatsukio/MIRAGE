@@ -9,14 +9,14 @@
 </details>
 
 ## Requirements:
-- Base game + BoosterPack 3
+- Base game ([1.05 Gold Edition](https://discord.com/channels/272363082309828610/310790311649607690/446334621106438164)) + BoosterPack 3 ([Tatsukio/BoosterPack3](https://github.com/Tatsukio/BoosterPack3))
 
 ## Build Requirements:
 - Visual Studio
 - NSIS
 
 ## Build Order:
-- Compile MIRAGE/CfgEditor/CfgEditor.hs and move the generated binary file to MIRAGE/GameFiles/Basic/Tools
+- Compile MIRAGE/CfgEditor/CfgEditor.hs (if modified) and move the generated binary file to MIRAGE/GameFiles/Basic/Tools
 - Build MIRAGE.sln (which will build and compile each of the subprojects: MIRAGE Launcher, ParaWorldStatus and PWKiller)
 - Run MIRAGE/MIRAGE.nsi
 - Wait for the new .exe
