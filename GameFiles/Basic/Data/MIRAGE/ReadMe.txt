@@ -88,6 +88,7 @@ Heroes:
 Dustriders:
 - Amazon temple buildup animation added
 - Town Center Resource tool upgrades 1,2,3, and 4 now correctly increase harvest speed but no longer affect build up and repair
+- Town Center weapon upgrade available from now on again;
 - Better tools upgrade from now on adds icon to infantry once was researched
 - Better tools from now also increase upgrade duration for medium and tesla towers, big tent, clay walls and gates
 - Better tools description were updated
