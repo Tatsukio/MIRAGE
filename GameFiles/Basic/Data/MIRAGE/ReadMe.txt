@@ -28,6 +28,7 @@ Special:
 - All Custom Maps presettled settings from now on visible before the game in Lobby and in Map List;
 
 General:
+- Fixed a random crash when loading a saved game if it was saved during some unit death
 - Buildings can be rotated by holding LMB + mouse movement
 - Added a separate sub-menu to the build menu to display buildable units (seas scorpion, trader zeppelin)
 - Empty sub-menus in the command bar are now hidden
