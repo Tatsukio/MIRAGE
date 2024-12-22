@@ -28,7 +28,8 @@ Special:
 - All Custom Maps presettled settings from now on visible before the game in Lobby and in Map List;
 
 General:
-- Fixed a random crash when loading a saved game if it was saved during some unit death
+- Map PreviewImages from now upscaled in every interface window where they are present.
+- Removed freezing while going from Main Menu to Campaign menu and while Hosting lobby for multiplayer;
 - Buildings can be rotated by holding LMB + mouse movement
 - Added a separate sub-menu to the build menu to display buildable units (seas scorpion, trader zeppelin)
 - Empty sub-menus in the command bar are now hidden
@@ -37,8 +38,12 @@ General:
 - Improved cutscenes for Boosterpack1 singleplayer campaign for classic and SEAS versions
 - Holy city gates on skirmish maps and in mission 13 are playing "Open" animation from now on
 - Pirate ship chain on skirmish maps and in mission 6 are playing "Open" & "Close" animation from now on
-- Fixed bug with Holy City gates destruction animation wasnt playing
 - Campaing avatar on mission "Single B42: Cold Day in Hell" has a corpse damage, corpse resources and death animation from now on
+- Fixed a random crash when loading a saved game if it was saved during some unit death
+- Fixed issue that "seas_turret_tower" and ninigi_sordes_tower were not playing destruction aniamtion of their turrets;
+- Fixed issue that when BuildingCorpses enabled on Mirage Server the some defense buildings were not playing properly their destruction aniamtions;
+- Fixed crash when trying to change start time of the game while game lobby already created;
+- Fixed bug with Holy City gates destruction animation wasnt playing
 - Fixed minor issue when Singleplayer type Map PreviewImage was incorrectly displaying if you try to Load/Save/Overwrite Map during gameplay;
 - Fixed missing animal flags for preplaced SDK units/spawned through trigger
 - Fixed incorrect animal flags for animals/vehicles/ships if the starting tribe not matching the unit tribe
