@@ -39,6 +39,7 @@ General:
 - Holy city gates on skirmish maps and in mission 13 are playing "Open" animation from now on
 - Pirate ship chain on skirmish maps and in mission 6 are playing "Open" & "Close" animation from now on
 - Campaing avatar on mission "Single B42: Cold Day in Hell" has a corpse damage, corpse resources and death animation from now on
+- Fixed a random crash when loading a saved game if it was saved during some unit death
 - Fixed issue that "seas_turret_tower" and ninigi_sordes_tower were not playing destruction aniamtion of their turrets;
 - Fixed issue that when BuildingCorpses enabled on Mirage Server the some defense buildings were not playing properly their destruction aniamtions;
 - Fixed crash when trying to change start time of the game while game lobby already created;
