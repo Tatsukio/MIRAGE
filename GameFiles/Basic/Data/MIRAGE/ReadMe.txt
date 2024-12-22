@@ -7,29 +7,29 @@ MIRAGE 2.6.7
 ------------------
 
 Special:
-- Multiplayer Campaing Custom UI;
-- Multiplayer Campaign Custom Player Settings are all displayed in lobby from now on;
-- Multiplayer Campaign Game Modefrom now on displays all custom Player Info in lobby;
-- Multiplayer Campaign Game Modefrom now on displays in Host and Player UI all presettled custom settings that activated when the Map has been selected;
-- Multiplayer Campaign Game Mode from now on has affect Lobby UI choices in game. What was selected in lobby will be actually in game;
-- Multiplayer Campaign Game Mode from now on has Map Difficulty levels just in regular Campaign;
-- Multiplayer Campaign Game Mode from now on has Custom PointBuy, just like in regular Campaign;
-- Multiplayer Campaign Game Mode from now on has Points System, just like in regular Campaign;
-- Multiplayer Campaign Game Mode from now on has Custom Map Preview Image, just like in regular Campaign;
-- Multiplayer Campaign Game Mode from now on has Campaign Background Overlay for Map Preview Image, just like in regular Campaign;
-- Multiplayer Campaign Game Mode from now on has Custom LoadScreen Background, just like in regular Campaign;
-- Multiplayer Campaign Game Mode from now on has Heroes Diaries on LoadScreen with audio, just like in regular Campaign;
-- Multiplayer Campaign Game Mode from now on Marked as "Campaign" instead of regular "DeathMatch" in Host List;
-- Multiplayer Campaign Game Mode from now on has hidden AI players not displayed in EndScreen Statistics window;
-- Multiplayer Campaign Game Mode from now on can be started with just one Player in lobby. The remaining slots will be filled up with AI automatically;
-- Added Custom Map creation workspace with lots of options to set up specific settings for your own Custom Maps;
-- Custom Maps from now on has their own Game Mode "Custom";
-- Multiple Custom Maps game mechanic were improved and reworked;
-- All Custom Maps presettled settings from now on visible before the game in Lobby and in Map List;
+- Multiplayer Campaing Custom UI
+- Multiplayer Campaign Custom Player Settings are all displayed in lobby from now on
+- Multiplayer Campaign Game Modefrom now on displays all custom Player Info in lobby
+- Multiplayer Campaign Game Modefrom now on displays in Host and Player UI all presettled custom settings that activated when the Map has been selected
+- Multiplayer Campaign Game Mode from now on has affect Lobby UI choices in game. What was selected in lobby will be actually in game
+- Multiplayer Campaign Game Mode from now on has Map Difficulty levels just in regular Campaign
+- Multiplayer Campaign Game Mode from now on has Custom PointBuy, just like in regular Campaign
+- Multiplayer Campaign Game Mode from now on has Points System, just like in regular Campaign
+- Multiplayer Campaign Game Mode from now on has Custom Map Preview Image, just like in regular Campaign
+- Multiplayer Campaign Game Mode from now on has Campaign Background Overlay for Map Preview Image, just like in regular Campaign
+- Multiplayer Campaign Game Mode from now on has Custom LoadScreen Background, just like in regular Campaign
+- Multiplayer Campaign Game Mode from now on has Heroes Diaries on LoadScreen with audio, just like in regular Campaign
+- Multiplayer Campaign Game Mode from now on Marked as "Campaign" instead of regular "DeathMatch" in Host List
+- Multiplayer Campaign Game Mode from now on has hidden AI players not displayed in EndScreen Statistics window
+- Multiplayer Campaign Game Mode from now on can be started with just one Player in lobby. The remaining slots will be filled up with AI automatically
+- Added Custom Map creation workspace with lots of options to set up specific settings for your own Custom Maps
+- Custom Maps from now on has their own Game Mode "Custom"
+- Multiple Custom Maps game mechanic were improved and reworked
+- All Custom Maps presettled settings from now on visible before the game in Lobby and in Map List
 
 General:
-- Map PreviewImages from now upscaled in every interface window where they are present.
-- Removed freezing while going from Main Menu to Campaign menu and while Hosting lobby for multiplayer;
+- Map preview images in UIfor4K submod are upscaled wherever they are present
+- Fixed freezing on campaign menu opening and lobby creating
 - Buildings can be rotated by holding LMB + mouse movement
 - Added a separate sub-menu to the build menu to display buildable units (seas scorpion, trader zeppelin)
 - Empty sub-menus in the command bar are now hidden
@@ -40,11 +40,11 @@ General:
 - Pirate ship chain on skirmish maps and in mission 6 are playing "Open" & "Close" animation from now on
 - Campaing avatar on mission "Single B42: Cold Day in Hell" has a corpse damage, corpse resources and death animation from now on
 - Fixed a random crash when loading a saved game if it was saved during some unit death
-- Fixed issue that "seas_turret_tower" and ninigi_sordes_tower were not playing destruction aniamtion of their turrets;
-- Fixed issue that when BuildingCorpses enabled on Mirage Server the some defense buildings were not playing properly their destruction aniamtions;
-- Fixed crash when trying to change start time of the game while game lobby already created;
+- Fixed issue that "seas_turret_tower" and ninigi_sordes_tower were not playing destruction aniamtion of their turrets
+- Fixed issue that when BuildingCorpses enabled on Mirage Server the some defense buildings were not playing properly their destruction aniamtions
+- Fixed crash when trying to change start time of the game while game lobby already created
 - Fixed bug with Holy City gates destruction animation wasnt playing
-- Fixed minor issue when Singleplayer type Map PreviewImage was incorrectly displaying if you try to Load/Save/Overwrite Map during gameplay;
+- Fixed minor issue when Singleplayer type Map PreviewImage was incorrectly displaying if you try to Load/Save/Overwrite Map during gameplay
 - Fixed missing animal flags for preplaced SDK units/spawned through trigger
 - Fixed incorrect animal flags for animals/vehicles/ships if the starting tribe not matching the unit tribe
 - Fixed missing stances icons
@@ -69,7 +69,7 @@ General:
 - Ships and floating buildings can now be frozen
 - Small and medium stones will not block buildings during placement and will be removed after
 - Gates and towers will adapt terrain during placement from now on
-- Changed default MaxEpoch value from 5 to 6;
+- Changed default MaxEpoch value from 5 to 6
 
 Maps:
 - Northland version of Yggdrasil map added
@@ -94,7 +94,7 @@ Heroes:
 Dustriders:
 - Amazon temple buildup animation added
 - Town Center Resource tool upgrades 1,2,3, and 4 now correctly increase harvest speed but no longer affect build up and repair
-- Town Center weapon upgrade available from now on again;
+- Town Center weapon upgrade available from now on again
 - Better tools upgrade from now on adds icon to infantry once was researched
 - Better tools from now also increase upgrade duration for medium and tesla towers, big tent, clay walls and gates
 - Better tools description were updated
@@ -106,7 +106,7 @@ Dragon Clan:
 - Pirate ship is buildable as a separate structure (like a seas scorpion)
 - Pirate ship death animation being improved. Ships decks are no logner just dissapear once the ship being killed. They are playing death animation, as well as ship's hull.
 - Fixed bug with death animation being played, when the rocket ramp being not fully built while was killed
-- The parasaurolophus war drums once got weapon upgrade from now change their stance from "agressive" to "stand ground";
+- The parasaurolophus war drums once got weapon upgrade from now change their stance from "agressive" to "stand ground"
 
 Norsemen:
 - Stone Guardian is buildable as a separate structure (like a seas scorpion)
