@@ -1,680 +1,671 @@
-MIRAGE 2.6.7 (January 01 2024)
-===============================================================
-
 Change Log:
 
 MIRAGE 2.6.7
 ------------------
 
-Special:
-- Multiplayer Campaing Custom UI;
-- Multiplayer Campaign Custom Player Settings are all displayed in lobby from now on;
-- Multiplayer Campaign Game Modefrom now on displays all custom Player Info in lobby;
-- Multiplayer Campaign Game Modefrom now on displays in Host and Player UI all presettled custom settings that activated when the Map has been selected;
-- Multiplayer Campaign Game Mode from now on has affect Lobby UI choices in game. What was selected in lobby will be actually in game;
-- Multiplayer Campaign Game Mode from now on has Map Difficulty levels just in regular Campaign;
-- Multiplayer Campaign Game Mode from now on has Custom PointBuy, just like in regular Campaign;
-- Multiplayer Campaign Game Mode from now on has Points System, just like in regular Campaign;
-- Multiplayer Campaign Game Mode from now on has Custom Map Preview Image, just like in regular Campaign;
-- Multiplayer Campaign Game Mode from now on has Campaign Background Overlay for Map Preview Image, just like in regular Campaign;
-- Multiplayer Campaign Game Mode from now on has Custom LoadScreen Background, just like in regular Campaign;
-- Multiplayer Campaign Game Mode from now on has Heroes Diaries on LoadScreen with audio, just like in regular Campaign;
-- Multiplayer Campaign Game Mode from now on Marked as "Campaign" instead of regular "DeathMatch" in Host List;
-- Multiplayer Campaign Game Mode from now on has hidden AI players not displayed in EndScreen Statistics window;
-- Multiplayer Campaign Game Mode from now on can be started with just one Player in lobby. The remaining slots will be filled up with AI automatically;
-- Added Custom Map creation workspace with lots of options to set up specific settings for your own Custom Maps;
-- Custom Maps from now on has their own Game Mode "Custom";
-- Multiple Custom Maps game mechanic were improved and reworked;
-- All Custom Maps presettled settings from now on visible before the game in Lobby and in Map List;
-
 General:
-- Fixed a random crash when loading a saved game if it was saved during some unit death
-- Buildings can be rotated by holding LMB + mouse movement
-- Added a separate sub-menu to the build menu to display buildable units (seas scorpion, trader zeppelin)
-- Empty sub-menus in the command bar are now hidden
-- All menus are centered now (can be reverted by disabling "center menu" checkbox in the options menu)
-- New game-mechanics server setting added: "Ally control" - if enabled you can control your ally's units, and they can control yours
-- Improved cutscenes for Boosterpack1 singleplayer campaign for classic and SEAS versions
-- Holy city gates on skirmish maps and in mission 13 are playing "Open" animation from now on
-- Pirate ship chain on skirmish maps and in mission 6 are playing "Open" & "Close" animation from now on
-- Fixed bug with Holy City gates destruction animation wasnt playing
-- Campaing avatar on mission "Single B42: Cold Day in Hell" has a corpse damage, corpse resources and death animation from now on
-- Fixed minor issue when Singleplayer type Map PreviewImage was incorrectly displaying if you try to Load/Save/Overwrite Map during gameplay;
-- Fixed missing animal flags for preplaced SDK units/spawned through trigger
-- Fixed incorrect animal flags for animals/vehicles/ships if the starting tribe not matching the unit tribe
-- Fixed missing stances icons
-- Fixed non working corpse resources values for campaign valhalla stone statues and campaign avatar
-- Fixed incorrect heroes tooltips in all languages
-- Fixed missing tooltips in some languages
-- Fixed missing translation in some languages
-- Fixed syntax errors in russain language tooltips
-- Fixed Pirates flag not being added to some preplaced or spawned pirate units
-- Fixed amazon warrior enemy selection voicelines
-- Fixed wrong frozen effect texture by using another model
-- Various fixes in the options menu
-- Wild animals will play selection sounds when selected
-- Neutral buildings and resources will play selection sounds when selected
-- Added proper workers positions during building construction for all custom buildings without Bl_ links 
-- Walls and gates are available from epoch 1 for each tribe now
-- Idle animations for non-activated valhalla campaign statues was disabled
-- Missing objbrushes added for landscape smoothing at building placement
-- Buildings placeability is now calculated after each building rotation step
-- Buildings placeability grid rendering distance was increased
-- New placement ghosts system that supports custom addons and linking (all models with custom addons now have proper placement ghosts)
-- Ships and floating buildings can now be frozen
-- Small and medium stones will not block buildings during placement and will be removed after
-- Gates and towers will adapt terrain during placement from now on
-- Changed default MaxEpoch value from 5 to 6;
+ - New game-mechanics server setting added: "Ally control"  - if enabled you can control your ally's units, and they can control yours
+ - Walls and gates are available from epoch 1 for each tribe now
+ - Ships and floating buildings can now be frozen
+ - Added a separate sub-menu to the build menu to display buildable units (seas scorpion, trader zeppelin)
+ - Buildings can be rotated by holding LMB + mouse movement
+ - Small and medium stones will not block buildings during placement and will be removed after
+ - Added proper workers positions during building construction for all custom buildings without Bl_ links
+ - Buildings placeability is now calculated after each building rotation step
+ - Buildings placeability grid rendering distance was increased
+ - New placement ghosts system that supports custom addons and linking (all models with custom addons now have proper placement ghosts)
+ - Wild animals will play selection sounds when selected
+ - Neutral buildings and resources will play selection sounds when selected
+ - Gates and towers will adapt terrain during placement from now on
+ - All menus are centered now (can be reverted by disabling "center menu" checkbox in the options menu)
+ - Empty sub-menus in the command bar are now hidden
+ - Changed default max epoch value from 5 to 6
+ - Idle animations for non-activated valhalla campaign statues was disabled
+ - Holy city gates on skirmish maps and in mission 13 are playing "Open" animation from now on
+ - Pirate ship chain on skirmish maps and in mission 6 are playing "Open" & "Close" animation from now on
+ - Campaing avatar on mission "Single B42: Cold Day in Hell" has a corpse damage, corpse resources and death animation from now on
+ - Various fixes in the options menu
+ - Improved cutscenes for Boosterpack1 singleplayer campaign for classic and SEAS versions
+ - Map preview images in UIfor4K submod are upscaled wherever they are present
+ - Fixed freezing on campaign menu opening and lobby creating
+ - Fixed a random crash when loading a saved game if it was saved during some unit death
+ - Fixed issue with SEAS turret and Dragon Clan sordes tower turrets were not playing their destruction animation
+ - Fixed issue with some of defense buildings were not playing their destruction animations properly if "create corpse" setting was enabled
+ - Fixed crash on match start time change
+ - Fixed bug with Holy City gates destruction animation wasnt playing
+ - Fixed minor issue with singleplayer map preview image was incorrectly displaying on Load/Save/Overwrite during a match
+ - Fixed missing animal flags for preplaced SDK units/spawned through trigger
+ - Fixed incorrect animal flags for animals/vehicles/ships if the starting tribe not matching the unit tribe
+ - Fixed missing stances icons
+ - Fixed non working corpse resources values for campaign valhalla stone statues and campaign avatar
+ - Fixed incorrect heroes tooltips in all languages
+ - Fixed missing tooltips in some languages
+ - Fixed missing translation in some languages
+ - Fixed syntax errors in russain language tooltips
+ - Fixed pirates flag not being added to some preplaced or spawned pirate units
+ - Fixed amazon warrior enemy selection voicelines
+ - Fixed wrong frozen effect texture by using another model
+ - Missing objbrushes added for landscape smoothing at building placement
 
 Maps:
-- Northland version of Yggdrasil map added
-- Heilige Stage's production buildings always visible in FOW for all players from now on
+ - Northland version of Yggdrasil map added
+ - Heilige Stage's production buildings always visible in FOW for all players from now on
+
+COOP campaign and maps with custom gameplay:
+ - Multiple custom maps game mechanic were improved and reworked
+ - Custom settings ​​will affect lobby creation window ui and lobby ui from now on
+ - Lobby settings ​​will affect gameplay from now on
+ - Custom maps has their own game mode "Custom" from now on
+ - Hidden AI players are not displayed at the game end statistics window from now on
+ - COOP maps are marked as "Campaign" instead of regular "Deathmatch" in lobby from now on
+ - COOP maps can be started with just one player in lobby. The remaining slots will be filled up with AI automatically
+ - COOP maps will use difficulty levels, pointbuy system, map preview images, background overlays, loading screen backgrounds and heroes diaries just like regular campaign maps
 
 Campaign maps:
-- Amazon warrior have female voiceover instead of male one from now on
-- Fixed floating buildings, units and incorrect camera's angles on mission 13 in three cutscenes
-- Classic pirate ship from now on plays destruction animation of decks, once the unit being deleted. Ship decks and cannons no longer stuck in the air. Animation based on the amount, how many decks the ship had, when got order for Deletion.
-- Classic pirate ship no longer can do any actions, once all its decks being destroyed.
-- Captain Miyagi from now has Pirate flag as well when fighting for pirates.
+ - Amazon warrior have female voiceover instead of male one from now on
+ - Fixed floating buildings, units and incorrect camera's angles on mission 13 in three cutscenes
+ - Classic pirate ship from now on plays destruction animation of decks, once the unit being deleted. Ship decks and cannons no longer stuck in the air. Animation based on the amount, how many decks the ship had, when got order for Deletion.
+ - Classic pirate ship no longer can do any actions, once all its decks being destroyed.
+ - Captain Miyagi from now has Pirate flag as well when fighting for pirates.
 
 Heroes:
-- Larry, Barry and Harry are affected by Dustriders Town Center Resource tool upgrades 1,2,3 and 4
-- Bela composite bow range per level changed from 40/42/44/46/50 to 50/50/50/50/50
-- Ada Loven musket range per level changed from 35/35/35/35/35 to 45/45/45/45/45
-- Ada Loven from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
-- Ada Loven will now randomly perform a sniper "high roll" critical shot with 3%/6%/11%/20%/33%/50% chance per level (-1 level penalty when on transport) dealing +20%/+600%/+100%/+40% vs Hero/Infantry/Animal/Vehichle
-- Babbage lvl 5 now correctly no longer gives global +50% buildup speed, instead giving +20 melee and ranged defense to all infantry
-- Taslow lvl 5 now correctly grants +33% buildup speed globally
+ - Larry, Barry and Harry are affected by Dustriders Town Center Resource tool upgrades 1,2,3 and 4
+ - Bela composite bow range per level changed from 40/42/44/46/50 to 50/50/50/50/50
+ - Ada Loven musket range per level changed from 35/35/35/35/35 to 45/45/45/45/45
+ - Ada Loven from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
+ - Ada Loven will now randomly perform a sniper "high roll" critical shot with 3%/6%/11%/20%/33%/50% chance per level (-1 level penalty when on transport) dealing +20%/+600%/+100%/+40% vs Hero/Infantry/Animal/Vehichle
+ - Babbage lvl 5 now correctly no longer gives global +50% buildup speed, instead giving +20 melee and ranged defense to all infantry
+ - Taslow lvl 5 now correctly grants +33% buildup speed globally
 
 Dustriders:
-- Amazon temple buildup animation added
-- Town Center Resource tool upgrades 1,2,3, and 4 now correctly increase harvest speed but no longer affect build up and repair
-- Town Center weapon upgrade available from now on again;
-- Better tools upgrade from now on adds icon to infantry once was researched
-- Better tools from now also increase upgrade duration for medium and tesla towers, big tent, clay walls and gates
-- Better tools description were updated
-- Tesla tower upgrade duration was rised from 30 to 90 seconds
+ - Amazon temple buildup animation added
+ - Town Center Resource tool upgrades 1,2,3, and 4 now correctly increase harvest speed but no longer affect build up and repair
+ - Town Center weapon upgrade available from now on again
+ - Better tools upgrade from now on adds icon to infantry once was researched
+ - Better tools from now also increase upgrade duration for medium and tesla towers, big tent, clay walls and gates
+ - Better tools description were updated
+ - Tesla tower upgrade duration was rised from 30 to 90 seconds
 
 Dragon Clan:
-- New epoch 6 building: mortar tower
-- Firecannon recoil animation added
-- Pirate ship is buildable as a separate structure (like a seas scorpion)
-- Pirate ship death animation being improved. Ships decks are no logner just dissapear once the ship being killed. They are playing death animation, as well as ship's hull.
-- Fixed bug with death animation being played, when the rocket ramp being not fully built while was killed
-- The parasaurolophus war drums once got weapon upgrade from now change their stance from "agressive" to "stand ground";
+ - New epoch 6 building: mortar tower
+ - Firecannon recoil animation added
+ - Pirate ship is buildable as a separate structure (like a seas scorpion)
+ - Pirate ship death animation being improved. Ships decks are no logner just dissapear once the ship being killed. They are playing death animation, as well as ship's hull.
+ - Fixed bug with death animation being played, when the rocket ramp being not fully built while was killed
+ - The parasaurolophus war drums once got weapon upgrade from now change their stance from "agressive" to "stand ground"
 
 Norsemen:
-- Stone Guardian is buildable as a separate structure (like a seas scorpion)
-- Stone Guardian from now on has destruction stages. If it has half health, its starts starts to steam, if more than half health, its starts to fire and if very low on health, it loses it's head.
-- Producing Stone Guardian in Machine Maker as unit no longer available
-- Fixed broken warpgate model
-- Fixed bug with bunker dissapearing from build menu, once first tier of walls upgrade was researched
+ - Stone Guardian is buildable as a separate structure (like a seas scorpion)
+ - Stone Guardian from now on has destruction stages. If it has half health, its starts starts to steam, if more than half health, its starts to fire and if very low on health, it loses it's head.
+ - Producing Stone Guardian in Machine Maker as unit no longer available
+ - Fixed broken warpgate model
+ - Fixed bug with bunker dissapearing from build menu, once first tier of walls upgrade was researched
 
 SEAS:
-- New mercenary model and icon
-- New epoch 6 unit: MG Walker
-- Executioner can harvest food and wood (and stone after upgrade) from now on
-- Warpgate model was updated
-- Black widows are rebuildable from now on
-- Regular Babbage mobile suit from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
-- Regular Babbage mobile suit now properly shows Poison Rounds upgrade icon when Kleeman is tier 4
-- Regular Babbage mobile suit now properly shows Maelstorm Rounds upgrade icon
-- Regular Babbage mobile suit now properly shows Robot Plating upgrade icon
-- Regular Babbage mobile suit now properly shows Hi Sec Auto Tracking upgrade icon
-- Improved repair and Advanced tools upgrades swapped - from now on their names and descriptions match
-- Improved repair costs 0/500/300/0 and increases repair speed (double repair ticks like before)
-- Advanced tools costs 200/200/200/0 and increases build up speed (+25% build speed like before)
-- Improved repair and Advanced tools now properly both affect Taslow and display upgrade icons
-- Improved big cannon build sequnece. The base platform are not placed by default, it appears during construction process, as well as the rotator.
-- Buildable and campaign big cannon from on have destruction stages
-- Fixed bug, where not fully built big cannon were playing destruction animation, if it was killed
-- Fixed bug when death animation being played, while pub or laboratory being not fully built and were killed
-- Fixed bug, when seas poison ammo upgrade wasnt applied to playable babbage mobile suit, if "Free Specials" server option was enabled
-- Fixed bug of disabled build icon for scorpion wasnt displaying properly if "Supply system" were enabled on the server
-- Added SEAS laboratory work animation, that plays when building produces unit or research upgrade
-- Restored SEAS laboratory crane, that was deleted long time ago
-- Rocketman was constantly spamming the shot effect -> this has been fixed
-- Sniper will now randomly perform a sniper "high roll" critical shot with 3%/6%/11%/20%/33%/50% chance per level (-1 level penalty when on transport) dealing -50%/+400%/+100%/+0%(bypasses -60% from TT) vs Hero/Infantry/Animal/Vehichle
+ - New mercenary model and icon
+ - New epoch 6 unit: MG Walker
+ - Executioner can harvest food and wood (and stone after upgrade) from now on
+ - Warpgate model was updated
+ - Black widows are rebuildable from now on
+ - Regular Babbage mobile suit from now on has a poison upgrade (Kleeman tier 4) for ranged attack, poison damage is 5/7/10/15/20 per 10/11/12/14/15 ticks
+ - Regular Babbage mobile suit now properly shows Poison Rounds upgrade icon when Kleeman is tier 4
+ - Regular Babbage mobile suit now properly shows Maelstorm Rounds upgrade icon
+ - Regular Babbage mobile suit now properly shows Robot Plating upgrade icon
+ - Regular Babbage mobile suit now properly shows Hi Sec Auto Tracking upgrade icon
+ - Improved repair and Advanced tools upgrades swapped - from now on their names and descriptions match
+ - Improved repair costs 0/500/300/0 and increases repair speed (double repair ticks like before)
+ - Advanced tools costs 200/200/200/0 and increases build up speed (+25% build speed like before)
+ - Improved repair and Advanced tools now properly both affect Taslow and display upgrade icons
+ - Improved big cannon build sequnece. The base platform are not placed by default, it appears during construction process, as well as the rotator.
+ - Buildable and campaign big cannon from on have destruction stages
+ - Fixed bug, where not fully built big cannon were playing destruction animation, if it was killed
+ - Fixed bug when death animation being played, while pub or laboratory being not fully built and were killed
+ - Fixed bug, when seas poison ammo upgrade wasnt applied to playable babbage mobile suit, if "Free Specials" server option was enabled
+ - Fixed bug of disabled build icon for scorpion wasnt displaying properly if "Supply system" were enabled on the server
+ - Added SEAS laboratory work animation, that plays when building produces unit or research upgrade
+ - Restored SEAS laboratory crane, that was deleted long time ago
+ - Rocketman was constantly spamming the shot effect -> this has been fixed
+ - Sniper will now randomly perform a sniper "high roll" critical shot with 3%/6%/11%/20%/33%/50% chance per level (-1 level penalty when on transport) dealing -50%/+400%/+100%/+0%(bypasses -60% from TT) vs Hero/Infantry/Animal/Vehichle
 
 AI:
-- Fixed bug, where AI were able to delete pirate ship decks separately from the main unit one by one. Now, no longer.
-- Fixed bug, where AI were able to detect pirate ship parts as attack target and kill them by splash damage, which lead to animation break up. Now, no longer.
-- AI from now on able to convert Babbage hero to the Mobile Suit as SEAS tribe
-- AI from now on able to use defensive mode for norsemen common, jetpack and zombie warriors
-- AI from now on able to construct Stone Statue as building
-- AI from now on able to construct The Main Pirate ship as building
-- AI from now on able to research Tree camouflage upgrade as Norsemen tribe
+ - Fixed bug, where AI were able to delete pirate ship decks separately from the main unit one by one. Now, no longer.
+ - Fixed bug, where AI were able to detect pirate ship parts as attack target and kill them by splash damage, which lead to animation break up. Now, no longer.
+ - AI from now on able to convert Babbage hero to the Mobile Suit as SEAS tribe
+ - AI from now on able to use defensive mode for norsemen common, jetpack and zombie warriors
+ - AI from now on able to construct Stone Statue as building
+ - AI from now on able to construct The Main Pirate ship as building
+ - AI from now on able to research Tree camouflage upgrade as Norsemen tribe
 
 SDK:
-- Added new trigger condition, which allows to check if the specific player is an AI
-- Level terrain can be saved as .obj mesh with "Export to .obj" button at icons bar
-- Northland setting textures for icewaste vegetation added
-- Fixed seas_great_cannon placing
-- Fixed seas_final_boss level placing. ALways placed on level 5 by default now.
+ - Added new trigger condition, which allows to check if the specific player is an AI
+ - Level terrain can be saved as .obj mesh with "Export to .obj" button at icons bar
+ - Northland setting textures for icewaste vegetation added
+ - Fixed seas_great_cannon placing
+ - Fixed seas_final_boss level placing. ALways placed on level 5 by default now
+ - Added custom map creation workspace with lots of options to set up specific settings for your own custom maps
 
 MIRAGE 2.6.6
 ------------------
 
 General:
-- Chinese text localization added (full base game and partly mirage)
-- The game language can now be selected from the launcher
-- Screenshot format (jpg/tga) can now be selected in the menu
-- Some ui tweaks for fullhd resolution
-- New menu overlay images for fullhd resolution added
-- Switch server side scripts error fixed
-- Fixed inability for non-norsemen allies to build a gate in the reinforced walls
-- Fixed wrong icon for locked slot in the lobby point buy menu
-- Fixed syntax errors in files (Resources.txt, custom_buildups.txt, action_attrib_def.txt, player_attrib_def.txt, main_character.txt, all_animals.txt, Shortcuts.txt and others)
-- Fixed a bug in TT that didnt add DR bone walls and gates 500 HP after exploring the structures upgrade
-- Fixed a bug in TT that didnt add HP to the seas carrier when taking the admiral's hat or talisman artifacts
-- Fixed non working wild animals selection sounds
-- Fixed similiar hotkey for Watchtower and Large dino farm
-- Fixed missing pirate boss ship dest textures
-- Fixed Zombie Schliemann aura in Valhalla's campaign mission
-- Reworked shortcuts for all units, added new ones
-- Restored intro playback for win 7 and higher (sometimes doesnt work)
-- Deleted unused weapon /Objects/Hu/Weapons/hu_falling_towers
-- Deleted unused weapon /Objects/SEAS/Weapons/seas_explosion
-- Enabled idle animations to all units that didn't use them (188 units)
-- Added custom cosmetic TT filter for campaign objects
-- Added additional info for the epoch 6 Dustrider's amazon temple description
-- All tribe workers now deal additional +200% damage to wild animal nests once you ve researched building damage upgrade
-- All tribe workers now deal additional +1000% ranged damage to buildings once you ve researched building damage upgrade
-- TT-Stealing effects are now globally present allowing the usage of foreign specials but it still allows/prohibts foreign building placement when switched on/off in mirage server settings
+ - Chinese text localization added (full base game and partly mirage)
+ - The game language can now be selected from the launcher
+ - Screenshot format (jpg/tga) can now be selected in the menu
+ - Some ui tweaks for fullhd resolution
+ - New menu overlay images for fullhd resolution added
+ - Switch server side scripts error fixed
+ - Fixed inability for non-norsemen allies to build a gate in the reinforced walls
+ - Fixed wrong icon for locked slot in the lobby point buy menu
+ - Fixed syntax errors in files (Resources.txt, custom_buildups.txt, action_attrib_def.txt, player_attrib_def.txt, main_character.txt, all_animals.txt, Shortcuts.txt and others)
+ - Fixed a bug in TT that didnt add DR bone walls and gates 500 HP after exploring the structures upgrade
+ - Fixed a bug in TT that didnt add HP to the seas carrier when taking the admiral's hat or talisman artifacts
+ - Fixed non working wild animals selection sounds
+ - Fixed similiar hotkey for Watchtower and Large dino farm
+ - Fixed missing pirate boss ship dest textures
+ - Fixed Zombie Schliemann aura in Valhalla's campaign mission
+ - Reworked shortcuts for all units, added new ones
+ - Restored intro playback for win 7 and higher (sometimes doesnt work)
+ - Deleted unused weapon /Objects/Hu/Weapons/hu_falling_towers
+ - Deleted unused weapon /Objects/SEAS/Weapons/seas_explosion
+ - Enabled idle animations to all units that didn't use them (188 units)
+ - Added custom cosmetic TT filter for campaign objects
+ - Added additional info for the epoch 6 Dustrider's amazon temple description
+ - All tribe workers now deal additional +200% damage to wild animal nests once you ve researched building damage upgrade
+ - All tribe workers now deal additional +1000% ranged damage to buildings once you ve researched building damage upgrade
+ - TT-Stealing effects are now globally present allowing the usage of foreign specials but it still allows/prohibts foreign building placement when switched on/off in mirage server settings
 
 Maps:
-- Fixed disabled SEAS on "North Road", "Ruins", "The Island", "Zwillingsinseln" maps
-- Fixed not deleted techTree filters for some players, some unpassable areas on "The Deserted land" map
-- Fixed unpickable artifact items on the players sides on "Massenschlacht" map
-- Fixed floating in the sea props, and unpickable artifact item on "Alive Wasteland" map
-- Fixed destructible decorative buildings on "Gebirgsauslauf" map
-- Fixed targetable buildings on player's bases, now they belong to the base owner from start on "Fummelmap" map
-- Fixed multiple issues on map "Day77"
-- Fixed AI using big cannons before timer expiration on "Crisis" map
-- Fixed map "Blood Island" with invisible nests having infinity amounts of wild animals
-- Fixed teamcolour of some decorative objects on player's HQs on maps "Jungle Rush"
+ - Fixed disabled SEAS on "North Road", "Ruins", "The Island", "Zwillingsinseln" maps
+ - Fixed not deleted techTree filters for some players, some unpassable areas on "The Deserted land" map
+ - Fixed unpickable artifact items on the players sides on "Massenschlacht" map
+ - Fixed floating in the sea props, and unpickable artifact item on "Alive Wasteland" map
+ - Fixed destructible decorative buildings on "Gebirgsauslauf" map
+ - Fixed targetable buildings on player's bases, now they belong to the base owner from start on "Fummelmap" map
+ - Fixed multiple issues on map "Day77"
+ - Fixed AI using big cannons before timer expiration on "Crisis" map
+ - Fixed map "Blood Island" with invisible nests having infinity amounts of wild animals
+ - Fixed teamcolour of some decorative objects on player's HQs on maps "Jungle Rush"
 
 Campaign maps:
-- Multitribe option not available on all singleplayer campaign missions
-- Campaing story related units and buildings unavailable for player on most of missions
-- Rebalanced difficulty levels on all singleplayer campaign missions
-- Improved multiple triggers to exclude the possible rarely encountred bugs on all singleplayer campaign maps
-- Updated classis boosterpack missions "Single_b42: Cold Day in Hell" and "Single_b41: The Devil's Advocate" for MIRAGE features
-- Fixed decorative ruins tower issues on all singleplayer campaign maps
-- Fixed decorative ruins production building usage for AI on all singleplayer campaign maps
-- Fixed that first seas carier squad was reaching the defend area too quickly
-- Fixed decorative mayor corpse on mission 11
-- Fixed incorrect or missing teamcolour on various buildings, dekos and units on all singleplayer campaign missions
-- Fixed incorrect unit or building positions on all singleplayer campaign missions
-- Fixed pointbuy locks on missions: "single_02", "single_03", "single_12", "single_b42", "single_b42_seas", "single_b43", "single_b43_seas"
-- Fixed started units on missions: "single_02", "single_03", "single_12"
-- Fixed holy city artifact—showing citizen on mission 5
-- Fixed bugged druid dialogue once the player pick ups Bony amulett item on mission 2
-- Fixed bug with mammoth's quest on mission 2
-- Fixed bug that seas attacks player camp instead of telescope tower on mission 12
-- Fixed bug that first seas carrier stuck at position near defend area
-- Fixed bug with wrong diplomacy relations on mission 13
-- Fixed bug that new heroes not being teleported in missions 8 and 9
-- Fixed bug with not playing diloague scene in mission 5 on "Medium" and "Hard" difficulties
-- Fixed bug when mentor informs about not collected quest yet on mission 5
-- Fixed bug with ninjas appearing earlier than quest being collected on mission 5
-- Fixed bug that runes not dissapears after being collected on missions: "single_b42", "single_b42_seas"
-- Fixed bug with pentacle rays not being dispalyed while player stands on correct spot on missions: "single_b42", "single_b42_seas"
-- Fixed bug with easter egg display in FOW on missions: "single_b42", "single_b42_seas"
-- Fixed bug that new MIRAGE heroes not being able to capture SEAS towers in mission 16
-- Recreated the cutscene stone blockage in mission 1 before stina encounter on mission 1
-- Recreated seas mainbase from ending cutscene in mission 13
-- Recreated main barbarian base from ending cutscene on mission 4
-- Recreated barbarian mainbase from ending cutscene on mission 1
-- Recreated SEAS crater entrance on mission 15 similiar to the entrance like it was on mission 16
-- Imprisoned norsemen infantry doesnt have weapons in their hands until they will be freed on mission 1
-- Replaced dragon clan walls on the pirate ones in mission 6
-- Replaced mother model from cutscene to dustrider archer on mission 5
-- Dustriders base being reconstructed from ending cutscene on mission 2
-- Mammoths cannot be killed or attacked after completing quest on their protection on mission 2
-- Ada's jail can be destroyed only if 2 her additional parts will be hard damaged on mission 14
-- Dustriders turtle squad near mammoth nest being same as in cutscene from now on at mission 2
-- Pirate squad near first foutain the same as in cutscene from now on at mission 5
-- Pirate squad near third dustrider base same as in cutscene from now on at mission 5
-- Pirate minelayer and guarding fireboat now located near first minefield from now on at mission 6
-- First SEAS black widow squad being dispatched in player camp like in cutscene from now on at mission 7
-- First barbarian squad that unboards on shore to attack launchpad are now same as in cutscene on mission 9
-- The remaining seas troops that were attacking telescope tower will assault player base after cutscene from now on at mission 12
-- The trader's landing spot seas guards assault the player base from now on if qust being failed at mission 13
-- Replaced seas gunners on marksmans for seas support on missions: "single_b42", "single_b42_seas"
-- On missions: "single_03", "single_06", "single_13", "single_14" main enemy bases can build hero leaders
-- Added barbarian demomans that blew up the bridge on mission 10
-- Added additional dustrider protectors from cutscene on mission 13
-- Added dustriders archers mounted on holy city walls in mission 13
-- Added seas harbour squad from starting cutscene on mission 13
-- Added additional seas temple guards on mission 10
-- Added additional amazon main base protectors from cutscene on mission 3
-- Added decorative leighton inside temple on mission 10
-- Added decorative telescope tower ruins on mission 12
-- Added transport ship on which heroes arrived on mission 12
-- Added druid and warrior with who heroes arrived on mission 2
-- Added druid and two warriors with who heroes arrived on mission 3
-- Added heroes ship from cutscene on mission 3
-- Added norsemen village leader on mission 1
-- Added 3 dustrider tents near amazon temple from the edning cutscene on mission 3
-- Added monk holy citizen group in mission 5
-- Added dustrider citizen worker near aje third base on mission 5
-- Added additional row of mines in first minefield from cutscene on mission 6
-- Added decorative pirate transport ships near prison on mission 6
-- Added pirate corsairs from cutscenes on missions: "single_05", "single_06"
-- Added pirate ships from cutscene on mission 7
-- Added monks to pirate squad on mission 7
-- Added decorative eusmilus on mission 1, near the smilodon nest on mission 1
-- Added two Bela's prison guards, that being distracted by stina's thrown stone on mission 1
-- Added more guards to barbarian mainbase on mission 1
-- Added decorative mammoth in the player's camp on mission 2
-- Added additional SEAS squad that dispatches to help barbarian mainbase on mission 4
-- Added background figth of Pirates vs Dustriders squad that arrived with heroe on mission 5
-- Added pirate captain on missions: "single_05" "single_06", "single_07", "single_b42", "single_b42_seas", "single_b43"
-- Added bunkercrew to coast bunkers on mission 15
-- Added starting SEAS enemy squad from beginning cutscene on mission 16
-- Added decorative leighton's hovercraft at the seas mainbase on mission 14
-- Added leighton's submarine from starting cutscene on mission 14
-- Added SEAS lieutenant near the warpgates on mission 4
-- Added cutscene parasaurolophus, psittacosaurus and apatosaurus on mission 9
-- Added barbarian chieftain in the dragon clan village on mission 9
-- Added additional protectors to the Dustriders and Norsemen bases from the cutscene on missions: "single_b41", "single_b41_seas"
-- Added additional protectors to the Dragon clan and Norsemen bases from the cutscene on missions: "single_b43", "single_b43_seas"
-- Added additional buildings from cutscenes to Dustriders and Norsemen bases on missions: "single_b41", "single_b41_seas"
-- Added additional buildings from cutscenes to Dragon clan and Norsemen bases on missions: "single_b43", "single_b43_seas"
+ - Multitribe option not available on all singleplayer campaign missions
+ - Campaing story related units and buildings unavailable for player on most of missions
+ - Rebalanced difficulty levels on all singleplayer campaign missions
+ - Improved multiple triggers to exclude the possible rarely encountred bugs on all singleplayer campaign maps
+ - Updated classis boosterpack missions "Single_b42: Cold Day in Hell" and "Single_b41: The Devil's Advocate" for MIRAGE features
+ - Fixed decorative ruins tower issues on all singleplayer campaign maps
+ - Fixed decorative ruins production building usage for AI on all singleplayer campaign maps
+ - Fixed that first seas carier squad was reaching the defend area too quickly
+ - Fixed decorative mayor corpse on mission 11
+ - Fixed incorrect or missing teamcolour on various buildings, dekos and units on all singleplayer campaign missions
+ - Fixed incorrect unit or building positions on all singleplayer campaign missions
+ - Fixed pointbuy locks on missions: "single_02", "single_03", "single_12", "single_b42", "single_b42_seas", "single_b43", "single_b43_seas"
+ - Fixed started units on missions: "single_02", "single_03", "single_12"
+ - Fixed holy city artifact—showing citizen on mission 5
+ - Fixed bugged druid dialogue once the player pick ups Bony amulett item on mission 2
+ - Fixed bug with mammoth's quest on mission 2
+ - Fixed bug that seas attacks player camp instead of telescope tower on mission 12
+ - Fixed bug that first seas carrier stuck at position near defend area
+ - Fixed bug with wrong diplomacy relations on mission 13
+ - Fixed bug that new heroes not being teleported in missions 8 and 9
+ - Fixed bug with not playing diloague scene in mission 5 on "Medium" and "Hard" difficulties
+ - Fixed bug when mentor informs about not collected quest yet on mission 5
+ - Fixed bug with ninjas appearing earlier than quest being collected on mission 5
+ - Fixed bug that runes not dissapears after being collected on missions: "single_b42", "single_b42_seas"
+ - Fixed bug with pentacle rays not being dispalyed while player stands on correct spot on missions: "single_b42", "single_b42_seas"
+ - Fixed bug with easter egg display in FOW on missions: "single_b42", "single_b42_seas"
+ - Fixed bug that new MIRAGE heroes not being able to capture SEAS towers in mission 16
+ - Recreated the cutscene stone blockage in mission 1 before stina encounter on mission 1
+ - Recreated seas mainbase from ending cutscene in mission 13
+ - Recreated main barbarian base from ending cutscene on mission 4
+ - Recreated barbarian mainbase from ending cutscene on mission 1
+ - Recreated SEAS crater entrance on mission 15 similiar to the entrance like it was on mission 16
+ - Imprisoned norsemen infantry doesnt have weapons in their hands until they will be freed on mission 1
+ - Replaced dragon clan walls on the pirate ones in mission 6
+ - Replaced mother model from cutscene to dustrider archer on mission 5
+ - Dustriders base being reconstructed from ending cutscene on mission 2
+ - Mammoths cannot be killed or attacked after completing quest on their protection on mission 2
+ - Ada's jail can be destroyed only if 2 her additional parts will be hard damaged on mission 14
+ - Dustriders turtle squad near mammoth nest being same as in cutscene from now on at mission 2
+ - Pirate squad near first foutain the same as in cutscene from now on at mission 5
+ - Pirate squad near third dustrider base same as in cutscene from now on at mission 5
+ - Pirate minelayer and guarding fireboat now located near first minefield from now on at mission 6
+ - First SEAS black widow squad being dispatched in player camp like in cutscene from now on at mission 7
+ - First barbarian squad that unboards on shore to attack launchpad are now same as in cutscene on mission 9
+ - The remaining seas troops that were attacking telescope tower will assault player base after cutscene from now on at mission 12
+ - The trader's landing spot seas guards assault the player base from now on if qust being failed at mission 13
+ - Replaced seas gunners on marksmans for seas support on missions: "single_b42", "single_b42_seas"
+ - On missions: "single_03", "single_06", "single_13", "single_14" main enemy bases can build hero leaders
+ - Added barbarian demomans that blew up the bridge on mission 10
+ - Added additional dustrider protectors from cutscene on mission 13
+ - Added dustriders archers mounted on holy city walls in mission 13
+ - Added seas harbour squad from starting cutscene on mission 13
+ - Added additional seas temple guards on mission 10
+ - Added additional amazon main base protectors from cutscene on mission 3
+ - Added decorative leighton inside temple on mission 10
+ - Added decorative telescope tower ruins on mission 12
+ - Added transport ship on which heroes arrived on mission 12
+ - Added druid and warrior with who heroes arrived on mission 2
+ - Added druid and two warriors with who heroes arrived on mission 3
+ - Added heroes ship from cutscene on mission 3
+ - Added norsemen village leader on mission 1
+ - Added 3 dustrider tents near amazon temple from the edning cutscene on mission 3
+ - Added monk holy citizen group in mission 5
+ - Added dustrider citizen worker near aje third base on mission 5
+ - Added additional row of mines in first minefield from cutscene on mission 6
+ - Added decorative pirate transport ships near prison on mission 6
+ - Added pirate corsairs from cutscenes on missions: "single_05", "single_06"
+ - Added pirate ships from cutscene on mission 7
+ - Added monks to pirate squad on mission 7
+ - Added decorative eusmilus on mission 1, near the smilodon nest on mission 1
+ - Added two Bela's prison guards, that being distracted by stina's thrown stone on mission 1
+ - Added more guards to barbarian mainbase on mission 1
+ - Added decorative mammoth in the player's camp on mission 2
+ - Added additional SEAS squad that dispatches to help barbarian mainbase on mission 4
+ - Added background figth of Pirates vs Dustriders squad that arrived with heroe on mission 5
+ - Added pirate captain on missions: "single_05" "single_06", "single_07", "single_b42", "single_b42_seas", "single_b43"
+ - Added bunkercrew to coast bunkers on mission 15
+ - Added starting SEAS enemy squad from beginning cutscene on mission 16
+ - Added decorative leighton's hovercraft at the seas mainbase on mission 14
+ - Added leighton's submarine from starting cutscene on mission 14
+ - Added SEAS lieutenant near the warpgates on mission 4
+ - Added cutscene parasaurolophus, psittacosaurus and apatosaurus on mission 9
+ - Added barbarian chieftain in the dragon clan village on mission 9
+ - Added additional protectors to the Dustriders and Norsemen bases from the cutscene on missions: "single_b41", "single_b41_seas"
+ - Added additional protectors to the Dragon clan and Norsemen bases from the cutscene on missions: "single_b43", "single_b43_seas"
+ - Added additional buildings from cutscenes to Dustriders and Norsemen bases on missions: "single_b41", "single_b41_seas"
+ - Added additional buildings from cutscenes to Dragon clan and Norsemen bases on missions: "single_b43", "single_b43_seas"
 
 Heroes:
-- Anthony Cole Shotgun special now treats certain units (campaign avatar and statues) in a special way dealing only 10% hp bonus
-- Anthony Cole Shotgun special now correctly collateraly damages all neutral units in the bullet cloud projectile path
-- Governor Whirling Blade special now correctly deals area damage to all neutral units in range
-- Governor Whirling Blade special area effect range increased to double the previous value
-- Babbage lvl 2 aura radius increased from 20 to 30
-- Bela lvl 2 aura radius increased from 20 to 30
-- Cole lvl 2 aura radius increased from 20 to 30
-- Larry lvl 2 aura radius increased from 30 to 35
-- Leighton lvl 2 aura radius increased from 20 to 30
-- Loven lvl 2 aura radius increased from 20 to 30
-- Governor lvl 2 aura radius increased from 20 to 30
-- Kleeman zombie lvl 2 aura radius increased from 20 to 40
-- Stina (infantry) lvl 2 aura radius increased from 20 to 30
-- Stina (animal) lvl 2 aura radius increased from 25 to 30
-- Miyagi lvl 2 aura radius increased from 25 to 30
-- Tarna lvl 2 aura radius increased from 20 to 30
-- Taslow lvl 2 aura radius increased from 20 to 30
-- Babbage mobile suit lvl 2 aura radius increased from 20 to 30
+ - Anthony Cole Shotgun special now treats certain units (campaign avatar and statues) in a special way dealing only 10% hp bonus
+ - Anthony Cole Shotgun special now correctly collateraly damages all neutral units in the bullet cloud projectile path
+ - Governor Whirling Blade special now correctly deals area damage to all neutral units in range
+ - Governor Whirling Blade special area effect range increased to double the previous value
+ - Babbage lvl 2 aura radius increased from 20 to 30
+ - Bela lvl 2 aura radius increased from 20 to 30
+ - Cole lvl 2 aura radius increased from 20 to 30
+ - Larry lvl 2 aura radius increased from 30 to 35
+ - Leighton lvl 2 aura radius increased from 20 to 30
+ - Loven lvl 2 aura radius increased from 20 to 30
+ - Governor lvl 2 aura radius increased from 20 to 30
+ - Kleeman zombie lvl 2 aura radius increased from 20 to 40
+ - Stina (infantry) lvl 2 aura radius increased from 20 to 30
+ - Stina (animal) lvl 2 aura radius increased from 25 to 30
+ - Miyagi lvl 2 aura radius increased from 25 to 30
+ - Tarna lvl 2 aura radius increased from 20 to 30
+ - Taslow lvl 2 aura radius increased from 20 to 30
+ - Babbage mobile suit lvl 2 aura radius increased from 20 to 30
 
 Dustriders:
-- Epoch 2 research cost updated from 200/200/100/15 to 300/300/0/10
-- Epoch 3 research cost updated from 700/700/350/45 to 1000/900/0/30
-- Epoch 4 research cost updated from 1000/1000/500/60 to 1500/1300/0/60
-- Epoch 5 research cost updated from 1500/1500/750/100 to 2200/1800/0/100
-- Epoch 6 research cost updated from 2000/2000/1000/150 to 3000/2200/0/150
-- Town Center hit points reduced from 2000/2250/2750/3500/4500/5500 to 2000/2200/2500/2900/3400/4000
-- T-Rex titan Stunning Roar special now only affects characters and animals, except other tyrannosaurus based units
-- T-Rex titan Stunning Roar special now correctly affects all neutral units instead of only aggressive
-- T-Rex titan melee attack armor penetration value set to 30
-- Brachiosaurus Brachio Stomp special now correctly deals more damage the closer you are instead the further
-- Brachiosaurus Brachio Stomp special now correctly affects all neutral units instead of only aggressive
-- Brachiosaurus catapult damage % modifiers decreased and are now once again equal to all other tribes
-- Ankylosaurus Ankylo Bash passive special bash damage now deals 25% less to animals and characters, but 25% more to machines
-- Ankylo catapult with dinno ammo Velociraptor attack now deals 25% less damage to machines and buildings, but 25% more to characters and animals
-- Ankylo catapult stone ammo now deals 25% more damage to machines and buildings
-- Stegosaurus melee attack now deals 25% less damage to machines and buildings, but 25% more to characters and animals
-- Tracker dino and Torpedo turtle now hunt wild animals and have priority targeting for enemies and neutrals
-- James Warden nest Gallimimus now does 25% more damage to animals and characters but 25% less to machines and buildings
-- Allosaurus armor reduction aura range increased from 20 to 35
-- Scout eye vision aura increased from 20 to 35
-- Raptor handler (oviraptor) production cost increased from 50/0/0/0 to 60/0/0/0
-- Tyranno guardian production cost changed from 900/800/400 to 900/900/300
-- Spearman spear damage values increased from 15/20/30/50/90 to 15/27/38/60/101
-- Spearman spear attack frequency passive barracks special now properly works with spear melee attacks
-- Archer bow damage values decreased from 20/37/45/65/100 to 12/23/34/42/83
-- Tier 1 (Infantry War enabled) Warriors attack value increased from 5 to 10
-- Warrior tier 3 and higher aura range now increased from from 25/30/35 to 30/35/40
+ - Epoch 2 research cost updated from 200/200/100/15 to 300/300/0/10
+ - Epoch 3 research cost updated from 700/700/350/45 to 1000/900/0/30
+ - Epoch 4 research cost updated from 1000/1000/500/60 to 1500/1300/0/60
+ - Epoch 5 research cost updated from 1500/1500/750/100 to 2200/1800/0/100
+ - Epoch 6 research cost updated from 2000/2000/1000/150 to 3000/2200/0/150
+ - Town Center hit points reduced from 2000/2250/2750/3500/4500/5500 to 2000/2200/2500/2900/3400/4000
+ - T-Rex titan Stunning Roar special now only affects characters and animals, except other tyrannosaurus based units
+ - T-Rex titan Stunning Roar special now correctly affects all neutral units instead of only aggressive
+ - T-Rex titan melee attack armor penetration value set to 30
+ - Brachiosaurus Brachio Stomp special now correctly deals more damage the closer you are instead the further
+ - Brachiosaurus Brachio Stomp special now correctly affects all neutral units instead of only aggressive
+ - Brachiosaurus catapult damage % modifiers decreased and are now once again equal to all other tribes
+ - Ankylosaurus Ankylo Bash passive special bash damage now deals 25% less to animals and characters, but 25% more to machines
+ - Ankylo catapult with dinno ammo Velociraptor attack now deals 25% less damage to machines and buildings, but 25% more to characters and animals
+ - Ankylo catapult stone ammo now deals 25% more damage to machines and buildings
+ - Stegosaurus melee attack now deals 25% less damage to machines and buildings, but 25% more to characters and animals
+ - Tracker dino and Torpedo turtle now hunt wild animals and have priority targeting for enemies and neutrals
+ - James Warden nest Gallimimus now does 25% more damage to animals and characters but 25% less to machines and buildings
+ - Allosaurus armor reduction aura range increased from 20 to 35
+ - Scout eye vision aura increased from 20 to 35
+ - Raptor handler (oviraptor) production cost increased from 50/0/0/0 to 60/0/0/0
+ - Tyranno guardian production cost changed from 900/800/400 to 900/900/300
+ - Spearman spear damage values increased from 15/20/30/50/90 to 15/27/38/60/101
+ - Spearman spear attack frequency passive barracks special now properly works with spear melee attacks
+ - Archer bow damage values decreased from 20/37/45/65/100 to 12/23/34/42/83
+ - Tier 1 (Infantry War enabled) Warriors attack value increased from 5 to 10
+ - Warrior tier 3 and higher aura range now increased from from 25/30/35 to 30/35/40
 
 Dragon Clan:
-- James Warden nest Dilophosaurus now correctly inflict poison from melee damage similar to Dustriders scout unit
-- James Warden nest Dilophosaurus now deals 25% more damage to characters and animals but 25% less to machines and buildings
-- Wardrums damage aura range increased from 50 to 60
-- Archer bow damage values changed from 10/37/25/45/85 to 15/26/38/45/87
-- Tier 1 (Infantry War enabled) Samurai attack value increased from 5 to 10
-- Samurai tier 3 and higher aura range now increased from from 25/30/35 to 30/35/40
+ - James Warden nest Dilophosaurus now correctly inflict poison from melee damage similar to Dustriders scout unit
+ - James Warden nest Dilophosaurus now deals 25% more damage to characters and animals but 25% less to machines and buildings
+ - Wardrums damage aura range increased from 50 to 60
+ - Archer bow damage values changed from 10/37/25/45/85 to 15/26/38/45/87
+ - Tier 1 (Infantry War enabled) Samurai attack value increased from 5 to 10
+ - Samurai tier 3 and higher aura range now increased from from 25/30/35 to 30/35/40
 
 Norsemen:
-- Triceratops titan Paw special now only affects characters and animals, except other titans
-- Triceratops titan Paw special now correctly affects all neutral units instead of only aggressive
-- James Warden kennel sabertooth cats now deal 25% more damage to animals and characters but 25% less to machines and buildings
-- Scout and Rhino damage wardrum aura range increased from 20 to 35
-- Scout and Rhino armor pennant aura range increased from 20 to 35
-- Archer bow damage values changed from 5/37/25/45/85 to 10/20/30/40/80
-- Warriror axe damage incresed from 10/15/25/45/85 to 15/20/30/50/90
-- Warrior tier 3 and higher aura range now increased from from 25/30/35 to 30/35/40
+ - Triceratops titan Paw special now only affects characters and animals, except other titans
+ - Triceratops titan Paw special now correctly affects all neutral units instead of only aggressive
+ - James Warden kennel sabertooth cats now deal 25% more damage to animals and characters but 25% less to machines and buildings
+ - Scout and Rhino damage wardrum aura range increased from 20 to 35
+ - Scout and Rhino armor pennant aura range increased from 20 to 35
+ - Archer bow damage values changed from 5/37/25/45/85 to 10/20/30/40/80
+ - Warriror axe damage incresed from 10/15/25/45/85 to 15/20/30/50/90
+ - Warrior tier 3 and higher aura range now increased from from 25/30/35 to 30/35/40
 
 SEAS:
-- James Warden nest Stygimoloch now deals 25% more damage to machines and characters but 25% less to animals and buildings
-- Character prison (special barracks) UI rearranged, added low tier versions of basic units
-- Marksman bullet damage values changed from 20/37/45/65/100 to 15/26/38/45/87
-- Guard weapon damage increased from 10/15/25/45/85 to 12/17/27/47/87
-- Workers are capable to deliver stones directly into stone mine from now on
-- Big cannon has a build animation from now on
-- Big cannon will no longer target wild animals on its own
-- Bombardier (cannon turtle) base weapon frequency changed from 20 to 15, but it sometimes fires double projectiles (critical)
-- Bombardier (cannon turtle) production cost changed from 70/200/100/0 to 400/200/100/0
-- Bombardier (cannon turtle) base skull reward when killed changed from 39 to 69
-- Fixed not displaying icon of dragon clan accuracy in production menu at main jail
-- Fixed bugs with reactor cores for headquarters and jails
-- Fixed poison ammo laboratory upgrade icon overlay
-- Fixed description for Headquarters on epoch 6 in russian localization
-- Seas jail 01 produced units special abilities now always work due to TT Stealing change from General
-- Seas jail 02 temporarily disabled in order to be reworked into artefact (item) storage and enabled again in upcoming builds
-- Campaign Babbage mobile suit from now on has a range attack upgrade just like terminator, range increased on 10
-- Campaign Babbage mobile suit from now on has range attack damage upgrade just like terminator, damage multiplied on 1.1
-- Campaign Babbage mobile suit from now on has an armorpiercing range attack upgrade, armorpiercing is 100
-- Campaign Babbage mobile suit from now on has a poison upgrade for range attack just like terminator, poison damage is 100/125/150/180/200 per 15 ticks
+ - James Warden nest Stygimoloch now deals 25% more damage to machines and characters but 25% less to animals and buildings
+ - Character prison (special barracks) UI rearranged, added low tier versions of basic units
+ - Marksman bullet damage values changed from 20/37/45/65/100 to 15/26/38/45/87
+ - Guard weapon damage increased from 10/15/25/45/85 to 12/17/27/47/87
+ - Workers are capable to deliver stones directly into stone mine from now on
+ - Big cannon has a build animation from now on
+ - Big cannon will no longer target wild animals on its own
+ - Bombardier (cannon turtle) base weapon frequency changed from 20 to 15, but it sometimes fires double projectiles (critical)
+ - Bombardier (cannon turtle) production cost changed from 70/200/100/0 to 400/200/100/0
+ - Bombardier (cannon turtle) base skull reward when killed changed from 39 to 69
+ - Fixed not displaying icon of dragon clan accuracy in production menu at main jail
+ - Fixed bugs with reactor cores for headquarters and jails
+ - Fixed poison ammo laboratory upgrade icon overlay
+ - Fixed description for Headquarters on epoch 6 in russian localization
+ - Seas jail 01 produced units special abilities now always work due to TT Stealing change from General
+ - Seas jail 02 temporarily disabled in order to be reworked into artefact (item) storage and enabled again in upcoming builds
+ - Campaign Babbage mobile suit from now on has a range attack upgrade just like terminator, range increased on 10
+ - Campaign Babbage mobile suit from now on has range attack damage upgrade just like terminator, damage multiplied on 1.1
+ - Campaign Babbage mobile suit from now on has an armorpiercing range attack upgrade, armorpiercing is 100
+ - Campaign Babbage mobile suit from now on has a poison upgrade for range attack just like terminator, poison damage is 100/125/150/180/200 per 15 ticks
 
 AI:
-- AI now detects and threats the specific heroe units as Hero Classes: Babbage mobile suit, and Schliemann zombie (custom map hero)
-- Norsemen builds mud pits from now on
-- Norsemen upgrades steam tank cannon from now on
-- SEAS and Norsemen builds the stone mines from now on
-- SEAS builds a scorpion as a building from now on
-- SEAS builds jails from now on
-- SEAS researchs the babbage mobile suit mechanization from now on
-- SEAS using minigun ability for babbage mobile suit from now on
-- SEAS builds additional Big Cannon from now on
-- Dustriders should not produce Siege Brachio anymore
-- Dustriders builds the Watchtower from now on
+ - AI now detects and threats the specific heroe units as Hero Classes: Babbage mobile suit, and Schliemann zombie (custom map hero)
+ - Norsemen builds mud pits from now on
+ - Norsemen upgrades steam tank cannon from now on
+ - SEAS and Norsemen builds the stone mines from now on
+ - SEAS builds a scorpion as a building from now on
+ - SEAS builds jails from now on
+ - SEAS researchs the babbage mobile suit mechanization from now on
+ - SEAS using minigun ability for babbage mobile suit from now on
+ - SEAS builds additional Big Cannon from now on
+ - Dustriders should not produce Siege Brachio anymore
+ - Dustriders builds the Watchtower from now on
 
 MIRAGE 2.6.5
 ------------------
 General:
-- Updated discord integration with join feature
-- Attacking buildings can now use stances
-- Buildings will leave collectable and deco debris when destroyed (if corpses enabled)
-- Multi-campaign and custom gameplay maps are highlighted in the map list
-- Unit corpses no longer block building construction
-- New ui icons for the SDK
-- The replay loading window has been increased so that the full name of the replay fits in the list
-- Buildings can no longer be mounted in transporters
-- ReColor and Wintermod mods have been added to mirage launcher (on/off in the PWTool)
-- Fixed crash on single_b42_seas
-- Fixed missing Nest_Anurognathus_Fruit_Bush texture
-- Fixed missing seas wg textures
-- Fixed seas nest crash
-- Fixed a typo in TT that broke the passive stance button of seas carriers
-- Fixed hu_portal_terminus redefinition
-- Deleted unused portraits_dialog.tga and ingame_ui.tga from All_def.txt
-- Deleted unused entries Buttons/portraits_dialog.tga and Buttons/ingame_ui.tga from All_def.txt
+ - Updated discord integration with join feature
+ - Attacking buildings can now use stances
+ - Buildings will leave collectable and deco debris when destroyed (if corpses enabled)
+ - Multi-campaign and custom gameplay maps are highlighted in the map list
+ - Unit corpses no longer block building construction
+ - New ui icons for the SDK
+ - The replay loading window has been increased so that the full name of the replay fits in the list
+ - Buildings can no longer be mounted in transporters
+ - ReColor and Wintermod mods have been added to mirage launcher (on/off in the PWTool)
+ - Fixed crash on single_b42_seas
+ - Fixed missing Nest_Anurognathus_Fruit_Bush texture
+ - Fixed missing seas wg textures
+ - Fixed seas nest crash
+ - Fixed a typo in TT that broke the passive stance button of seas carriers
+ - Fixed hu_portal_terminus redefinition
+ - Deleted unused portraits_dialog.tga and ingame_ui.tga from All_def.txt
+ - Deleted unused entries Buttons/portraits_dialog.tga and Buttons/ingame_ui.tga from All_def.txt
 
 Heroes:
-- Taslow will play a unique animation when destroying vehicles from now on
+ - Taslow will play a unique animation when destroying vehicles from now on
 
 Dragon clan:
-- Telescope tower is available from epoch 5 from now on
-- Minimal building explosion damage is increased from 100 to 350
-- New headquarter model for epoch 6
+ - Telescope tower is available from epoch 5 from now on
+ - Minimal building explosion damage is increased from 100 to 350
+ - New headquarter model for epoch 6
 
 Dustriders:
-- New epoch 6 building: watchtower which increases visibility for all units and reveals camouflaged units and traps
-- Headquarters has 5 infantry passenger slots from now on
-- Headquarters wagons will use destruction models when taking damage from now on
-- Harbours will leave collectable barrels with food when destroyed (if corpses enabled)
-- New headquarter model for epoch 6
+ - New epoch 6 building: watchtower which increases visibility for all units and reveals camouflaged units and traps
+ - Headquarters has 5 infantry passenger slots from now on
+ - Headquarters wagons will use destruction models when taking damage from now on
+ - Harbours will leave collectable barrels with food when destroyed (if corpses enabled)
+ - New headquarter model for epoch 6
 
 Norsemen:
-- Battle tank new upgrade: steam cannon which equips the battle tank with a secondary long range weapon
-- Zombie warrior can use jetpack from now on (requires Taslow on epoch 4)
-- Kleemann on epoch 4 will also give zombie archers from now on
-- New epoch 6 building: mud pit which slows down enemy units passing through it
-- Druid will play a unique animation when using insects from now on
-- New headquarter model for epoch 6
+ - Battle tank new upgrade: steam cannon which equips the battle tank with a secondary long range weapon
+ - Zombie warrior can use jetpack from now on (requires Taslow on epoch 4)
+ - Kleemann on epoch 4 will also give zombie archers from now on
+ - New epoch 6 building: mud pit which slows down enemy units passing through it
+ - Druid will play a unique animation when using insects from now on
+ - New headquarter model for epoch 6
 
 SEAS:
-- Carriers will leave collectable barrels with food when destroyed (if corpses enabled)
-- New headquarter model for epoch 6
-- HD textures for the wg scaffoldings
+ - Carriers will leave collectable barrels with food when destroyed (if corpses enabled)
+ - New headquarter model for epoch 6
+ - HD textures for the wg scaffoldings
 
 
 MIRAGE 2.6.4
 ------------------
 General:
-- Fixed missing seas wg textures
-- Fixed a typo in TT that broke the passive stance button of seas carriers
-- The replay loading window has been increased so that the full name of the replay fits in the list
-- Taslow now uses a unique previously unused animation when destroying vehicles
-- Druid now uses a unique previously unused animation when using insects
-- Dustriders hq has 5 infantry passenger slots from now on
-- Buildings now leave collectable and deco debris when destroyed
-- Attacking buildings can now use stances
-- Sound feedback enabled by default
-- Default mirage settings are now reorganized
-- Buildings can no longer be mounted
-- Seas nest crash fixed
-- Updated discord integration with join feature
-- New ui icons for SDK
-- Deleted unused portraits_dialog.tga and ingame_ui.tga from All_def.txt
-- Wintermod 1.7 included (enable/disable in PWTool)
-- Wintermod: wrong hu_triceratops_transporter lod fixed
-- Wintermod: fixed missing lemur_catta,ice_sloth_a textures for hu_fireplace
-- Unused shielbars ui textures removed
-- Unused old_loadbg_seas2.jpg deleted
-- Added missing objbrush textures for aje_skull_protector, ninigi_dilophosaurus_nest, hu_magic_cauldron
-- Added maintheme reduced score to the mainmenu
-- Added seas big cannon crater, seas gunner, seas marksman textures for oasis setting
-- Fixed missing avatar texture
-- Fixed missing hu rider helmet texture
-- New launcher (.NET Framework required)
-- New Oasis setting
-- Added new maps for skirmish and multiplayer
-- Heterodontosaurus corpse have food now
-- The hu_avatar have icons on all 5 levels from now on
-- The pirate ship_chain have icon and hitpoints from now on
-- All multicampaign maps have now localized names
-- Fixed bug in multicampaign maps when the quest description was not displaying
-- Fixed bugs in multicampaign maps: Pirates and Hostages and The Devil's Advocate: from now on the Pirates will no longer attack you until you attack first, during the bargain subquest. The Norsemen and Dustriders tribe will now join Heroes team after the Keystone destruction.
-- Diplomacy window being locked in multicampaign maps.
-- Neutral allies will no longer gain vision to the heroes until its necessary.
-- Some multiplayer maps got their name changed for better script work.
-- The Quest window from now on available only in singleplayer and multicampaign mode.
-- The brown color replacer was now changed to dark green.
-- Mission 11: The arena of the multicampaign are no longer counts auto_victory from the level_start
-- All ships (including dustrider's floating harbor and seas_carrier) and vehicles have poison and ice immunity from now on
-- Seas now are fully playable on mission b42 in multicampaign
-- The allied defenders for heroes are now allies and enemies to paraworld tribes on mission b41
-- Removed falling stones for norsemen on mission b41
-- The tents and dinofarms of dustriders can again be converted from now on
-- All army production buildings, taverns and tribe HQ's have building limit up to 5 from now on
-- Fixed bug on mission 7:The Water Temple of singleplayer campaign that kill black widows quest was not counting as completed after spiders death
-- Fixed pointbuy problem on multiplayer map "Prisoners" for infantry only game mode
-- On mission 12: The seas battle of the multicampaign building limit on seas_carriers was increased up to 5 ships
-- Reworked building limit on mission 4:The Dustriders
-- Seas_headquarters map was optimized by removing useless triggers and using IdiObj
-- Multicampaign maps 06, 15, B41 and b43 now being switched in new game mode system
-- Some settings of custom_level_data were removed which were probably causing the connection problems in multicampaign
-- Added unused icon for winter version of mammal cave
-- Fixed bug with undead and zombie warrior lvl 4 shield model
-- Changed description for hu_undead_killer, hu_berserk_statue, hu_undead_warrior, for hu_avatar, for hu_colossi, for hu_kennel, for hu_kennel smilodon, for pirate_boss_ship parts
-- Added Gigantopithecus description
-- Changed descriptions for special_mobile_suit, ship_regeneration
-- Added babbage_mobile_suit (hero and creep) as exclude unit for Taslow lvl 3 ability
-- Created two Valhalla units which doesnt needs the to be activated by triggers first. Their stats same as their original - hu_zombie_killer (hu_undead_killer), hu_stone_statue (hu_berserk_statue)
-- Added filter to aje_rodeo, aje_weapons_builder, aje_huge_farm which replaces models on hc_ones
-- Added filter which enabling producing babbage_mobile_suit instead of seas_scorpion in seas_garage
-- Aje_Tent_Dem_Fx class redefinition fix
-- hu_zombie_killer class redefinition fix
-- Changed "value" attrib type from "real" to "float" (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
-- Changed "duration" attrib type from "real" to "float" (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
-- Changed "damage_value" attrib type from "real" to "float" (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
-- Changed "GROUP" to "GROU" since it should be maximal 4 character long (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
-- Changed "maxenergy" to "maxenergyamount" (FightingObj.usl lines 8720, 10370)
-- Fixed no type for attrib Root\HELP\attribs\player (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
-- Fixed "is_sequence" attrib type mismatch (MIRAGE\Scripts\Server\misc\action_attrib_def.txt & StartLocation.usl lines 43, 346)
-- Fixed "ignore_pointbuy" attrib type mismatch (MIRAGE\Scripts\Server\misc\action_attrib_def.txt & StartLocation.usl line 428)
-- Fixed "illusion" attrib type mismatch (MIRAGE\Scripts\Server\misc\action_attrib_def.txt & FightingObj.usl line 14757)
-- Fixed missing text color "giw_red" - changed to "cored"
-- Fixed missing text color "giw_yellow" - changed to "coyellow"
-- Fixed missing text line _GameInputController_NotImplementedYet
-- Fixed missing text line _NT_RscWaring_WOOD
-- Fixed missing text line _NT_TransportCannotUnboard
-- Fixed missing text line _seq_1060_cole_01a
-- Fixed missing text line _seq_1060_cole_01c
-- Fixed missing text line _seq_1060_cole_02
-- Fixed missing text line _seq_1120_LOYALHU_01
-- Fixed missing text line _MN_MP_6_JUNGLEFEVER_DOOM_DESC
-- Fixed missing gsf sound 09_buildings/hs_arena_door_open.wav
-- Fixed missing gsf sound 09_buildings/hs_arena_door_close.wav
-- Fixed missing gsf sound 09_buildings/hs_arena_train_weapon_1.wav
-- Fixed missing gsf sound 09_buildings/hs_arena_train_weapon_2.wav
-- Fixed missing gsf sound 09_buildings/hs_arena_train_weapon_3.wav
-- Fixed missing gsf sound 09_buildings/hs_arena_train_weapon_4.wav
-- Fixed missing gsf sound 09_buildings/hs_arena_dummy_move_1.wav
-- Fixed missing gsf sound 09_buildings/hs_arena_dummy_move_2.wav
-- Fixed missing gsf sound 02_battle/hx_druid_insects.wav
-- Fixed missing gsf sound 05_ui/ui_hx_stonequarry.wav
-- Fixed missing gsf sound 02_battle/hx_druid_heal.wav
-- Fixed missing gsf sound 02_battle/ajx_shaman_heal.wav
-- Fixed missing gsf sound 02_battle/ajx_shaman_termites.wav
-- Fixed missing gsf sound 02_battle/ajx_shaman_tornado.wav
-- Fixed missing gsf sound 02_battle/ninigx_monk_heal.wav
-- Fixed missing gsf sound 02_battle/seax_medic_heal.wav
-- Fixed missing sound file "07_speech_acks/ui_task_attack.wav" in file "UI_feedback_task_attack.txt"
-- Fixed missing sound file "07_speech_acks/ui_click_success.wav" in file "UI_feedback_task_attack.txt"
-- Fixed missing sound file "07_speech_acks/ui_click_fail.wav" in file "UI_feedback_task_attack.txt"
-- Fixed missing sound file "05_ui/ui_ninigi_mineship_mine.wav" in file "ui_select_building.txt"
-- Fixed missing sound file "05_ui/ui_seas_fence.wav" in file "ui_select_building.txt"
-- Fixed missing sound file "05_ui/ui_seas_gate_open.wav" in file "ui_select_building.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_1.wav" in file "unitacks_hu_undead_warrior.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_2.wav" in file "unitacks_hu_undead_warrior.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_1.wav" in file "unitacks_hu_undead_warrior.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_4.wav" in file "unitacks_hu_undead_warrior.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Unigue4/Hu_Killer_die_2.wav" in file "unitacks_hu_undead_killer.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Unigue4/Hu_Killer_die_die_3.wav" in file "unitacks_hu_undead_killer.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_1.wav" in file "unitacks_hu_undead_killer.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_4.wav" in file "unitacks_hu_undead_killer.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_2.wav" in file "unitacks_hu_undead_killer.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Unigue4/Hu_Killer_die_2.wav" in file "unitacks_hu_zombie_killer.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Unigue4/Hu_Killer_die_die_3.wav" in file "unitacks_hu_zombie_killer.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_1.wav" in file "unitacks_hu_zombie_killer.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_4.wav" in file "unitacks_hu_zombie_killer.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_2.wav" in file "unitacks_hu_zombie_killer.txt"
-- Fixed missing sound file "07_speech_acks/Heroes/Larry/hero_Trader_die_1.wav" in file "unitacks_Barry_s0.txt"
-- Fixed missing sound file "07_speech_acks/Heroes/Larry/hero_Trader_die_1.wav" in file "unitacks_Harry_s0.txt"
-- Fixed missing sound file "07_speech_acks/Heroes/Larry/hero_Trader_die_1.wav" in file "unitacks_Larry_s0.txt"
-- Fixed missing sound file "07_speech_acks/Heroes/Miyagi/hero_Miyagi_die.wav" in file "unitacks_Miyagi_s0.txt"
-- Fixed missing sound file "07_speech_acks/Heroes/Larry/hero_Trader_die_1.wav" in file "unitacks_Tarna_s0.txt"
-- Fixed missing sound file "07_speech_acks/SEAS/Misc/Aje_Archer_prod_1.wav" in file "unitacks_aje_scythian.txt"
-- Fixed missing sound file "07_speech_acks/SEAS/Misc/Ni_Fire_prod_2.wav" in file "unitacks_aje_zeppelin.txt"
-- Fixed missing sound file "07_speech_acks/SEAS/Misc/Ni_Fire_prod_2.wav" in file "unitacks_hu_zeppelin.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_1.wav" in file "unitacks_hu_zombie_warrior.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_2.wav" in file "unitacks_hu_zombie_warrior.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_1.wav" in file "unitacks_hu_zombie_warrior.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_4.wav" in file "unitacks_hu_zombie_warrior.txt"
-- Fixed missing sound file "07_speech_acks/SEAS/Misc/Ni_Fire_prod_2.wav" in file "unitacks_ninigi_cargolifter.txt"
-- Fixed missing sound file "07_speech_acks/SEAS/Misc/Ni_Fire_prod_2.wav" in file "unitacks_ninigi_zeppelin.txt"
-- Fixed missing sound file "07_speech_acks/Hu/Rider3/Hu_Ram_gag_1.wav" in file "unitacks_seas_wehrspinne.txt"
-- Fixed missing sound file "07_speech_acks/SEAS/Misc/Ni_Fire_prod_2.wav" in file "unitacks_seas_zeppelin.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_sel_1.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_sel_2.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_sel_3.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_gag_1.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_gag_2.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_gag_3.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_prod_1.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_move_1.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_move_2.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_move_3.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_atk_1.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_atk_2.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_atk_3.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_die_1.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_hit_1.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_hit_2.wav" in file "unitacks_ninigi_kong.txt"
-- Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_hit_3.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing seas wg textures
+ - Fixed a typo in TT that broke the passive stance button of seas carriers
+ - The replay loading window has been increased so that the full name of the replay fits in the list
+ - Taslow now uses a unique previously unused animation when destroying vehicles
+ - Druid now uses a unique previously unused animation when using insects
+ - Dustriders hq has 5 infantry passenger slots from now on
+ - Buildings now leave collectable and deco debris when destroyed
+ - Attacking buildings can now use stances
+ - Sound feedback enabled by default
+ - Default mirage settings are now reorganized
+ - Buildings can no longer be mounted
+ - Seas nest crash fixed
+ - Updated discord integration with join feature
+ - New ui icons for SDK
+ - Deleted unused portraits_dialog.tga and ingame_ui.tga from All_def.txt
+ - Wintermod 1.7 included (enable/disable in PWTool)
+ - Wintermod: wrong hu_triceratops_transporter lod fixed
+ - Wintermod: fixed missing lemur_catta,ice_sloth_a textures for hu_fireplace
+ - Unused shielbars ui textures removed
+ - Unused old_loadbg_seas2.jpg deleted
+ - Added missing objbrush textures for aje_skull_protector, ninigi_dilophosaurus_nest, hu_magic_cauldron
+ - Added maintheme reduced score to the mainmenu
+ - Added seas big cannon crater, seas gunner, seas marksman textures for oasis setting
+ - Fixed missing avatar texture
+ - Fixed missing hu rider helmet texture
+ - New launcher (.NET Framework required)
+ - New Oasis setting
+ - Added new maps for skirmish and multiplayer
+ - Heterodontosaurus corpse have food now
+ - The hu_avatar have icons on all 5 levels from now on
+ - The pirate ship_chain have icon and hitpoints from now on
+ - All multicampaign maps have now localized names
+ - Fixed bug in multicampaign maps when the quest description was not displaying
+ - Fixed bugs in multicampaign maps: Pirates and Hostages and The Devil's Advocate: from now on the Pirates will no longer attack you until you attack first, during the bargain subquest. The Norsemen and Dustriders tribe will now join Heroes team after the Keystone destruction.
+ - Diplomacy window being locked in multicampaign maps.
+ - Neutral allies will no longer gain vision to the heroes until its necessary.
+ - Some multiplayer maps got their name changed for better script work.
+ - The Quest window from now on available only in singleplayer and multicampaign mode.
+ - The brown color replacer was now changed to dark green.
+ - Mission 11: The arena of the multicampaign are no longer counts auto_victory from the level_start
+ - All ships (including dustrider's floating harbor and seas_carrier) and vehicles have poison and ice immunity from now on
+ - Seas now are fully playable on mission b42 in multicampaign
+ - The allied defenders for heroes are now allies and enemies to paraworld tribes on mission b41
+ - Removed falling stones for norsemen on mission b41
+ - The tents and dinofarms of dustriders can again be converted from now on
+ - All army production buildings, taverns and tribe HQ's have building limit up to 5 from now on
+ - Fixed bug on mission 7:The Water Temple of singleplayer campaign that kill black widows quest was not counting as completed after spiders death
+ - Fixed pointbuy problem on multiplayer map "Prisoners" for infantry only game mode
+ - On mission 12: The seas battle of the multicampaign building limit on seas_carriers was increased up to 5 ships
+ - Reworked building limit on mission 4:The Dustriders
+ - Seas_headquarters map was optimized by removing useless triggers and using IdiObj
+ - Multicampaign maps 06, 15, B41 and b43 now being switched in new game mode system
+ - Some settings of custom_level_data were removed which were probably causing the connection problems in multicampaign
+ - Added unused icon for winter version of mammal cave
+ - Fixed bug with undead and zombie warrior lvl 4 shield model
+ - Changed description for hu_undead_killer, hu_berserk_statue, hu_undead_warrior, for hu_avatar, for hu_colossi, for hu_kennel, for hu_kennel smilodon, for pirate_boss_ship parts
+ - Added Gigantopithecus description
+ - Changed descriptions for special_mobile_suit, ship_regeneration
+ - Added babbage_mobile_suit (hero and creep) as exclude unit for Taslow lvl 3 ability
+ - Created two Valhalla units which doesnt needs the to be activated by triggers first. Their stats same as their original - hu_zombie_killer (hu_undead_killer), hu_stone_statue (hu_berserk_statue)
+ - Added filter to aje_rodeo, aje_weapons_builder, aje_huge_farm which replaces models on hc_ones
+ - Added filter which enabling producing babbage_mobile_suit instead of seas_scorpion in seas_garage
+ - Aje_Tent_Dem_Fx class redefinition fix
+ - hu_zombie_killer class redefinition fix
+ - Changed "value" attrib type from "real" to "float" (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
+ - Changed "duration" attrib type from "real" to "float" (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
+ - Changed "damage_value" attrib type from "real" to "float" (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
+ - Changed "GROUP" to "GROU" since it should be maximal 4 character long (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
+ - Changed "maxenergy" to "maxenergyamount" (FightingObj.usl lines 8720, 10370)
+ - Fixed no type for attrib Root\HELP\attribs\player (MIRAGE\Scripts\Server\misc\action_attrib_def.txt)
+ - Fixed "is_sequence" attrib type mismatch (MIRAGE\Scripts\Server\misc\action_attrib_def.txt & StartLocation.usl lines 43, 346)
+ - Fixed "ignore_pointbuy" attrib type mismatch (MIRAGE\Scripts\Server\misc\action_attrib_def.txt & StartLocation.usl line 428)
+ - Fixed "illusion" attrib type mismatch (MIRAGE\Scripts\Server\misc\action_attrib_def.txt & FightingObj.usl line 14757)
+ - Fixed missing text color "giw_red" - changed to "cored"
+ - Fixed missing text color "giw_yellow" - changed to "coyellow"
+ - Fixed missing text line _GameInputController_NotImplementedYet
+ - Fixed missing text line _NT_RscWaring_WOOD
+ - Fixed missing text line _NT_TransportCannotUnboard
+ - Fixed missing text line _seq_1060_cole_01a
+ - Fixed missing text line _seq_1060_cole_01c
+ - Fixed missing text line _seq_1060_cole_02
+ - Fixed missing text line _seq_1120_LOYALHU_01
+ - Fixed missing text line _MN_MP_6_JUNGLEFEVER_DOOM_DESC
+ - Fixed missing gsf sound 09_buildings/hs_arena_door_open.wav
+ - Fixed missing gsf sound 09_buildings/hs_arena_door_close.wav
+ - Fixed missing gsf sound 09_buildings/hs_arena_train_weapon_1.wav
+ - Fixed missing gsf sound 09_buildings/hs_arena_train_weapon_2.wav
+ - Fixed missing gsf sound 09_buildings/hs_arena_train_weapon_3.wav
+ - Fixed missing gsf sound 09_buildings/hs_arena_train_weapon_4.wav
+ - Fixed missing gsf sound 09_buildings/hs_arena_dummy_move_1.wav
+ - Fixed missing gsf sound 09_buildings/hs_arena_dummy_move_2.wav
+ - Fixed missing gsf sound 02_battle/hx_druid_insects.wav
+ - Fixed missing gsf sound 05_ui/ui_hx_stonequarry.wav
+ - Fixed missing gsf sound 02_battle/hx_druid_heal.wav
+ - Fixed missing gsf sound 02_battle/ajx_shaman_heal.wav
+ - Fixed missing gsf sound 02_battle/ajx_shaman_termites.wav
+ - Fixed missing gsf sound 02_battle/ajx_shaman_tornado.wav
+ - Fixed missing gsf sound 02_battle/ninigx_monk_heal.wav
+ - Fixed missing gsf sound 02_battle/seax_medic_heal.wav
+ - Fixed missing sound file "07_speech_acks/ui_task_attack.wav" in file "UI_feedback_task_attack.txt"
+ - Fixed missing sound file "07_speech_acks/ui_click_success.wav" in file "UI_feedback_task_attack.txt"
+ - Fixed missing sound file "07_speech_acks/ui_click_fail.wav" in file "UI_feedback_task_attack.txt"
+ - Fixed missing sound file "05_ui/ui_ninigi_mineship_mine.wav" in file "ui_select_building.txt"
+ - Fixed missing sound file "05_ui/ui_seas_fence.wav" in file "ui_select_building.txt"
+ - Fixed missing sound file "05_ui/ui_seas_gate_open.wav" in file "ui_select_building.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_1.wav" in file "unitacks_hu_undead_warrior.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_2.wav" in file "unitacks_hu_undead_warrior.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_1.wav" in file "unitacks_hu_undead_warrior.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_4.wav" in file "unitacks_hu_undead_warrior.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Unigue4/Hu_Killer_die_2.wav" in file "unitacks_hu_undead_killer.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Unigue4/Hu_Killer_die_die_3.wav" in file "unitacks_hu_undead_killer.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_1.wav" in file "unitacks_hu_undead_killer.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_4.wav" in file "unitacks_hu_undead_killer.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_2.wav" in file "unitacks_hu_undead_killer.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Unigue4/Hu_Killer_die_2.wav" in file "unitacks_hu_zombie_killer.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Unigue4/Hu_Killer_die_die_3.wav" in file "unitacks_hu_zombie_killer.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_1.wav" in file "unitacks_hu_zombie_killer.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_4.wav" in file "unitacks_hu_zombie_killer.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_2.wav" in file "unitacks_hu_zombie_killer.txt"
+ - Fixed missing sound file "07_speech_acks/Heroes/Larry/hero_Trader_die_1.wav" in file "unitacks_Barry_s0.txt"
+ - Fixed missing sound file "07_speech_acks/Heroes/Larry/hero_Trader_die_1.wav" in file "unitacks_Harry_s0.txt"
+ - Fixed missing sound file "07_speech_acks/Heroes/Larry/hero_Trader_die_1.wav" in file "unitacks_Larry_s0.txt"
+ - Fixed missing sound file "07_speech_acks/Heroes/Miyagi/hero_Miyagi_die.wav" in file "unitacks_Miyagi_s0.txt"
+ - Fixed missing sound file "07_speech_acks/Heroes/Larry/hero_Trader_die_1.wav" in file "unitacks_Tarna_s0.txt"
+ - Fixed missing sound file "07_speech_acks/SEAS/Misc/Aje_Archer_prod_1.wav" in file "unitacks_aje_scythian.txt"
+ - Fixed missing sound file "07_speech_acks/SEAS/Misc/Ni_Fire_prod_2.wav" in file "unitacks_aje_zeppelin.txt"
+ - Fixed missing sound file "07_speech_acks/SEAS/Misc/Ni_Fire_prod_2.wav" in file "unitacks_hu_zeppelin.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_1.wav" in file "unitacks_hu_zombie_warrior.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_die_2.wav" in file "unitacks_hu_zombie_warrior.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_1.wav" in file "unitacks_hu_zombie_warrior.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Warrior/Hu_Warrior_hit_4.wav" in file "unitacks_hu_zombie_warrior.txt"
+ - Fixed missing sound file "07_speech_acks/SEAS/Misc/Ni_Fire_prod_2.wav" in file "unitacks_ninigi_cargolifter.txt"
+ - Fixed missing sound file "07_speech_acks/SEAS/Misc/Ni_Fire_prod_2.wav" in file "unitacks_ninigi_zeppelin.txt"
+ - Fixed missing sound file "07_speech_acks/Hu/Rider3/Hu_Ram_gag_1.wav" in file "unitacks_seas_wehrspinne.txt"
+ - Fixed missing sound file "07_speech_acks/SEAS/Misc/Ni_Fire_prod_2.wav" in file "unitacks_seas_zeppelin.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_sel_1.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_sel_2.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_sel_3.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_gag_1.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_gag_2.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_gag_3.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_prod_1.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_move_1.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_move_2.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_move_3.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_atk_1.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_atk_2.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_atk_3.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_die_1.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_hit_1.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_hit_2.wav" in file "unitacks_ninigi_kong.txt"
+ - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_hit_3.wav" in file "unitacks_ninigi_kong.txt"
 
 AI:
-- The AI on multicampaign maps will have behavior close to singleplayer ones.
-- On missions: Pirates and hostages, The New World Order and Operation Neptune unplayable bases controlled by AI will no longer be dumb.
-- The AI will no longer loot the items in multicampaign.
-- Added ability to produce seas_hovercraft in garage
-- Added ability to produce seas_gunner, rocketman, flamethrower and medic in barracks
-- Added ability to produce seas_executioner on lvl 4 in garage
-- Added ability to produce seas_executioner_MKII on lvl 4 in garage
-- Added ability to produce seas_executioner_MKII on lvl 5 in garage
-- Added ability to produce seas_exo_flamethrower on lvl 2 in garage
-- Added ability to produce seas_stinger on lvl 3 in carrier
-- Added ability to produce norsemen_battle_tank on lvl 4 in machine_maker
-- SEAS hq_bunker now can produce gunners
+ - The AI on multicampaign maps will have behavior close to singleplayer ones.
+ - On missions: Pirates and hostages, The New World Order and Operation Neptune unplayable bases controlled by AI will no longer be dumb.
+ - The AI will no longer loot the items in multicampaign.
+ - Added ability to produce seas_hovercraft in garage
+ - Added ability to produce seas_gunner, rocketman, flamethrower and medic in barracks
+ - Added ability to produce seas_executioner on lvl 4 in garage
+ - Added ability to produce seas_executioner_MKII on lvl 4 in garage
+ - Added ability to produce seas_executioner_MKII on lvl 5 in garage
+ - Added ability to produce seas_exo_flamethrower on lvl 2 in garage
+ - Added ability to produce seas_stinger on lvl 3 in carrier
+ - Added ability to produce norsemen_battle_tank on lvl 4 in machine_maker
+ - SEAS hq_bunker now can produce gunners
 
 Heroes:
-- Taslow lvl 5 bonus doesnt gives resources for killing vehicles, ships and buildings. Its now makes all workers build faster globally
-- Miyagi lvl 5 bonus doesnt gives armor to vehicles anymore. It now gives armor only to ships
-- Zombie Kleemann weapon was highly buffed (early versions)
-- Kleemann zombie has poison effect from now on
-- Babbage mobile suit has armorpiercing for melee attack and increased max damage from 120 to 150 rangedattack on lvl 5
-- Added weapon levels for Kleemann_zombie
+ - Taslow lvl 5 bonus doesnt gives resources for killing vehicles, ships and buildings. Its now makes all workers build faster globally
+ - Miyagi lvl 5 bonus doesnt gives armor to vehicles anymore. It now gives armor only to ships
+ - Zombie Kleemann weapon was highly buffed (early versions)
+ - Kleemann zombie has poison effect from now on
+ - Babbage mobile suit has armorpiercing for melee attack and increased max damage from 120 to 150 rangedattack on lvl 5
+ - Added weapon levels for Kleemann_zombie
 
 Dragonclan:
-- Smokebomber radius increased
-- Hermit's cauldron cost being increased
-- Hunting lodges, lumbermills and stone quarries have their building limit up to 10 from now on
-- Dilophosaurus nest building limit is increased from 6 to 8
-- Reduced machine regeneration
-- Reduced scorpion default damage
-- Rocket ramp and Telescope tower are available from epoch 6 from now on
-- Spike trap damage reduced
-- Ninja's ability to mask on enemies being removed
-- Ninja's ability to build traps being removed
-- Added description, increased skulls and hitpoints for campaign pirate_boss
-- Changed weapon stats for dragon clan kong
-- Added weapon level ups for pirate_boss
-- Added ship_regeneration for ninigi_trading_boat, ninigi_pirate_boss_ship and PT_Citywall_Gate
+ - Smokebomber radius increased
+ - Hermit's cauldron cost being increased
+ - Hunting lodges, lumbermills and stone quarries have their building limit up to 10 from now on
+ - Dilophosaurus nest building limit is increased from 6 to 8
+ - Reduced machine regeneration
+ - Reduced scorpion default damage
+ - Rocket ramp and Telescope tower are available from epoch 6 from now on
+ - Spike trap damage reduced
+ - Ninja's ability to mask on enemies being removed
+ - Ninja's ability to build traps being removed
+ - Added description, increased skulls and hitpoints for campaign pirate_boss
+ - Changed weapon stats for dragon clan kong
+ - Added weapon level ups for pirate_boss
+ - Added ship_regeneration for ninigi_trading_boat, ninigi_pirate_boss_ship and PT_Citywall_Gate
 
 Dustriders:
-- Dustriders resource tool upgrade no longer boosts harvesting speed, now its increase worker carrying capacity like for other tribes. This is a temporary edit!
-- Dustriders Tarna's Tyrannosaurus cost being increased
-- The allosaurus cost is being increased
-- Wild and Dustrider's stegosauruses melee damage being reduced
-- The Scarecrow's and skull totem costs being swapped between each other
-- The skulls requirement for next epochs increased
-- Poison default damage of poisoner enhanced up to 1500
-- Gallimimus nest building limit increased from 6 to 8
-- Amazon temple building limit reduced from 2 to 1
-- Increased building cost of amazon temple
-- Added dustriders structures upgrade for holy city walls, gates, and water sanctuary gates from now on
+ - Dustriders resource tool upgrade no longer boosts harvesting speed, now its increase worker carrying capacity like for other tribes. This is a temporary edit!
+ - Dustriders Tarna's Tyrannosaurus cost being increased
+ - The allosaurus cost is being increased
+ - Wild and Dustrider's stegosauruses melee damage being reduced
+ - The Scarecrow's and skull totem costs being swapped between each other
+ - The skulls requirement for next epochs increased
+ - Poison default damage of poisoner enhanced up to 1500
+ - Gallimimus nest building limit increased from 6 to 8
+ - Amazon temple building limit reduced from 2 to 1
+ - Increased building cost of amazon temple
+ - Added dustriders structures upgrade for holy city walls, gates, and water sanctuary gates from now on
 
 Norsemen:
-- Hu warrior lvl3 aura radius increased
-- Melee damage done by the triceratops titan is reduced back
-- Smilodon kennel cost is now the same as for the rest three tribes
-- Lumberjack cottage and stone quarries have their building limit up to 5 from now on
-- Smilodon kennel building limit is increased from 6 to 8
-- Changed weapon stats for norsemen avatar
-- Fixed bug that weapon smith doesnt changed it's icon in build menu after anvil upgrade is done
+ - Hu warrior lvl3 aura radius increased
+ - Melee damage done by the triceratops titan is reduced back
+ - Smilodon kennel cost is now the same as for the rest three tribes
+ - Lumberjack cottage and stone quarries have their building limit up to 5 from now on
+ - Smilodon kennel building limit is increased from 6 to 8
+ - Changed weapon stats for norsemen avatar
+ - Fixed bug that weapon smith doesnt changed it's icon in build menu after anvil upgrade is done
 
 SEAS:
-- Babbage mobile suits (campaign and normal) and terminator attack frequency is increased to 60 for machine gun weapon
-- Fixed that some upgrades in main seas jail were using one same slot
-- Returned back all tribe healers and their ability upgrades from now on
-- The sumo wrestler can be produced in jail 1 from now on
-- All broken units: undead killer, undead warrior, dragon clan archer, norsemen jetpack warrior and killer now can be produced in jail 1 finally
-- Fixed broken norsemen infantry defense upgrade in seas_jail
-- The icon of dustrider's armor upgrade not overlay on seas reactor core from now on
-- The dustriders catapult hitrange and range upgrades are now in the same category as other upgrades which reduced size of jail toolbar a lot
-- In seas jail 2 no missing slots between units anymore
-- For making the units abilities (healers abilities f.e) from jails work, you need to enable TechTreeSteal and United advancement in MIRAGE server settings.
-- Greenhouses from now have building limit since they can be converted in automatic mode of resource harvesting
-- Removed ability to produce seas_scorpion in garage
-- Removed ability to produce seas_turtle in carrier
-- Greenhouses from epoch 3 can be used by 4 workers
-- Stone mines were returned
-- Added jails for epoch six. They increase army limit and produce infantry of other tribes even the heroes ones without the heroes itself. Casual seas building upgrades also works on them. (early versions)
-- SEAS sniper's range was reduced
-- Changed weapon stats for seas_scorpion
-- Increased cost for babbage's transformation into exo suit
-- Original seas small cannons, mg_nests and big cannon are have seas buildings upgrades from now on
+ - Babbage mobile suits (campaign and normal) and terminator attack frequency is increased to 60 for machine gun weapon
+ - Fixed that some upgrades in main seas jail were using one same slot
+ - Returned back all tribe healers and their ability upgrades from now on
+ - The sumo wrestler can be produced in jail 1 from now on
+ - All broken units: undead killer, undead warrior, dragon clan archer, norsemen jetpack warrior and killer now can be produced in jail 1 finally
+ - Fixed broken norsemen infantry defense upgrade in seas_jail
+ - The icon of dustrider's armor upgrade not overlay on seas reactor core from now on
+ - The dustriders catapult hitrange and range upgrades are now in the same category as other upgrades which reduced size of jail toolbar a lot
+ - In seas jail 2 no missing slots between units anymore
+ - For making the units abilities (healers abilities f.e) from jails work, you need to enable TechTreeSteal and United advancement in MIRAGE server settings.
+ - Greenhouses from now have building limit since they can be converted in automatic mode of resource harvesting
+ - Removed ability to produce seas_scorpion in garage
+ - Removed ability to produce seas_turtle in carrier
+ - Greenhouses from epoch 3 can be used by 4 workers
+ - Stone mines were returned
+ - Added jails for epoch six. They increase army limit and produce infantry of other tribes even the heroes ones without the heroes itself. Casual seas building upgrades also works on them. (early versions)
+ - SEAS sniper's range was reduced
+ - Changed weapon stats for seas_scorpion
+ - Increased cost for babbage's transformation into exo suit
+ - Original seas small cannons, mg_nests and big cannon are have seas buildings upgrades from now on
 
 MIRAGE 2.6.3
-build 35
 ------------------
 
 General:
