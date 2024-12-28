@@ -9,6 +9,8 @@ General:
  - Ships and floating buildings can now be frozen
  - Added a separate sub-menu to the build menu to display buildable units (seas scorpion, trader zeppelin)
  - Buildings can be rotated by holding LMB + mouse movement
+ - BoosterPack's Campaign SEAS additional MIRAGE missions MapName prefix is translated from now on
+ - Map version from now on highlighted in game
  - Small and medium stones will not block buildings during placement and will be removed after
  - Added proper workers positions during building construction for all custom buildings without Bl_ links
  - Buildings placeability is now calculated after each building rotation step
@@ -64,9 +66,15 @@ COOP campaign and maps with custom gameplay:
 Campaign maps:
  - Amazon warrior have female voiceover instead of male one from now on
  - Fixed floating buildings, units and incorrect camera's angles on mission 13 in three cutscenes
- - Classic pirate ship from now on plays destruction animation of decks, once the unit being deleted. Ship decks and cannons no longer stuck in the air. Animation based on the amount, how many decks the ship had, when got order for Deletion.
- - Classic pirate ship no longer can do any actions, once all its decks being destroyed.
- - Captain Miyagi from now has Pirate flag as well when fighting for pirates.
+ - Classic pirate ship from now on plays destruction animation of decks, once the unit being deleted. Ship decks and cannons no longer stuck in the air. Animation based on the amount, how many decks the ship had, when got order for Deletion
+ - Classic pirate ship no longer can do any actions, once all its decks being destroyed
+ - Captain Miyagi from now has Pirate flag as well when fighting for pirates
+ - Fixed points issue on all common and multiplayer campaign maps
+ - Fixed Blocked Slots Lobby preview issue
+ - Fixed disebmark issue
+ - Fixed FreeSpecials issue
+ - Mission 6: Uncompleteable issue fixed
+ - Mission 8: The Valley of The Gods Kleeman from now on visible in PointBuy
 
 Heroes:
  - Larry, Barry and Harry are affected by Dustriders Town Center Resource tool upgrades 1,2,3 and 4
