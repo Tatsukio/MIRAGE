@@ -235,7 +235,7 @@ namespace MIRAGE_Launcher.ViewModel
 
             if (!CLauncher.CheckVideoLocale(_currLang))
             {
-                MessageBox.Show($"You have selected a {_currLang} localization, but it does not have translated videos", null, MessageBoxButton.OK, MessageBoxImage.Error);
+                //MessageBox.Show($"You have selected a {_currLang} localization, but it does not have translated videos", null, MessageBoxButton.OK, MessageBoxImage.Error);
             }
 
             CLauncher.ClearCache();
