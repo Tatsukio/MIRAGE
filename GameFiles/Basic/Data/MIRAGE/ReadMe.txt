@@ -1,5 +1,31 @@
 Change Log:
 
+MIRAGE 2.6.8
+------------------
+
+General:
+
+Maps:
+
+COOP campaign and maps with custom gameplay:
+
+Campaign maps:
+
+Heroes:
+
+Dustriders:
+
+Dragon Clan:
+
+Norsemen:
+
+SEAS:
+
+AI:
+
+SDK:
+- Fixed NewStickerMessage(NWTK) trigger issue. It wasnt loading up in user interface general game messages, only Help Messages. Now both available
+
 MIRAGE 2.6.7
 ------------------
 
