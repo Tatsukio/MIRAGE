@@ -4,6 +4,7 @@ MIRAGE 2.6.8
 ------------------
 
 General:
+ - Fixed freezing on in match menu opening menu if screen resolution was not 2560x1440
 
 Maps:
 

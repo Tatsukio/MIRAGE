@@ -370,7 +370,7 @@ class CUIStateMgr
 		if(p_iNewState==STATE_INVALID || p_iNewState==STATE_LOADING || p_iNewState==STATE_INGAME || p_iNewState==STATE_CREDITS || p_iNewState==STATE_CREDITSSCREEN || p_iNewState==STATE_LURKER || p_iNewState==STATE_LOADCAMPAIGNLEVEL)then
 			RemBackground();
 		else
-			KLog.LogInfo("AddBackground","UpdatesState New: "+StateToString(p_iNewState)+", Cur: "+StateToString(m_iState));
+			KLog.LogInfo("UpdateState","New: "+StateToString(p_iNewState)+", Cur: "+StateToString(m_iState));
 			AddBackground();
 		endif;
 
@@ -432,6 +432,7 @@ class CUIStateMgr
 					m_pxInGameScreen^.SetDestructionTimer();
 					m_pxInGameScreen=null;
 				endif;
+				CMirageClnMgr.Get().ClearOverlayImage();
 				CWindowMgr.Get().m_xOnToolTip=OnShowToolTip;
 				CWindowMgr.Get().SetToolTipDelay(0);
 			elseif(m_iState==STATE_OPTIONSMENU)then
@@ -584,6 +585,12 @@ class CUIStateMgr
 			if(m_iState==STATE_LURKER)then
 				return false;
 			endif;
+			
+			if(m_iState==STATE_INGAME)then
+				//Preload overlay on map loading
+				SetOverlayImg(GetSetting(true));
+			endif;
+			
 			HideMenuToolTip();
 			if(m_pxInGameScreen!=null)then
 				m_pxInGameScreen^.EnableToolTipWindow();
@@ -997,12 +1004,35 @@ class CUIStateMgr
 		if(CGameWrap.GetSequencePlaying()) then return false; endif;
 		
 		var string sBGVideo;
-		var string sBGImage;
-		var string sSetting = "northland";
-		var string sTempSetting = "northland";
+		var bool bIsInMatch = CSoundMgrCln.IsGameRunning();
+		var string sSetting = GetSetting(bIsInMatch);
 		
-		if(CSoundMgrCln.IsGameRunning()) then
+		SetOverlayImg(sSetting);
+		m_pxDesktop^.AddChild(m_pxMenuOverlay);
+		
+		if(bIsInMatch) then
 			m_pxDesktop^.BackgroundStreamEnable(false);
+		else
+			if(!m_pxDesktop^.BackgroundStreamIsEnabled())then
+				if(sSetting=="oasis")then
+					sSetting="jungle";
+				endif;
+				sBGVideo = "video/3d_menue/" + sSetting + ".bik";
+				if(m_sCurBGVideo!=sBGVideo)then
+					m_sCurBGVideo=sBGVideo;
+					m_pxDesktop^.BackgroundStreamEnable(true);
+					m_pxDesktop^.BackgroundStreamSetFadeTime(1.0);
+					m_pxDesktop^.BackgroundStreamSwitch(sBGVideo,false);
+				endif;
+			endif;
+		endif;
+
+		return(true);
+	endproc;
+	
+	proc string GetSetting(bool bIsInMatch)
+		var string sSetting = "northland";
+		if(bIsInMatch) then
 			var bitset dwSetting = CClientWrap.GetScapeMgr().GetTerrainSetting();
 			if(dwSetting==0000b)then
 				sSetting = "northland";
@@ -1024,7 +1054,6 @@ class CUIStateMgr
 				sSetting="oasis";
 			endif;
 		else
-			CSoundMgrCln.SetGameIsRunning(false);
 			if(m_iSel==0)then
 				sSetting = "northland";
 			elseif(m_iSel==1)then
@@ -1036,52 +1065,31 @@ class CUIStateMgr
 			elseif(m_iSel==4)then
 				sSetting = "ashvalley";
 			elseif(m_iSel==5)then
-				//sSetting="oasis"; WIP
-				sSetting = "jungle";
-			endif;
-			
-			var string sMirageVideo = "";
-			if(CGameInst.m_bIsWidescreen)then
-				//sMirageVideo = "mirage"; No more mirage videos
-			endif;
-			
-			sBGVideo = "video/3d_menue/" + sSetting + sMirageVideo + ".bik";
-
-			//temp
-			if(m_iSel==5)then
-				sSetting="oasis";
-			endif;
-
-			if(!m_pxDesktop^.BackgroundStreamIsEnabled())then
-				if(m_sCurBGVideo!=sBGVideo)then
-					m_sCurBGVideo=sBGVideo;
-					m_pxDesktop^.BackgroundStreamEnable(true);
-					m_pxDesktop^.BackgroundStreamSetFadeTime(1.0);
-					m_pxDesktop^.BackgroundStreamSwitch(sBGVideo,false);
-				endif;
+				sSetting = "oasis";
 			endif;
 		endif;
-		
-		if(!CGameInst.m_bIsWidescreen) then return true; endif;
-		
-		sBGImage = "menue/decoration/menu_overlay_" + sSetting + ".tga";
-
+		return sSetting;
+	endproc;
+	
+	proc void SetOverlayImg(string p_sSetting)
+		if(!CGameInst.m_bIsWidescreen)then return; endif;
+		var string sBGImage = "menue/decoration/menu_overlay_" + p_sSetting + ".tga";
 		if(m_pxMenuOverlay!=null) then
 			m_pxMenuOverlay^.Destroy();
 			m_pxMenuOverlay=null;
 		endif;
-
 		m_pxMenuOverlay=new CStaticCtrl();
-		m_pxMenuOverlay^.SetBitmap(sBGImage);	
+		m_pxMenuOverlay^.SetBitmap(sBGImage);
 		m_pxMenuOverlay^.SetPos(0,0);
 		m_pxMenuOverlay^.SetVisible(true);
 		m_pxMenuOverlay^.SetTransparent(true);
 		m_pxMenuOverlay^.SetBackground(true);
-		m_pxDesktop^.AddChild(m_pxMenuOverlay);
-
-		return(true);
 	endproc;
 	
+	proc ^CStaticCtrl GetOverlayImg()
+		return m_pxMenuOverlay;
+	endproc;
+
 	proc void RemBackground()
 		m_sCurBGVideo = "";
 		m_pxDesktop^.BackgroundStreamEnable(false);
