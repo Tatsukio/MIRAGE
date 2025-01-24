@@ -9,6 +9,7 @@ General:
 Maps:
 
 COOP campaign and maps with custom gameplay:
+- Ally control available on missions 5, 11, 16 and B42
 
 Campaign maps:
 
@@ -26,6 +27,7 @@ AI:
 
 SDK:
 - Fixed NewStickerMessage(NWTK) trigger issue. It wasnt loading up in user interface general game messages, only Help Messages. Now both available
+- Added player handicap(HP) option for Custom map control options
 
 MIRAGE 2.6.7
 ------------------
