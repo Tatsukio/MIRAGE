@@ -22,6 +22,8 @@ Dragon Clan:
 Norsemen:
 
 SEAS:
+- Seas scorpion HP during the build procces reduced to 7000
+- Seas scorpion skulls during the build process reduced to 250
 
 AI:
 
