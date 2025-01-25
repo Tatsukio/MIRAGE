@@ -9,7 +9,7 @@ General:
 Maps:
 
 COOP campaign and maps with custom gameplay:
-- Ally control available on missions 5, 11, 16 and B42
+ - Ally control available on missions 5, 11, 16 and B42
 
 Campaign maps:
 
@@ -24,10 +24,11 @@ Norsemen:
 SEAS:
 
 AI:
+ - Restored ability to call AI for help. If AI allied AI able, it will send up reinforcements and infrom Player about it. To request it in the Chat Droplist select Allied AI Player which you want ask for help. And type in chat "help" or "Help" as exact match, except "". Note, that typing for All allied players same message wont work.
 
 SDK:
-- Fixed NewStickerMessage(NWTK) trigger issue. It wasnt loading up in user interface general game messages, only Help Messages. Now both available
-- Added player handicap(HP) option for Custom map control options
+ - Fixed NewStickerMessage(NWTK) trigger issue. It wasnt loading up in user interface general game messages, only Help Messages. Now both available
+ - Added player handicap(HP) option for Custom map control options
 
 MIRAGE 2.6.7
 ------------------
