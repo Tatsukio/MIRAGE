@@ -29,7 +29,8 @@ SEAS:
 
 AI:
  - You can ask AI player for help by writing "help" or "Help" in the dm or allies chat
-
+ - AI players can read group chats from now on
+ 
 SDK:
  - Fixed NewStickerMessage(NWTK) trigger issue. It wasnt loading up in user interface general game messages, only Help Messages. Now both available
  - Added player handicap(HP) option for Custom map control options
