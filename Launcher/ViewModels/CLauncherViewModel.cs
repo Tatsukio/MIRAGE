@@ -24,6 +24,7 @@ namespace MIRAGE_Launcher.ViewModel
         public static string[] _pwProcesses = { "Paraworld", "PWClient", "PWServer" };
         public static string _toolsDir = _paraworldDir + "/Tools";
         public static string _currLang = "";
+        public static bool _kageBunshinNoJutsu = false;
 
         public CLauncherViewModel()
         {
@@ -200,20 +201,23 @@ namespace MIRAGE_Launcher.ViewModel
 
         public bool ReadyToStart()
         {
-            foreach (string pwProcess in _pwProcesses)
+            if (!_kageBunshinNoJutsu)
             {
-                if (Process.GetProcessesByName(pwProcess).Any())
+                foreach (string pwProcess in _pwProcesses)
                 {
-                    if (MessageBox.Show(_pwIsAlreadyRunning, null, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                    if (Process.GetProcessesByName(pwProcess).Any())
                     {
-                        CLauncher.StartPWKiller(false,false);
+                        if (MessageBox.Show(_pwIsAlreadyRunning, null, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                        {
+                            CLauncher.StartPWKiller(false, false);
+                        }
+                        return false;
                     }
-                    return false;
-                }
-                string path = null;
-                if (!CLauncher.FileFound(_paraworldBinDir, $"{pwProcess}.exe", ref path))
-                {
-                    return false;
+                    string path = null;
+                    if (!CLauncher.FileFound(_paraworldBinDir, $"{pwProcess}.exe", ref path))
+                    {
+                        return false;
+                    }
                 }
             }
 
@@ -747,6 +751,7 @@ namespace MIRAGE_Launcher.ViewModel
                 _askSettingsBackup = errorCode + "12\n" + TranslateS("AskSettingsBackup");
 
                 _enabledMods = GetS("EnabledMods");
+                bool.TryParse(GetS("bMultipleCopiesAllowed"), out _kageBunshinNoJutsu);
             }
         }
 
