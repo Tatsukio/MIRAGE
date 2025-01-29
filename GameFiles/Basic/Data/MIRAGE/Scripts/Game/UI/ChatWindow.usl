@@ -195,42 +195,40 @@ class CIngameChatBar inherit CStaticCtrlEx
 	proc bool OnSend()
 		if(m_pxCurrentLevel==null)then return false; endif;
 		var string sMsg = m_pxInputEdit^.GetText();
+		var int iTime = CTimeMgr.Get().GetSecondsSinceGameStart().ToInt() + CMirageClnMgr.Get().GetSpan();
+		var string sTimeStamp = "[" + Math2.GetTimeString(iTime) + "] ";
 		if(!CChat.IsValid(sMsg) || CChat.IsCommand(sMsg))then
 		elseif(m_pxInputDropList^.GetSelectedItem()==1)then
-			GroupMsg(2, ">MsgAllies<", sMsg);
-			CFeedback.Print(CNewsTickerData.NTT_Chat, CLocalizer.Get().Translate("_UI_ChatWind_Msg_ToAllies") + sMsg);
+			GroupMsg(2, ">MsgAllies<", sTimeStamp, sMsg);
+			CFeedback.Print(CNewsTickerData.NTT_Chat, CLocalizer.Get().Translate("_UI_ChatWind_Msg_ToAllies") + sTimeStamp + sMsg);
 		elseif(m_pxInputDropList^.GetSelectedItem()==2)then
-			GroupMsg(0, ">MsgEnemies<", sMsg);
-			CFeedback.Print(CNewsTickerData.NTT_Chat, CLocalizer.Get().Translate("_UI_ChatWind_Msg_ToEnemies") + sMsg);
+			GroupMsg(0, ">MsgEnemies<", sTimeStamp, sMsg);
+			CFeedback.Print(CNewsTickerData.NTT_Chat, CLocalizer.Get().Translate("_UI_ChatWind_Msg_ToEnemies") + sTimeStamp + sMsg);
 		elseif(m_pxInputDropList^.GetSelectedItem()>2)then
-			DirectMsg(CChat.GetSlotFromName(m_pxInputDropList^.GetSelectedItemAsString()), ">MsgWhisper<", sMsg);
-			CFeedback.Print(CNewsTickerData.NTT_Chat, CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_Youtold_A") + m_pxInputDropList^.GetSelectedItemAsString() + CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_Youtold_B") + sMsg);
+			DirectMsg(CChat.GetSlotFromName(m_pxInputDropList^.GetSelectedItemAsString()), ">MsgWhisper<", sTimeStamp, sMsg);
+			CFeedback.Print(CNewsTickerData.NTT_Chat, CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_Youtold_A") + m_pxInputDropList^.GetSelectedItemAsString() + CLocalizer.Get().Translate("_MIRAGE_UI_ChatWind_Msg_Youtold_B") + sTimeStamp + sMsg);
 		else
-			CEvt_ChatMsg.Send(": " + sMsg);
+			CEvt_ChatMsg.Send(": " + sTimeStamp + sMsg);
 		endif;
 		Exit();
 		return(true);
 	endproc;
 	
-	export proc void DirectMsg(^CLevelInfo.CPlayerSlot p_xSlot, string p_sType, string p_sMsg)
+	export proc void DirectMsg(^CLevelInfo.CPlayerSlot p_xSlot, string p_sType, string p_sTimeStamp, string p_sMsg)
 		if(p_xSlot==null || p_xSlot^.IsFree())then return; endif;
-		
-		var int iTime = CTimeMgr.Get().GetSecondsSinceGameStart().ToInt() + CMirageClnMgr.Get().GetSpan();
-		var string sTimeStamp = "[" + Math2.GetTimeString(iTime) + "] ";
-		
 		if(p_xSlot^.IsAIPlayer())then
 			var string sAISlot = "AI" + p_xSlot^.GetPlayerSlotID().ToString() + ": ";
 			CEvt_AiGenericStringEvent.Send(CGameWrap.GetClient().GetPlayerID().ToString()+" "+ sAISlot + p_sMsg);
 		else
 			if(!CGameWrap.GetClient().HasValidPlayerSlot())then
-				CEvt_ChatMsg.Send(sTimeStamp + p_sType + p_sMsg);
+				CEvt_ChatMsg.Send(p_sTimeStamp + p_sType + p_sMsg);
 			else
-				CEvt_ChatMsg.Send(sTimeStamp + p_sType + p_sMsg,01h<<p_xSlot^.GetPlayerSlotID());
+				CEvt_ChatMsg.Send(p_sTimeStamp + p_sType + p_sMsg,01h<<p_xSlot^.GetPlayerSlotID());
 			endif;
 		endif;
 	endproc;
 
-	export proc void GroupMsg(int p_iDiplOpinion, string p_sType, string p_sMsg)
+	export proc void GroupMsg(int p_iDiplOpinion, string p_sType, string p_sTimeStamp, string p_sMsg)
 		if(!CChat.IsValid(p_sMsg))then return; endif;
 		var ^CDiplomacyClnMgr pxDiplMgr = ^(CGameWrap.GetDiplomacyMgr());
 		if(pxDiplMgr == null)then return; endif;
@@ -243,7 +241,7 @@ class CIngameChatBar inherit CStaticCtrlEx
 			var ^CLevelInfo.CPlayerSlot pxPlayerSlot = ^(m_pxCurrentLevel^.GetPlayerSlot(xSlotID));
 			if(pxPlayerSlot==null || pxPlayerSlot^.IsFree())then continue; endif;
 			if(pxDiplMgr^.GetMyOpinion(pxPlayerSlot^.GetOwner())!=p_iDiplOpinion)then continue; endif;
-			DirectMsg(pxPlayerSlot, p_sType, p_sMsg);
+			DirectMsg(pxPlayerSlot, p_sType, p_sTimeStamp, p_sMsg);
 		endfor;
 	endproc;
 endclass;
@@ -591,8 +589,8 @@ class CNewChatWindow inherit CStateUIWnd
 		endif;
 	endproc;
 
-	export proc void SpeakToFriends(string p_sText)
-		var string sMsg = p_sText;
+	export proc void SpeakToFriends(string p_rsText)
+		var string sMsg = p_rsText;
 		var array int aiList;
 		CMultiPlayerClientMgr.Get().GetFriends(aiList);
 		var int i, iC = aiList.NumEntries();
@@ -602,12 +600,12 @@ class CNewChatWindow inherit CStateUIWnd
 			for(i=0)cond(i<iC)iter(i++)do
 				CEvt_ChatMsg.Send(sMsg,01h<<aiList[i]);
 			endfor;
-			OnChatMsg(CLocalizer.Get().Translate("_UI_ChatWind_Msg_ToAllies")+p_sText);
+			OnChatMsg(CLocalizer.Get().Translate("_UI_ChatWind_Msg_ToAllies")+p_rsText);
 		endif;
 	endproc;
 
-	export proc void SpeakToFoes(string p_sText)	
-		var string sMsg = p_sText;
+	export proc void SpeakToFoes(string p_rsText)	
+		var string sMsg = p_rsText;
 		var array int aiList;
 		CMultiPlayerClientMgr.Get().GetFoes(aiList);
 		sMsg.Replace("&", ":und:");
@@ -617,7 +615,7 @@ class CNewChatWindow inherit CStateUIWnd
 			for(i=0)cond(i<iC)iter(i++)do
 				CEvt_ChatMsg.Send(sMsg,01h<<aiList[i]);
 			endfor;
-			OnChatMsg(CLocalizer.Get().Translate("_UI_ChatWind_Msg_ToEnemies")+p_sText);
+			OnChatMsg(CLocalizer.Get().Translate("_UI_ChatWind_Msg_ToEnemies")+p_rsText);
 		endif;
 	endproc;
 	
