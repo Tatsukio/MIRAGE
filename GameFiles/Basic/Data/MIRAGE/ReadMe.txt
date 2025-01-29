@@ -29,6 +29,7 @@ AI:
  - Restored ability to call AI for help. If AI allied AI able, it will send up reinforcements and infrom Player about it. To request it in the Chat Droplist select Allied AI Player which you want ask for help. And type in chat "help" or "Help" as exact match, except "". Note, that typing for All allied players same message wont work.
 
 SDK:
+ - "Export to .obj" button will also export objects AABBs as separate .obj file from now on
  - Fixed NewStickerMessage(NWTK) trigger issue. It wasnt loading up in user interface general game messages, only Help Messages. Now both available
  - Added player handicap(HP) option for Custom map control options
  - Model viewer/exporter added as standalone app to Paraworld\Tools\GSF Viewer
