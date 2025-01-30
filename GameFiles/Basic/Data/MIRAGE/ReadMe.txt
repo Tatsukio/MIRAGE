@@ -5,7 +5,9 @@ MIRAGE 2.6.8
 
 General:
  - Fixed freezing on in match menu opening menu if screen resolution was not 2560x1440
-
+ - Chat window has been increased and now uses multiline
+ - Added chat player colors to the recipient selection dropdown menu (in match only)
+ 
 Maps:
 
 COOP campaign and maps with custom gameplay:
@@ -26,8 +28,9 @@ SEAS:
 - Seas scorpion skulls during the build process reduced to 250
 
 AI:
- - Restored ability to call AI for help. If AI allied AI able, it will send up reinforcements and infrom Player about it. To request it in the Chat Droplist select Allied AI Player which you want ask for help. And type in chat "help" or "Help" as exact match, except "". Note, that typing for All allied players same message wont work.
-
+ - You can ask AI player for help by writing "help" or "Help" in the dm or allies chat
+ - AI players can read group chats from now on
+ 
 SDK:
  - Fixed NewStickerMessage(NWTK) trigger issue. It wasnt loading up in user interface general game messages, only Help Messages. Now both available
  - Added player handicap(HP) option for Custom map control options
