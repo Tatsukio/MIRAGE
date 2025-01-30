@@ -32,6 +32,7 @@ AI:
  - AI players can read group chats from now on
  
 SDK:
+ - "Export to .obj" button will also export objects AABBs as separate .obj file from now on
  - Fixed NewStickerMessage(NWTK) trigger issue. It wasnt loading up in user interface general game messages, only Help Messages. Now both available
  - Added player handicap(HP) option for Custom map control options
  - Model viewer/exporter added as standalone app to Paraworld\Tools\GSF Viewer
