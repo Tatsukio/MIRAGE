@@ -7,6 +7,7 @@ General:
  - Fixed freezing on in match menu opening menu if screen resolution was not 2560x1440
  - Chat window has been increased and now uses multiline
  - Added chat player colors to the recipient selection dropdown menu (in match only)
+ - Added COOP campaign and custom maps sorting in map list
  
 Maps:
 
