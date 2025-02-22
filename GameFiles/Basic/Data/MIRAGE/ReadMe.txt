@@ -8,6 +8,7 @@ General:
  - Chat window has been increased and now uses multiline
  - Added chat player colors to the recipient selection dropdown menu (in match only)
  - Added COOP campaign and custom maps sorting in map list
+ - Map names highlighting and name prefixes being removed
  
 Maps:
 
