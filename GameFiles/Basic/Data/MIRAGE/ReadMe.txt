@@ -18,6 +18,16 @@ COOP campaign and maps with custom gameplay:
  - Disabled revealing for remaining player units after all HQ's are destroyed for Multiplayer Campaign mode
 
 Campaign maps:
+- Fixed Mission 1: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+- Fixed Mission 2: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+- Fixed Mission 4: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+- Fixed Mission 6: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+- Fixed Mission 7: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+- Fixed Mission 13: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+- Fixed Mission 14: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+- Fixed Mission B4-1: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+- Fixed Mission B4-2: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+- Fixed Mission B4-3: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
 
 Heroes:
 
