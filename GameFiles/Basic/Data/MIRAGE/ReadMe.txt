@@ -18,6 +18,7 @@ COOP campaign and maps with custom gameplay:
  - Disabled revealing for remaining player units after all HQ's are destroyed for Multiplayer Campaign mode
 
 Campaign maps:
+- Added LoadScreen music for Tutorial, Devil's Advocate, Cold Day in Hell and in Operation Neptune
 - Fixed Mission 1: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
 - Fixed Mission 2: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
 - Fixed Mission 4: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
