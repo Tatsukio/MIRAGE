@@ -13,6 +13,7 @@ General:
 Maps:
 
 COOP campaign and maps with custom gameplay:
+ - Fixed multiplayer crash for non host players while playing along with AI players
  - Ally control available on missions 5, 11, 16 and B42
  - On CRASH RPG Map Host Difficulty default value is 9 from now on
  - Disabled revealing for remaining player units after all HQ's are destroyed for Multiplayer Campaign mode
