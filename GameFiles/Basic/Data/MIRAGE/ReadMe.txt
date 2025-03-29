@@ -9,6 +9,7 @@ General:
  - Added chat player colors to the recipient selection dropdown menu (in match only)
  - Added COOP campaign and custom maps sorting in map list
  - Map names highlighting and name prefixes being removed
+ - Fixed incorrect description of Anti-Pause Mirage Server Option in Russian Localization
  
 Maps:
 
