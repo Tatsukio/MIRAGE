@@ -286,6 +286,10 @@ class CPlayerListWindow inherit CMapListWindow
 		var int iTmp = 0;
 		var string sTmp;
 		CSettings.Get("Game/RecentSettingsSkirmish/NumPlayers",iTmp);
+		var int iFakeNumPlayers=CMirageClnMgr.Get().GetFakeNumPlayers(CMirageClnMgr.Get().GetMapName());
+		if(iTmp<iFakeNumPlayers)then
+			iTmp=iFakeNumPlayers;
+		endif;
 		if(iTmp>0) then
 			m_pxLevelInfo^.SetNumPlayers(iTmp);
 			iTmp=0;
@@ -302,6 +306,10 @@ class CPlayerListWindow inherit CMapListWindow
 		var ^CLevelInfo pxLevelInfo=^(CGameWrap.GetClient().GetLevelPreview());
 		if(CGameWrap.GetClientID()==0 || m_bIsSkirmishMode)then
 			var int iNumPlayers=CClientWrap.GetUserProfileValueI("Multiplayer/NumPlayers",2);
+			var int iFakeNumPlayers=CMirageClnMgr.Get().GetFakeNumPlayers(CMirageClnMgr.Get().GetMapName());
+			if(iNumPlayers<iFakeNumPlayers)then
+				iNumPlayers=iFakeNumPlayers;
+			endif;
 			if(pxLevelInfo^.GetNumPlayers()!=iNumPlayers)then
 				pxLevelInfo^.SetNumPlayers(iNumPlayers);
 			endif;
@@ -353,23 +361,32 @@ class CPlayerListWindow inherit CMapListWindow
 		endif;
 		var bool bAllReady = true;
 		var int i,iC = 8;
-		iMax = m_pxLevelInfo^.GetNumPlayers();
+		iMax = CGameWrap.GetGame().GetAttribInt("ShowPlayers");
 		var bool bIsCountdown = false;
 		if(CGameWrap.GetClient().GetLevelPreview().GetAttribs().GetValueInt("Countdown")==42)then
 			bIsCountdown=true;
 		endif;
 		for(i=0)cond(i<iC)iter(i++)do
-			m_apxPlayerInfo[i]^.GetInfoFromLevelInfo();
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_apxPlayerInfo[i]^.GetPlayerSlot();
+			if(pxPlayerSlot==null)then continue; endif;
+			var bool bHidden = (CMirageClnMgr.Get().GetCustomPlayerSettingInt(CMirageClnMgr.Get().GetMapName(),i.ToString(),"HiddenSlot")==1);
+			var bool bAiPlayer = pxPlayerSlot^.GetType().Left(3)=="ai_";
 			var bool bValid = i<iMax;
+			if(!bHidden)then
+				if(bValid && bAiPlayer && !m_apxPlayerInfo[i]^.GetVisible())then
+					pxPlayerSlot^.SetType("invalid");
+				endif;
+				m_apxPlayerInfo[i]^.SetVisible(bValid);
+			endif;
+			m_apxPlayerInfo[i]^.GetInfoFromLevelInfo();
 			if(bValid && !m_apxPlayerInfo[i]^.IsReady())then
 				if(bIsCountdown) then
-					m_apxPlayerInfo[i]^.GetPlayerSlot()^.SetReady(true);
+					pxPlayerSlot^.SetReady(true);
 					bAllReady=true;
 				else
 					bAllReady = false;
 				endif;
 			endif;
-			m_apxPlayerInfo[i]^.SetVisible(bValid);
 		endfor;
 		if(bAllReady) then
 			CGameWrap.GetGame().SetAttrib("GameMode","closedwaiting");
@@ -726,16 +743,15 @@ class CPlayerListWindow inherit CMapListWindow
 	endproc;
 	
 	export proc void UpdateSlotHeadQuater(int p_iCurSlotID, ref int p_riCurHQ)
-		var int iNumPlayers,iMaxPlayers;
+		var int iMaxPlayers,iNumPlayers=CGameWrap.GetGame().GetAttribInt("ShowPlayers");
 		if(CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID())then
-			iNumPlayers=CClientWrap.GetUserProfileValueI("Multiplayer/NumPlayers",-1);
-			iMaxPlayers=CMirageClnMgr.Get().GetHostMapInfo()^.GetMaxPlayers();
+			iMaxPlayers=CMirageClnMgr.Get().GetPlayers(CMirageClnMgr.Get().GetMapName(),CMirageClnMgr.Get().GetHostMapInfo()^.GetMaxPlayers());
 		else
-			iNumPlayers=m_pxLevelInfo^.GetNumPlayers();
-			iMaxPlayers=m_pxLevelInfo^.GetMaxPlayers();
+			iMaxPlayers=CMirageClnMgr.Get().GetPlayers(CMirageClnMgr.Get().GetMapName(),m_pxLevelInfo^.GetMaxPlayers());
 		endif;
 		//KLog.LogSpam("ParaworldFan","PlayerListWindow: UpdateSlotHeadQuater() iNumPlayers=="+iNumPlayers.ToString());
 		//KLog.LogSpam("ParaworldFan","PlayerListWindow: UpdateSlotHeadQuater() iMaxPlayers=="+iMaxPlayers.ToString());
+		//KLog.LogSpam("ParaworldFan","PlayerListWindow: UpdateSlotHeadQuater() CurSlotID=="+p_iCurSlotID.ToString());
 		
 		if(iNumPlayers==iMaxPlayers)then return; endif;		//do nothing if all available Player Slots are visible in lobby
 		if(p_iCurSlotID>=iMaxPlayers)then return; endif;	//do nothing for an AI Player Slot that always hidden in lobby
@@ -749,8 +765,9 @@ class CPlayerListWindow inherit CMapListWindow
 		endfor;
 		//filling up an array with all taken by Users HQ's in lobby
 		for(iSlotID=0)cond(iSlotID<p_iCurSlotID)iter(iSlotID++)do	//count only the HQ's of the previous player slots from the current player slot
-			var ^CLevelInfo.CPlayerSlot pxSlot=m_apxPlayerInfo[iSlotID]^.GetPlayerSlot();
-			aiUserHQList.AddEntry(pxSlot^.GetHeadQuater());
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_apxPlayerInfo[iSlotID]^.GetPlayerSlot();
+			if(pxPlayerSlot==null)then continue; endif;
+			aiUserHQList.AddEntry(pxPlayerSlot^.GetHeadQuater());
 			//KLog.LogSpam("ParaworldFan","PlayerListWindow: UpdateSlotHeadQuater() aiUserHQList["+iSlotID.ToString()+"]=="+aiUserHQList[iSlotID].ToString());
 		endfor;
 		//removing from an array taken HQ's
@@ -765,6 +782,25 @@ class CPlayerListWindow inherit CMapListWindow
 		endfor;
 		p_riCurHQ=aiAllHQList[0];
 		//KLog.LogSpam("ParaworldFan","PlayerListWindow: UpdateSlotHeadQuater() p_riCurHQ="+p_riCurHQ.ToString()+" for PlayerSlot_"+p_iCurSlotID.ToString());
+	endproc;
+	
+	export proc void SetHiddenSlotsReady(bool p_bReady)
+		var int i,iC = 8;
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=m_apxPlayerInfo[i]^.GetPlayerSlot();
+			if(pxPlayerSlot==null)then continue; endif;
+			var bool bVisible = m_apxPlayerInfo[i]^.GetVisible();
+			var bool bForced = ((pxPlayerSlot^.IsFree()||!bVisible) && CMirageClnMgr.Get().GetCustomPlayerSettingInt(CMirageClnMgr.Get().GetMapName(),i.ToString(),"AddIfEmpty")==1);
+			var bool bHidden = (CMirageClnMgr.Get().GetCustomPlayerSettingInt(CMirageClnMgr.Get().GetMapName(),i.ToString(),"HiddenSlot")==1);
+			var bool bCustom = (bForced||bHidden);
+			if(bCustom&&(p_bReady!=m_apxPlayerInfo[i]^.IsReady()))then
+				var bool bAiPlayer = pxPlayerSlot^.GetType().Left(3)=="ai_";
+				if(pxPlayerSlot^.IsFree()&&!bAiPlayer)then
+					pxPlayerSlot^.SetType("ai_Mikrobe");
+				endif;
+				pxPlayerSlot^.SetReady(p_bReady);
+			endif;
+		endfor;
 	endproc;
 	
 	proc bool OnBack()

@@ -279,8 +279,7 @@ class CServerApp inherit IServerApp
 		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
 		System.Assert(pxLevel!=null);					   
 		var ^CLevelInfo pxLevelInfo=^(pxLevel^.GetLevelInfo());
-		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
-		var string sLevelName = (pxGenericDB^)["Base/LevelName"].Value();
+		var string sLevelName=(pxLevelInfo^.GetGenericData())["Base/LevelName"].Value();
 		if(pxLevelInfo^.IsMultiplayer()&&!CMirageSrvMgr.Get().CheckCustomMap(sLevelName,"EndScreen/CampaignScreen"))then
 			CGameOverMgr.Get().OnAbandonGame(p_iOwner);
 		else
@@ -378,7 +377,8 @@ class CServerApp inherit IServerApp
 		var ^CLevelInfo pxLevelInfo=^(p_pxLevel^.GetLevelInfo());
 		var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
 		//pxGenericDB^.Save("c:/LevelInfo_Vor.txt");
-		var string sLevelName = (pxGenericDB^)["Base/LevelName"].Value();
+		var ^CPropDB.CNode pxBaseNode=^((pxGenericDB^)["Base"]);
+		var string sLevelName=pxBaseNode^.GetValueS("LevelName");
 		var string sLNFHCTTF = sLevelName; // Henry: LevelNameForHardCodedTechTreeFilters
 		sLNFHCTTF.Replace(" ","_");
 		sLNFHCTTF.MakeLower();
@@ -387,20 +387,20 @@ class CServerApp inherit IServerApp
 		var bool bRandomColor=(CSrvWrap.GetGame().GetAttribInt("RandomColor")==1);
 		var bool bMultiplayer=true;
 		begin GetMultiplayer;
-			var ^CPropDB.CNode pxMapType=pxGenericDB^.FindNode("Base/MapType",false);
+			var ^CPropDB.CNode pxMapType=pxBaseNode^.FindNode("MapType",false);
 			if(pxMapType!=null)then
 				bMultiplayer=(pxMapType^.Value()=="multiplayer");
 			endif;
 		end GetMultiplayer;
-		var int iMaxPlayers=(pxGenericDB^)["Base/MaxPlayers"].ValueI();
-		var int iRandomHQFlag=(pxGenericDB^)["Base/RandomHQFlag"].ValueI();
-		var int iRandomColorFlag=(pxGenericDB^)["Base/RandomColorFlag"].ValueI();
+		var int iMaxPlayers=pxBaseNode^.GetValueI("MaxPlayers");
+		var int iRandomHQFlag=pxBaseNode^.GetValueI("RandomHQFlag");
+		var int iRandomColorFlag=pxBaseNode^.GetValueI("RandomColorFlag");
 		var string sValue;
 		if(CMirageSrvMgr.Get().GetCustomSettingS(sLevelName,"random_hq",sValue)&&pxLevelInfo^.IsMultiplayer())then	//gets "RandomHq" value from external config file "custom_level_data.txt"
 			bRandomHQ = sValue=="1";	//sets availability of Random Server Option on the currently loading map
 		endif;
 		if(bRandomHQ && bMultiplayer && iRandomHQFlag==0 && iMaxPlayers>0)then
-			(pxGenericDB^)["Base"].SetValue("RandomHQFlag",1);
+			pxBaseNode^.SetValue("RandomHQFlag",1);
 			var array int aiAllHQList;
 			var array CPlayerHQInfo axPlayerHQInfoList;
 			var int i;
@@ -437,7 +437,7 @@ class CServerApp inherit IServerApp
 			endfor;
 		endif;
 		if(bRandomColor && !CMirageSrvMgr.Get().CheckCustomMap(sLevelName,"PlayerColor") && bMultiplayer && iRandomColorFlag==0)then
-			(pxGenericDB^)["Base"].SetValue("RandomColorFlag",1);
+			pxBaseNode^.SetValue("RandomColorFlag",1);
 			var array int aiAllColorList;
 			var array CPlayerColorInfo axPlayerColorInfoList;
 			var int i;
@@ -539,12 +539,9 @@ class CServerApp inherit IServerApp
 			endif;
 			//pxWalk^.SetOwner(iOwner);
 			var string sType=pxWalk^.GetType();
-			//fixing "invalid" Behaviour Type for AI players on hidden player slots for CUSTOM maps
-			if(sType!="human" && CMirageSrvMgr.Get().IsSlotForced(sLevelName,i) && CMirageSrvMgr.Get().CheckCustomMap(sLevelName,"Players/Player_"+i.ToString()+"/AddIfEmpty") && pxLevelInfo^.IsMultiplayer())then
-				sType="ai_Mikrobe";
-				pxWalk^.SetType(sType);
-			endif;
-			//
+			var ^CPropDB.CNode pxPlayerNode=^((pxGenericDB^)["PlayerSettings/Player_"+iHQ.ToString()]);
+			var ^CPropDB.CNode pxRestrictionsNode=pxPlayerNode^.Get("Restrictions");
+			var ^CPropDB.CNode pxPlayerBaseNode=pxRestrictionsNode^.Get("Base");
 			begin CheckRandomTribe;
 				var string sTribe=pxWalk^.GetTribe();
 				var bool bServerUpdate=false, bCustom=false, bAI=sType.Left(3)=="ai_";
@@ -557,8 +554,8 @@ class CServerApp inherit IServerApp
 				if(pxGame!=null)then
 					var int iCredits=pxGame^.GetCredits();
 					if(sType=="human"||bCustom||bAI)then
-						var string sAllTribes = (pxGenericDB^)["PlayerSettings/Player_"+iHQ.ToString()+"/Restrictions/Base/Tribes"].Value();
-						var ^CPropDB.CNode pxTribesNode=^((pxGenericDB^)["PlayerSettings/Player_"+iHQ.ToString()+"/Restrictions/Base/Tribes"]);
+						var string sAllTribes = pxPlayerBaseNode^.GetValueS("Tribes");
+						var ^CPropDB.CNode pxTribesNode=pxPlayerBaseNode^.Get("Tribes");
 						var string sTrb=pxGame^.GetAttrib("true_tribe_"+i.ToString());
 						bServerUpdate=(asValidFilters.FindEntry(sTrb)!=-1 || sAllTribes.Find(sTribe) == -1)&&pxLevelInfo^.IsMultiplayer();
 						if(bServerUpdate)then
@@ -606,7 +603,7 @@ class CServerApp inherit IServerApp
 									sNode+=iCredits.ToString()+sTribeSmall;
 									var ^CPropDB.CNode pxPNU=xPDB.FindNode(sNode+"/Units",false);
 									if(pxPNU!=null)then
-										var ^CPropDB.CNode pxPointBuyPreset = pxGenericDB^.FindNode("PlayerSettings/Player_"+iHQ.ToString()+"/PointBuyPreset/"+sTribe,true);
+										var ^CPropDB.CNode pxPointBuyPreset = pxPlayerNode^.FindNode("PointBuyPreset/"+sTribe,true);
 										if(pxPointBuyPreset!=null)then
 											pxPointBuyPreset^.Clear();
 											pxPointBuyPreset^.Join(pxPNU);
@@ -614,7 +611,7 @@ class CServerApp inherit IServerApp
 									endif;
 									var ^CPropDB.CNode pxPNR=xPDB.FindNode(sNode+"/Resources",false);
 									if(pxPNR!=null)then
-										var ^CPropDB.CNode pxPointBuyPreset = pxGenericDB^.FindNode("PlayerSettings/Player_"+iHQ.ToString()+"/Restrictions/Resources",true);
+										var ^CPropDB.CNode pxPointBuyPreset = pxPlayerBaseNode^.FindNode("Resources",true);
 										if(pxPointBuyPreset!=null)then
 											pxPointBuyPreset^.Clear();
 											pxPointBuyPreset^.Join(pxPNR);
@@ -626,7 +623,7 @@ class CServerApp inherit IServerApp
 					endif;
 				endif;
 				if(sTribe=="Random")then
-					var ^CPropDB.CNode pxTribesNode=^((pxGenericDB^)["PlayerSettings/Player_"+iHQ.ToString()+"/Restrictions/Base/Tribes"]);
+					var ^CPropDB.CNode pxTribesNode=pxPlayerBaseNode^.Get("Tribes");
 					sTribe=pxTribesNode^.GetValueS("Tribe2Use","Hu");
 					pxWalk^.SetTribe(sTribe);
 				endif;
@@ -772,7 +769,7 @@ class CServerApp inherit IServerApp
 				pxWalk^.SetTeam(iTemp);
 			endif;
 			pxPlayer^.Init();
-			var ^CPropDB.CNode pxNodeBase=^((pxGenericDB^)["PlayerSettings/Player_"+iHQ.ToString()+"/Restrictions/Base"]);
+			var ^CPropDB.CNode pxNodeBase=pxPlayerBaseNode;
 			pxPlayer^.SetGfxPrefix(pxNodeBase^.GetValueS("GfxPrefix",""));
 			//KLog.LogWarn("CHP","GfxPrefix:"+iOwner.ToString()+" "+pxNodeBase^.GetValueS("GfxPrefix",""));
 			//aiTeams[i]=iTeam;
@@ -781,7 +778,7 @@ class CServerApp inherit IServerApp
 			if(pxPlayerTTDef!=null)then
 				CMirageSrvMgr.Get().HardcodeTTFilters(sLNFHCTTF, i, pxPlayerTTDef);
 			endif;
-			var ^CPropDB.CNode pxTTDef=^((pxGenericDB^)["PlayerSettings/Player_"+iHQ.ToString()+"/Restrictions/TTDef"]);
+			var ^CPropDB.CNode pxTTDef=pxRestrictionsNode^.Get("TTDef");
 			if(pxTTDef!=null)then
 //				var int iSEASCarrierFix=0;
 				var ^CTechTreeDef pxPlayerTTDef=^(pxPlayer^.GetPlayerTechTreeDef());
@@ -802,7 +799,7 @@ class CServerApp inherit IServerApp
 			// set the dipl-stuff for singleplayer and CUSTOM map mode
 			if(!bMultiplayer||CMirageSrvMgr.Get().CheckCustomMap(sLevelName,"Diplomacy/UseRelations"))then
 				var ^CDiplomacySrvMgr pxDiplMgr=^(CSrvWrap.GetDiplomacyMgr());
-				var ^CPropDB.CNode pxDiplNode=pxGenericDB^.FindNode("PlayerSettings/Player_"+iHQ.ToString()+"/Diplomacy",false);
+				var ^CPropDB.CNode pxDiplNode=pxPlayerNode^.FindNode("Diplomacy",false);
 				if(pxDiplNode!=null)then
 					var ^CBasePlayer pxBasePlayer=CBasePlayer.GetPlayer(iHQ);
 					var string sVal=pxDiplNode^.Value();
@@ -823,11 +820,11 @@ class CServerApp inherit IServerApp
 			var ^CPropDB pxUserProfile=^(CSrvWrap.GetCurUserProfile()^.GetPropDB());
 			var int iCurDifficulty=(pxUserProfile^)["Multiplayer/Difficulty"].ValueI();
 			//KLog.LogSpam("ParaworldFan","ServerApp: CreatePlayers() iCurDifficulty=="+iCurDifficulty.ToString());
-			if(iCurDifficulty!=(pxGenericDB^)["Base/Difficulty"].ValueI())then
-				(pxGenericDB^)["Base"].SetValue("Difficulty",iCurDifficulty);
+			if(iCurDifficulty!=pxBaseNode^.GetValueI("Difficulty"))then
+				pxBaseNode^.SetValue("Difficulty",iCurDifficulty);
 			endif;
-		elseif(pxLevelInfo^.IsMultiplayer()&&(pxGenericDB^)["Base/Difficulty"].ValueI()!=1)then
-			(pxGenericDB^)["Base"].SetValue("Difficulty",1);
+		elseif(pxLevelInfo^.IsMultiplayer()&&pxBaseNode^.GetValueI("Difficulty")!=1)then
+			pxBaseNode^.SetValue("Difficulty",1);
 		endif;
 		//
 		
@@ -888,7 +885,7 @@ class CServerApp inherit IServerApp
 				return true;
 			endif;
 		endif;
-		var ^CPropDB.CNode pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
+		pxBaseNode=^((pxLevelInfo^.GetGenericData())["Base"]);
 		var string sStartTime=pxBaseNode^.GetValueS("StartTime","12:0");
 		var array string asTime;
 		sStartTime.Split(asTime,":",false);
