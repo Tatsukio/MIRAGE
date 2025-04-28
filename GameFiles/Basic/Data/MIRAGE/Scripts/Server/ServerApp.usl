@@ -395,10 +395,6 @@ class CServerApp inherit IServerApp
 		var int iMaxPlayers=pxBaseNode^.GetValueI("MaxPlayers");
 		var int iRandomHQFlag=pxBaseNode^.GetValueI("RandomHQFlag");
 		var int iRandomColorFlag=pxBaseNode^.GetValueI("RandomColorFlag");
-		var string sValue;
-		if(CMirageSrvMgr.Get().GetCustomSettingS(sLevelName,"random_hq",sValue)&&pxLevelInfo^.IsMultiplayer())then	//gets "RandomHq" value from external config file "custom_level_data.txt"
-			bRandomHQ = sValue=="1";	//sets availability of Random Server Option on the currently loading map
-		endif;
 		if(bRandomHQ && bMultiplayer && iRandomHQFlag==0 && iMaxPlayers>0)then
 			pxBaseNode^.SetValue("RandomHQFlag",1);
 			var array int aiAllHQList;
@@ -436,7 +432,7 @@ class CServerApp inherit IServerApp
 				pxPlayerHQInfo^.m_pxPlayerNode^.Name()=sNewNodeName;
 			endfor;
 		endif;
-		if(bRandomColor && !CMirageSrvMgr.Get().CheckCustomMap(sLevelName,"PlayerColor") && bMultiplayer && iRandomColorFlag==0)then
+		if(bRandomColor && !CMirageSrvMgr.Get().IsCustomSetting(sLevelName,"Color") && bMultiplayer && iRandomColorFlag==0)then
 			pxBaseNode^.SetValue("RandomColorFlag",1);
 			var array int aiAllColorList;
 			var array CPlayerColorInfo axPlayerColorInfoList;
@@ -476,9 +472,6 @@ class CServerApp inherit IServerApp
 				KLog.LogError("ServerApp","CreatePlayers failed, num players=0");
 			endif;
 		endif;
-		if(CMirageSrvMgr.Get().GetCustomSettingI(sLevelName,"num_slots",iMaxPlayers)&&pxLevelInfo^.IsMultiplayer())then	//gets "max players" value from external config file "custom_level_data.txt"
-			iC=iMaxPlayers;	//sets max players value on the currently loading map
-		endif;
 		CSrvWrap.GetDiplomacyMgr().ResetAllRelations();
 		begin WorldPlayer;
 			var ^CPlayer pxPlayer= new CBasePlayer;
@@ -500,25 +493,23 @@ class CServerApp inherit IServerApp
 			if(!pxWalk^.IsFree())then
 				aiAvailable.RemEntry(pxWalk^.GetColor());
 			endif;
-			if(CMirageSrvMgr.Get().GetPreferedSlotColor(sLevelName,i,iPref)&&pxLevelInfo^.IsMultiplayer())then
+			if(CMirageSrvMgr.Get().GetPreferedPlayerColor(sLevelName,pxWalk^.GetHeadQuater(),iPref)&&pxLevelInfo^.IsMultiplayer())then
 				aiPrefered.AddEntry(iPref);
 			endif;
 		endfor;
 		var bool bHandicap=CSrvWrap.GetGame().GetAllowHandicap();
 		xCurSlotID=CPlayerSlotID.First();
-		for(i=0)cond(i<iC)iter(i++)do	//set ups PlayerSlots that only were added in lobby or listed in custom_level_data.txt
-			var bool bForced=false;
+		for(i=0)cond(i<iC)iter(i++)do	//set ups PlayerSlots that only were filled in lobby by human or AI Players, including hidden Players
 			var ^CLevelInfo.CPlayerSlot pxWalk=^(pxLevelInfo^.GetPlayerSlot(xCurSlotID));
-			if(CMirageSrvMgr.Get().IsSlotForced(sLevelName,i))then
-				pxWalk^.SetValue("forced","true");
-				bForced=true;
+			if(pxWalk^.IsFree())then
+				continue;	//SKIPS the PlayerSlots that were not visible in lobby and not Hidden
 			endif;
-			if(pxWalk^.IsFree() && !bForced)then
-				continue;	//SKIPS the PlayerSlots that were not added in lobby and that are not enlisted in custom_level_data.txt
-			endif;
+			//var int iOwner=pxWalk^.GetOwner();
+			var int iHQ=pxWalk^.GetHeadQuater();
+			//pxWalk^.SetOwner(iOwner);
 			var string sHandicap=CSrvWrap.GetGame().GetAttribInt("new_hc_"+i.ToString()).ToString();
 			var int iPref;
-			if(CMirageSrvMgr.Get().GetPreferedSlotColor(sLevelName,i,iPref)&&pxLevelInfo^.IsMultiplayer())then
+			if(CMirageSrvMgr.Get().GetPreferedPlayerColor(sLevelName,iHQ,iPref)&&pxLevelInfo^.IsMultiplayer())then
 				if(aiAvailable.FindEntry(iPref)!=-1)then
 					pxWalk^.SetColor(iPref);
 				else
@@ -532,58 +523,45 @@ class CServerApp inherit IServerApp
 					pxWalk^.SetColor(k);
 				endif;
 			endif;
-			//var int iOwner=pxWalk^.GetOwner();
-			var int iHQ=pxWalk^.GetHeadQuater();
-			if(CMirageSrvMgr.Get().GetCustomSlotHQ(sLevelName,i,iHQ)&&pxLevelInfo^.IsMultiplayer())then
-				pxWalk^.SetHeadQuater(iHQ);
-			endif;
-			//pxWalk^.SetOwner(iOwner);
 			var string sType=pxWalk^.GetType();
 			var ^CPropDB.CNode pxPlayerNode=^((pxGenericDB^)["PlayerSettings/Player_"+iHQ.ToString()]);
 			var ^CPropDB.CNode pxRestrictionsNode=pxPlayerNode^.Get("Restrictions");
 			var ^CPropDB.CNode pxPlayerBaseNode=pxRestrictionsNode^.Get("Base");
 			begin CheckRandomTribe;
 				var string sTribe=pxWalk^.GetTribe();
-				var bool bServerUpdate=false, bCustom=false, bAI=sType.Left(3)=="ai_";
-				if(CMirageSrvMgr.Get().GetCustomSlotTribe(sLevelName,iHQ,sTribe)&&pxLevelInfo^.IsMultiplayer())then
-					pxWalk^.SetTribe(sTribe);
-					bServerUpdate=true;
-					bCustom=true;
-				endif;
+				var bool bServerUpdate=false, bAI=sType.Left(3)=="ai_";
 				var ^CGameSrv pxGame=^(CSrvWrap.GetGame());
 				if(pxGame!=null)then
 					var int iCredits=pxGame^.GetCredits();
-					if(sType=="human"||bCustom||bAI)then
+					if(sType=="human"||bAI)then
 						var string sAllTribes = pxPlayerBaseNode^.GetValueS("Tribes");
 						var ^CPropDB.CNode pxTribesNode=pxPlayerBaseNode^.Get("Tribes");
 						var string sTrb=pxGame^.GetAttrib("true_tribe_"+i.ToString());
 						bServerUpdate=(asValidFilters.FindEntry(sTrb)!=-1 || sAllTribes.Find(sTribe) == -1)&&pxLevelInfo^.IsMultiplayer();
 						if(bServerUpdate)then
-							if(!bCustom)then
-								var array string asTribes, asTemp;
-								sAllTribes.Split(asTribes,":",true);
-								var int i, iC=asTribes.NumEntries();
-								if(sTrb!="Random" && asValidFilters.FindEntry(sTrb)!=-1)then
-									var int iCnt=0;
-									asTemp=asTribes;
-									for(i=0)cond(i<iC)iter(i++)do
-										if(sTrb.Find(asTemp[i])==-1)then
-											asTribes.Exclude(asTemp[i]);
-											iCnt++;
-										endif;
-									endfor;
-									if(iCnt>=iC)then
-										asTribes=0; asTribes=asTemp;
+							var array string asTribes, asTemp;
+							sAllTribes.Split(asTribes,":",true);
+							var int i, iC=asTribes.NumEntries();
+							if(sTrb!="Random" && asValidFilters.FindEntry(sTrb)!=-1)then
+								var int iCnt=0;
+								asTemp=asTribes;
+								for(i=0)cond(i<iC)iter(i++)do
+									if(sTrb.Find(asTemp[i])==-1)then
+										asTribes.Exclude(asTemp[i]);
+										iCnt++;
 									endif;
-									iC=asTribes.NumEntries();
+								endfor;
+								if(iCnt>=iC)then
+									asTribes=0; asTribes=asTemp;
 								endif;
-								if(iC<=0)then iC=4; endif;
-								var int iRand=Random.GetInt()%iC;
-								if(iRand>=0 && iRand<asTribes.NumEntries())then
-									sTribe=asTribes[iRand];
-								else
-									sTribe=pxTribesNode^.GetValueS("Tribe2Use","Hu");
-								endif;
+								iC=asTribes.NumEntries();
+							endif;
+							if(iC<=0)then iC=4; endif;
+							var int iRand=Random.GetInt()%iC;
+							if(iRand>=0 && iRand<asTribes.NumEntries())then
+								sTribe=asTribes[iRand];
+							else
+								sTribe=pxTribesNode^.GetValueS("Tribe2Use","Hu");
 							endif;
 							var CPropDB xPDB;
 							pxWalk^.SetTribe(sTribe);
@@ -628,15 +606,12 @@ class CServerApp inherit IServerApp
 					pxWalk^.SetTribe(sTribe);
 				endif;
 			end CheckRandomTribe;
-			if(sType!="human" && sType!="closed" && bForced)then
-				if(CMirageSrvMgr.Get().GetCustomSlotType(sLevelName,iHQ,sType)&&pxLevelInfo^.IsMultiplayer())then
+			if(sType!="human" && sType!="closed")then
+				if(CMirageSrvMgr.Get().GetCustomAIPlayerType(sLevelName,iHQ,sType)&&pxLevelInfo^.IsMultiplayer())then
 					pxWalk^.SetType(sType);
 				endif;
 			endif;
 			var int iColor=pxWalk^.GetColor();
-			if(CMirageSrvMgr.Get().GetCustomSlotColor(sLevelName,iHQ,iColor)&&pxLevelInfo^.IsMultiplayer())then
-				pxWalk^.SetColor(iColor);
-			endif;
 			var int iTeam=pxWalk^.GetTeam();
 			var ^CPlayer pxPlayer=null;
 			if(sType=="ai_Random")then
@@ -683,17 +658,7 @@ class CServerApp inherit IServerApp
 				pxPlayer=new CAiPlayer(14);
 			endif;
 			var string sNew;
-			// Henry: add custom player names on specific maps
-			if(CMirageSrvMgr.Get().GetCustomSlotName(sLevelName,iHQ, sNew)&&pxLevelInfo^.IsMultiplayer())then	//gets "PlayerName" value from external config file "custom_level_data.txt"
-				pxWalk^.SetName(sNew);
-				var ^CPropDB.CNode pxNameNode =
-				pxGenericDB^.FindNode("PlayerSettings/Player_"+iHQ.ToString(), true);
-				if(pxNameNode!=null)then
-					pxNameNode^.SetValue("PlayerName", sNew);
-				endif;
-				CSrvWrap.GetGame().SendLevelInfoUpdate();
-			// AyCe: If player is an AI AND level is multiplayer AND level is not in the "special" list
-			elseif(cast<CAiPlayer>(pxPlayer)!=null && !CMirageSrvMgr.Get().CheckCustomMap(sLevelName,"PlayerName") && pxLevelInfo^.IsMultiplayer() && CMirageSrvMgr.Get().UseAINames(((pxLevelInfo^.GetGenericData())["Base/LevelName"]).Value(), iHQ))then
+			if(cast<CAiPlayer>(pxPlayer)!=null && !CMirageSrvMgr.Get().GetCustomPlayerSettingBool(sLevelName,iHQ,"Name") && pxLevelInfo^.IsMultiplayer() && CMirageSrvMgr.Get().UseAINames(((pxLevelInfo^.GetGenericData())["Base/LevelName"]).Value(), iHQ))then
 				pxWalk^.SetName(CMirageSrvMgr.Get().GetRandomAIName()+" [AI"+i.ToString()+"]");	//make exception for CUSTOM map type
 			else	// ParaworldFan: sets player's name fot any other cases
 				sNew=pxWalk^.GetName();
@@ -707,7 +672,7 @@ class CServerApp inherit IServerApp
 					pxTmpBP^.SetHandicap(sHandicap);
 				endif;
 				var int iSkip=0;
-				if(CMirageSrvMgr.Get().GetCustomSettingI(sLevelName,"SKIP_DIVISION_"+iHQ.ToString(),iSkip)&&pxLevelInfo^.IsMultiplayer())then
+				if(CMirageSrvMgr.Get().GetCustomPlayerDivision(sLevelName,iHQ,iSkip)&&pxLevelInfo^.IsMultiplayer())then
 					CMirageSrvMgr.ms_abSkipAtDivision[iHQ+1] = (iSkip==1);
 				endif;
 			endif;
@@ -715,17 +680,6 @@ class CServerApp inherit IServerApp
 			if(pxPlayer==null)then
 				CSrvWrap.LogError("Players","Player '"+sType+"' konnte nicht erzeugt werden"+" PlayerSlot: "+i.ToString());
 				return false;
-			endif;
-			// ParaworldFan: force AI players into certain difficulty level on specific maps
-			if(sType!="human"&&bForced)then
-				var int iDifficulty;
-				if(CMirageSrvMgr.Get().GetCustomSlotDifficulty(sLevelName,iHQ, iDifficulty)&&pxLevelInfo^.IsMultiplayer())then
-					pxWalk^.SetValue("Difficulty",iDifficulty);
-				endif;
-			endif;
-			// Henry: force players into certain teams on specific maps
-			if(CMirageSrvMgr.Get().GetCustomSlotTeam(sLevelName,iHQ, iTeam)&&pxLevelInfo^.IsMultiplayer())then
-				pxWalk^.SetTeam(iTeam);
 			endif;
 			pxPlayer^.SetPlayerSlotID(xCurSlotID);
 			//HACK
@@ -842,13 +796,11 @@ class CServerApp inherit IServerApp
 					var int iOwnerB=-1;
 					var int iTeamA=-1;
 					var int iTeamB=-1;
-					if(!pxSlotA^.IsFree()||pxSlotA^.GetValue("forced")=="true")then
-//					if(!pxSlotA^.IsFree())then
+					if(!pxSlotA^.IsFree())then
 						iOwnerA=pxSlotA^.GetOwner();
 						iTeamA=pxSlotA^.GetTeam();
 					endif;
-					if(!pxSlotB^.IsFree()||pxSlotB^.GetValue("forced")=="true")then
-//					if(!pxSlotB^.IsFree())then
+					if(!pxSlotB^.IsFree())then
 						iOwnerB=pxSlotB^.GetOwner();
 						iTeamB=pxSlotB^.GetTeam();
 					endif;

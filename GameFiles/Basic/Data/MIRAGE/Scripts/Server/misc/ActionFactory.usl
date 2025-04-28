@@ -3859,7 +3859,7 @@ class CActionAiBehavior inherit CTrigger.IAction
 			return false;
 		endif;
 		
-		var ^CPlayer pxPlayer = pxLevel^.GetPlayer(m_iPlayerID);
+		var ^CBasePlayer pxPlayer = cast<CBasePlayer>(pxLevel^.GetPlayer(m_iPlayerID));
 		if(pxPlayer==null)then
 			KLog.LogError("CActionAiBehavior","Player_" + m_iPlayerID.ToString() + " is null");
 			return false;
@@ -3871,11 +3871,14 @@ class CActionAiBehavior inherit CTrigger.IAction
 			return false;
 		endif;
 		
-		if(pxSlot^.GetType()=="human"||!pxSlot^.GetValueBool("forced"))then return false; endif;
-//		if(!pxSlot^.IsAIPlayer())then return false; endif; //returns 'false' for hidden Player Slots because AI Type was set to "invalid" once again
+		if(pxPlayer^.IsHuman()||!pxSlot^.IsAIPlayer())then return false; endif;
 		if(pxLevel^.GetLevelInfo().IsMultiplayer()&&("ai_"+m_sBehavior==pxSlot^.GetType()))then
 			KLog.LogError("CActionAiBehavior","Current AiBehavior equal to the new one!");
 			return false;
+		endif;
+		var int iOwner=m_iPlayerID;
+		if(pxLevel^.GetLevelInfo().IsMultiplayer())then
+			iOwner=pxSlot^.GetPlayerSlotID();
 		endif;
 		
 		var bool bSuccess=false;
@@ -3899,7 +3902,10 @@ class CActionAiBehavior inherit CTrigger.IAction
 			dwModId=CAiInterface.AiModule_Unknown;
 			KLog.LogSpam("CyGi","AiModule_Unknown");
 		endif;
-		bSuccess = CAiInterface.SetModuleBehavior(m_iPlayerID,dwModId,m_sBehavior);
+		//SetModuleBehavior(int p_iPlayerId, bitset p_dwModId, string p_ksrBehavior)
+		//p_iPlayerId in fact PlayerSlotID value, not HeadQuater or Owner. In singleplayer HeadQuater and Owner values matching with PlayerSlotID.
+		//however in multiplayer they not always match, which can cause issues that this function change the Behavior for Human Player which will lead in the player's disconnection from the server.
+		bSuccess = CAiInterface.SetModuleBehavior(iOwner,dwModId,m_sBehavior);
 		
 		if(bSuccess==true)then
 			KLog.LogSpam("CyGi","AIBV: Execution was successful");
@@ -4049,15 +4055,35 @@ class CActionAiDefendArea inherit CTrigger.IAction
 	enddestructor;
 	
 	export proc bool OnPush(ref CEvtPointer p_rxEP)
-		//L KLog.LogSpam("RoStTmp","Executing Trigger Action AIDA (PlayerID="+m_iPlayerID.ToString()+", ID="+m_sID+", position="+m_sPosition+", radius="+m_fRadius.ToString()+", max_units="+m_iMaxUnits.ToString()+")");
+		KLog.LogSpam("RoStTmp","Executing Trigger Action AIDA (PlayerID="+m_iPlayerID.ToString()+", ID="+m_sID+", position="+m_sPosition+", radius="+m_fRadius.ToString()+", max_units="+m_iMaxUnits.ToString()+")");
 		var bool bSuccess = false;
 		var bitset dwModId = CAiInterface.AiModule_Defense;
 		var string sCommand = "AddDefenseArea "+m_sID+" "+m_sPosition+" "+m_fRadius.ToString()+" "+m_iMaxUnits.ToString();
-		bSuccess = CAiInterface.SetModuleBehavior(m_iPlayerID,dwModId,sCommand);
+		var ^CLevel pxLevel=CSrvWrap.GetCurLevel();
+		if(pxLevel==null)then
+			KLog.LogError("CActionAiDefendArea","pxLevel is null");
+			return false;
+		endif;
+		var ^CBasePlayer pxPlayer = cast<CBasePlayer>(pxLevel^.GetPlayer(m_iPlayerID));
+		if(pxPlayer==null)then
+			KLog.LogError("CActionAiDefendArea","Player_" + m_iPlayerID.ToString() + " is null");
+			return false;
+		endif;
+		var ^CLevelInfo.CPlayerSlot pxSlot=pxPlayer^.GetPlayerSlot();
+		if(pxSlot==null)then
+			KLog.LogError("CActionAiDefendArea","pxSlot is null");
+			return false;
+		endif;
+		if(pxPlayer^.IsHuman()||!pxSlot^.IsAIPlayer())then return false; endif;
+		var int iOwner=m_iPlayerID;
+		if(pxLevel^.GetLevelInfo().IsMultiplayer())then
+			iOwner=pxSlot^.GetPlayerSlotID();
+		endif;
+		bSuccess = CAiInterface.SetModuleBehavior(iOwner,dwModId,sCommand);
 		if(bSuccess==true)then
-			//L KLog.LogSpam("RoStTmp","Execution was successful");
+			KLog.LogSpam("RoStTmp","Execution was successful");
 		else
-			//L KLog.LogSpam("RoStTmp","Execution was a failure");
+			KLog.LogSpam("RoStTmp","Execution was a failure");
 		endif;
 		return true;
 	endproc;

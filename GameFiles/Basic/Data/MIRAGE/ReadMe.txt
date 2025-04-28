@@ -10,6 +10,8 @@ General:
  - Added COOP campaign and custom maps sorting in map list
  - Map names highlighting and name prefixes being removed
  - Fixed incorrect description of Anti-Pause Mirage Server Option in Russian Localization
+ - Added player handicap(HP) option for Custom map control options
+ - Custom map system parameters customization expanded. Player parameters are from now on can be applied only to exact Player
  
 Maps:
 
@@ -52,7 +54,6 @@ AI:
 SDK:
  - "Export to .obj" button will also export objects AABBs as separate .obj file from now on
  - Fixed NewStickerMessage(NWTK) trigger issue. It wasnt loading up in user interface general game messages, only Help Messages. Now both available
- - Added player handicap(HP) option for Custom map control options
  - Model viewer/exporter added as standalone app to Paraworld\Tools\GSF Viewer
 
 MIRAGE 2.6.7
