@@ -12,6 +12,7 @@ General:
  - Fixed incorrect description of Anti-Pause Mirage Server Option in Russian Localization
  - Added player handicap(HP) option for Custom map control options
  - Custom map system parameters customization expanded. Player parameters are from now on can be applied only to exact Player
+ - Predefined map server settings Node have been integrated into new Custom map UI system
  
 Maps:
 
