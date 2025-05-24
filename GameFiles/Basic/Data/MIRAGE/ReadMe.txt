@@ -40,6 +40,7 @@ Heroes:
 Dustriders:
 
 Dragon Clan:
+ - Fixed dilophosaurus nest and palisade wall disappearing from build menu under certain conditions
 
 Norsemen:
 
