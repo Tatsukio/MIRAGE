@@ -57,7 +57,19 @@ SDK:
  - "Export to .obj" button will also export objects AABBs as separate .obj file from now on
  - Fixed NewStickerMessage(NWTK) trigger issue. It wasnt loading up in user interface general game messages, only Help Messages. Now both available
  - Model viewer/exporter added as standalone app to Paraworld\Tools\GSF Viewer
-
+ 
+Launcher:
+ - Version changed to .NET 8.0
+ - The message about necessary but missing addons is now more informative
+ - Pop-up windows are now translated when you change the language
+ - LauncherDB.xml is divided into two separate Settings.xml and Locale.xml files
+ - Launcher music can be disabled via Settings.xml file with bMusicOnStartup bool
+ - DiscordStatus launch can be disabled via Settings.xml file with bEnableDiscordStatus bool
+ - If the selected localization has no translated videos, a warning will be displayed
+ - Restoring game settings also restores the launcher settings now
+ - Added shadows for text as in the game itself
+ - Various fixes
+ 
 MIRAGE 2.6.7
 ------------------
 

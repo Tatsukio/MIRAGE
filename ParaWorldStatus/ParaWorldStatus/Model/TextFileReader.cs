@@ -31,7 +31,7 @@ namespace ParaWorldStatus.Model
 
             foreach (var line in ReadCommentedFile("map_translations.txt"))
             {
-                var idxColon = line.IndexOf(":");
+                var idxColon = line.IndexOf(':');
                 if (idxColon != -1)
                 {
                     translations[line.Substring(0, idxColon)] = line.Substring(idxColon + 1);
@@ -49,7 +49,7 @@ namespace ParaWorldStatus.Model
                 while (!reader.EndOfStream)
                 {
                     var line = reader.ReadLine().Trim();
-                    if (line.StartsWith(";") || line.Length == 0)
+                    if (line.StartsWith(';') || line.Length == 0)
                     {
                         continue;
                     }
