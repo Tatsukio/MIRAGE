@@ -27,5 +27,10 @@
         {
             return LauncherSettings.GetB(p_key, p_value);
         }
+
+        public static int GetI(string p_key, string p_value)
+        {
+            return LauncherSettings.GetI(p_key, p_value);
+        }
     }
 }

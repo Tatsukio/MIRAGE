@@ -75,5 +75,16 @@ namespace MIRAGE_Launcher.Models
             Log.Error($"Failed to convert {p_key}/{p_value} to bool");
             return false;
         }
+
+        public int GetI(string p_key, string p_value)
+        {
+            string settingValue = Get(p_key, p_value);
+            if (int.TryParse(settingValue, out int result))
+            {
+                return result;
+            }
+            Log.Error($"Failed to convert {p_key}/{p_value} to int");
+            return -1;
+        }
     }
 }

@@ -457,6 +457,7 @@ namespace MIRAGE_Launcher.ViewModels
 
         private void OnExit()
         {
+            Log.Close();
             Application.Current.Shutdown();
         }
 

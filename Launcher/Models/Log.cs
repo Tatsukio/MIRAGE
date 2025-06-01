@@ -8,7 +8,7 @@ namespace MIRAGE_Launcher.Models
 {
     static class Log
     {
-        private const int Port = 11023;
+        private static readonly int Port = Settings.GetI("Launcher", "UDPLogsPort");
         private static readonly UdpClient udpClient = new();
         private static readonly IPEndPoint endPoint = new(IPAddress.Broadcast, Port);
 
