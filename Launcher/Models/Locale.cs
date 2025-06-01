@@ -32,7 +32,7 @@ namespace MIRAGE_Launcher.Models
         static Locale()
         {
             LauncherLocale = new(Places.launcherLocaleFilePath);
-            string currentLang = CfgEditor.GetS("Root/Global/Language");
+            string currentLang = CfgEditor.GetS("Root/Global/Language").ToUpper();
             if (string.IsNullOrEmpty(currentLang))
             {
                 Log.Error("Failed to get locale");
@@ -69,7 +69,7 @@ namespace MIRAGE_Launcher.Models
                 .Select(e => e.Name.LocalName).ToList() ?? [];
 
             var existingLangs = Directory.Exists(Places.langsPath)
-                ? Directory.GetDirectories(Places.langsPath).Select(Path.GetFileName).ToList()
+                ? Directory.GetDirectories(Places.langsPath).Select(Path.GetFileName).Select(name => name.ToUpper()).ToList()
                 : [];
 
             return supportedLangs.Intersect(existingLangs).ToList();

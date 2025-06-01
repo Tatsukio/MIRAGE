@@ -128,7 +128,7 @@ namespace MIRAGE_Launcher.ViewModels
         public ICommand OpenGitCmd { get; set; }
 
 
-        private string currentLangText = "Current lang: ";
+        private string currentLangText = "Current lang:";
         public string CurrentLangText
         {
             get => currentLangText;
@@ -149,7 +149,7 @@ namespace MIRAGE_Launcher.ViewModels
             set
             {
                 if (langsDropdownMenuSelectedItem == value) return;
-                if (CfgEditor.SetS("Root/Global/Language " + value))
+                if (CfgEditor.SetS("Root/Global/Language " + value.ToLower()))
                 {
                     Set(ref langsDropdownMenuSelectedItem, value);
                     Locale.CurrentLang = value;
