@@ -23,6 +23,7 @@ namespace MIRAGE_Launcher.Models
         public string Type { get; set; }
         public string Version { get; set; }
         public List<string> Requires { get; set; }
+        public List<string> Excludes { get; set; }
 
         public event PropertyChangedEventHandler PropertyChanged;
         protected virtual void OnPropertyChanged(string p_name)

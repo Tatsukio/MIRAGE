@@ -25,8 +25,10 @@ namespace MIRAGE_Launcher.Models
         public static string askSettingsBackup = "Do you want to try to use the backup file?";
         public static string discordStatusMissingAddons = "The following addons must be enabled to enter the server:";
         public static string missingAddonsMain = "The following addons require other addons to be enabled:";
+        public static string excludedAddonsMain = "The following addons require other addons to be disabled:";
         public static string addon = "Addon:";
         public static string missingAddons = "Missing addons:";
+        public static string excludedAddons = "Addons to disable:";
 
 
         private static readonly DBMgr LauncherLocale;
@@ -40,7 +42,6 @@ namespace MIRAGE_Launcher.Models
                 Environment.Exit(1);
             }
             CurrentLang = currentLang;
-            Load();
         }
 
         public static void Load()
@@ -60,8 +61,10 @@ namespace MIRAGE_Launcher.Models
             askSettingsBackup = errorCode + "12\n" + Translate("AskSettingsBackup");
             discordStatusMissingAddons = errorCode + "13\n" + Translate("DiscordStatusMissingAddons");
             missingAddonsMain = errorCode + "14\n" + Translate("MissingAddonsMain");
+            excludedAddonsMain = errorCode + "14\n" + Translate("ExcludedAddonsMain");
             addon = Translate("Addon");
             missingAddons = Translate("MissingAddons");
+            excludedAddons = Translate("ExcludedAddons");
         }
 
         public static List<string> GetAvailableLangs()

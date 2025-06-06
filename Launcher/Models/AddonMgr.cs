@@ -78,7 +78,8 @@ namespace MIRAGE_Launcher.Models
             string id = "";
             string type = "";
             string version = "";
-            var requires = new List<string>();
+            List<string> requires = [];
+            List<string> excludes = [];
 
             using var readInfo = new StreamReader(p_filePath);
             while (!readInfo.EndOfStream)
@@ -101,6 +102,9 @@ namespace MIRAGE_Launcher.Models
                     case "requires":
                         requires.AddRange(lineData.Skip(1).Where(req => req != "BaseData"));
                         break;
+                    case "excludes":
+                        excludes.AddRange(lineData.Skip(1).Where(req => req != "BaseData"));
+                        break;
                 }
             }
 
@@ -109,7 +113,8 @@ namespace MIRAGE_Launcher.Models
                 Id = id,
                 Type = type,
                 Version = version,
-                Requires = requires
+                Requires = requires,
+                Excludes = excludes
             };
         }
 
@@ -125,53 +130,49 @@ namespace MIRAGE_Launcher.Models
             return new(p_addons.Where(mod => mod.Type == "locale"));
         }
 
-        public static Dictionary<string, List<string>> GetMissingAddons()
+        public static Dictionary<string, List<string>> GetAddonsDependencies(bool p_checkForMissing)
         {
-            HashSet<string> enabledAddonsSet = GetEnabledAddons(Addons).Select(a => a.Id).ToHashSet();
-            Dictionary<string, List<string>> missingAddons = new();
-
-            foreach (var addon in Addons)
+            var enabledAddonsSet = GetEnabledAddons(Addons).Select(a => a.Id).ToHashSet();
+            var addonsDependencies = new Dictionary<string, List<string>>();
+            foreach (var addon in Addons.Where(a => a.IsEnabled))
             {
-                if (addon.IsEnabled)
+                var dependenciesForAddon = new List<string>();
+                CheckDependencies(addon, enabledAddonsSet, dependenciesForAddon, p_checkForMissing);
+                if (dependenciesForAddon.Count > 0)
                 {
-                    List<string> missingForAddon = [];
-                    CheckMissingDependencies(addon, enabledAddonsSet, missingForAddon);
-
-                    if (missingForAddon.Count > 0)
-                    {
-                        missingAddons[addon.Id] = missingForAddon;
-                    }
+                    addonsDependencies[addon.Id] = dependenciesForAddon;
                 }
             }
-            return missingAddons;
+            return addonsDependencies;
         }
 
-        private static void CheckMissingDependencies(Addon addon, HashSet<string> enabledAddonsSet, List<string> missingForAddon)
+        private static void CheckDependencies(Addon p_addon, HashSet<string> p_enabledAddonsSet, List<string> p_dependenciesForAddon, bool p_checkForMissing)
         {
-            foreach (var requiredMod in addon.Requires)
+            var requiredMods = p_checkForMissing ? p_addon.Requires : p_addon.Excludes;
+            foreach (var requiredMod in requiredMods)
             {
-                if (!enabledAddonsSet.Contains(requiredMod))
+                if (p_checkForMissing ? !p_enabledAddonsSet.Contains(requiredMod) : p_enabledAddonsSet.Contains(requiredMod))
                 {
-                    missingForAddon.Add(requiredMod);
-
-                    var missingAddon = Addons.FirstOrDefault(a => a.Id == requiredMod);
-                    if (missingAddon != null)
+                    p_dependenciesForAddon.Add(requiredMod);
+                    var relatedAddon = Addons.FirstOrDefault(a => a.Id == requiredMod);
+                    if (relatedAddon != null)
                     {
-                        CheckMissingDependencies(missingAddon, enabledAddonsSet, missingForAddon);
+                        CheckDependencies(relatedAddon, p_enabledAddonsSet, p_dependenciesForAddon, p_checkForMissing);
                     }
                 }
             }
         }
 
-        public static string GetMissingAddonsMsg(Dictionary<string, List<string>> p_missingAddons)
+        public static string GetMissingAddonsMsg(Dictionary<string, List<string>> p_missingAddons, bool p_missing)
         {
             StringBuilder msg = new();
-            msg.AppendLine(Locale.missingAddonsMain);
+
+            msg.AppendLine(p_missing ? Locale.missingAddonsMain : Locale.excludedAddonsMain);
             msg.AppendLine();
             foreach (var addon in p_missingAddons)
             {
                 msg.AppendLine($"{Locale.addon} {addon.Key}");
-                msg.AppendLine(Locale.missingAddons);
+                msg.AppendLine(p_missing ? Locale.missingAddons : Locale.excludedAddons);
                 foreach (var missingAddon in addon.Value)
                 {
                     msg.AppendLine($" - {missingAddon}");

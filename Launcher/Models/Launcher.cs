@@ -150,10 +150,17 @@ namespace MIRAGE_Launcher.Models
 
             if (!CfgEditor.SetS($"Root/Pest/Server/UseUslCPP 0")) return false;
 
-            var missingAddons = AddonMgr.GetMissingAddons();
+            var missingAddons = AddonMgr.GetAddonsDependencies(true);
             if (missingAddons.Count != 0)
             {
-                Log.Error(AddonMgr.GetMissingAddonsMsg(missingAddons));
+                Log.Error(AddonMgr.GetMissingAddonsMsg(missingAddons, true));
+                return false;
+            }
+
+            var excludedAddons = AddonMgr.GetAddonsDependencies(false);
+            if (excludedAddons.Count != 0)
+            {
+                Log.Error(AddonMgr.GetMissingAddonsMsg(excludedAddons, false));
                 return false;
             }
 
@@ -201,7 +208,6 @@ namespace MIRAGE_Launcher.Models
                 CfgEditor.Load();
                 Settings.Load();
                 AddonMgr.Load();
-                Locale.Load();
                 AddonMgrViewModel.Load();
                 launcherVM.Load();
                 Log.Info(Locale.resetSettingsSuccess);

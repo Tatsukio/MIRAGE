@@ -58,8 +58,6 @@ namespace MIRAGE_Launcher.ViewModels
             OpenDiscordCmd = new Cmd(OnOpenDiscord);
             OpenGitCmd = new Cmd(OnOpenGit);
 
-            LoadLocale();
-
             Launcher launcher = new(this);
             AddonMgrVM = new AddonMgrViewModel();
         }
