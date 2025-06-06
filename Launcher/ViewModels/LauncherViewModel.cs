@@ -1,4 +1,5 @@
-﻿using MIRAGE_Launcher.Models;
+﻿using MIRAGE_Launcher.Helpers;
+using MIRAGE_Launcher.Models;
 using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -14,7 +15,7 @@ namespace MIRAGE_Launcher.ViewModels
 {
     public class LauncherViewModel : ViewModelBase
     {
-        public readonly MediaPlayer mediaPlayer = new MediaPlayer();
+        public readonly MediaPlayer mediaPlayer = new();
         public AddonMgrViewModel AddonMgrVM { get; set; }
         public LauncherViewModel()
         {
@@ -59,7 +60,7 @@ namespace MIRAGE_Launcher.ViewModels
 
             LoadLocale();
 
-            Launcher launcher = new Launcher(this);
+            Launcher launcher = new(this);
             AddonMgrVM = new AddonMgrViewModel();
         }
 
@@ -333,7 +334,7 @@ namespace MIRAGE_Launcher.ViewModels
         private void OnStartParaworld()
         {
             if (!Launcher.ReadyToStart()) return;
-            Process.Start($"{Places.paraworldBinDir}/{Launcher.pwProcesses[0]}.exe", AddonMgr.GetCmdLine());
+            Process.Start($"{Places.paraworldBinDir}/{Places.pwProcesses[0]}.exe", AddonMgr.GetCmdLine());
             Launcher.StartPWKiller(true, false);
         }
 
@@ -341,14 +342,14 @@ namespace MIRAGE_Launcher.ViewModels
         private void OnStartSDK()
         {
             if (!Launcher.ReadyToStart()) return;
-            Process.Start($"{Places.paraworldBinDir}/{Launcher.pwProcesses[1]}.exe", " -leveled" + AddonMgr.GetCmdLine());
+            Process.Start($"{Places.paraworldBinDir}/{Places.pwProcesses[1]}.exe", " -leveled" + AddonMgr.GetCmdLine());
             Launcher.StartPWKiller(true, false);
         }
 
         private void OnStartServer()
         {
             if (!Launcher.ReadyToStart()) return;
-            Process.Start($"{Places.paraworldBinDir}/{Launcher.pwProcesses[0]}.exe", " -dedicated" + AddonMgr.GetCmdLine());
+            Process.Start($"{Places.paraworldBinDir}/{Places.pwProcesses[0]}.exe", " -dedicated" + AddonMgr.GetCmdLine());
             Launcher.StartPWKiller(true, false);
         }
         private void OnSetLanguage() { }
@@ -463,7 +464,7 @@ namespace MIRAGE_Launcher.ViewModels
 
         private void OnHealthCheck()
         {
-            Task taskHealthCheck = new Task(Launcher.HealthCheck);
+            Task taskHealthCheck = new(HealthCheck.Check);
             taskHealthCheck.Start();
         }
 

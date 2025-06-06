@@ -1,25 +1,22 @@
-﻿using Microsoft.Win32;
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Security.Principal;
 using System.Text;
 using System.Windows;
 using System.Windows.Media.Imaging;
 using System.Threading.Tasks;
 using MIRAGE_Launcher.ViewModels;
 using System.Net.Http;
+using MIRAGE_Launcher.Helpers;
 
 namespace MIRAGE_Launcher.Models
 {
     public class Launcher
     {
-        public static LauncherViewModel launcherVM;
-        public static string[] pwProcesses = { "Paraworld", "PWClient", "PWServer" };
-        public static bool kageBunshinNoJutsu = false;
+        private static LauncherViewModel launcherVM;
         private static readonly HttpClient httpClient = new();
+
         public Launcher(LauncherViewModel p_launcherViewModel)
         {
             launcherVM = p_launcherViewModel;
@@ -32,97 +29,72 @@ namespace MIRAGE_Launcher.Models
             Task taskGetMyPublicIp = new(() => GetMyPublicIpAsync());
             taskGetMyPublicIp.Start();
 
-            string[] args = Environment.GetCommandLineArgs();
-            if (args.Length == 3)
+            if (!ProcessCommandLineArgs())
             {
-                if (args[1] == "-PWSJoin" && !string.IsNullOrEmpty(args[2]))
-                {
-                    if (!ReadyToStart())
-                    {
-                        Application.Current.Shutdown();
-                        return;
-                    }
-                    var serverInfo = args[2].Split('#');
-                    var server = serverInfo[0].Trim('-');
-                    var serverMods = serverInfo[1].Split('|');
-                    var clientMods = AddonMgr.GetEnabledAddons(AddonMgr.Addons).Select(addon => addon.Id).ToArray();
-                    var localMods = AddonMgr.GetHiddenAddons(AddonMgr.Addons).Select(addon => addon.Id).ToArray();
-                    var missingMods = string.Join(", ", serverMods.Except(clientMods));
-                    if (!string.IsNullOrEmpty(missingMods))
-                    {
-                        Log.Error($"{Locale.discordStatusMissingAddons} {missingMods}");
-                        Application.Current.Shutdown();
-                        return;
-                    }
-                    string commandLine = " -enable " + string.Join(" -enable ", serverMods) + " -enable " + string.Join(" -enable ", localMods);
-                    Process.Start($"{Places.paraworldBinDir}/{pwProcesses[0]}.exe", $" -autoconnect {server}{commandLine}");
-                    StartPWKiller(true, false);
-                }
-                else
-                {
-                    MessageBox.Show($"Unknown cmd line args: {string.Join(", ", args)}");
-                    Application.Current.Shutdown();
-                    return;
-                }
+                Application.Current.Shutdown();
             }
 
             if (Process.GetProcessesByName("MIRAGE Launcher").Length > 1)
             {
-                MessageBox.Show(Locale.launcherIsAlreadyRunning, Locale.warning, MessageBoxButton.OK, MessageBoxImage.Warning);
+                Log.Warn(Locale.launcherIsAlreadyRunning);
                 Application.Current.Shutdown();
                 return;
             }
 
-            string ModVersion = Settings.Get("Launcher", "ModVersion");
-            string LatestVersionURL = Settings.Get("Launcher", "LatestVersionURL");
-            Task taskVersionCheck = new Task(() => CheckMirageVersionAsync(ModVersion, LatestVersionURL));
+            Task taskVersionCheck = new(() => CheckMirageVersionAsync());
             taskVersionCheck.Start();
-
-            kageBunshinNoJutsu = Settings.GetB("Launcher", "bMultipleGameCopiesAllowed");
         }
 
-        public static async Task CheckMirageVersionAsync(string version, string latestVersionURL)
+        public static bool ProcessCommandLineArgs()
         {
-            if (!string.IsNullOrEmpty(version) && !string.IsNullOrEmpty(latestVersionURL))
+            try
             {
-                Version mirageVersion = new Version(version);
-
-                var handler = new HttpClientHandler
+                var cmd = Environment.GetCommandLineArgs();
+                if (cmd.Length == 1)
                 {
-                    Proxy = new WebProxy(),
-                    UseProxy = true
-                };
-
-                using (HttpClient httpClient = new HttpClient(handler))
-                {
-                    string siteVersionFull = await httpClient.GetStringAsync(latestVersionURL);
-
-                    string[] siteVersion = siteVersionFull.Split('\t', StringSplitOptions.RemoveEmptyEntries);
-
-                    if (siteVersion.Length > 0 && siteVersion[0] == "versioncheck")
-                    {
-                        string[] siteModVersion = siteVersion[1].Split([' '], StringSplitOptions.RemoveEmptyEntries);
-
-                        if (siteModVersion.Length > 1)
-                        {
-                            Version mirageSiteVersion = new Version(siteModVersion[1]);
-                            switch (mirageVersion.CompareTo(mirageSiteVersion))
-                            {
-                                case 0:
-                                    // MirageVersion == MirageSiteVersion
-                                    break;
-                                case 1:
-                                    // MirageVersion > MirageSiteVersion
-                                    break;
-                                case -1:
-                                    launcherVM.UpdateLogText = "● " + siteVersion[4].Replace(";", "\n● ");
-                                    launcherVM.ShowUpdateWindow = true;
-                                    break;
-                            }
-                        }
-                    }
+                    return true;
                 }
+                else if (cmd.Length == 3 && cmd[1] == "-PWSJoin" && !string.IsNullOrEmpty(cmd[2]))
+                {
+                    StartViaDiscordRPC(cmd[2]);
+                    return true;
+                }
+                Log.Error($"Invalid command line arguments: {string.Join(", ", cmd)}");
+                return false;
             }
+            catch (Exception ex)
+            {
+                Log.Error($"An error occurred while processing command line arguments: {ex.Message}");
+                return false;
+            }
+        }
+
+        public static void StartViaDiscordRPC(string p_serverInfo)
+        {
+            if (!ReadyToStart())
+            {
+                Application.Current.Shutdown();
+                return;
+            }
+
+            var serverInfo = p_serverInfo.Split('#');
+
+            var serverAddress = serverInfo[0].Trim('-');
+            var serverMods = serverInfo[1].Split('|');
+
+            var clientMods = AddonMgr.GetEnabledAddons(AddonMgr.Addons).Select(addon => addon.Id).ToArray();
+            var localMods = AddonMgr.GetHiddenAddons(AddonMgr.Addons).Select(addon => addon.Id).ToArray();
+
+            var missingMods = string.Join(", ", serverMods.Except(clientMods));
+            if (!string.IsNullOrEmpty(missingMods))
+            {
+                Log.Error($"{Locale.discordStatusMissingAddons} {missingMods}");
+                Application.Current.Shutdown();
+                return;
+            }
+
+            Process.Start($"{Places.paraworldBinDir}/{Places.pwProcesses[0]}.exe", $" -autoconnect {serverAddress}{AddonMgr.GetCmdLine(serverMods.Concat(localMods).ToArray())}");
+            StartPWKiller(true, false);
         }
 
         public static BitmapImage GetMenuBg()
@@ -155,9 +127,9 @@ namespace MIRAGE_Launcher.Models
 
         public static bool ReadyToStart()
         {
-            if (!kageBunshinNoJutsu)
+            if (!Settings.GetB("Launcher", "bMultipleGameCopiesAllowed"))
             {
-                foreach (string pwProcess in pwProcesses)
+                foreach (string pwProcess in Places.pwProcesses)
                 {
                     if (Process.GetProcessesByName(pwProcess).Length != 0)
                     {
@@ -176,10 +148,7 @@ namespace MIRAGE_Launcher.Models
                 }
             }
 
-            if (!EnableSSS(true))
-            {
-                return false;
-            }
+            if (!CfgEditor.SetS($"Root/Pest/Server/UseUslCPP 0")) return false;
 
             var missingAddons = AddonMgr.GetMissingAddons();
             if (missingAddons.Count != 0)
@@ -188,7 +157,7 @@ namespace MIRAGE_Launcher.Models
                 return false;
             }
 
-            if (!CheckVideoLocale(Locale.CurrentLang))
+            if (!HealthCheck.CheckVideoLocale(Locale.CurrentLang))
             {
                 if (!Settings.GetB("Launcher", "bSkipVideoCheck"))
                 {
@@ -197,26 +166,25 @@ namespace MIRAGE_Launcher.Models
                 }
             }
 
-            ClearCache();
+            if (!ClearCache()) return false;
 
             if (launcherVM.IsMusicPlaying)
             {
                 launcherVM.OnToggleMusic();
             }
 
-            Directory.SetCurrentDirectory(Places.paraworldBinDir);
-
             if (Settings.GetB("Launcher", "bEnableDiscordStatus"))
             {
                 StartDiscordRPC();
             }
 
+            Directory.SetCurrentDirectory(Places.paraworldBinDir);
             return true;
         }
 
         public static void RestoreSettings()
         {
-            if (!Places.launcherSettingsBackupFilePath.IsExist)
+            if (!Places.launcherSettingsBackupFilePath.IsExist || !Places.launcherSettingsBackupFilePath.IsExist)
             {
                 Log.Error(Locale.backupMissing);
                 return;
@@ -227,11 +195,8 @@ namespace MIRAGE_Launcher.Models
                 FileInfo settingsBackup = new(Places.settingsBackupFilePath.Full);
                 settingsBackup.CopyTo(Places.settingsFilePath.Full, true);
 
-                if (Places.launcherSettingsBackupFilePath.IsExist)
-                {
-                    FileInfo launcherSettings = new(Places.launcherSettingsBackupFilePath.Full);
-                    launcherSettings.CopyTo(Places.launcherSettingsFilePath.Full, true);
-                }
+                FileInfo launcherSettings = new(Places.launcherSettingsBackupFilePath.Full);
+                launcherSettings.CopyTo(Places.launcherSettingsFilePath.Full, true);
 
                 CfgEditor.Load();
                 Settings.Load();
@@ -248,22 +213,47 @@ namespace MIRAGE_Launcher.Models
             if (!Places.settingsFilePath.IsExist) return;
 
             FileInfo settings = new(Places.settingsFilePath.Full);
-            if (Places.settingsBackupFilePath.IsExist)
-            {
-                if (MessageBox.Show(Locale.overwriteBackup, Locale.warning, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
-                {
-                    settings.CopyTo(Places.settingsBackupFilePath.Full, true);
-                    Log.Info(Locale.backupCreated);
-                }
-                else
-                {
-
-                }
-            }
-            else
+            if (Places.settingsBackupFilePath.IsExist && MessageBox.Show(Locale.overwriteBackup, Locale.warning, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
             {
                 settings.CopyTo(Places.settingsBackupFilePath.Full, true);
                 Log.Info(Locale.backupCreated);
+            }
+        }
+
+        public static async Task CheckMirageVersionAsync()
+        {
+            string modVersion = Settings.Get("Launcher", "ModVersion");
+            string modLatestVersionURL = Settings.Get("Launcher", "LatestVersionURL");
+            if (string.IsNullOrEmpty(modVersion) || string.IsNullOrEmpty(modLatestVersionURL)) return;
+
+            try
+            {
+                string siteVersionFull = await httpClient.GetStringAsync(modLatestVersionURL);
+                string[] siteVersion = siteVersionFull.Split('\t', StringSplitOptions.RemoveEmptyEntries);
+                if (siteVersion.Length <= 0 || siteVersion[0] != "versioncheck") return;
+
+                string[] siteModVersion = siteVersion[1].Split([' '], StringSplitOptions.RemoveEmptyEntries);
+                if (siteModVersion.Length < 1) return;
+
+                Version mirageVersion = new(modVersion);
+                Version mirageSiteVersion = new(siteModVersion[1]);
+                switch (mirageVersion.CompareTo(mirageSiteVersion))
+                {
+                    case 0:
+                        // MirageVersion == MirageSiteVersion
+                        break;
+                    case 1:
+                        // MirageVersion > MirageSiteVersion
+                        break;
+                    case -1:
+                        launcherVM.UpdateLogText = "● " + siteVersion[4].Replace(";", "\n● ");
+                        launcherVM.ShowUpdateWindow = true;
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Failed to check updates: {ex}");
             }
         }
 
@@ -278,30 +268,38 @@ namespace MIRAGE_Launcher.Models
                 using StreamWriter writeIP = new(ipPath, false, Encoding.Default);
                 await writeIP.WriteAsync(myIP);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Log.Error($"Failed to get own public ip: {ex}");
+            }
         }
 
         public static bool ClearCache()
         {
-            if (!Directory.Exists(Places.cacheDir)) return false;
-            var cacheExts = new[] { "bin", "ubc", "swd" };
-            var cacheFiles = Directory.EnumerateFiles(Places.cacheDir, "*.*").Where(file => cacheExts.Any(ext => file.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
+            if (!Directory.Exists(Places.cacheDir)) return true;
+
+            var cacheFiles = Directory.EnumerateFiles(Places.cacheDir, "*.*").Where(file => Places.cacheExt.Any(ext => file.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
             foreach (var cacheFile in cacheFiles)
             {
                 try
                 {
                     File.Delete(cacheFile);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    Log.Error($"Failed to clear cache file {cacheFile}: {ex.Message}");
+                    break;
+                }
             }
-            return cacheFiles.Any();
+
+            return !cacheFiles.Any();
         }
 
         public static void StartPWKiller(bool minimized, bool killAll)
         {
             if (Places.pwKillerFilePath.IsExist)
             {
-                ProcessStartInfo pwKiller = new ProcessStartInfo(Places.pwKillerFilePath.Full);
+                ProcessStartInfo pwKiller = new(Places.pwKillerFilePath.Full);
                 if (killAll)
                 {
                     pwKiller.Arguments = "-KillAll";
@@ -316,31 +314,32 @@ namespace MIRAGE_Launcher.Models
             }
         }
 
+        static bool KillProcesses(string p_name)
+        {
+            try
+            {
+                Process[] processes = Process.GetProcessesByName(p_name);
+                foreach (Process process in processes)
+                {
+                    process.Kill();
+                    process.WaitForExit();
+                    Log.Info($"Process {process.ProcessName} with ID {process.Id} was killed");
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Failed to kill {p_name} process: {ex.Message}");
+            }
+            return false;
+        }
+
 
         public static void StartDiscordRPC()
         {
-            Process[] allDiscordRPC = Process.GetProcessesByName("ParaWorldStatus");
-            if (allDiscordRPC.Length != 0)
-            {
-                foreach (Process discordRPC in allDiscordRPC)
-                {
-                    discordRPC.Kill();
-                }
-            }
-            string discordRPCPath = Path.Combine(Places.toolsDir, "ParaWorldStatus");
-            if (Directory.Exists(discordRPCPath))
-            {
-                string discordRPCFile = Path.Combine(discordRPCPath, "ParaWorldStatus.exe");
-                if (File.Exists(discordRPCFile))
-                {
-                    Process.Start(discordRPCFile);
-                }
-            }
-        }
-
-        public static bool EnableSSS(bool enable)
-        {
-            return CfgEditor.SetS($"Root/Pest/Server/UseUslCPP {(enable ? 0 : 1)}");
+            if (!KillProcesses("ParaWorldStatus")) return;
+            if (!Places.discordRPCFilePath.IsExist) return;
+            Process.Start(Places.discordRPCFilePath.Full);
         }
 
         public static string GetMusicInfo(int musicIndex)
@@ -396,123 +395,6 @@ namespace MIRAGE_Launcher.Models
                 84 => "22_location_the_gate",
                 _ => "01_maintheme",
             };
-        }
-
-        private static bool IsRunAsAdmin()
-        {
-            try
-            {
-                return new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private static string IsTagesInstalled()
-        {
-            var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
-            var key = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\SharedDLLs");
-            var drivers = new[] { "lirsgt.sys", "atksgt.sys" };
-
-            try
-            {
-                return string.Join("\n", drivers.Select(driver => $"{driver} {(key.GetValue(@"C:\Windows\system32\DRIVERS\" + driver) != null ? "is installed" : "is not installed")}"));
-            }
-            catch
-            {
-                return "Tages check failed";
-            }
-        }
-
-        private static void HealthCheckFile(string path)
-        {
-            try
-            {
-                var outputFilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "PWHealthCheck.txt");
-                var ext = Path.GetExtension(path);
-                if (ext is ".txt" or ".cfg" or ".ini" or ".srf" or ".ttree")
-                {
-                    var peekRoot = File.ReadLines(path).FirstOrDefault();
-                    string result = peekRoot.Contains("Root") ? CfgEditor.Parse(path).Split(Environment.NewLine)[0] : string.Empty;
-
-                    using var outputFile = new StreamWriter(outputFilePath, true);
-                    outputFile.WriteLine(path + result);
-                }
-            }
-            catch { }
-        }
-
-        private static void HealthCheckDirectory(string targetDirectory)
-        {
-            string[] fileEntries = Directory.GetFiles(targetDirectory);
-            foreach (string fileName in fileEntries)
-            {
-                HealthCheckFile(Path.GetFullPath(fileName));
-            }
-
-            string[] subdirectoryEntries = Directory.GetDirectories(targetDirectory);
-            foreach (string subdirectory in subdirectoryEntries)
-            {
-                HealthCheckDirectory(subdirectory);
-            }
-        }
-
-        public static void HealthCheck()
-        {
-            try
-            {
-                string outputPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "PWHealthCheck.txt");
-                Log.Info($"Wait fot {outputPath} to be created");
-
-                using (StreamWriter outputFile = new StreamWriter(outputPath, false))
-                {
-                    outputFile.WriteLine("Launcher admin rights are" + (IsRunAsAdmin() ? "" : " not") + " granted");
-                    outputFile.WriteLine("\nWin7fix check:");
-                    outputFile.WriteLine("\nTages drivers check:");
-                    outputFile.WriteLine(IsTagesInstalled());
-                }
-                HealthCheckDirectory(Places.paraworldDir);
-
-                Log.Info(outputPath + " created");
-            }
-            catch
-            {
-                Log.Error($"PWHealthCheck failed");
-            }
-        }
-
-        public static bool CheckVideoLocale(string currLang)
-        {
-            string currLangVideoFolder = Path.Combine(Places.paraworldDir, "Data", "Locale", currLang, "Video");
-            if (!Directory.Exists(currLangVideoFolder)) return false;
-
-            var baseGameVideo = new[] {
-                "1000",
-                "1000a",
-                "1010",
-                "1090",
-                "1120",
-                "2005",
-                "2020",
-                "2045",
-                "2046",
-                "2090",
-                "2560",
-                "2580",
-                "3010",
-                "3040",
-                "4010",
-                "4015",
-                "6020",
-                "7020",
-                "7026",
-                "7060",
-                "7060b",
-                "8090_2" };
-
-            return baseGameVideo.All(videoName => File.Exists(Path.Combine(currLangVideoFolder, "hs_" + videoName + ".bik")));
         }
     }
 }

@@ -7,7 +7,7 @@ namespace MIRAGE_Launcher.ViewModels
 {
     public class AddonMgrViewModel
     {
-        public static ObservableCollection<AddonMgr.Addon> Addons { get; set; } = [];
+        public static ObservableCollection<Addon> Addons { get; set; } = [];
 
         public AddonMgrViewModel()
         {
@@ -26,7 +26,7 @@ namespace MIRAGE_Launcher.ViewModels
             {
                 if (e.NewItems != null)
                 {
-                    foreach (AddonMgr.Addon addon in e.NewItems)
+                    foreach (Addon addon in e.NewItems)
                     {
                         addon.PropertyChanged += OnAddonChange;
                     }
@@ -34,7 +34,7 @@ namespace MIRAGE_Launcher.ViewModels
 
                 if (e.OldItems != null)
                 {
-                    foreach (AddonMgr.Addon addon in e.OldItems)
+                    foreach (Addon addon in e.OldItems)
                     {
                         addon.PropertyChanged -= OnAddonChange;
                     }

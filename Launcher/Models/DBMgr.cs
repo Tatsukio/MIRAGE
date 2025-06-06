@@ -1,4 +1,5 @@
-﻿using System;
+﻿using MIRAGE_Launcher.Helpers;
+using System;
 using System.Xml.Linq;
 using System.Xml.XPath;
 
@@ -60,7 +61,7 @@ namespace MIRAGE_Launcher.Models
             if (value == null)
             {
                 Log.Error($"Get from LauncherDB.xml failed - value at path '{path}' is null");
-                return "DUMMY";
+                return string.Empty;
             }
             return value;
         }

@@ -1,12 +1,10 @@
-﻿using System;
+﻿using MIRAGE_Launcher.Helpers;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
-using System.Windows;
 
 namespace MIRAGE_Launcher.Models
 {
@@ -136,7 +134,7 @@ namespace MIRAGE_Launcher.Models
             {
                 if (addon.IsEnabled)
                 {
-                    List<string> missingForAddon = new List<string>();
+                    List<string> missingForAddon = [];
                     CheckMissingDependencies(addon, enabledAddonsSet, missingForAddon);
 
                     if (missingForAddon.Count > 0)
@@ -193,32 +191,13 @@ namespace MIRAGE_Launcher.Models
             return string.Empty;
         }
 
-        public class Addon : INotifyPropertyChanged
+        public static string GetCmdLine(string[] p_addons)
         {
-            private bool isEnabled;
-            public bool IsEnabled
+            if (p_addons == null || p_addons.Length == 0)
             {
-                get => isEnabled;
-                set
-                {
-                    if (isEnabled != value)
-                    {
-                        isEnabled = value;
-                        OnPropertyChanged(nameof(IsEnabled));
-                    }
-                }
+                return string.Empty;
             }
-
-            public string Id { get; set; }
-            public string Type { get; set; }
-            public string Version { get; set; }
-            public List<string> Requires { get; set; }
-
-            public event PropertyChangedEventHandler PropertyChanged;
-            protected virtual void OnPropertyChanged(string p_name)
-            {
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(p_name));
-            }
+            return " -enable " + string.Join(" -enable ", p_addons);
         }
     }
 }

@@ -1,4 +1,6 @@
-﻿namespace MIRAGE_Launcher.Models
+﻿using MIRAGE_Launcher.Helpers;
+
+namespace MIRAGE_Launcher.Models
 {
     public static class Settings
     {

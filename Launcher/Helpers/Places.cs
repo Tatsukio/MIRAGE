@@ -1,10 +1,13 @@
 ﻿using System;
 using System.IO;
 
-namespace MIRAGE_Launcher.Models
+namespace MIRAGE_Launcher.Helpers
 {
     public static class Places
     {
+        public static readonly string[] pwProcesses = ["Paraworld", "PWClient", "PWServer"];
+        public static readonly string[] cacheExt = ["bin", "ubc", "swd"];
+
         public static readonly string cacheDir = Path.Combine(Path.GetTempPath(), "SpieleEntwicklungsKombinat", "Paraworld");
         public static readonly string appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SpieleEntwicklungsKombinat", "Paraworld");
         public static readonly string docDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "SpieleEntwicklungsKombinat", "Paraworld");
@@ -23,5 +26,6 @@ namespace MIRAGE_Launcher.Models
         public static readonly FileMgr.Filepath launcherSettingsFilePath = new(Path.Combine(toolsDir, "MIRAGE Launcher"), "Settings.xml");
         public static readonly FileMgr.Filepath launcherSettingsBackupFilePath = new(Path.Combine(toolsDir, "MIRAGE Launcher"), "Settings_backup.xml");
         public static readonly FileMgr.Filepath launcherLocaleFilePath = new(Path.Combine(toolsDir, "MIRAGE Launcher"), "Locale.xml");
+        public static readonly FileMgr.Filepath discordRPCFilePath = new(Path.Combine(toolsDir, "ParaWorldStatus"), "ParaWorldStatus.exe");
     }
 }

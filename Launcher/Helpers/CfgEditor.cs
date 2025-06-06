@@ -1,8 +1,9 @@
-﻿using System;
+﻿using MIRAGE_Launcher.Models;
+using System;
 using System.Diagnostics;
 using System.Windows;
 
-namespace MIRAGE_Launcher.Models
+namespace MIRAGE_Launcher.Helpers
 {
     static class CfgEditor
     {

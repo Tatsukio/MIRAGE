@@ -43,18 +43,16 @@ namespace ParaWorldStatus.Model
 
         private static IEnumerable<string> ReadCommentedFile(string filename)
         {
-            using (var stream = OpenResourceStream(Assembly.GetCallingAssembly(), filename))
-            using (var reader = new StreamReader(stream))
+            using var stream = OpenResourceStream(Assembly.GetCallingAssembly(), filename);
+            using var reader = new StreamReader(stream);
+            while (!reader.EndOfStream)
             {
-                while (!reader.EndOfStream)
+                var line = reader.ReadLine()?.Trim();
+                if (string.IsNullOrEmpty(line) || line.StartsWith(';'))
                 {
-                    var line = reader.ReadLine().Trim();
-                    if (line.StartsWith(';') || line.Length == 0)
-                    {
-                        continue;
-                    }
-                    yield return line;
+                    continue;
                 }
+                yield return line;
             }
         }
 
@@ -62,11 +60,7 @@ namespace ParaWorldStatus.Model
         {
             var assemblyName = assembly.GetName().Name;
             var stream = assembly.GetManifestResourceStream($"{assemblyName}.{resource}");
-            if (stream == null)
-            {
-                throw new FileNotFoundException($"{resource} was not found");
-            }
-            return stream;
+            return stream ?? throw new FileNotFoundException($"{resource} was not found");
         }
     }
 }

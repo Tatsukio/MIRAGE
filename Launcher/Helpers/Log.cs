@@ -3,8 +3,9 @@ using System.Net.Sockets;
 using System.Net;
 using System.Text;
 using System.Windows;
+using MIRAGE_Launcher.Models;
 
-namespace MIRAGE_Launcher.Models
+namespace MIRAGE_Launcher.Helpers
 {
     static class Log
     {
