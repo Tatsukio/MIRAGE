@@ -69,6 +69,7 @@ Launcher:
  - Restoring game settings also restores the launcher settings now
  - Added shadows for text as in the game itself
  - Log messages are now also broadcast to the UDP port from Settings.xml
+ - .info "excludes" tag support added
  - Various fixes
  
 MIRAGE 2.6.7
