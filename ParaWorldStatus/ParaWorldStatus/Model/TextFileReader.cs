@@ -31,7 +31,7 @@ namespace ParaWorldStatus.Model
 
             foreach (var line in ReadCommentedFile("map_translations.txt"))
             {
-                var idxColon = line.IndexOf(":");
+                var idxColon = line.IndexOf(':');
                 if (idxColon != -1)
                 {
                     translations[line.Substring(0, idxColon)] = line.Substring(idxColon + 1);
@@ -43,18 +43,16 @@ namespace ParaWorldStatus.Model
 
         private static IEnumerable<string> ReadCommentedFile(string filename)
         {
-            using (var stream = OpenResourceStream(Assembly.GetCallingAssembly(), filename))
-            using (var reader = new StreamReader(stream))
+            using var stream = OpenResourceStream(Assembly.GetCallingAssembly(), filename);
+            using var reader = new StreamReader(stream);
+            while (!reader.EndOfStream)
             {
-                while (!reader.EndOfStream)
+                var line = reader.ReadLine()?.Trim();
+                if (string.IsNullOrEmpty(line) || line.StartsWith(';'))
                 {
-                    var line = reader.ReadLine().Trim();
-                    if (line.StartsWith(";") || line.Length == 0)
-                    {
-                        continue;
-                    }
-                    yield return line;
+                    continue;
                 }
+                yield return line;
             }
         }
 
@@ -62,11 +60,7 @@ namespace ParaWorldStatus.Model
         {
             var assemblyName = assembly.GetName().Name;
             var stream = assembly.GetManifestResourceStream($"{assemblyName}.{resource}");
-            if (stream == null)
-            {
-                throw new FileNotFoundException($"{resource} was not found");
-            }
-            return stream;
+            return stream ?? throw new FileNotFoundException($"{resource} was not found");
         }
     }
 }

@@ -1,7 +1,4 @@
-﻿using System;
-using System.Diagnostics;
-using System.Linq;
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Input;
 
 namespace MIRAGE_Launcher
