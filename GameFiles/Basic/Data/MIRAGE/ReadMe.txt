@@ -13,6 +13,7 @@ General:
  - Added player handicap(HP) option for Custom map control options
  - Custom map system parameters customization expanded. Player parameters are from now on can be applied only to exact Player
  - Predefined map server settings Node have been integrated into new Custom map UI system
+ - Single and Multiplayer campaign relation system has been improved. Players cant attack other neutral plaer if they are both in the same team from now on
  
 Maps:
 
