@@ -36,7 +36,8 @@ Campaign maps:
 - Fixed Mission B4-3: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
 
 Heroes:
-
+ - Fixed missing zeppelin in Larry, Barry and Harry building menus
+ 
 Dustriders:
 
 Dragon Clan:
