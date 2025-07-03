@@ -270,7 +270,7 @@ namespace MIRAGE_Launcher.Models
                 string myIP = await httpClient.GetStringAsync("https://ipinfo.io/ip");
                 myIP = myIP.Trim();
                 string ipPath = Path.Combine(Places.cacheDir, "paraworld_ip.txt");
-
+                Directory.CreateDirectory(Places.cacheDir);
                 using StreamWriter writeIP = new(ipPath, false, Encoding.Default);
                 await writeIP.WriteAsync(myIP);
             }
