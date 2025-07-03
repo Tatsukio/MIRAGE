@@ -5,6 +5,7 @@ MIRAGE 2.6.8
 
 General:
  - Fixed freezing on in match menu opening menu if screen resolution was not 2560x1440
+ - Fixed missing eighth player name in the statistics window - timeline tab
  - Chat window has been increased and now uses multiline
  - Added chat player colors to the recipient selection dropdown menu (in match only)
  - Added COOP campaign and custom maps sorting in map list
