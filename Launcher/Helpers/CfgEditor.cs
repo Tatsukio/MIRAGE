@@ -58,13 +58,13 @@ namespace MIRAGE_Launcher.Helpers
 
         public static bool SetS(string value)
         {
-            var process = Start($"-s {value}");
+            var process = Start($"-s {value} {Places.settingsFilePath.Full}");
             return process != null && HandleProcessError(process);
         }
 
         public static string GetS(string value)
         {
-            var process = Start($"-g {value}");
+            var process = Start($"-g {value} {Places.settingsFilePath.Full}");
             if (process == null) return "";
 
             if (!HandleProcessError(process)) return null;
