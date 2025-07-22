@@ -26,6 +26,11 @@ namespace MIRAGE_Launcher.Helpers
             }
         }
 
+        public static void Dbug(string p_message)
+        {
+            Print($"MIRAGE.Launcher DBUG: {p_message}");
+        }
+
         public static void Info(string p_message)
         {
             MessageBox.Show(p_message, Locale.warning, MessageBoxButton.OK, MessageBoxImage.Information);
