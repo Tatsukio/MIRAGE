@@ -45,6 +45,7 @@ Dustriders:
 
 Dragon Clan:
  - Fixed dilophosaurus nest and palisade wall disappearing from build menu under certain conditions
+ - Fixed incorrect rotation of turret and pterodactyl for rocket ramp while playing death animation
 
 Norsemen:
 
