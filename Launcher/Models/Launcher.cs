@@ -232,34 +232,42 @@ namespace MIRAGE_Launcher.Models
             string modLatestVersionURL = Settings.Get("Launcher", "LatestVersionURL");
             if (string.IsNullOrEmpty(modVersion) || string.IsNullOrEmpty(modLatestVersionURL)) return;
 
+            string siteVersionFull = "";
             try
             {
-                string siteVersionFull = await httpClient.GetStringAsync(modLatestVersionURL);
-                string[] siteVersion = siteVersionFull.Split('\t', StringSplitOptions.RemoveEmptyEntries);
-                if (siteVersion.Length <= 0 || siteVersion[0] != "versioncheck") return;
-
-                string[] siteModVersion = siteVersion[1].Split([' '], StringSplitOptions.RemoveEmptyEntries);
-                if (siteModVersion.Length < 1) return;
-
-                Version mirageVersion = new(modVersion);
-                Version mirageSiteVersion = new(siteModVersion[1]);
-                switch (mirageVersion.CompareTo(mirageSiteVersion))
-                {
-                    case 0:
-                        // MirageVersion == MirageSiteVersion
-                        break;
-                    case 1:
-                        // MirageVersion > MirageSiteVersion
-                        break;
-                    case -1:
-                        launcherVM.UpdateLogText = "● " + siteVersion[4].Replace(";", "\n● ");
-                        launcherVM.ShowUpdateWindow = true;
-                        break;
-                }
+                siteVersionFull = await httpClient.GetStringAsync(modLatestVersionURL);
+            }
+            catch (HttpRequestException ex)
+            {
+                Log.Dbug($"Failed to check updates: {ex} StatusCode = {ex.StatusCode}");
+                return;
             }
             catch (Exception ex)
             {
                 Log.Error($"Failed to check updates: {ex}");
+                return;
+            }
+
+            string[] siteVersion = siteVersionFull.Split('\t', StringSplitOptions.RemoveEmptyEntries);
+            if (siteVersion.Length <= 0 || siteVersion[0] != "versioncheck") return;
+
+            string[] siteModVersion = siteVersion[1].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (siteModVersion.Length < 1) return;
+
+            Version mirageVersion = new(modVersion);
+            Version mirageSiteVersion = new(siteModVersion[1]);
+            switch (mirageVersion.CompareTo(mirageSiteVersion))
+            {
+                case 0:
+                    // MirageVersion == MirageSiteVersion
+                    break;
+                case 1:
+                    // MirageVersion > MirageSiteVersion
+                    break;
+                case -1:
+                    launcherVM.UpdateLogText = "● " + siteVersion[4].Replace(";", "\n● ");
+                    launcherVM.ShowUpdateWindow = true;
+                    break;
             }
         }
 
@@ -273,6 +281,10 @@ namespace MIRAGE_Launcher.Models
                 Directory.CreateDirectory(Places.cacheDir);
                 using StreamWriter writeIP = new(ipPath, false, Encoding.Default);
                 await writeIP.WriteAsync(myIP);
+            }
+            catch (HttpRequestException ex)
+            {
+                Log.Dbug($"Failed to get own public ip: {ex} StatusCode = {ex.StatusCode}");
             }
             catch (Exception ex)
             {
