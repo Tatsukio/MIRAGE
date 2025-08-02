@@ -5,6 +5,7 @@ MIRAGE 2.6.8
 
 General:
  - Fixed freezing on in match menu opening menu if screen resolution was not 2560x1440
+ - Fixed missing eighth player name in the statistics window - timeline tab
  - Chat window has been increased and now uses multiline
  - Added chat player colors to the recipient selection dropdown menu (in match only)
  - Added COOP campaign and custom maps sorting in map list
@@ -14,7 +15,7 @@ General:
  - Custom map system parameters customization expanded. Player parameters are from now on can be applied only to exact Player
  - Predefined map server settings Node have been integrated into new Custom map UI system
  - Single and Multiplayer campaign relation system has been improved. Players cant attack other neutral plaer if they are both in the same team from now on
- 
+
 Maps:
 
 COOP campaign and maps with custom gameplay:
@@ -38,11 +39,13 @@ Campaign maps:
 
 Heroes:
  - Fixed missing zeppelin in Larry, Barry and Harry building menus
- 
+
 Dustriders:
+ - Fixed default dustriders 10000 points presets that would cause all units and resources to be removed after loading
 
 Dragon Clan:
  - Fixed dilophosaurus nest and palisade wall disappearing from build menu under certain conditions
+ - Fixed incorrect rotation of turret and pterodactyl for rocket ramp while playing death animation
 
 Norsemen:
 
@@ -54,12 +57,12 @@ SEAS:
 AI:
  - You can ask AI player for help by writing "help" or "Help" in the dm or allies chat
  - AI players can read group chats from now on
- 
+
 SDK:
  - "Export to .obj" button will also export objects AABBs as separate .obj file from now on
  - Fixed NewStickerMessage(NWTK) trigger issue. It wasnt loading up in user interface general game messages, only Help Messages. Now both available
  - Model viewer/exporter added as standalone app to Paraworld\Tools\GSF Viewer
- 
+
 Launcher:
  - Version changed to .NET 8.0
  - The message about necessary but missing addons is now more informative
@@ -73,7 +76,7 @@ Launcher:
  - Log messages are now also broadcast to the UDP port from Settings.xml
  - .info "excludes" tag support added
  - Various fixes
- 
+
 MIRAGE 2.6.7
 ------------------
 
