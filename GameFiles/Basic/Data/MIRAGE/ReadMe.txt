@@ -6,6 +6,7 @@ MIRAGE 2.6.8
 General:
  - Fixed freezing on in match menu opening menu if screen resolution was not 2560x1440
  - Fixed missing eighth player name in the statistics window - timeline tab
+ - Fixed issue when "TradingDisabled" server option was enabled, the trader zeppeling were not removed from the pointbuy and from build list
  - Chat window has been increased and now uses multiline
  - Added chat player colors to the recipient selection dropdown menu (in match only)
  - Added COOP campaign and custom maps sorting in map list
