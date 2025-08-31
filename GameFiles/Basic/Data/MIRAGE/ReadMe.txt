@@ -14,7 +14,7 @@ General:
  - Added player handicap(HP) option for Custom map control options
  - Custom map system parameters customization expanded. Player parameters are from now on can be applied only to exact Player
  - Predefined map server settings Node have been integrated into new Custom map UI system
- - Single and Multiplayer campaign relation system has been improved. Players cant attack other neutral plaer if they are both in the same team from now on
+ - Single and Multiplayer campaign relation system has been improved. Players cant attack other neutral player if they are both in the same team from now on
 
 Maps:
 
@@ -50,6 +50,7 @@ Dragon Clan:
 Norsemen:
 
 SEAS:
+- New buildings textures for jungle setting added
 - Seas scorpion HP during the build procces reduced to 7000
 - Seas scorpion skulls during the build process reduced to 250
 - Taslow machine now correctly appears when Taslow reaches tier 4 instead of incorrectly requiring him to be tier 5
