@@ -44,6 +44,7 @@ Dustriders:
  - Fixed default dustriders 10000 points presets that would cause all units and resources to be removed after loading
 
 Dragon Clan:
+ - Water turret's ghost from now on has turret
  - Fixed dilophosaurus nest and palisade wall disappearing from build menu under certain conditions
  - Fixed incorrect rotation of turret and pterodactyl for rocket ramp while playing death animation
 
