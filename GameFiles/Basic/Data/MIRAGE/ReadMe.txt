@@ -19,6 +19,7 @@ General:
 Maps:
 
 COOP campaign and maps with custom gameplay:
+ - Fixed crash during CrashRPG and BFPW Highland maps loading
  - Fixed multiplayer crash for non host players while playing along with AI players
  - Ally control available on missions 5, 11, 16 and B42
  - On CRASH RPG Map Host Difficulty default value is 9 from now on
