@@ -11,6 +11,16 @@ endclass;
 
 class CChat
 
+	const string ZIDELL_CDKH="44A58D488C35F64F310981D62AD3619A";
+	const string KR1S1M_CDKH="98B4FFFF2789736B98A3C46020C586DA";
+	const string PWFAN_CDKH="E3B4747D28982FCB8812C157FBBB602F";
+	
+	export static proc bool CheckDevStatus(string p_sUserCDKeyHash)
+		return (p_sUserCDKeyHash==ZIDELL_CDKH ||	
+				p_sUserCDKeyHash==KR1S1M_CDKH || 
+				p_sUserCDKeyHash==PWFAN_CDKH);
+	endproc;
+
 	export static proc bool Compare(string p_sSource, string p_sCompare)
 		p_sSource.MakeLower();
 		p_sCompare.MakeLower();
@@ -386,10 +396,10 @@ class CNewChatWindow inherit CStateUIWnd
 		m_sOwnName=CChat.GetUserName();
 		
 		CMultiPlayerClientMgr.Get().GetPlayerList(m_apxPlayerList,true);
-		var bool bCustomName=CMirageClnMgr.Get().IsCustomSetting(CMirageClnMgr.Get().GetMapName(),"Name");
 		if(m_apxPlayerList.NumEntries()>0)then
 			var int i,iC = m_apxPlayerList.NumEntries();
 			for(i=0)cond(i<iC)iter(i++)do
+				var bool bCustomName=CMirageClnMgr.Get().GetCustomPlayerSettingBool(CMirageClnMgr.Get().GetMapName(),m_apxPlayerList[i]^.GetHeadQuater(),"Name");
 				var bool bMatch=(m_apxPlayerList[i]!=null && m_apxPlayerList[i]^.GetName() != m_sOwnName);
 				if(bCustomName)then
 					bMatch=(m_apxPlayerList[i]!=null && CLocalizer.Get().Translate(m_apxPlayerList[i]^.GetName()) != m_sOwnName);
@@ -422,15 +432,18 @@ class CNewChatWindow inherit CStateUIWnd
 	enddestructor;
 	
 	export proc bool UpdatePlayerList()
-		var bool bCustomName=CMirageClnMgr.Get().IsCustomSetting(CMirageClnMgr.Get().GetMapName(),"Name");
-		if(bCustomName)then
-			m_sOwnName=CGameWrap.GetClient().GetLevelPreview().GetPlayerSlot(CGameWrap.GetClient().GetPlayerSlotID()).GetName();
-		else
-			m_sOwnName=CChat.GetUserName();
-		endif;
+		begin UpdateUserName;
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot = ^(CGameWrap.GetClient().GetLevelPreview().GetPlayerSlot(CGameWrap.GetClient().GetPlayerSlotID()));
+			if(CMirageClnMgr.Get().GetCustomPlayerSettingBool(CMirageClnMgr.Get().GetMapName(),pxPlayerSlot^.GetHeadQuater(),"Name"))then
+				m_sOwnName=pxPlayerSlot^.GetName();
+			else
+				m_sOwnName=CChat.GetUserName();
+			endif;
+		end UpdateUserName;
 		
 		var array ^CPlayerInfoSlot apxList;
 		CMultiPlayerClientMgr.Get().GetPlayerList(apxList,true);
+		UpdatePlayerNames(apxList,CMirageClnMgr.Get().IsCustomSetting(CMirageClnMgr.Get().GetMapName(),"Name"));
 		
 		var int j, jC = m_pxFilter^.NumItems();
 		var int i, iC = apxList.NumEntries();
@@ -461,6 +474,27 @@ class CNewChatWindow inherit CStateUIWnd
 		endfor;
 		m_apxPlayerList = apxList;
 
+		return true;
+	endproc;
+	
+	proc bool UpdatePlayerNames(array ^CPlayerInfoSlot p_apxPlayerList, bool p_bUpdate)
+		if(!p_bUpdate)then return false; endif;
+		var string sName,sTranslatedName,sDev;
+		var int i, iC = p_apxPlayerList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			var ^CLevelInfo.CPlayerSlot pxPlayerSlot=p_apxPlayerList[i]^.GetPlayerSlot();
+			if(pxPlayerSlot==null)then continue; endif;
+			if(!CMirageClnMgr.Get().GetCustomPlayerSettingBool(CMirageClnMgr.Get().GetMapName(),pxPlayerSlot^.GetHeadQuater(),"Name"))then continue; endif;
+			sName = pxPlayerSlot^.GetName();
+			sTranslatedName = CLocalizer.Get().Translate(sName);
+			var bool bDev=CChat.CheckDevStatus(pxPlayerSlot^.GetValue("key_hash"));
+			if(bDev && m_sChatMessages.Find("[DEV]")==-1)then
+				sDev = "\\{cocyan}[DEV]\\{cogiw_"+m_iLastColor.ToString()+"}";
+				m_sChatMessages.Replace(sName,sDev+sTranslatedName);
+			else
+				m_sChatMessages.Replace(sName,sTranslatedName);
+			endif;
+		endfor;
 		return true;
 	endproc;
 	
@@ -598,7 +632,6 @@ class CNewChatWindow inherit CStateUIWnd
 		elseif(m_pxFilter^.GetSelectedItem()>2)then
 			var array ^CPlayerInfoSlot apxList;
 			CMultiPlayerClientMgr.Get().GetPlayerList(apxList,true);
-			var bool bCustomName=CMirageClnMgr.Get().IsCustomSetting(CMirageClnMgr.Get().GetMapName(),"Name");
 			var int i, iC = apxList.NumEntries();
 			for(i=0)cond(i<iC)iter(i++)do
 				if(apxList[i]==null)then continue; endif;
@@ -633,7 +666,7 @@ class CNewChatWindow inherit CStateUIWnd
 			if(pxPlayerSlot==null)then continue; endif;
 			if(p_sMsg.Find(pxPlayerSlot^.GetName())!=-1)then
 				sCDKH = pxPlayerSlot^.GetValue("key_hash");
-				if(CMirageClnMgr.Get().IsCustomSetting(CMirageClnMgr.Get().GetMapName(),"Name"))then
+				if(CMirageClnMgr.Get().GetCustomPlayerSettingBool(CMirageClnMgr.Get().GetMapName(),pxPlayerSlot^.GetHeadQuater(),"Name"))then
 					p_sMsg.Replace(pxPlayerSlot^.GetName(),CLocalizer.Get().Translate(pxPlayerSlot^.GetName()));
 				endif;
 				break;
@@ -655,7 +688,12 @@ class CNewChatWindow inherit CStateUIWnd
 		endif;
 		
 		var string sTimestamp = "[" + Math2.GetTimeString(CTimeMgr.Get().GetTime().GetSecondsI()) + "] ";
-		p_sMsg = "\\{fixed}\\{cogiw_"+m_iLastColor.ToString()+"}" + sTimestamp + p_sMsg+"\\{/fixed}\\{p}";
+		var string sDev = "";
+		if(CChat.CheckDevStatus(sCDKH))then
+			sDev = "\\{cocyan}[DEV]\\{cogiw_"+m_iLastColor.ToString()+"}";
+		endif;
+		
+		p_sMsg = "\\{fixed}\\{cogiw_"+m_iLastColor.ToString()+"}" + sTimestamp + sDev + p_sMsg+"\\{/fixed}\\{p}";
 		
 		m_sChatMessages+=p_sMsg;
 		m_pxChatList^.SetText(m_sChatMessages);
