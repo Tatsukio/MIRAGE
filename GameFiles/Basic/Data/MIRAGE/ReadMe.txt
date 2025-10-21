@@ -41,14 +41,18 @@ Heroes:
  - Fixed missing zeppelin in Larry, Barry and Harry building menus
 
 Dustriders:
+ - Shaman will play unique voicelines when using abilities
  - Fixed default dustriders 10000 points presets that would cause all units and resources to be removed after loading
 
 Dragon Clan:
+ - Harvester will play unique voicelines when attacking
  - Water turret's ghost from now on has turret
  - Fixed dilophosaurus nest and palisade wall disappearing from build menu under certain conditions
  - Fixed incorrect rotation of turret and pterodactyl for rocket ramp while playing death animation
 
 Norsemen:
+ - Druid will play unique voicelines when using abilities
+ - Warriors will play unique voicelines when using jetpack
 
 SEAS:
 - New buildings textures for jungle setting added
