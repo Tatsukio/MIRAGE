@@ -15,6 +15,7 @@ General:
  - Custom map system parameters customization expanded. Player parameters are from now on can be applied only to exact Player
  - Predefined map server settings Node have been integrated into new Custom map UI system
  - Single and Multiplayer campaign relation system has been improved. Players cant attack other neutral player if they are both in the same team from now on
+ - Added new decorative citizens for Holy city setting
 
 Maps:
 
@@ -36,6 +37,7 @@ Campaign maps:
 - Fixed Mission B4-1: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
 - Fixed Mission B4-2: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
 - Fixed Mission B4-3: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+- Pirate captain from now on will have saber instead of sword in missions 5,6,7,B42,B43
 
 Heroes:
  - Fixed missing zeppelin in Larry, Barry and Harry building menus
@@ -64,6 +66,7 @@ SDK:
  - "Export to .obj" button will also export objects AABBs as separate .obj file from now on
  - Fixed NewStickerMessage(NWTK) trigger issue. It wasnt loading up in user interface general game messages, only Help Messages. Now both available
  - Model viewer/exporter added as standalone app to Paraworld\Tools\GSF Viewer
+ - pirate_captain buildup from now on skipped fro ninigi_warrior in various triggers
 
 Launcher:
  - Version changed to .NET 8.0
