@@ -39,6 +39,7 @@ Campaign maps:
 - Fixed Mission B4-1: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
 - Fixed Mission B4-2: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
 - Fixed Mission B4-3: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+- Fixed Mission B4-3: in the seas version fixed text in dialog scene, where dustrider was still referring to SEAS as "Pirates"
 - Pirate captain from now on will have saber instead of sword in missions 5,6,7,B42,B43
 
 Heroes:
