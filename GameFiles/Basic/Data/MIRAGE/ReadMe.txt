@@ -51,6 +51,7 @@ Dragon Clan:
  - Water turret's ghost from now on has turret
  - Fixed dilophosaurus nest and palisade wall disappearing from build menu under certain conditions
  - Fixed incorrect rotation of turret and pterodactyl for rocket ramp while playing death animation
+ - Seismosaurus enchain can no longer be used on units currently performing a jetpack jump or using ladders
 
 Norsemen:
 
