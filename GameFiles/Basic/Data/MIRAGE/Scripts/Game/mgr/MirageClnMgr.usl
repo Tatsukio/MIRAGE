@@ -785,83 +785,103 @@ class CMirageClnMgr
 	endproc;
 	
 	export proc bool IsCustomMap(string p_sLevelName)
-		var bool bCustom = false;
+		if(p_sLevelName.IsEmpty())then return false; endif;
+		p_sLevelName.Replace(" ", "_");
 		if(m_pxCustomMapSettingsDB!=null)then
 			//KLog.LogSpam("Kr1s1m-ALERT", "root node != null");
 			var ^CPropDB.CNode pxLevelsNode=m_pxCustomMapSettingsDB^.Get("Levels");
 			if(pxLevelsNode!=null)then
-				p_sLevelName.Replace(" ", "_");
-				//KLog.LogSpam("Kr1s1m-ALERT", "CMirageClnMgr:CheckCustomMap Looking for "+p_sLevelName+" with replaced spaces ...");
+				//KLog.LogSpam("Kr1s1m-ALERT", "CMirageClnMgr:IsCustomMap Looking for "+p_sLevelName+" with replaced spaces ...");
 				var ^CPropDB.CNode pxLevelNameNode = pxLevelsNode^.Get(p_sLevelName);
 				if(pxLevelNameNode!=null)then
-					bCustom = true;
+					return true;
 				endif;
 			endif;
 		endif;
-		return bCustom;
+		if(m_pxCustomMapMirageSettingsDB!=null)then
+			//KLog.LogSpam("Kr1s1m-ALERT", "root node != null");
+			var ^CPropDB.CNode pxLevelsNode=m_pxCustomMapMirageSettingsDB^.Get("Levels");
+			if(pxLevelsNode!=null)then
+				//KLog.LogSpam("Kr1s1m-ALERT", "CMirageClnMgr:IsCustomMap Looking for "+p_sLevelName+" with replaced spaces ...");
+				var ^CPropDB.CNode pxLevelNameNode = pxLevelsNode^.Get(p_sLevelName);
+				if(pxLevelNameNode!=null)then
+					return true;
+				endif;
+			endif;
+		endif;
+		return false;
 	endproc;
 	
-	export proc bool CheckCustomMap(string p_sLevelName, string p_sCategory)
-		//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:CheckCustomMap("+p_sLevelName+", "+p_sCategory+") begin");
+	export proc bool IsCustomMapSetting(string p_sLevelName, string p_sSetting)
+		//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:IsCustomMapSetting("+p_sLevelName+", "+p_sSetting+") begin");
+		if(p_sLevelName.IsEmpty()||p_sSetting.IsEmpty())then return false; endif;
 		var bool bCustom = false;
-		var bool bMirageSettings = false;
-		var bool bLevelSettings = false;  
 		var ^CPropDB.CNode pxRootNode = null;
-		if(p_sCategory == "MirageSettings")then
+		if(p_sSetting == "MirageSettings")then
 			pxRootNode = m_pxCustomMapMirageSettingsDB;
-			bMirageSettings = true;
+			bCustom = true;
 		else
-			if(p_sCategory == "LevelSettings")then
-				bLevelSettings = true;
+			if(p_sSetting == "LevelSettings")then
+				bCustom = true;
 			endif;
 			pxRootNode = m_pxCustomMapSettingsDB;
 		endif;
-		if(pxRootNode!=null)then
+		if(!bCustom && pxRootNode!=null)then
 			//KLog.LogSpam("Kr1s1m-ALERT", "root node != null");
 			var ^CPropDB.CNode pxLevelsNode=pxRootNode^.Get("Levels");
 			if(pxLevelsNode!=null)then
 				p_sLevelName.Replace(" ", "_");
-				//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:CheckCustomMap Looking for "+p_sLevelName+" with replaced spaces ...");
+				//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:IsCustomMapSetting Looking for "+p_sLevelName+" with replaced spaces ...");
 				var ^CPropDB.CNode pxLevelNameNode = pxLevelsNode^.Get(p_sLevelName);
 				if(pxLevelNameNode!=null)then
-					//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:CheckCustomMap LevelNameNode "+pxLevelNameNode^.Name()+" matched.");
-					var string sPrefix = "";
-					if(!bMirageSettings && !bLevelSettings)then sPrefix = "Custom/"; endif;
-					var ^CPropDB.CNode pxCustomCategoryNode = pxLevelNameNode^.FindNode(sPrefix+p_sCategory, false);
-					if(pxCustomCategoryNode!=null)then
-					//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:CheckCustomMap Custom Category "+p_sCategory+" found.");
-						var string sValue = pxCustomCategoryNode^.Value();
-						bCustom = (sValue=="" || sValue.ToInt()==1);
-					else//Kr1s1m: ...custom category was not found, so check for modifications in the LevelSettings branches
-						bCustom = pxLevelNameNode^.FindNode("LevelSettings/CheckBox/"+p_sCategory, false)!=null ||
-								  pxLevelNameNode^.FindNode("LevelSettings/DropList/"+p_sCategory, false)!=null;
+					//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:IsCustomMapSetting LevelNameNode "+pxLevelNameNode^.Name()+" matched.");
+					var string sPrefix = "Custom/";
+					var ^CPropDB.CNode pxCustomSettingNode = pxLevelNameNode^.FindNode(sPrefix+p_sSetting, false);
+					if(pxCustomSettingNode!=null)then
+					//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:IsCustomMapSetting Custom Setting "+p_sSetting+" found.");
+						var string sValue = pxCustomSettingNode^.Value();
+						bCustom = (sValue.IsEmpty() || sValue.ToInt()==1);
+					else//Kr1s1m: ...custom setting was not found, so check for modifications in the LevelSettings branches
+						var string sCategories="LoadScreen:EndScreen:PointBuy:Diplomacy:Players:";
+						var array string asCategories; sCategories.Split(asCategories,":",true);
+						var int i,iC=asCategories.NumEntries();
+						for(i=0)cond(i<iC)iter(i++)do
+							if(asCategories[i]=="Players")then
+								var int j,jC=8;
+								for(j=0)cond(j<jC)iter(j++)do
+									pxCustomSettingNode = pxLevelNameNode^.FindNode(sPrefix+"Players/Player_"+j.ToString()+"/"+p_sSetting, false);
+									if(pxCustomSettingNode!=null)then break; endif;
+								endfor;
+							else
+								pxCustomSettingNode = pxLevelNameNode^.FindNode(sPrefix+asCategories[i]+"/"+p_sSetting, false);
+							endif;
+							if(pxCustomSettingNode==null)then continue; endif;
+							var string sValue = pxCustomSettingNode^.Value();
+							bCustom = (sValue.IsEmpty() || sValue.ToInt()==1);
+							break;
+						endfor;
+						if(!bCustom)then
+							bCustom = pxLevelNameNode^.FindNode("LevelSettings/CheckBox/"+p_sSetting, false)!=null ||
+									  pxLevelNameNode^.FindNode("LevelSettings/DropList/"+p_sSetting, false)!=null;
+						endif;
 					endif;
 				endif;
 			endif;
 		endif;
 		//var string sCustom = "non-custom";
 		//if(bCustom)then sCustom = "custom"; endif;
-		//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:CheckCustomMap Level "+p_sLevelName+" has "+sCustom+" "+p_sCategory);
-		//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:CheckCustomMap("+p_sLevelName+", "+p_sCategory+") end");
+		//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:IsCustomMapSetting Level "+p_sLevelName+" has "+sCustom+" "+p_sSetting);
+		//KLog.LogSpam("Kr1s1m-ALERT", "MirageClnMgr:IsCustomMapSetting("+p_sLevelName+", "+p_sSetting+") end");
 		return bCustom;
 	endproc;
 	
 	export proc bool IsSlotForced(string p_sMap, int p_iID)
-		return (CheckCustomMap(p_sMap,"Players/Player_"+p_iID.ToString()+"/AddIfEmpty")||CheckCustomMap(p_sMap,"Players/Player_"+p_iID.ToString()+"/HiddenSlot"));
+		return (IsCustomMapSetting(p_sMap,"Players/Player_"+p_iID.ToString()+"/AddIfEmpty")||IsCustomMapSetting(p_sMap,"Players/Player_"+p_iID.ToString()+"/HiddenSlot"));
 	endproc;
 	
-	export proc bool IsCustomSetting(string p_sMap, string p_sSetting)
+	export proc bool GetCustomMapAIDifficulty(string p_sMap, int p_iID, ref int p_riDifficulty)
 		if(p_sMap.IsEmpty())then return false; endif;
-		var int i,iC=8;
-		for(i=0)cond(i<iC)iter(i++)do
-			if(GetCustomPlayerSettingBool(p_sMap,i,p_sSetting))then return true; endif;
-		endfor;
-		return false;
-	endproc;
-	
-	export proc bool GetCustomPlayerDifficulty(string p_sMap, int p_iID, ref int p_riDifficulty)
-		if(p_sMap.IsEmpty())then return false; endif;
-		var string sDifficulty=GetCustomPlayerSetting(p_sMap,p_iID,"Difficulty");
+		var string sDifficulty=GetCustomMapPlayerSetting(p_sMap,p_iID,"Difficulty");
 		if(!sDifficulty.IsEmpty())then
 			p_riDifficulty=sDifficulty.ToInt();
 			return true;
@@ -869,11 +889,11 @@ class CMirageClnMgr
 		return false;
 	endproc;
 	
-	export proc bool GetCustomPlayerHP(string p_sMap, int p_iID, ref int p_riHP)
+	export proc bool GetCustomMapPlayerHP(string p_sMap, int p_iID, ref int p_riHP)
 		if(p_sMap.IsEmpty())then return false; endif;
-		if(!GetCustomPlayerSettingBool(p_sMap,p_iID,"HP"))then return false; endif;
-		var string sHP=GetCustomPlayerSetting(p_sMap,p_iID,"HP");
-		if(CheckCustomMap(p_sMap,"PointBuy/MapDifficulty"))then
+		if(!GetCustomMapPlayerSettingBool(p_sMap,p_iID,"HP"))then return false; endif;
+		var string sHP=GetCustomMapPlayerSetting(p_sMap,p_iID,"HP");
+		if(IsCustomMapSetting(p_sMap,"PointBuy/MapDifficulty"))then
 			var string sDifficulty;
 			var int iCurDifficulty=GetMapDifficulty();
 			if(iCurDifficulty==CCampaignMgr.DIFFICULTY_EASY)then
@@ -883,7 +903,7 @@ class CMirageClnMgr
 			elseif(iCurDifficulty==CCampaignMgr.DIFFICULTY_HARD)then
 				sDifficulty="HP/Hard";
 			endif;
-			p_riHP=GetCustomPlayerSettingInt(p_sMap,p_iID,sDifficulty);
+			p_riHP=GetCustomMapPlayerSettingInt(p_sMap,p_iID,sDifficulty);
 			if(p_riHP<=0)then p_riHP=100; endif;
 			return true;
 		else
@@ -893,26 +913,26 @@ class CMirageClnMgr
 		endif;
 	endproc;
 	
-	export proc bool GetCustomPlayerSettingBool(string p_sLevelName, int p_iPlayerID, string p_sKey)
-		return CheckCustomMap(p_sLevelName,"Players/Player_"+p_iPlayerID.ToString()+"/"+p_sKey);
+	export proc bool GetCustomMapPlayerSettingBool(string p_sLevelName, int p_iPlayerID, string p_sKey)
+		return IsCustomMapSetting(p_sLevelName,"Players/Player_"+p_iPlayerID.ToString()+"/"+p_sKey);
 	endproc;
 	
-	export proc int GetCustomPlayerSettingInt(string p_sLevelName, int p_iPlayerID, string p_sKey)
-		return GetCustomPlayerSetting(p_sLevelName,p_iPlayerID,p_sKey).ToInt();
+	export proc int GetCustomMapPlayerSettingInt(string p_sLevelName, int p_iPlayerID, string p_sKey)
+		return GetCustomMapPlayerSetting(p_sLevelName,p_iPlayerID,p_sKey).ToInt();
 	endproc;
 	
-	export proc string GetCustomPlayerSetting(string p_sLevelName, int p_iPlayerID, string p_sKey)
-		//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomPlayerSetting("+p_sLevelName+", "+p_sKey+") begin");
+	export proc string GetCustomMapPlayerSetting(string p_sLevelName, int p_iPlayerID, string p_sKey)
+		//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomMapPlayerSetting("+p_sLevelName+", "+p_sKey+") begin");
 		var string sValue;
 		if(m_pxCustomMapSettingsDB!=null)then
 			//KLog.LogSpam("ParaworldFan-ALERT", "root node != null");
 			var ^CPropDB.CNode pxLevelsNode=m_pxCustomMapSettingsDB^.Get("Levels");
 			if(pxLevelsNode!=null)then
 				p_sLevelName.Replace(" ", "_");
-				//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomPlayerSetting Looking for "+p_sLevelName+" with replaced spaces ...");
+				//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomMapPlayerSetting Looking for "+p_sLevelName+" with replaced spaces ...");
 				var ^CPropDB.CNode pxLevelNameNode = pxLevelsNode^.Get(p_sLevelName);
 				if(pxLevelNameNode!=null)then
-					//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomPlayerSetting LevelNameNode "+pxLevelNameNode^.Name()+" matched.");
+					//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomMapPlayerSetting LevelNameNode "+pxLevelNameNode^.Name()+" matched.");
 					var ^CPropDB.CNode pxCategoriesNode = pxLevelNameNode^.Get("Custom");
 					if(pxCategoriesNode!=null)then
 						var ^CPropDB.CNode pxPlayerListNode = pxCategoriesNode^.Get("Players");
@@ -927,7 +947,7 @@ class CMirageClnMgr
 									if(pxPlayerExceptionListNode!=null)then
 										pxPlayerSettingNode = pxPlayerExceptionListNode^.FindNode(p_sKey, false);
 										if(pxPlayerSettingNode!=null)then
-											//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomPlayerSetting Custom Setting "+p_sKey+" found.");
+											//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomMapPlayerSetting Custom Setting "+p_sKey+" found.");
 											sValue = pxPlayerSettingNode^.Value();
 										endif;
 									endif;
@@ -938,10 +958,10 @@ class CMirageClnMgr
 				endif;
 			endif;
 		endif;
-		var string sCustom = "non-custom";
-		if(!sValue.IsEmpty())then sCustom = "custom"; endif;
-		//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomPlayerSetting Level "+p_sLevelName+" has "+sCustom+" "+p_sKey);
-		//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomPlayerSetting("+p_sLevelName+", "+p_sKey+") end");
+		//var string sCustom = "non-custom";
+		//if(!sValue.IsEmpty())then sCustom = "custom"; endif;
+		//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomMapPlayerSetting Level "+p_sLevelName+" has "+sCustom+" "+p_sKey);
+		//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomMapPlayerSetting("+p_sLevelName+", "+p_sKey+") end");
 		return sValue;
 	endproc;
 	
