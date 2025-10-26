@@ -6,6 +6,7 @@ MIRAGE 2.6.8
 General:
  - Fixed freezing on in match menu opening menu if screen resolution was not 2560x1440
  - Fixed missing eighth player name in the statistics window - timeline tab
+ - Fixed a bug where a unit queued at an unbuilt SEAS or dustriders port was showing production progress same as that ports construction progress
  - Chat window has been increased and now uses multiline
  - Added chat player colors to the recipient selection dropdown menu (in match only)
  - Added COOP campaign and custom maps sorting in map list
@@ -15,18 +16,21 @@ General:
  - Custom map system parameters customization expanded. Player parameters are from now on can be applied only to exact Player
  - Predefined map server settings Node have been integrated into new Custom map UI system
  - Single and Multiplayer campaign relation system has been improved. Players cant attack other neutral player if they are both in the same team from now on
+ - Added new decorative citizens for Holy city setting
 
 Maps:
 
 COOP campaign and maps with custom gameplay:
  - Fixed multiplayer crash for non host players while playing along with AI players
  - Fixed some errors which were not applying customSettings for custom maps
+ - Fixed issue when in COOP campaign it was possible to set MaxPlayers value higher than any map in list had
  - Ally control available on missions 5, 11, 16 and B42
  - On CRASH RPG Map Host Difficulty default value is 9 from now on
  - Disabled revealing for remaining player units after all HQ's are destroyed for Multiplayer Campaign mode
  - CrashRPG SEAS HQ are no longer inveruable
 
 Campaign maps:
+- Fixed a bug that prevented boosterpack missions from being started
 - Added LoadScreen music for Tutorial, Devil's Advocate, Cold Day in Hell and in Operation Neptune
 - Fixed Mission 1: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
 - Fixed Mission 2: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
@@ -38,6 +42,8 @@ Campaign maps:
 - Fixed Mission B4-1: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
 - Fixed Mission B4-2: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
 - Fixed Mission B4-3: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+- Fixed Mission B4-3: in the seas version fixed text in dialog scene, where dustrider was still referring to SEAS as "Pirates"
+- Pirate captain from now on will have saber instead of sword in missions 5,6,7,B42,B43
 
 Heroes:
  - Fixed missing zeppelin in Larry, Barry and Harry building menus
@@ -49,6 +55,7 @@ Dragon Clan:
  - Water turret's ghost from now on has turret
  - Fixed dilophosaurus nest and palisade wall disappearing from build menu under certain conditions
  - Fixed incorrect rotation of turret and pterodactyl for rocket ramp while playing death animation
+ - Seismosaurus enchain can no longer be used on units currently performing a jetpack jump or using ladders
 
 Norsemen:
 
@@ -66,6 +73,7 @@ SDK:
  - "Export to .obj" button will also export objects AABBs as separate .obj file from now on
  - Fixed NewStickerMessage(NWTK) trigger issue. It wasnt loading up in user interface general game messages, only Help Messages. Now both available
  - Model viewer/exporter added as standalone app to Paraworld\Tools\GSF Viewer
+ - pirate_captain buildup from now on skipped fro ninigi_warrior in various triggers
 
 Launcher:
  - Version changed to .NET 8.0
