@@ -23,10 +23,12 @@ Maps:
 COOP campaign and maps with custom gameplay:
  - Fixed crash during CrashRPG and BFPW Highland maps loading
  - Fixed multiplayer crash for non host players while playing along with AI players
+ - Fixed some errors which were not applying customSettings for custom maps
+ - Fixed issue when in COOP campaign it was possible to set MaxPlayers value higher than any map in list had
  - Ally control available on missions 5, 11, 16 and B42
  - On CRASH RPG Map Host Difficulty default value is 9 from now on
  - Disabled revealing for remaining player units after all HQ's are destroyed for Multiplayer Campaign mode
- - Fixed issue when in COOP campaign it was possible to set MaxPlayers value higher than any map in list had
+ - CrashRPG SEAS HQ are no longer inveruable
 
 Campaign maps:
 - Fixed a bug that prevented boosterpack missions from being started
