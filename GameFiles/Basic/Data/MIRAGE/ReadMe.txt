@@ -21,6 +21,7 @@ General:
 Maps:
 
 COOP campaign and maps with custom gameplay:
+ - Fixed crash during CrashRPG and BFPW Highland maps loading
  - Fixed multiplayer crash for non host players while playing along with AI players
  - Fixed some errors which were not applying customSettings for custom maps
  - Fixed issue when in COOP campaign it was possible to set MaxPlayers value higher than any map in list had
