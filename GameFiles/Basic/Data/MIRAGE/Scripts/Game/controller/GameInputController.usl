@@ -790,16 +790,11 @@ class CGameInputController inherit CInputController
 					bPlayTaskSound=true;
 				elseif((pxSubject^.GetType()=="SHIP" || pxSubject^.GetClassName()=="aje_floating_harbour" || pxSubject^.GetClassName()=="seas_carrier") && bFish)then
 					var ^CAttribs pxAttribs=pxSubject^.GetAttribs();
-					if(pxAttribs==null)then
-						continue;
-					endif;
-					if(pxAttribs^.GetValueInt("fishingBoat")==0 && pxSubject^.GetType()!="BLDG")then
-						continue;
-					endif;
+					if(pxAttribs==null)then continue; endif;
+					if(pxAttribs^.GetValueInt("fishingBoat")==0 && pxSubject^.GetType()!="BLDG")then continue; endif;
 					CEvt_GamePlayCommand.Send(xSubject, sFrontQueued+"Fishing", p_pxObj^.GetHandle(), p_pxObj^.GetPos(), "");
-						bPlayTaskSound=true;
-					elseif(pxSubject^.GetType()=="BLDG")then
-					var CClntHndl xInvalid;
+					bPlayTaskSound=true;
+				elseif(pxSubject^.GetType()=="BLDG")then
 					var vec3 vPos;
 					vPos=p_pxObj^.GetPos();
 					CEvt_GamePlayCommand.Send(m_pxSelection^[i], "SetRallyPoint", p_pxObj^.GetHandle(), vPos, vPos.ToString());
@@ -998,17 +993,18 @@ class CGameInputController inherit CInputController
 	proc void HandleOwnBuilding(^CObj p_pxObj)
 		if(p_pxObj==null)then return; endif;
 		var bool bSkip = false;
-//		KLog.LogSpam("uisound","HandleOwnBuilding ");
 		var bool bTunnel=false;
 		var string sOrder="Use";
 		var ^CAttribs pxAttr=p_pxObj^.GetAttribs();
 		if(pxAttr!=null)then
 			if(p_pxObj^.GetConstructLevel()<4)then
-				if(CGameInst.CanBeControlled(p_pxObj^.GetOwner())&&!CMirageClnMgr.Get().CheckAllyBuildup())then
+				var bool bIsOwnBuilding = CGameWrap.GetClient().GetPlayer().GetID() == p_pxObj^.GetOwner();
+				var bool bCanBeControlled = CGameInst.CanBeControlled(p_pxObj^.GetOwner()) && CMirageClnMgr.Get().CheckAllyBuildup();
+				if(bIsOwnBuilding || bCanBeControlled)then
+					sOrder="Build";
+				else
 					bSkip = true;
 					sOrder="Dock";
-				else
-					sOrder="Build";
 				endif;
 			elseif((m_bShift||!IsUsableBuilding(p_pxObj)) && pxAttr^.GetValueInt("hitpoints")<pxAttr^.GetValueInt("maxhitpoints"))then
 				sOrder="Repair";
@@ -1208,8 +1204,18 @@ class CGameInputController inherit CInputController
 			endif;
 			var string sHitClass = pxHitObj^.GetClassName();
 			var int iHitOwner = pxHitObj^.GetOwner();
+			
 			var bool bCanBeControlled = CGameInst.CanBeControlled(iHitOwner);
-			var bool bSkip = bCanBeControlled&&!CMirageClnMgr.Get().CheckAllyBuildup();
+			var bool bAllowAllyBuildup = CMirageClnMgr.Get().CheckAllyBuildup();
+			var bool bSkip = true;
+			if(p_rxSel.HasOwner(iHitOwner))then
+				//If the selection contains at least one unit belonging to the same player who owns the building, show the build cursor.
+				bSkip = false;
+			elseif(bCanBeControlled && bAllowAllyBuildup)then
+				//If the selection contains an ally unit and allied-unit control and allied-building construction are enabled, show the build cursor.
+				bSkip = false;
+			endif;
+			
 			var bool bNinjaSkip = (p_rxSel.m_sFocus=="ninigi_ninja" && !IsItATrap(sHitClass));
 			if(xT=="QMRK")then
 				return "";
@@ -2300,7 +2306,10 @@ class CSelectionInfo
 	export const bitset HAS_OWN_UNITS				= 0800000h;
 
 	var bitset m_dwFlags;
-
+	
+	export var bitset 	m_dwOwnersInSelection;
+	const bitset dwWorldOwner	= 0000000001b;
+	
 	export var array string		m_asClasses;
 	export var string			m_sFocus;
 	export var real				m_fAreaRange;
@@ -2343,9 +2352,30 @@ class CSelectionInfo
 	export proc bool Has(bitset p_dwFlag)
 		return (m_dwFlags&p_dwFlag)!=0b;
 	endproc;
+	
+	export proc bool HasOwner(int p_iOwner)
+		if (p_iOwner == -1) then
+			return (m_dwOwnersInSelection & dwWorldOwner) != 0b;
+		else
+			return (m_dwOwnersInSelection & (01b << p_iOwner)) != 0b;
+		endif;
+	endproc;
+	
+	export proc void AddOwnerToSelection(int p_iOwner)
+		if ((p_iOwner < -1) || (p_iOwner > 7)) then
+			KLog.LogError("AddOwnerToSelection", "Failed to add invalid owner '" + p_iOwner.ToString() + "' to selection owners bitset");
+			return;
+		endif;
+		if (p_iOwner == -1) then
+			m_dwOwnersInSelection |= dwWorldOwner;
+		else
+			m_dwOwnersInSelection |= (01b << p_iOwner);
+		endif;
+	endproc;
 
 	export proc void Init(^CObjSelection p_pxSel)
 		m_dwFlags=0b;
+		m_dwOwnersInSelection=0b;
 		m_asClasses=0;
 		m_sFocus="";
 		m_fAreaRange=0.0;
@@ -2370,6 +2400,7 @@ class CSelectionInfo
 				var ^CObj pxO=xHndl.GetObj();
 				var CFourCC xT = pxO^.GetType();
 				var int iOwner = pxO^.GetOwner();
+				AddOwnerToSelection(iOwner);
 				var int iMyOpinion = CGameWrap.GetDiplomacyMgr().GetMyOpinion(iOwner);
 				var int iTheirOpinion = CGameWrap.GetDiplomacyMgr().GetTheirOpinion(iOwner);
 				var string sClass = pxO^.GetClassName();
