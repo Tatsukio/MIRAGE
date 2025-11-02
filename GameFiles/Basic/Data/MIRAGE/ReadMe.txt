@@ -6,6 +6,7 @@ MIRAGE 2.6.8
 General:
  - Fixed freezing on in match menu opening menu if screen resolution was not 2560x1440
  - Fixed missing eighth player name in the statistics window - timeline tab
+ - Fixed a bug with the build cursor that disappears if allied buildup option was disabled
  - Fixed a bug where a unit queued at an unbuilt SEAS or dustriders port was showing production progress same as that ports construction progress
  - Chat window has been increased and now uses multiline
  - Added chat player colors to the recipient selection dropdown menu (in match only)
