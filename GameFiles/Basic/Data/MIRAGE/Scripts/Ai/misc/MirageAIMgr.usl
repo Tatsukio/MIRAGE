@@ -1,18 +1,10 @@
 class CMirageAIMgr
-	//CMirageAIMgr.Get().
-	//CMirageAIMgr.Get().xxxx
-	//CMirageAIMgr.Debug("");
-	//CMirageAIMgr.Debug("xxxxxx: '"+xxxxxx+"'");
-	//CMirageAIMgr.Debug("xxxxxx: '"+(xxxxxx).ToString()+"'");
-	//CMirageAIMgr.Debug("xxxxxx: '"+m_bZeppelin.ToString()+"', '"+m_iPlayerID.ToString()+"'");
-	
+
 	static var ^CMirageAIMgr ms_pxMrgAIInstance;
 	var bool m_bAllowSupplySystemChecked;
 	export var bool m_bAllowSupplySystem;
 	var bool m_bResourcesUnlimitedChecked;
 	export var bool m_bResourcesUnlimited;
-	var bool m_bWarpTeleportChecked;
-	export var bool m_bWarpTeleport;
 	var bool m_bTransportHealingChecked;
 	export var bool m_bTransportHealing;
 	var bool m_bDiploLockedChecked;
@@ -48,7 +40,6 @@ class CMirageAIMgr
 		var bool bResult=true;
 		if(!AllowSupplySystem())then bResult=false; endif;
 		if(!ResourcesUnlimited())then bResult=false; endif;
-		if(!WarpTeleport())then bResult=false; endif;
 		if(!TransportHealing())then bResult=false; endif;
 		if(!DiploLocked())then bResult=false; endif;
 		if(!HeroPool())then bResult=false; endif;
@@ -77,7 +68,6 @@ class CMirageAIMgr
 			if(pxSensor==null)then return ms_pxMrgAIInstance^; endif;
 			var string sGenericData=pxSensor^.GetGenericData().ToString();
 			var string sURSRelPath=pxSensor^.GetUrsRelPath();
-//			CMirageAIMgr.Debug("data: "+sGenericData);
 			if(sGenericData==""||sURSRelPath=="")then return ms_pxMrgAIInstance^; endif;
 			var CPropDB xTestDB;
 			if(!xTestDB.FromString(sGenericData))then return ms_pxMrgAIInstance^; endif;
@@ -102,7 +92,6 @@ class CMirageAIMgr
 	export proc bool Purify()
 		m_bAllowSupplySystemChecked=false;
 		m_bResourcesUnlimitedChecked=false;
-		m_bWarpTeleportChecked=false;
 		m_bTransportHealingChecked=false;
 		m_bDiploLockedChecked=false;
 		m_bHeroPoolChecked=false;
@@ -120,7 +109,6 @@ class CMirageAIMgr
 		m_xPoolMixer.FromInt(-1);
 		m_bAllowSupplySystemChecked=false;
 		m_bResourcesUnlimitedChecked=false;
-		m_bWarpTeleportChecked=false;
 		m_bTransportHealingChecked=false;
 		m_bDiploLockedChecked=false;
 		m_bHeroPoolChecked=false;
@@ -153,7 +141,8 @@ class CMirageAIMgr
 		else
 			m_pxCustomMapSettingsDB=null;
 		endif;
-//		m_xLevelInfoDB.Save("C:/Program Files/Sunflowers/ParaWorld/bin/LevelInfoDumpAI.txt");
+		//m_xLevelInfoDB.Save("C:/LevelInfoDumpAI.txt");
+		//KLog.LogInfo("CMirageAIMgr","Current AI settings are: " + m_xLevelInfoDB.ToString());
 	endproc;
 	
 	export proc string GetURSPath()
@@ -166,320 +155,170 @@ class CMirageAIMgr
 		return iSuppCount;
 	endproc;
 	
-	export proc bool AllowSupplySystem()
-		if(!m_bAllowSupplySystemChecked)then
-			m_bAllowSupplySystem=false;
-			var int iAllowSupplySystem=0;
-			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
-			if(pxCSNode==null)then return false; endif;
-			var ^CPropDB.CNode pxAllowSupplySystem=^(pxCSNode^.Get("UseSupply"));
-			if(pxAllowSupplySystem==null)then
-				if(!m_xPoolMixer.IsValid())then
-					InitMixer();
-				endif;
-				if(m_xPoolMixer.IsValid())then
-					m_bAllowSupplySystem = m_xPoolMixer.GetAttribValueInt("supply_system")==1;
-					m_bAllowSupplySystemChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
-				else
-					return false;
-				endif;
-			else
-				iAllowSupplySystem=pxCSNode^.GetValueI("UseSupply");
-				m_bAllowSupplySystem=iAllowSupplySystem==1;
-				m_bAllowSupplySystemChecked=true;
+	proc ^CPropDB.CNode TryGetNode(string p_sNode, string p_sKey)
+		if(p_sKey.IsEmpty())then
+			KLog.LogError("CMirageAIMgr","Failed to get value from empty key");
+			return null;
+		endif;
+
+		var ^CPropDB.CNode pxNode = ^((m_xLevelInfoDB)[p_sNode]);
+		if(pxNode==null)then
+			KLog.LogError("CMirageAIMgr","Failed to get value from key '" + p_sKey + "' - ClientSettings is null");
+			return null;
+		endif;
+
+		var ^CPropDB.CNode pxValueNode = ^(pxNode^.Get(p_sKey));
+		if(pxValueNode == null)then
+			KLog.LogError("CMirageAIMgr","Failed to get value from key '" + p_sKey + "' - ValueNode is null");
+			return null;
+		endif;
+
+		return pxValueNode;
+	endproc;
+
+	proc bool TryGetValue(string p_sSettingsPath, string p_sKey, string p_sPoolKey, ref bool p_rbReturnValue, bool p_bFallbackValue)
+		p_rbReturnValue = p_bFallbackValue;
+
+		var ^CPropDB.CNode pxValueNode = TryGetNode("ClientSettings", p_sKey);
+		if(pxValueNode == null)then
+			if(!m_xPoolMixer.IsValid())then InitMixer(); endif;
+			if(m_xPoolMixer.IsValid())then
+				p_rbReturnValue = m_xPoolMixer.GetAttribValueInt(p_sPoolKey) == 1;
+				return m_xPoolMixer.GetAttribValueInt("inited") == 1;
 			endif;
-			return m_bAllowSupplySystem;
-		else
+			KLog.LogError("CMirageAIMgr","Failed to get value from key '" + p_sKey + "' - invalid PoolMixer");
+			return false;
+		endif;
+
+		p_rbReturnValue = pxValueNode^.ValueI() == 1;
+		KLog.LogInfo("CMirageAIMgr", "Setting '" + p_sKey + "' = '" + p_rbReturnValue.ToString() + "'");
+		return true;
+	endproc;
+	
+	proc bool TryGetValue(string p_sSettingsPath, string p_sKey, string p_sPoolKey, ref int p_riReturnValue, int p_iFallbackValue)
+		p_riReturnValue = p_iFallbackValue;
+		var ^CPropDB.CNode pxValueNode = TryGetNode("ClientSettings", p_sKey);
+		if(pxValueNode == null)then
+			if(p_sPoolKey == "")then
+				KLog.LogError("CMirageAIMgr","Failed to get value from key '" + p_sKey + "'");
+				return false;
+			endif;
+			if(!m_xPoolMixer.IsValid())then InitMixer(); endif;
+			if(m_xPoolMixer.IsValid())then
+				p_riReturnValue = m_xPoolMixer.GetAttribValueInt(p_sPoolKey);
+				return m_xPoolMixer.GetAttribValueInt("inited") == 1;
+			endif;
+			KLog.LogError("CMirageAIMgr","Failed to get value from key '" + p_sKey + "' - invalid PoolMixer");
+			return false;
+		endif;
+		p_riReturnValue = pxValueNode^.ValueI();
+		KLog.LogInfo("CMirageAIMgr", "Setting '" + p_sKey + "' = '" + p_riReturnValue.ToString() + "'");
+		return true;
+	endproc;
+	
+	export proc bool AllowSupplySystem()
+		if(m_bAllowSupplySystemChecked)then
 			return m_bAllowSupplySystem;
 		endif;
+
+		m_bAllowSupplySystemChecked = TryGetValue("Server/GameplayOptions/", "UseSupply", "supply_system", m_bAllowSupplySystem, false);
+		return m_bAllowSupplySystem;
 	endproc;
 	
 	export proc bool DiploLocked()
-		if(!m_bDiploLockedChecked)then
-			m_bDiploLocked=false;
-			var int iDiploLocked=0;
-			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
-			if(pxCSNode==null)then return false; endif;
-			var ^CPropDB.CNode pxDiploLocked=^(pxCSNode^.Get("DiploLocked"));
-			if(pxDiploLocked==null)then
-//				if(!m_xPoolMixer.IsValid())then
-//					InitMixer();
-//				endif;
-//				if(m_xPoolMixer.IsValid())then
-//					m_bDiploLocked = m_xPoolMixer.GetAttribValueInt("tbasket_healing")==1;
-//					m_bDiploLockedChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
-//				else
-					return false;
-//				endif;
-			else
-				iDiploLocked=pxCSNode^.GetValueI("DiploLocked");
-				m_bDiploLocked=iDiploLocked==1;
-				m_bDiploLockedChecked=true;
-			endif;
-			return m_bDiploLocked;
-		else
+		if(m_bDiploLockedChecked)then
 			return m_bDiploLocked;
 		endif;
+
+		m_bDiploLockedChecked = TryGetValue("Server/GameplayOptions/", "DiploLocked", "", m_bDiploLocked, false);
+		return m_bDiploLocked;
 	endproc;
 	
 	export proc bool ResourcesUnlimited()
-		if(!m_bResourcesUnlimitedChecked)then
-			m_bResourcesUnlimited=false;
-			var int iResourcesUnlimited=0;
-			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
-			if(pxCSNode==null)then return false; endif;
-			var ^CPropDB.CNode pxResourcesUnlimited=^(pxCSNode^.Get("ResourcesUnlimited"));
-			if(pxResourcesUnlimited==null)then
-				if(!m_xPoolMixer.IsValid())then
-					InitMixer();
-				endif;
-				if(m_xPoolMixer.IsValid())then
-					m_bResourcesUnlimited = m_xPoolMixer.GetAttribValueInt("unlimited_storage")==1;
-					m_bResourcesUnlimitedChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
-				else
-					return false;
-				endif;
-			else
-				iResourcesUnlimited=pxCSNode^.GetValueI("ResourcesUnlimited");
-				m_bResourcesUnlimited=iResourcesUnlimited==1;
-				m_bResourcesUnlimitedChecked=true;
-			endif;
-			return m_bResourcesUnlimited;
-		else
+		if(m_bResourcesUnlimitedChecked)then
 			return m_bResourcesUnlimited;
 		endif;
-	endproc;
-	
-	export proc bool WarpTeleport()
-		if(!m_bWarpTeleportChecked)then
-			m_bWarpTeleport=false;
-			var int iWarpTeleport=0;
-			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
-			if(pxCSNode==null)then return false; endif;
-			var ^CPropDB.CNode pxWarpTeleport=^(pxCSNode^.Get("WarpTeleport"));
-			if(pxWarpTeleport==null)then
-				return false;
-			else
-				iWarpTeleport=pxCSNode^.GetValueI("WarpTeleport");
-				m_bWarpTeleport=iWarpTeleport==1;
-				m_bWarpTeleportChecked=true;
-			endif;
-			return m_bWarpTeleport;
-		else
-			return m_bWarpTeleport;
-		endif;
+
+		m_bResourcesUnlimitedChecked = TryGetValue("Server/GameplayOptions/", "ResourcesUnlimited", "unlimited_storage", m_bResourcesUnlimited, false);
+		return m_bResourcesUnlimited;
 	endproc;
 	
 	export proc bool TransportHealing()
-		if(!m_bTransportHealingChecked)then
-			m_bTransportHealing=false;
-			var int iTransportHealing=0;
-			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
-			if(pxCSNode==null)then return false; endif;
-			var ^CPropDB.CNode pxTransportHealing=^(pxCSNode^.Get("TransportHealingFactor"));
-			if(pxTransportHealing==null)then
-				if(!m_xPoolMixer.IsValid())then
-					InitMixer();
-				endif;
-				if(m_xPoolMixer.IsValid())then
-					m_bTransportHealing = m_xPoolMixer.GetAttribValueInt("tbasket_healing")==1;
-					m_bTransportHealingChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
-				else
-					return false;
-				endif;
-			else
-				iTransportHealing=pxCSNode^.GetValueI("TransportHealingFactor");
-				m_bTransportHealing=iTransportHealing>=50;
-				m_bTransportHealingChecked=true;
-			endif;
-			return m_bTransportHealing;
-		else
+		if(m_bTransportHealingChecked)then
 			return m_bTransportHealing;
 		endif;
+
+		m_bTransportHealingChecked = TryGetValue("Server/GameplayOptions/", "TransportHealing", "tbasket_healing", m_bTransportHealing, false);
+		return m_bTransportHealing;
 	endproc;
 	
 	export proc bool HeroPool()
-		if(!m_bHeroPoolChecked)then
-			m_bHeroPool=false;
-			var int iHeroPool=0;
-			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
-			if(pxCSNode==null)then return false; endif;
-			var ^CPropDB.CNode pxHeroPool=^(pxCSNode^.Get("HeroPool"));
-			if(pxHeroPool==null)then
-				if(!m_xPoolMixer.IsValid())then
-					InitMixer();
-				endif;
-				if(m_xPoolMixer.IsValid())then
-					m_bHeroPool = m_xPoolMixer.GetAttribValueInt("hero_pool")==1;
-					m_bHeroPoolChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
-				else
-					return false;
-				endif;
-			else
-				iHeroPool=pxCSNode^.GetValueI("HeroPool");
-				m_bHeroPool=iHeroPool==1;
-				m_bHeroPoolChecked=true;
-			endif;
-			return m_bHeroPool;
-		else
+		if(m_bHeroPoolChecked)then
 			return m_bHeroPool;
 		endif;
+
+		m_bHeroPoolChecked = TryGetValue("Server/GameplayOptions/", "HeroPool", "hero_pool", m_bHeroPool, false);
+		return m_bHeroPool;
 	endproc;
 	
 	export proc bool FreeSpecials()
-		if(!m_bFreeSpecialsChecked)then
-			m_bFreeSpecials=false;
-			var int iFreeSpecials=0;
-			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
-			if(pxCSNode==null)then return false; endif;
-			var ^CPropDB.CNode pxFreeSpecials=^(pxCSNode^.Get("FreeSpecials"));
-			if(pxFreeSpecials==null)then
-				if(!m_xPoolMixer.IsValid())then
-					InitMixer();
-				endif;
-				if(m_xPoolMixer.IsValid())then
-					m_bFreeSpecials = m_xPoolMixer.GetAttribValueInt("free_specials")==1;
-					m_bFreeSpecialsChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
-				else
-					return false;
-				endif;
-			else
-				iFreeSpecials=pxCSNode^.GetValueI("FreeSpecials");
-				m_bFreeSpecials=iFreeSpecials==1;
-				m_bFreeSpecialsChecked=true;
-			endif;
-			return m_bFreeSpecials;
-		else
+		if(m_bFreeSpecialsChecked)then
 			return m_bFreeSpecials;
 		endif;
+
+		m_bFreeSpecialsChecked = TryGetValue("Server/GameplayOptions/", "FreeSpecials", "free_specials", m_bFreeSpecials, false);
+		return m_bFreeSpecials;
 	endproc;
 	
 	export proc bool EpochSix()
-		if(!m_bEpochSixChecked)then
-			m_bEpochSix=false;
-			var int iEpochSix=0;
-			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
-			if(pxCSNode==null)then return false; endif;
-			var ^CPropDB.CNode pxEpochSix=^(pxCSNode^.Get("EpochSix"));
-			if(pxEpochSix==null)then
-				if(!m_xPoolMixer.IsValid())then
-					InitMixer();
-				endif;
-				if(m_xPoolMixer.IsValid())then
-					m_bEpochSix = m_xPoolMixer.GetAttribValueInt("epoch_six")==1;
-					m_bEpochSixChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
-				else
-					return false;
-				endif;
-			else
-				iEpochSix=pxCSNode^.GetValueI("EpochSix");
-				m_bEpochSix=iEpochSix==1;
-				m_bEpochSixChecked=true;
-			endif;
-			return m_bEpochSix;
-		else
+		if(m_bEpochSixChecked)then
 			return m_bEpochSix;
 		endif;
+
+		m_bEpochSixChecked = TryGetValue("Server/GameplayOptions/", "EpochSix", "epoch_six", m_bEpochSix, false);
+		return m_bEpochSix;
 	endproc;
 	
 	export proc bool TitanSlots()
-		if(!m_bTitanSlotsChecked)then
-			m_bTitanSlots=false;
-			var int iTitanSlots=0;
-			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
-			if(pxCSNode==null)then return false; endif;
-			var ^CPropDB.CNode pxTitanSlots=^(pxCSNode^.Get("TitanSlots"));
-			if(pxTitanSlots==null)then
-				if(!m_xPoolMixer.IsValid())then
-					InitMixer();
-				endif;
-				if(m_xPoolMixer.IsValid())then
-					m_bTitanSlots = m_xPoolMixer.GetAttribValueInt("titan_slots")==1;
-					m_bTitanSlotsChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
-				else
-					return false;
-				endif;
-			else
-				iTitanSlots=pxCSNode^.GetValueI("TitanSlots");
-				m_bTitanSlots=iTitanSlots==1;
-				m_bTitanSlotsChecked=true;
-			endif;
-			return m_bTitanSlots;
-		else
+		if(m_bTitanSlotsChecked)then
 			return m_bTitanSlots;
 		endif;
+
+		m_bTitanSlotsChecked = TryGetValue("Server/GameplayOptions/", "TitanSlots", "titan_slots", m_bTitanSlots, false);
+		return m_bTitanSlots;
 	endproc;
 	
 	export proc bool FlyingEnabled()
-		if(!m_bFlyingEnabledChecked)then
-			m_bFlyingEnabled=false;
-			var int iFlyingEnabled=0;
-			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
-			if(pxCSNode==null)then return false; endif;
-			var ^CPropDB.CNode pxFlyingEnabled=^(pxCSNode^.Get("FlyingEnabled"));
-			if(pxFlyingEnabled==null)then
-				if(!m_xPoolMixer.IsValid())then
-					InitMixer();
-				endif;
-				if(m_xPoolMixer.IsValid())then
-					m_bFlyingEnabled = m_xPoolMixer.GetAttribValueInt("flying_enabled")==1;
-					m_bFlyingEnabledChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
-				else
-					return false;
-				endif;
-			else
-				iFlyingEnabled=pxCSNode^.GetValueI("FlyingEnabled");
-				m_bFlyingEnabled=iFlyingEnabled==1;
-				m_bFlyingEnabledChecked=true;
-			endif;
-			return m_bFlyingEnabled;
-		else
+		if(m_bFlyingEnabledChecked)then
 			return m_bFlyingEnabled;
 		endif;
+
+		m_bFlyingEnabledChecked = TryGetValue("Server/GameplayOptions/", "FlyingEnabled", "flying_enabled", m_bFlyingEnabled, false);
+		return m_bFlyingEnabled;
 	endproc;
 	
 	export proc bool RemoveTitans()
-		if(!m_bRemoveTitansChecked)then
-			m_bRemoveTitans=false;
-			var int iRemoveTitans=0;
-			var ^CPropDB.CNode pxCSNode=m_xLevelInfoDB.FindNode("ClientSettings",false);
-			if(pxCSNode==null)then return false; endif;
-			var ^CPropDB.CNode pxRemoveTitans=^(pxCSNode^.Get("RemoveTitans"));
-			if(pxRemoveTitans==null)then
-				if(!m_xPoolMixer.IsValid())then
-					InitMixer();
-				endif;
-				if(m_xPoolMixer.IsValid())then
-					m_bRemoveTitans = m_xPoolMixer.GetAttribValueInt("titans_disabled")==1;
-					m_bRemoveTitansChecked=m_xPoolMixer.GetAttribValueInt("inited")==1;
-				else
-					return false;
-				endif;
-			else
-				iRemoveTitans=pxCSNode^.GetValueI("RemoveTitans");
-				m_bRemoveTitans=iRemoveTitans==1;
-				m_bRemoveTitansChecked=true;
-			endif;
-			return m_bRemoveTitans;
-		else
+		if(m_bRemoveTitansChecked)then
 			return m_bRemoveTitans;
 		endif;
+
+		m_bRemoveTitansChecked = TryGetValue("Server/GameplayOptions/", "RemoveTitans", "titans_disabled", m_bRemoveTitans, false);
+		return m_bRemoveTitans;
 	endproc;
 	
 	export proc bool BuildWalls()
 		if(!m_bBuildWallsChecked)then
-			m_bBuildWalls=false;
-			var int iBuildWalls=0;
-			var ^CPropDB.CNode pxAINode=m_xLevelInfoDB.FindNode("AIOptions",false);
-			if(pxAINode==null)then return false; endif;
-			var ^CPropDB.CNode pxBuildWalls=^(pxAINode^.Get("walls"));
-			if(pxBuildWalls==null)then
+			m_bBuildWalls = false;
+			var int iBuildWalls = 0;
+			var ^CPropDB.CNode pxValueNode = TryGetNode("AIOptions", "walls");
+			if(pxValueNode == null)then
+				KLog.LogError("CMirageAIMgr","Failed to get value from key 'walls' - ValueNode is null");
 				return false;
-			else
-				iBuildWalls=pxAINode^.GetValueI("walls");
-				m_bBuildWalls=iBuildWalls==1;
-				m_bBuildWallsChecked=true;
 			endif;
+			iBuildWalls = pxValueNode^.GetValueI("walls");
+			m_bBuildWalls = iBuildWalls == 1;
+			m_bBuildWallsChecked = true;
+			KLog.LogInfo("CMirageAIMgr", "Setting 'AIOptions/walls' = '" + m_bBuildWalls.ToString() + "'");
 			return m_bBuildWalls;
 		else
 			return m_bBuildWalls;
@@ -487,22 +326,16 @@ class CMirageAIMgr
 	endproc;
 	
 	export proc bool LevelingAllowed()
-		if(!m_bLevelingAllowedChecked)then
-			m_bLevelingAllowed=false;
-			var int iLevelingAllowed=0;
-			if(!m_xPoolMixer.IsValid())then
-				InitMixer();
-			endif;
-			if(m_xPoolMixer.IsValid())then
-				m_bLevelingAllowed = m_xPoolMixer.GetAttribValueInt("leveling_allowed")==1;
-				m_bLevelingAllowedChecked=m_bLevelingAllowed==true;
-			else
-				return false;
-			endif;
-			return m_bLevelingAllowed;
-		else
+		if(m_bLevelingAllowedChecked)then
 			return m_bLevelingAllowed;
 		endif;
+
+		var int iDwnLvlSwitch = 0;
+		m_bLevelingAllowedChecked = TryGetValue("Server/GameplayOptions/", "DwnLvlSwitch", "leveling_allowed", iDwnLvlSwitch, 0);
+		if(iDwnLvlSwitch > 0)then
+			m_bLevelingAllowed = true;
+		endif;
+		return m_bLevelingAllowed;
 	endproc;
 	
 	proc bool InitMixer()
@@ -519,60 +352,59 @@ class CMirageAIMgr
 		return true;
 	endproc;
 	
-	export static proc bool Debug(string p_sText)
-		return Debug(p_sText,true);
-	endproc;
-	
-	export static proc bool Debug(string p_sText, bool p_bTime)
-		var string sFile = "ai_log.txt";
-		if(!Filesystem.FileExists(sFile))then return false; endif;
-		var Filesystem.CFile xFile;
-		xFile.OpenAppend(sFile);
-		var string sPrefix;
-		if(p_bTime)then
-			sPrefix=CTime.CurrentTime().ToString()+": ";
-		endif;
-		xFile.PrintLn(sPrefix+p_sText);
-		xFile.Close();
-		return true;
-	endproc;
-	
 	export proc bool CheckCustomMapAISetting(string p_sLevelName, string p_sPlayerID, string p_sSetting)
 //		KLog.LogSpam("ParaworldFan-ALERT", "MirageAIMgr:CheckCustomMapAISetting("+p_sLevelName+", "+p_sSetting+") begin");
-		if(p_sLevelName.IsEmpty()||p_sSetting.IsEmpty())then return false; endif;
-		var bool bCustom = false;
-		if(m_pxCustomMapSettingsDB!=null)then
-//			KLog.LogSpam("ParaworldFan-ALERT", "root node != null");
-			var ^CPropDB.CNode pxLevelsNode=m_pxCustomMapSettingsDB^.Get("Levels");
-			if(pxLevelsNode!=null)then
-				p_sLevelName.Replace(" ", "_");
-//				KLog.LogSpam("ParaworldFan-ALERT", "MirageAIMgr:CheckCustomMapAISetting Looking for "+p_sLevelName+" with replaced spaces ...");
-				var ^CPropDB.CNode pxLevelNameNode = pxLevelsNode^.Get(p_sLevelName);
-				if(pxLevelNameNode!=null)then
-//					KLog.LogSpam("ParaworldFan-ALERT", "MirageAIMgr:CheckCustomMapAISetting LevelNameNode "+pxLevelNameNode^.Name()+" matched.");
-					var ^CPropDB.CNode pxSettingsNode = pxLevelNameNode^.Get("Custom");
-					if(pxSettingsNode!=null)then
-						var ^CPropDB.CNode pxAiNode = pxSettingsNode^.Get("Players");
-						if(pxAiNode!=null)then
-							var ^CPropDB.CNode pxAiPlayerNode = pxAiNode^.Get("Player_"+p_sPlayerID);
-							if(pxAiPlayerNode!=null)then
-								var ^CPropDB.CNode pxAiSettingNode = pxAiPlayerNode^.FindNode(p_sSetting, false);
-								if(pxAiSettingNode!=null)then
-//									KLog.LogSpam("ParaworldFan-ALERT", "MirageAIMgr:CheckCustomMapAISetting Custom Setting "+p_sSetting+" found.");
-									var string sValue = pxAiSettingNode^.Value();
-									bCustom = (sValue=="" || sValue.ToInt()==1);
-								endif;
-							endif;
-						endif;
-					endif;
-				endif;
-			endif;
+
+		if(p_sLevelName.IsEmpty() || p_sSetting.IsEmpty())then
+			KLog.LogError("CMirageAIMgr", "Failed to check custom map AI setting '" + p_sSetting + "' - levelname or key is empty");
+			return false;
 		endif;
-//		var string sCustom = "non-custom";
-//		if(bCustom)then sCustom = "custom"; endif;
-//		KLog.LogSpam("ParaworldFan-ALERT", "MirageAIMgr:CheckCustomMapAISetting Level "+p_sLevelName+" has "+sCustom+" "+p_sSetting);
-//		KLog.LogSpam("ParaworldFan-ALERT", "MirageAIMgr:CheckCustomMapAISetting("+p_sLevelName+", "+p_sSetting+") end");
-		return bCustom;
+		
+		if(m_pxCustomMapSettingsDB == null)then
+			KLog.LogWarn("CMirageAIMgr", "Failed to check custom map AI setting '" + p_sSetting + "' - m_pxCustomMapSettingsDB is null");
+			return false;
+		endif;
+		
+		var ^CPropDB.CNode pxLevelsNode=m_pxCustomMapSettingsDB^.Get("Levels");
+		if(pxLevelsNode == null)then
+			KLog.LogWarn("CMirageAIMgr", "Failed to check custom map AI setting '" + p_sSetting + "' - pxLevelsNode is null");
+			return false;
+		endif;
+		
+		p_sLevelName.Replace(" ", "_");
+		var ^CPropDB.CNode pxLevelNameNode = pxLevelsNode^.Get(p_sLevelName);
+		if(pxLevelNameNode == null)then
+			KLog.LogWarn("CMirageAIMgr", "Failed to check custom map AI setting '" + p_sSetting + "' - pxLevelNameNode is null");
+			return false;
+		endif;
+		
+		var ^CPropDB.CNode pxSettingsNode = pxLevelNameNode^.Get("Custom");
+		if(pxSettingsNode == null)then
+			KLog.LogWarn("CMirageAIMgr", "Failed to check custom map AI setting '" + p_sSetting + "' - pxSettingsNode is null");
+			return false;
+		endif;
+
+		var ^CPropDB.CNode pxAiNode = pxSettingsNode^.Get("Players");
+		if(pxAiNode == null)then
+			KLog.LogWarn("CMirageAIMgr", "Failed to check custom map AI setting '" + p_sSetting + "' - pxAiNode is null");
+			return false;
+		endif;
+		
+		var ^CPropDB.CNode pxAiPlayerNode = pxAiNode^.Get("Player_" + p_sPlayerID);
+		if(pxAiPlayerNode == null)then
+			KLog.LogWarn("CMirageAIMgr", "Failed to check custom map AI setting '" + p_sSetting + "' - pxAiPlayerNode is null");
+			return false;
+		endif;
+
+		var ^CPropDB.CNode pxAiSettingNode = pxAiPlayerNode^.FindNode(p_sSetting, false);
+		if(pxAiSettingNode == null)then
+			KLog.LogWarn("CMirageAIMgr", "Failed to check custom map AI setting '" + p_sSetting + "' - pxAiSettingNode is null");
+			return false;
+		endif;
+
+		var string sValue = pxAiSettingNode^.Value();
+		KLog.LogInfo("CMirageAIMgr", "Setting '" + p_sSetting + "' = '" + sValue + "'");
+		return (sValue=="" || sValue.ToInt()==1);
 	endproc;
 	
 endclass;
