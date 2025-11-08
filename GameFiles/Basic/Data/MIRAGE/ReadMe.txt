@@ -70,6 +70,7 @@ SEAS:
 - Seas scorpion HP during the build procces reduced to 7000
 - Seas scorpion skulls during the build process reduced to 250
 - Taslow machine now correctly appears when Taslow reaches tier 4 instead of incorrectly requiring him to be tier 5
+- Fixed bug when unupgraded bunker were showing alarm sign when the enemy unit was nearby
 
 AI:
  - You can ask AI player for help by writing "help" or "Help" in the dm or allies chat
