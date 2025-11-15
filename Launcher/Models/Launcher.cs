@@ -185,13 +185,13 @@ namespace MIRAGE_Launcher.Models
                 StartDiscordRPC();
             }
 
-            Directory.SetCurrentDirectory(Places.paraworldBinDir);
+            //Directory.SetCurrentDirectory(Places.paraworldBinDir);
             return true;
         }
 
         public static void RestoreSettings()
         {
-            if (!Places.launcherSettingsBackupFilePath.IsExist || !Places.launcherSettingsBackupFilePath.IsExist)
+            if (!Places.launcherSettingsBackupFilePath.IsExist)
             {
                 Log.Error(Locale.backupMissing);
                 return;

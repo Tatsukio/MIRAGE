@@ -340,7 +340,14 @@ namespace MIRAGE_Launcher.ViewModels
         private void OnStartSDK()
         {
             if (!Launcher.ReadyToStart()) return;
-            Process.Start($"{Places.paraworldBinDir}/{Places.pwProcesses[1]}.exe", " -leveled" + AddonMgr.GetCmdLine());
+            var SDK = new ProcessStartInfo
+            {
+                FileName = Path.Combine(Places.paraworldBinDir, Places.pwProcesses[1] + ".exe"),
+                Arguments = " -leveled" + AddonMgr.GetCmdLine(),
+                WorkingDirectory = Places.paraworldBinDir, //wont work without that
+                UseShellExecute = false
+            };
+            Process.Start(SDK);
             Launcher.StartPWKiller(true, false);
         }
 
