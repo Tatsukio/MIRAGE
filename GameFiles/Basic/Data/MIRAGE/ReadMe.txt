@@ -18,6 +18,7 @@ General:
  - Predefined map server settings Node have been integrated into new Custom map UI system
  - Single and Multiplayer campaign relation system has been improved. Players cant attack other neutral player if they are both in the same team from now on
  - Added new decorative citizens for Holy city setting
+ - Preview AI player names on Loading screen from now on translated
 
 Maps:
 
@@ -53,6 +54,7 @@ Heroes:
 Dustriders:
  - Shaman will play unique voicelines when using abilities
  - Fixed default dustriders 10000 points presets that would cause all units and resources to be removed after loading
+ - Floating harbour's turtles from now on playing death animation when harbour is destroyed
 
 Dragon Clan:
  - Harvester will play unique voicelines when attacking
