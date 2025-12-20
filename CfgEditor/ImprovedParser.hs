@@ -20,7 +20,8 @@ import Numeric (showHex)
 import Prelude hiding (lines)
 import Text.Printf (printf)
 import System.Directory (getAppUserDataDirectory)
-import System.IO (openFile, IOMode (ReadMode), hGetContents, hClose)
+import System.IO (openFile, IOMode (ReadMode, AppendMode), hGetContents, hClose, hSetEncoding, utf8, hPutStr)
+import GHC.IO.Encoding (mkTextEncoding, TextEncoding)
 import System.Environment (getArgs)
 import Trace.Hpc.Util (writeFileUtf8)
 import Data.List.Split.Internals (Chunk(Text))
@@ -234,7 +235,7 @@ spaces = safeLookahead >>= \case
   where
     isWhitespace c = c == ' ' || c == '\n' || c == '\r' || c == '\t'
 --dada
-set = "Allowed symbols: "++['a'..'z']++['A'..'Z']++[':','$','#','(',')','[',']','_','/','-']++['0'..'9']
+set = ['a'..'z']++['A'..'Z']++[':','$','#','(',')','[',']','_','/','-']++['0'..'9']++['А'..'Я']++['а'..'я']
 varname:: Parser String String
 varname = do
   c <- lookahead `elseThrow` "Expected rest of a string"
@@ -311,6 +312,10 @@ empty1 "" = True
 empty1 _ = False
 format1 str =initN $ concat$ fixSeparation $ map (fixlines . removeLastN . filter (/='\r')) (lines str)
 (Just bom) =  TH.decodeHex $ DT.pack "efbbbf" --
+
+cp1251Encoding :: IO TextEncoding
+cp1251Encoding = mkTextEncoding "CP1251"
+
 parsePath::FilePath->IO (Tree,Bool)
 parsePath path =
   do
@@ -320,7 +325,9 @@ parsePath path =
      let isBom = bom == c
      if isBom then 
         do
+          cp1251 <- cp1251Encoding
           contents1h <- openFile path ReadMode
+          hSetEncoding contents1h cp1251
           contents11 <- hGetContents contents1h
           let contents1 = drop 3 contents11
           let root = concat . words $ take 4 contents1
@@ -345,7 +352,9 @@ parsePath path =
                     putStrLn $show save
                     return (Node ("грешка","") [],isBom)
       else do
-       c2 <- openFile path ReadMode 
+       cp1251 <- cp1251Encoding
+       c2 <- openFile path ReadMode
+       hSetEncoding c2 cp1251
        contents3 <- hGetContents c2
        let numLines = length $ lines contents3
        let formated = format1 contents3
@@ -375,7 +384,9 @@ removeLastN str = if last str == '\n' then initN str else str
 tests = do
      path <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld\\Settings.cfg"
      tempPath <- getAppUserDataDirectory "SpieleEntwicklungsKombinat\\Paraworld"
+     cp1251 <- cp1251Encoding
      c2 <- openFile path ReadMode
+     hSetEncoding c2 cp1251
      contents3 <- hGetContents c2
      let save1 = runParser parseTree $ format1 contents3
      let a= runParser parseTree (format1 contents3)

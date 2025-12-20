@@ -20,6 +20,7 @@ General:
  - Added new decorative citizens for Holy city setting
  - Preview AI player names on Loading screen from now on translated
  - Shortcut fixes for various units of all tribes
+ - Player Names are colored in the currently selected player color when message is being sent in lobby chat from now on
 
 Maps:
 
