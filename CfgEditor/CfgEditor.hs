@@ -7,6 +7,7 @@ import ImprovedParser
 import Control.Monad
 import Control.Applicative
 import System.IO
+import GHC.IO.Encoding (mkTextEncoding, TextEncoding)
 import Data.List.Split (splitOn)
 import System.Environment
 import System.Directory
@@ -16,7 +17,6 @@ import System.Exit
 import System.FilePath(takeDirectory)
 import Text.ParserCombinators.ReadP (skipSpaces)
 import Foreign (ptrToIntPtr)
-
 
 iotest::Bool->String->IO String
 iotest b hpath =
@@ -72,11 +72,16 @@ iotest b hpath =
                                                         if isBom then 
                                                           do
                                                               BS.writeFile hpath bom
-                                                              appendFile hpath $show set
+                                                              cp1251 <- cp1251Encoding
+                                                              withFile hpath AppendMode $ \h -> do
+                                                                hSetEncoding h cp1251
+                                                                hPutStr h $ show set
                                                               iotest False hpath
                                                         else
                                                           do
+                                                            cp1251 <- cp1251Encoding
                                                             (tempName, tempHandle) <- openTempFile tempPath "temp"
+                                                            hSetEncoding tempHandle cp1251
                                                             hPutStr tempHandle $ show set
                                                             hClose tempHandle
                                                             renameFile tempName hpath
@@ -102,10 +107,15 @@ iotest b hpath =
                                                         do 
                                                           if isBom then do
                                                             BS.writeFile hpath bom
-                                                            appendFile hpath $show r
+                                                            cp1251 <- cp1251Encoding
+                                                            withFile hpath AppendMode $ \h -> do
+                                                              hSetEncoding h cp1251
+                                                              hPutStr h $ show r
                                                             iotest False hpath
                                                             else do
+                                                              cp1251 <- cp1251Encoding
                                                               (tempName, tempHandle) <- openTempFile tempPath "temp"
+                                                              hSetEncoding tempHandle cp1251
                                                               hPutStr tempHandle $ show r
                                                               hClose tempHandle
                                                               renameFile tempName hpath
@@ -127,7 +137,6 @@ iotest b hpath =
 
 strongEqTree::Tree->Tree->Bool
 strongEqTree (Node n1 t1) (Node n2 t2) = n1 == n2 && length t1==length t2 && and (zipWith strongEqTree t1 t2)
---s
 eqTree (Node n1 t1) (Node n2 t2) = n1 == n2
 
 nodeTrees (Node _ tree) = tree
@@ -277,10 +286,15 @@ mhm com@[r,p,path]
                             if isBom then 
                               do
                                 BS.writeFile path bom
-                                appendFile path $show r
+                                cp1251 <- cp1251Encoding
+                                withFile path AppendMode $ \h -> do
+                                  hSetEncoding h cp1251
+                                  hPutStr h $ show r
                               else do
+                                        cp1251 <- cp1251Encoding
                                         available<- checkMonadLock path
                                         (tempName, tempHandle) <- openTempFile tempPath "rem.txt"
+                                        hSetEncoding tempHandle cp1251
                                         hPutStr tempHandle $ show r
                                         hClose tempHandle
                                         rename <- try (renameFile tempName path):: IO (Either SomeException ())
@@ -316,11 +330,16 @@ mhm com@[c,p,value,path]
                                 
                                 if isBom then do
                                       BS.writeFile path bom
-                                      appendFile path $show set
+                                      cp1251 <- cp1251Encoding
+                                      withFile path AppendMode $ \h -> do
+                                        hSetEncoding h cp1251
+                                        hPutStr h $ show set
                                     else do
+                                      cp1251 <- cp1251Encoding
                                       available<- checkMonadLock path
                                       if available then do 
                                           (tempName, tempHandle) <- openTempFile tempPath "set.txt"
+                                          hSetEncoding tempHandle cp1251
                                           hPutStr tempHandle $ show set
                                           hClose tempHandle
                                           rename <- try (renameFile tempName path):: IO (Either SomeException ())
@@ -333,6 +352,7 @@ mhm com@[c,p,value,path]
                                         do
                                               checkMonadLock path
                                               (tempName, tempHandle) <- openTempFile tempPath "set.txt"
+                                              hSetEncoding tempHandle cp1251
                                               hPutStr tempHandle $ show set
                                               hClose tempHandle
                                               rename <- try (renameFile tempName path):: IO (Either SomeException ())
@@ -378,11 +398,16 @@ main =
                         do
                             if isBom then do
                                   BS.writeFile hcodepath bom
-                                  appendFile hcodepath $show set
+                                  cp1251 <- cp1251Encoding
+                                  withFile hcodepath AppendMode $ \h -> do
+                                    hSetEncoding h cp1251
+                                    hPutStr h $ show set
                                   return "Spawned"
                                 else 
                                   do
+                                            cp1251 <- cp1251Encoding
                                             (tempName, tempHandle) <- openTempFile tempPath "Set.txt"
+                                            hSetEncoding tempHandle cp1251
                                             hPutStr tempHandle $ show set
                                             hClose tempHandle
                                             rename <- try (renameFile tempName hcodepath):: IO (Either SomeException ())
@@ -438,11 +463,16 @@ main =
                                   (ptr,isBom) <- parsePath hcodepath 
                                   if isBom then do
                                     BS.writeFile hcodepath bom
-                                    appendFile hcodepath $show r
+                                    cp1251 <- cp1251Encoding
+                                    withFile hcodepath AppendMode $ \h -> do
+                                      hSetEncoding h cp1251
+                                      hPutStr h $ show r
                                     return "Deded"
                                   else do
+                                    cp1251 <- cp1251Encoding
                                     available<- checkMonadLock hcodepath
                                     (tempName, tempHandle) <- openTempFile tempPath "rem.txt"
+                                    hSetEncoding tempHandle cp1251
                                     hPutStr tempHandle $ show r
                                     hClose tempHandle
                                     rename <- try (renameFile tempName hcodepath):: IO (Either SomeException ())
