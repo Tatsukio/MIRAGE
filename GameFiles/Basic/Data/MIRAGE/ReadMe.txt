@@ -93,6 +93,7 @@ SDK:
 
 Launcher:
  - Version changed to .NET 8.0
+ - CFGEditor now uses CP1251 encoding, which fixes the hGetContents error when starting the game
  - The message about necessary but missing addons is now more informative
  - Pop-up windows are now translated when you change the language
  - LauncherDB.xml is divided into two separate Settings.xml and Locale.xml files
