@@ -21,8 +21,7 @@ General:
  - Preview AI player names on Loading screen from now on translated
  - Shortcut fixes for various units of all tribes
  - Player Names are colored in the currently selected player color when message is being sent in lobby chat from now on
-
-Maps:
+ - The pre-lobby window height has been increased
 
 COOP campaign and maps with custom gameplay:
  - Fixed crash during CrashRPG and BFPW Highland maps loading
@@ -68,6 +67,7 @@ Dragon Clan:
  - Large tower from now on has build shortcut
 
 Norsemen:
+ - Fixed workers pannier incorrect position
  - Druid will play unique voicelines when using abilities
  - Warriors will play unique voicelines when using jetpack
  - Stone guardian from now on has build shortcut
