@@ -35,20 +35,20 @@ COOP campaign and maps with custom gameplay:
  - CrashRPG SEAS HQ are no longer inveruable
 
 Campaign maps:
-- Fixed a bug that prevented boosterpack missions from being started
-- Added LoadScreen music for Tutorial, Devil's Advocate, Cold Day in Hell and in Operation Neptune
-- Fixed Mission 1: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
-- Fixed Mission 2: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
-- Fixed Mission 4: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
-- Fixed Mission 6: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
-- Fixed Mission 7: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
-- Fixed Mission 13: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
-- Fixed Mission 14: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
-- Fixed Mission B4-1: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
-- Fixed Mission B4-2: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
-- Fixed Mission B4-3: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
-- Fixed Mission B4-3: in the seas version fixed text in dialog scene, where dustrider was still referring to SEAS as "Pirates"
-- Pirate captain from now on will have saber instead of sword in missions 5,6,7,B42,B43
+ - Fixed a bug that prevented boosterpack missions from being started
+ - Added LoadScreen music for Tutorial, Devil's Advocate, Cold Day in Hell and in Operation Neptune
+ - Fixed Mission 1: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+ - Fixed Mission 2: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+ - Fixed Mission 4: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+ - Fixed Mission 6: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+ - Fixed Mission 7: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+ - Fixed Mission 13: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+ - Fixed Mission 14: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+ - Fixed Mission B4-1: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+ - Fixed Mission B4-2: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+ - Fixed Mission B4-3: Temporarily disabled sequence "recreation" trigger nodes which were causing issues
+ - Fixed Mission B4-3: in the seas version fixed text in dialog scene, where dustrider was still referring to SEAS as "Pirates"
+ - Pirate captain from now on will have saber instead of sword in missions 5,6,7,B42,B43
 
 Heroes:
  - Fixed missing zeppelin in Larry, Barry and Harry building menus
@@ -73,13 +73,14 @@ Norsemen:
  - Stone guardian from now on has build shortcut
 
 SEAS:
-- New buildings textures for jungle setting added
-- Seas scorpion HP during the build procces reduced to 7000
-- Seas scorpion skulls during the build process reduced to 250
-- Taslow machine now correctly appears when Taslow reaches tier 4 instead of incorrectly requiring him to be tier 5
-- Fixed bug when unupgraded bunker were showing alarm sign when the enemy unit was nearby
-- MGwalker from now on has build shortcut
-- Mobile suit 2 hidden passive abilities are from now on work correctly and requiring an upgrades to be invented in garage, similiar like for dragon clan archer multishot
+ - New buildings textures for jungle setting added
+ - Seas scorpion HP during the build procces reduced to 7000
+ - Seas scorpion skulls during the build process reduced to 250
+ - Taslow machine now correctly appears when Taslow reaches tier 4 instead of incorrectly requiring him to be tier 5
+ - Fixed bug when unupgraded bunker were showing alarm sign when the enemy unit was nearby
+ - MGwalker from now on has build shortcut
+ - Mobile suit 2 hidden passive abilities are from now on work correctly and requiring an upgrades to be invented in garage, similiar like for dragon clan archer multishot
+ - Added reactor core for steelwork
 
 AI:
  - You can ask AI player for help by writing "help" or "Help" in the dm or allies chat
