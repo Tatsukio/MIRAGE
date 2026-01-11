@@ -8,6 +8,7 @@ General:
  - Fixed missing eighth player name in the statistics window - timeline tab
  - Fixed a bug with the build cursor that disappears if allied buildup option was disabled
  - Fixed a bug where a unit queued at an unbuilt SEAS or dustriders port was showing production progress same as that ports construction progress
+ - Fixed a bug which was displaying incorrect wild animal's nest HealthBar color if the nest was respawned after death on non aggressive animal nests with aggressive animals in it
  - Chat window has been increased and now uses multiline
  - Added chat player colors to the recipient selection dropdown menu (in match only)
  - Added COOP campaign and custom maps sorting in map list
@@ -62,12 +63,14 @@ Dragon Clan:
  - Water turret's ghost from now on has turret
  - Fixed dilophosaurus nest and palisade wall disappearing from build menu under certain conditions
  - Fixed incorrect rotation of turret and pterodactyl for rocket ramp while playing death animation
+ - Fixed spawn of addons while the epoch 6 was researched on still unbuilded fireplace
  - Seismosaurus enchain can no longer be used on units currently performing a jetpack jump or using ladders
  - Pirate ship from now on has build shortcut
  - Large tower from now on has build shortcut
 
 Norsemen:
  - Fixed workers pannier incorrect position
+ - Fixed spawn of addons while the epoch 6 was researched on still unbuilded fireplace
  - Druid will play unique voicelines when using abilities
  - Warriors will play unique voicelines when using jetpack
  - Stone guardian from now on has build shortcut
@@ -78,6 +81,7 @@ SEAS:
  - Seas scorpion skulls during the build process reduced to 250
  - Taslow machine now correctly appears when Taslow reaches tier 4 instead of incorrectly requiring him to be tier 5
  - Fixed bug when unupgraded bunker were showing alarm sign when the enemy unit was nearby
+ - Fixed spawn of addons while the epoch 6 was researched on still unbuilded fireplace
  - MGwalker from now on has build shortcut
  - Mobile suit 2 hidden passive abilities are from now on work correctly and requiring an upgrades to be invented in garage, similiar like for dragon clan archer multishot
  - Added reactor core for steelwork
