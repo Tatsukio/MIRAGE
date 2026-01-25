@@ -23,6 +23,8 @@ General:
  - Shortcut fixes for various units of all tribes
  - Player Names are colored in the currently selected player color when message is being sent in lobby chat from now on
  - The pre-lobby window height has been increased
+ - Newly respawned nest from now on inherits from parent's nest the count of how many times full breed of animals will be spawned, before this count was infinity for respawned nests
+ - Aggressive water animals count in nests are no longer infinity, if the max respawn count is infinity then only 2 times all animals will be respawned
 
 COOP campaign and maps with custom gameplay:
  - Fixed crash during CrashRPG and BFPW Highland maps loading
