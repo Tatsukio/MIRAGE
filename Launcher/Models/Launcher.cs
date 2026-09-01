@@ -191,7 +191,7 @@ namespace MIRAGE_Launcher.Models
 
         public static void RestoreSettings()
         {
-            if (!Places.launcherSettingsBackupFilePath.IsExist)
+            if (!Places.settingsBackupFilePath.IsExist)
             {
                 Log.Error(Locale.backupMissing);
                 return;
@@ -217,13 +217,10 @@ namespace MIRAGE_Launcher.Models
         public static void AskCreateSettingsBackup()
         {
             if (!Places.settingsFilePath.IsExist) return;
+            if (Places.settingsBackupFilePath.IsExist && MessageBox.Show(Locale.overwriteBackup, Locale.warning, MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
 
-            FileInfo settings = new(Places.settingsFilePath.Full);
-            if (Places.settingsBackupFilePath.IsExist && MessageBox.Show(Locale.overwriteBackup, Locale.warning, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
-            {
-                settings.CopyTo(Places.settingsBackupFilePath.Full, true);
-                Log.Info(Locale.backupCreated);
-            }
+            File.Copy(Places.settingsFilePath.Full, Places.settingsBackupFilePath.Full, overwrite: true);
+            Log.Info(Locale.backupCreated);
         }
 
         public static async Task CheckMirageVersionAsync()
