@@ -26,7 +26,7 @@ namespace MIRAGE_Launcher.ViewModels
         {
             MenuBackground = Launcher.GetMenuBg();
 
-            mediaPlayer.Volume = 0.25;
+            mediaPlayer.Volume = 0.2;
             mediaPlayer.MediaEnded += (sender, eventArgs) => GenerateNewUI();
             IsMusicPlaying = Settings.GetB("Launcher", "bMusicOnStartup");
             GenerateNewUI();
@@ -64,15 +64,45 @@ namespace MIRAGE_Launcher.ViewModels
 
         private void GenerateNewUI()
         {
-            int rndId = new Random().Next(1, 85);
+            int rndId = Random.Shared.Next(1, 85);
 
             LauncherBackground = Launcher.GetBgImage(rndId);
 
-            mediaPlayer.Open(new Uri(Launcher.GetMusic(rndId), UriKind.Relative));
+            string musicPath = Launcher.GetMusic(rndId);
+
+            if (string.IsNullOrWhiteSpace(musicPath)) return;
+
+            try
+            {
+                mediaPlayer.Stop();
+                mediaPlayer.Close();
+
+                mediaPlayer.MediaOpened -= MediaPlayer_MediaOpened;
+                mediaPlayer.MediaFailed -= MediaPlayer_MediaFailed;
+
+                mediaPlayer.MediaOpened += MediaPlayer_MediaOpened;
+                mediaPlayer.MediaFailed += MediaPlayer_MediaFailed;
+
+                Uri.TryCreate(musicPath, UriKind.Absolute, out Uri musicUri);
+                mediaPlayer.Open(musicUri);
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Failed to play music: {ex.Message}");
+            }
+        }
+
+        private void MediaPlayer_MediaOpened(object sender, EventArgs e)
+        {
             if (IsMusicPlaying)
             {
                 mediaPlayer.Play();
             }
+        }
+
+        private void MediaPlayer_MediaFailed(object sender, ExceptionEventArgs e)
+        {
+            Log.Error($"Failed to play music: {e.ErrorException?.Message ?? "Unknown error"}");
         }
 
         private void LoadLocale()
