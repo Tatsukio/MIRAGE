@@ -9,6 +9,7 @@ General:
  - Fixed a bug with the build cursor that disappears if allied buildup option was disabled
  - Fixed a bug where a unit queued at an unbuilt SEAS or dustriders port was showing production progress same as that ports construction progress
  - Fixed a bug which was displaying incorrect wild animal's nest HealthBar color if the nest was respawned after death on non aggressive animal nests with aggressive animals in it
+ - Fixed a bug where the corpse vanishing effect worked correctly only at zero world coordinates
  - Chat window has been increased and now uses multiline
  - Added chat player colors to the recipient selection dropdown menu (in match only)
  - Added COOP campaign and custom maps sorting in map list
