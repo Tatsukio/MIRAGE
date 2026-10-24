@@ -12,7 +12,7 @@ General:
  - Fixed a bug where the corpse vanishing effect worked correctly only at zero world coordinates
  - Chat window has been increased and now uses multiline
  - Added chat player colors to the recipient selection dropdown menu (in match only)
- - Added COOP campaign and custom maps sorting in map list
+ - Added multiplayer campaign and custom maps sorting in map list
  - Map names highlighting and name prefixes being removed
  - Fixed incorrect description of Anti-Pause Mirage Server Option in Russian Localization
  - Added player handicap(HP) option for Custom map control options
@@ -27,15 +27,15 @@ General:
  - Newly respawned nest from now on inherits from parent's nest the count of how many times full breed of animals will be spawned, before this count was infinity for respawned nests
  - Aggressive water animals count in nests are no longer infinity, if the max respawn count is infinity then only 2 times all animals will be respawned
 
-COOP campaign and maps with custom gameplay:
+Multiplayer campaign and maps with custom gameplay:
  - Fixed crash during CrashRPG and BFPW Highland maps loading
- - Fixed multiplayer crash for non host players while playing along with AI players
+ - Fixed human player server disconnection while AI player's behavior changes during game
  - Fixed some errors which were not applying customSettings for custom maps
- - Fixed issue when in COOP campaign it was possible to set MaxPlayers value higher than any map in list had
+ - Fixed issue when in multiplayer campaign it was possible to set MaxPlayers value higher than any map in list had
  - Ally control available on missions 5, 11, 16 and B42
- - On CRASH RPG Map Host Difficulty default value is 9 from now on
+ - On CrashRPG Map Host Difficulty default value is 9 from now on
  - Disabled revealing for remaining player units after all HQ's are destroyed for Multiplayer Campaign mode
- - CrashRPG SEAS HQ are no longer inveruable
+ - CrashRPG SEAS HQ are no longer invulnerable
 
 Campaign maps:
  - Fixed a bug that prevented boosterpack missions from being started
@@ -118,7 +118,7 @@ MIRAGE 2.6.7
 ------------------
 
 General:
- - New game-mechanics server setting added: "Ally control"  - if enabled you can control your ally's units, and they can control yours
+ - New game-mechanics server setting added: "Ally control" - if enabled you can control your ally's units, and they can control yours
  - Walls and gates are available from epoch 1 for each tribe now
  - Ships and floating buildings can now be frozen
  - Added a separate sub-menu to the build menu to display buildable units (seas scorpion, trader zeppelin)
@@ -167,15 +167,15 @@ Maps:
  - Northland version of Yggdrasil map added
  - Heilige Stage's production buildings always visible in FOW for all players from now on
 
-COOP campaign and maps with custom gameplay:
+Multiplayer campaign and maps with custom gameplay:
  - Multiple custom maps game mechanic were improved and reworked
  - Custom settings ​​will affect lobby creation window ui and lobby ui from now on
  - Lobby settings ​​will affect gameplay from now on
  - Custom maps has their own game mode "Custom" from now on
  - Hidden AI players are not displayed at the game end statistics window from now on
- - COOP maps are marked as "Campaign" instead of regular "Deathmatch" in lobby from now on
- - COOP maps can be started with just one player in lobby. The remaining slots will be filled up with AI automatically
- - COOP maps will use difficulty levels, pointbuy system, map preview images, background overlays, loading screen backgrounds and heroes diaries just like regular campaign maps
+ - Multiplayer campaign maps are marked as "Campaign" instead of regular "Deathmatch" in lobby from now on
+ - Multiplayer campaign maps can be started with just one player in lobby. The remaining slots will be filled up with AI automatically
+ - Multiplayer campaign maps will use difficulty levels, pointbuy system, map preview images, background overlays, loading screen backgrounds and heroes diaries just like regular campaign maps
 
 Campaign maps:
  - Amazon warrior have female voiceover instead of male one from now on
@@ -187,7 +187,7 @@ Campaign maps:
  - Fixed Blocked Slots Lobby preview issue
  - Fixed disebmark issue
  - Fixed FreeSpecials issue
- - Mission 6: Uncompleteable issue fixed
+ - Mission 6: Uncompletable issue fixed
  - Mission 8: The Valley of The Gods Kleeman from now on visible in PointBuy
 
 Heroes:
@@ -263,7 +263,7 @@ SDK:
  - Level terrain can be saved as .obj mesh with "Export to .obj" button at icons bar
  - Northland setting textures for icewaste vegetation added
  - Fixed seas_great_cannon placing
- - Fixed seas_final_boss level placing. ALways placed on level 5 by default now
+ - Fixed seas_final_boss level placing. Always placed on level 5 by default now
  - Added custom map creation workspace with lots of options to set up specific settings for your own custom maps
 
 MIRAGE 2.6.6
@@ -487,7 +487,7 @@ SEAS:
  - Campaign Babbage mobile suit from now on has a poison upgrade for range attack just like terminator, poison damage is 100/125/150/180/200 per 15 ticks
 
 AI:
- - AI now detects and threats the specific heroe units as Hero Classes: Babbage mobile suit, and Schliemann zombie (custom map hero)
+ - AI now detects and threats the specific heroe units as Hero Classes: Babbage mobile suit, and Schliemann zombie (campaign map hero)
  - Norsemen builds mud pits from now on
  - Norsemen upgrades steam tank cannon from now on
  - SEAS and Norsemen builds the stone mines from now on
@@ -569,7 +569,7 @@ General:
  - Deleted unused portraits_dialog.tga and ingame_ui.tga from All_def.txt
  - Wintermod 1.7 included (enable/disable in PWTool)
  - Wintermod: wrong hu_triceratops_transporter lod fixed
- - Wintermod: fixed missing lemur_catta,ice_sloth_a textures for hu_fireplace
+ - Wintermod: fixed missing lemur_catta, ice_sloth_a textures for hu_fireplace
  - Unused shielbars ui textures removed
  - Unused old_loadbg_seas2.jpg deleted
  - Added missing objbrush textures for aje_skull_protector, ninigi_dilophosaurus_nest, hu_magic_cauldron
@@ -583,28 +583,28 @@ General:
  - Heterodontosaurus corpse have food now
  - The hu_avatar have icons on all 5 levels from now on
  - The pirate ship_chain have icon and hitpoints from now on
- - All multicampaign maps have now localized names
- - Fixed bug in multicampaign maps when the quest description was not displaying
- - Fixed bugs in multicampaign maps: Pirates and Hostages and The Devil's Advocate: from now on the Pirates will no longer attack you until you attack first, during the bargain subquest. The Norsemen and Dustriders tribe will now join Heroes team after the Keystone destruction.
- - Diplomacy window being locked in multicampaign maps.
+ - All multiplayer campaign maps have now localized names
+ - Fixed bug in multiplayer campaign maps when the quest description was not displaying
+ - Fixed bugs in multiplayer campaign maps: Pirates and Hostages and The Devil's Advocate: from now on the Pirates will no longer attack you until you attack first, during the bargain subquest. The Norsemen and Dustriders tribe will now join Heroes team after the Keystone destruction.
+ - Diplomacy window being locked in multiplayer campaign maps.
  - Neutral allies will no longer gain vision to the heroes until its necessary.
  - Some multiplayer maps got their name changed for better script work.
- - The Quest window from now on available only in singleplayer and multicampaign mode.
+ - The Quest window from now on available only in singleplayer and multiplayer campaign mode.
  - The brown color replacer was now changed to dark green.
- - Mission 11: The arena of the multicampaign are no longer counts auto_victory from the level_start
+ - Mission 11: The arena of the multiplayer campaign are no longer counts auto_victory from the level_start
  - All ships (including dustrider's floating harbor and seas_carrier) and vehicles have poison and ice immunity from now on
- - Seas now are fully playable on mission b42 in multicampaign
+ - Seas now are fully playable on mission b42 in multiplayer campaign
  - The allied defenders for heroes are now allies and enemies to paraworld tribes on mission b41
  - Removed falling stones for norsemen on mission b41
  - The tents and dinofarms of dustriders can again be converted from now on
  - All army production buildings, taverns and tribe HQ's have building limit up to 5 from now on
  - Fixed bug on mission 7:The Water Temple of singleplayer campaign that kill black widows quest was not counting as completed after spiders death
  - Fixed pointbuy problem on multiplayer map "Prisoners" for infantry only game mode
- - On mission 12: The seas battle of the multicampaign building limit on seas_carriers was increased up to 5 ships
+ - On mission 12: The seas battle of the multiplayer campaign building limit on seas_carriers was increased up to 5 ships
  - Reworked building limit on mission 4:The Dustriders
  - Seas_headquarters map was optimized by removing useless triggers and using IdiObj
- - Multicampaign maps 06, 15, B41 and b43 now being switched in new game mode system
- - Some settings of custom_level_data were removed which were probably causing the connection problems in multicampaign
+ - Multiplayer campaign maps 06, 15, B41 and b43 now being switched in new game mode system
+ - Some settings of custom_level_data were removed which were probably causing the connection problems in multiplayer campaign
  - Added unused icon for winter version of mammal cave
  - Fixed bug with undead and zombie warrior lvl 4 shield model
  - Changed description for hu_undead_killer, hu_berserk_statue, hu_undead_warrior, for hu_avatar, for hu_colossi, for hu_kennel, for hu_kennel smilodon, for pirate_boss_ship parts
@@ -706,9 +706,9 @@ General:
  - Fixed missing sound file "07_speech_acks/Ninigi/Kong/ninigi_kong_hit_3.wav" in file "unitacks_ninigi_kong.txt"
 
 AI:
- - The AI on multicampaign maps will have behavior close to singleplayer ones.
+ - The AI on multiplayer campaign maps will have behavior close to singleplayer ones.
  - On missions: Pirates and hostages, The New World Order and Operation Neptune unplayable bases controlled by AI will no longer be dumb.
- - The AI will no longer loot the items in multicampaign.
+ - The AI will no longer loot the items in multiplayer campaign.
  - Added ability to produce seas_hovercraft in garage
  - Added ability to produce seas_gunner, rocketman, flamethrower and medic in barracks
  - Added ability to produce seas_executioner on lvl 4 in garage
@@ -791,9 +791,9 @@ MIRAGE 2.6.3
 ------------------
 
 General:
- - Added OverVored's new defender map, based on mission 15 and 16
+ - Added new defender map "The New World Order", based on campaign mission 15 and 16
  - Revamped many UI decoration, including MIRAGE launcher's buttons - thanks to Zidell
- - Added -2 player option to SFOW trigger action (Uncover Fog-Of-War), which removes FOW for all players at the same time
+ - Added "-2" player option to SFOW trigger action (Uncover Fog-Of-War), which removes FOW for all players at the same time
  - Added rider link to Apatosaurus and Archeopteryx - thanks to Zidell
  - Transport units, which have unload animation, will play it while mounting or dismounting units
  - Added several (mostly seas) units player colors (thanks to Zidell)
