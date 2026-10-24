@@ -1683,17 +1683,30 @@ class CPlayerInfoSlot inherit CStaticCtrl
 		return true;
 	endproc;
 	
+	//MIRAGE: only the slot's owner, or the host for an AI slot, writes to the slot from this class. UpdateAllEntries runs
+	//on every client for every slot on each level info update and calls OnChangeTeam / OnChangeColor; a client with an
+	//older copy of another player's slot wrote that old value back, which caused the next update (see GetInfoFromLevelInfo).
+	proc bool CanWriteSlot()
+		if(m_pxPlayerSlot==null)then return false; endif;
+		if(m_bIsSkirmishMode)then return true; endif; //(one client edits every slot, as in OnClickReady)
+		if(m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID())then return true; endif;
+		var bool bHost = (CGameWrap.GetClientID()==CMultiPlayerClientMgr.Get().GetHostID());
+		return bHost && m_pxPlayerSlot^.GetType().Left(3)=="ai_";
+	endproc;
+	
 	proc bool OnChangeTeam()
-		if(m_pxPlayerSlot!=null)then
+		if(CanWriteSlot())then
 			var int iTeam=m_pxTeamDropList^.GetSelectedItemAsString().ToInt();
 			//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeTeam() iTeam=="+iTeam.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
-			m_pxPlayerSlot^.SetTeam(iTeam);
+			if(iTeam!=m_pxPlayerSlot^.GetTeam())then
+				m_pxPlayerSlot^.SetTeam(iTeam);
+			endif;
 		endif;
 		return(true);
 	endproc;
 	
 	proc bool OnChangeColor()
-		if(m_pxPlayerSlot!=null)then
+		if(CanWriteSlot())then
 			var int iSelItem=m_pxColorDropList^.GetSelectedItem();
 			if(iSelItem!=-1)then
 				var bool bOwn = (m_xPlayerSlotID == CGameWrap.GetClient().GetPlayerSlotID());
@@ -1703,7 +1716,9 @@ class CPlayerInfoSlot inherit CStaticCtrl
 					var int iRandomColor = CGameWrap.GetGame().GetAttribInt("RandomColor");
 					if(iRandomColor==0)then
 						//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeColor() iColor=="+iColor.ToString()+" for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
-						m_pxPlayerSlot^.SetColor(iColor);
+						if(iColor!=m_pxPlayerSlot^.GetColor())then
+							m_pxPlayerSlot^.SetColor(iColor);
+						endif;
 						if(bOwn)then
 							CClientWrap.SetUserProfileValue("Multiplayer/Color",iColor);
 						endif;
@@ -1888,43 +1903,41 @@ class CPlayerInfoSlot inherit CStaticCtrl
 		return true;
 	endproc;
 	
+	//MIRAGE: PlayerListWindow.OnLevelInfoUpdate calls this for EVERY slot on EVERY client, before GetInfoFromLevelInfo
+	//refreshes the drop lists. Every client used to write the Defender team of every slot, from its HQ drop list (one update
+	//old): clients with different views overwrote each other, and each write caused the next level info update. Now only
+	//the slot's owner (the host for AI slots) writes, the team follows the HQ stored in the slot, and only a changed value
+	//is written.
 	export proc bool OnChangeMapExt()
-		if(m_pxPlayerSlot!=null)then
-			//KLog.LogSpam("ParaworldFan","PlayerInfoSlot: OnChangeMapExt() function being called up for PlayerSlot_"+m_pxPlayerSlot^.GetPlayerSlotID().ToString());
-			var int iSelItem=m_pxHQDropList^.GetSelectedItem();
-			if(iSelItem!=-1)then
-				var ^CItemDataInt pxItemData=cast<CItemDataInt>(m_pxHQDropList^.GetItemData(iSelItem));
-				if(pxItemData!=null)then
-//					m_pxPlayerSlot^.SetHeadQuater(pxItemData^.m_iData);
-					var int iGameType = CGameWrap.GetGame().GetType();
-					if(iGameType==2)then//Defender	//Something related to teams in defender
-						var int iTeam=2;
-						if(pxItemData^.m_iData==0)then
-							iTeam=1;
-						endif;
-						begin TeamCheck;
-							var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
-							if(pxLevelInfo!=null)then
-								var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
-								if(pxGenericDB!=null)then
-									var ^CPropDB.CNode pxTeams=pxGenericDB^.FindNode("ClientSettings/DefendTeams",false);
-									if(pxTeams!=null)then
-										var array string asTeams;
-										var string sTeams=pxTeams^.Value();
-										if(!sTeams.IsEmpty())then
-											sTeams.Split(asTeams,":",true);
-											if(asTeams.NumEntries()>pxItemData^.m_iData)then
-												iTeam=Math.Clamp(asTeams[pxItemData^.m_iData].ToInt(),1,2);
-											endif;
-										endif;
-									endif;
-								endif;
+		if(!CanWriteSlot())then return true; endif;
+		var int iGameType = CGameWrap.GetGame().GetType();
+		if(iGameType!=2)then return true; endif; //Defender: the team follows the HQ
+		var int iHQ = m_pxPlayerSlot^.GetHeadQuater();
+		var int iTeam=2;
+		if(iHQ==0)then
+			iTeam=1;
+		endif;
+		begin TeamCheck;
+			var ^CLevelInfo pxLevelInfo = CMultiPlayerClientMgr.Get().GetLevelInfo();
+			if(pxLevelInfo!=null)then
+				var ^CPropDB pxGenericDB=^(pxLevelInfo^.GetGenericData());
+				if(pxGenericDB!=null)then
+					var ^CPropDB.CNode pxTeams=pxGenericDB^.FindNode("ClientSettings/DefendTeams",false);
+					if(pxTeams!=null)then
+						var array string asTeams;
+						var string sTeams=pxTeams^.Value();
+						if(!sTeams.IsEmpty())then
+							sTeams.Split(asTeams,":",true);
+							if(iHQ>=0 && asTeams.NumEntries()>iHQ)then
+								iTeam=Math.Clamp(asTeams[iHQ].ToInt(),1,2);
 							endif;
-						end TeamCheck;
-						m_pxPlayerSlot^.SetTeam(iTeam);
+						endif;
 					endif;
 				endif;
 			endif;
+		end TeamCheck;
+		if(iTeam!=m_pxPlayerSlot^.GetTeam())then
+			m_pxPlayerSlot^.SetTeam(iTeam);
 		endif;
 		return true;
 	endproc;

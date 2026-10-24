@@ -51,6 +51,8 @@ class CLevelSettingsPage inherit CWindow
 	
 	var bool					m_bShowPassword;
 	var bool 					m_bInit;
+	var bool					m_bChangingGameType;	//MIRAGE: OnChangeGameType rebuilds the lists; OnSelectMap must not apply map settings meanwhile
+	var int						m_iSilent;				//MIRAGE: >0 while settings are written by code, not by the user
 	
 	
 	export constructor()
@@ -66,6 +68,8 @@ class CLevelSettingsPage inherit CWindow
 	
 	export proc void Init(^CMapListWindow p_pxOwner,bool p_bShowPassword)
 		m_bInit = false;
+		m_bChangingGameType = false;
+		m_iSilent = 0;
 		m_bShowPassword = p_bShowPassword;
 		
 		if(!InitFromResource("UI/LevelSettingsPage","LevelSettingsPage"))then
@@ -469,22 +473,34 @@ class CLevelSettingsPage inherit CWindow
 			return false;
 		endif;
 		m_iGameType=iGameType;
-		var string sLevelName=GetSelectedLevelName(GetSelectedLevelCheckSumme());
+		m_iSilent++;
+		//MIRAGE: the map that was active before the type changed
 		var string sPrevLevelName=GetSelectedLevelName(CClientWrap.GetUserProfileValue("Multiplayer/LastSelectedMap",""));
-		//KLog.LogSpam("Kr1s1m", "LevelSettingsPage:OnChangeGameType(): UpdateCustomMapSettings called.");
+		//MIRAGE: rebuild the player and map lists for the new type FIRST. Before, UpdateCustomMapSettings ran while the map
+		//list still showed the old type's map, and the callbacks of the rebuild (OnChangePlayers -> ReloadHostMapList ->
+		//OnSelectMap) applied the new map's settings in between, with the old game type still in the profile: the backup
+		//got the custom values, the controls the new map had locked were unlocked again, and the next OnSelectMap saw no
+		//map change and did nothing. Now OnSelectMap only follows the selection while the lists are rebuilt...
+		m_bChangingGameType=true;
 		OnChangeMaxPlayers();
+		ReloadHostMapList();
+		OnSelectMap(); //(LastSelectedMap, preview and PointBuy UI follow the list even when Select() fired no callback)
+		m_bChangingGameType=false;
+		//MIRAGE: ...and the settings are applied once, for the real old and new map, while the profile still holds the
+		//previous type (UpdateCustomMapSettings compares the two)
+		var string sLevelName=GetSelectedLevelName(GetSelectedLevelCheckSumme());
 		UpdateCustomMapSettings(sLevelName, sPrevLevelName); //Kr1s1m: Handle settings in relation to GameType and sLevelName
 		CClientWrap.SetUserProfileValue("Multiplayer/GameType",iGameType); //Kr1s1m: Update GameType with selected in dropdown
 		m_pxDefenderTimer^.SetDisabled(iGameType!=2); //Kr1s1m: Disable defender timer if GameType is not Defender
 		m_pxDefenderTimerStat^.SetDisabled(iGameType!=2);
-		ReloadHostMapList();
-		OnSelectMap();
+		m_iSilent--;
 		return true;
 	endproc;
 	
 	export proc bool OnChangeDefenderTimer()
 		var int iValue=m_pxDefenderTimer^.GetValueInt();
 		CClientWrap.SetUserProfileValue("Multiplayer/DefenderTimer",iValue);
+		StoreUserLevelSetting("DefenderTimer");
 		return true;
 	endproc;
 	
@@ -495,6 +511,7 @@ class CLevelSettingsPage inherit CWindow
 	
 	export proc bool OnChangePassword()
 		CClientWrap.SetUserProfileValue("Multiplayer/Password",m_pxPassword^.GetText());
+		StoreUserLevelSetting("Password");
 		return true;
 	endproc;
 
@@ -518,27 +535,32 @@ class CLevelSettingsPage inherit CWindow
 			iPort=1905;
 		endif;
 		CClientWrap.SetUserProfileValue("Multiplayer/Port",iPort);
+		StoreUserLevelSetting("Port");
 		m_pxPort^.SetText(iPort.ToString());
 		return true;
 	endproc;
 	
 	export proc bool OnChangeChooseHQ()
 		CClientWrap.SetUserProfileValue("Multiplayer/ChooseHQ",m_pxChooseHQ^.GetChecked());
+		StoreUserLevelSetting("ChooseHQ");
 		return true;
 	endproc;
 	
 	export proc bool OnChangeChooseColor()
 		CClientWrap.SetUserProfileValue("Multiplayer/ChooseColor",m_pxChooseColor^.GetChecked());
+		StoreUserLevelSetting("ChooseColor");
 		return true;
 	endproc;
 	
 	export proc bool OnChangeDisableWarpgate()
 		CClientWrap.SetUserProfileValue("Multiplayer/DisableWarpgate",m_pxDisableWarpgate^.GetChecked());		
+		StoreUserLevelSetting("DisableWarpgate");
 		return true;
 	endproc;
 	
 	export proc bool OnChangeDisableFOW()
 		CClientWrap.SetUserProfileValue("Multiplayer/DisableFOW",m_pxDisableFOW^.GetChecked());		
+		StoreUserLevelSetting("DisableFOW");
 		return true;
 	endproc;
 		
@@ -546,6 +568,7 @@ class CLevelSettingsPage inherit CWindow
 		CClientWrap.SetUserProfileValue("Multiplayer/LockDiplomacy",m_pxLockDiplomacy^.GetChecked());
 		var CConfig xConf;
 		xConf.SetB("Server/GameplayOptions/DiploLocked",m_pxLockDiplomacy^.GetCheckMark());
+		StoreUserLevelSetting("LockDiplomacy");
 		var int iPlayers=m_pxMaxPlayers^.GetSelectedItemAsString().ToInt();
 		CheckNumTeams(iPlayers);
 		return true;
@@ -553,12 +576,14 @@ class CLevelSettingsPage inherit CWindow
 	
 	export proc bool OnChangeAllowHandicap()
 		CClientWrap.SetUserProfileValue("Multiplayer/AllowHandicap",m_pxAllowHandicap^.GetChecked());
+		StoreUserLevelSetting("AllowHandicap");
 		return true;
 	endproc;
 	
 	export proc bool OnChangeTeams()
 		var int iTeams=m_pxTeams^.GetSelectedItemAsString().ToInt();
 		CClientWrap.SetUserProfileValue("Multiplayer/NumTeams",iTeams);
+		StoreUserLevelSetting("NumTeams");
 		//Kr1s1m: [Optimization] ReloadHostMapList call not needed - function logic does not depend on teams
 		//ReloadHostMapList();
 		//Kr1s1m: Disabled and unchecked diplomacy if teams dropdown is currently set to 1
@@ -585,6 +610,7 @@ class CLevelSettingsPage inherit CWindow
 		endif;
 		CClientWrap.SetUserProfileValue("Multiplayer/Credits",iCredits);
 		//KLog.LogSpam("Kr1s1m-ALERT", "===S==E==T======> OnChangePoints(): Multiplayer/Credits set to "+iCredits.ToString());
+		StoreUserLevelSetting("Credits");
 		return(true);
 	endproc;
 
@@ -699,7 +725,7 @@ class CLevelSettingsPage inherit CWindow
 				m_pxOwner^.UpdateGameInfoWindow();
 				var string sLevelName=GetSelectedLevelName(sLevelCheckSumme);
 				var string sPrevLevelName=GetSelectedLevelName(sTmp);
-				if(sLevelName!="?" && m_bInit)then
+				if(sLevelName!="?" && m_bInit && !m_bChangingGameType)then
 					//KLog.LogSpam("Kr1s1m", "LevelSettingsPage:OnSelectMap(): UpdateCustomMapSettings called.");
 					UpdateCustomMapSettings(sLevelName, sPrevLevelName);
 				endif;
@@ -899,6 +925,58 @@ class CLevelSettingsPage inherit CWindow
 		//KLog.LogSpam("Kr1s1m", "LevelSettingsPage:SetAndLockCustomMapLevelSettings end");
 	endproc;
 	
+	//MIRAGE: game types 0, 3 (Special Maps) and 4 (Multiplayer Campaign) use the Deathmatch rules, 1 and 2 their own
+	proc int GetGameTypeRules(int p_iGameType)
+		if(p_iGameType==1 || p_iGameType==2)then return p_iGameType; endif;
+		return 0;
+	endproc;
+	
+	//MIRAGE: true when the selected map or game type locks this setting, so the value in the profile is not the user's
+	proc bool IsLevelSettingOverridden(string p_sSettingName)
+		var string sLevelName=GetSelectedLevelName(GetSelectedLevelCheckSumme());
+		if(CMirageClnMgr.Get().IsCustomMapSetting(sLevelName,p_sSettingName))then return true; endif;
+		if(p_sSettingName=="Credits" && GetCustomMapPoints(sLevelName)!=-404)then return true; endif;
+		var int iRules=GetGameTypeRules(m_pxGameType^.GetSelectedItem());
+		if(iRules!=0 && p_sSettingName=="LockDiplomacy")then return true; endif;
+		if(iRules==2 && p_sSettingName=="ChooseHQ")then return true; endif;
+		return false;
+	endproc;
+	
+	//MIRAGE: a setting the user changed by hand also goes into the level settings backup (this one value only), so the
+	//next restore (switching map or game type, or the host page that replaces this page in the lobby) gives the user's
+	//choice back instead of an older one. Values written by code (init, restore, custom maps, game type rules) are not
+	//stored: a full BackupLevelSettings() here would copy a custom map's locked values into the backup.
+	proc void StoreUserLevelSetting(string p_sSettingName)
+		if(!m_bInit || m_iSilent>0)then return; endif;
+		if(IsLevelSettingOverridden(p_sSettingName))then return; endif;
+		CMirageClnMgr.Get().UpdateLevelSettingsBackupValue("Multiplayer/"+p_sSettingName,CClientWrap.GetUserProfileValue("Multiplayer/"+p_sSettingName,""));
+		if(p_sSettingName=="LockDiplomacy")then
+			var int iLocked=0;
+			if(m_pxLockDiplomacy^.GetCheckMark())then iLocked=1; endif;
+			CMirageClnMgr.Get().UpdateLevelSettingsBackupValue("Server/GameplayOptions/DiploLocked",iLocked.ToString());
+		endif;
+	endproc;
+	
+	//MIRAGE: re-initialises the controls after RestoreLevelSettings. Before, only the settings whose VALUE differed from
+	//the backup were re-initialised, which left a drop list that SetAndLockLevelSetting had cut down to one entry
+	//(NumTeams, Credits) with that single entry when the value happened to match the backup: those two are always rebuilt.
+	//(Check boxes keep their value in step with the profile; re-initialising them all would also run the host's
+	//OnChangeChooseHQ / OnChangeChooseColor / OnChangeAllowHandicap, which reset every player slot.)
+	//LockDiplomacy goes first: CheckNumTeams reads it.
+	proc void RestoreAllLevelSettingControls(array string p_asRestoredNames)
+		var array string asNames;
+		if(p_asRestoredNames.FindEntry("LockDiplomacy")!=-1)then
+			asNames.AddEntry("LockDiplomacy");
+		endif;
+		asNames.Include("NumTeams");
+		asNames.Include("Credits");
+		var int i,iC=p_asRestoredNames.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			asNames.Include(p_asRestoredNames[i]);
+		endfor;
+		RestoreLevelSettingControls(asNames);
+	endproc;
+	
 	proc void UpdateCustomMapSettings(string p_sLevelName, string p_sPrevLevelName)
 		//KLog.LogSpam("Kr1s1m", "LevelSettingsPage:UpdateCustomMapSettings begin");
 		UpdateCustomMapMirageSettings(p_sLevelName, p_sPrevLevelName);
@@ -907,74 +985,50 @@ class CLevelSettingsPage inherit CWindow
 		var bool bChangedType=iPrevGameType!=iGameType;
 		var bool bCustomLevelSettings = CMirageClnMgr.Get().IsCustomMapSetting(p_sLevelName, "LevelSettings");
 		var bool bPrevCustomLevelSettings = CMirageClnMgr.Get().IsCustomMapSetting(p_sPrevLevelName, "LevelSettings");
-		var bool bRestoreLevelSettins=(bPrevCustomLevelSettings && !bCustomLevelSettings) || (bChangedType && iPrevGameType!=0);
-		var array string asRestoreSettingNames;
 		if(!bCustomLevelSettings && !bPrevCustomLevelSettings && !bChangedType && m_bInit)then
 			//KLog.LogSpam("Kr1s1m", "UpdateCustomMapSettings: (!bCustom && !bPrevCustom && !bChangedType && m_bInit) => nothing was updated");
 			return;//Kr1s1m: Skip updating level settings after Init if non-custom status and game type remain the same
 		endif;
-		if(iGameType>2)then iGameType=0; endif; //Kr1s1m: Map Campaign and Custom game types to Deathmatch
-		//Kr1s1m: Used switch statement to optimise check performance
-		switch(iGameType)
-			case(0)do //Kr1s1m: iGameType 0 ===> Deathmatch ================================================================
-				if(bCustomLevelSettings!=bPrevCustomLevelSettings || bChangedType)then//Kr1s1m: If != custom OR gametype...
-					//Kr1s1m: ...backup or restore depending on bRestoreLevelSettins value
-					asRestoreSettingNames = CMirageClnMgr.Get().OperateLevelSettingsBackupDB(bRestoreLevelSettins);
-				elseif(bCustomLevelSettings)then//Kr1s1m: if switching between two custom maps or during init...
-					//Kr1s1m: ...always restore to non-custom backup before applying new custom settings
-					asRestoreSettingNames = CMirageClnMgr.Get().RestoreLevelSettings();
-					RestoreLevelSettingControls(asRestoreSettingNames);
-				endif;
-				if(bRestoreLevelSettins)then//Kr1s1m: If going from custom to non-custom OR switching gametype...
-					//Kr1s1m: ...then re-initialize only the level setting controls not matching the config backup
-					RestoreLevelSettingControls(asRestoreSettingNames);
-					//Kr1s1m: Unlock all level settings which should be unlocked
-					UnlockLevelSettingControls(true);
-				else//Kr1s1m: Else if switching from custom to custom OR from non-custom to custom...
-					//Kr1s1m: ...unlock all which should be unlocked only when switching between two custom maps
-					UnlockLevelSettingControls(bCustomLevelSettings==bPrevCustomLevelSettings);
-					SetAndLockCustomMapLevelSettings(p_sLevelName);
-					//Kr1s1m: Fetch custom points from prepared arrays, generated from user profile MultiplayerCampaign node
-					var int iCustomPoints=GetCustomMapPoints(p_sLevelName);
-					//Kr1s1m: If the fetch is successful set and lock the custom points
-					if(iCustomPoints!=-404)then SetAndLockLevelSetting("DropList", "Credits", iCustomPoints, true); endif;
-				endif;
-			endcase;
-			case(1)do //Kr1s1m: iGameType 1 ===> Domination ================================================================
-				if(bChangedType)then
-					if(!bPrevCustomLevelSettings && iPrevGameType==0)then
-						CMirageClnMgr.Get().BackupLevelSettings();
-					else
-						asRestoreSettingNames = CMirageClnMgr.Get().RestoreLevelSettings();
-						RestoreLevelSettingControls(asRestoreSettingNames);
-						UnlockLevelSettingControls(true);
-					endif;
-					SetAndLockLevelSetting("CheckBox", "DisableWarpgate", 1, false);
-					SetAndLockLevelSetting("CheckBox", "ChooseHQ", 0, false);
-				endif;
-				SetAndLockLevelSetting("CheckBox", "LockDiplomacy", 1, true);
-				//KLog.LogSpam("Kr1s1m", "map: "+p_sLevelName+" ===> (1)?1?(0)?, where: (1)/(0) - set/unset & free, 1/0 - set/unset & locked, ? - unchanged free");
-			endcase;
-			case(2)do //Kr1s1m: iGameType 2 ===> Defender ==================================================================
-				if(bChangedType)then
-					if(!bPrevCustomLevelSettings && iPrevGameType==0)then
-						CMirageClnMgr.Get().BackupLevelSettings();
-					else
-						asRestoreSettingNames = CMirageClnMgr.Get().RestoreLevelSettings();
-						RestoreLevelSettingControls(asRestoreSettingNames);
-						UnlockLevelSettingControls(true);
-					endif;
-					SetAndLockLevelSetting("CheckBox", "DisableWarpgate", 1, false);
-				endif;
-				SetAndLockLevelSetting("CheckBox", "LockDiplomacy", 1, true);
-				SetAndLockLevelSetting("CheckBox", "ChooseHQ", 1, true);
-				//KLog.LogSpam("Kr1s1m", "map: "+p_sLevelName+" ===> (1)?1?1?, where: (1)/(0) - set/unset & free, 1/0 - set/unset & locked, ? - unchanged free);
-			endcase;
-			case default do
-				//KLog.LogSpam("Kr1s1m", "iGameType did not match any valid case - nothing was updated");
-				return; //Kr1s1m: Skip updating level settings if no valid game type was matched
-			endcase;
-		endswitch;
+		var int iRules=GetGameTypeRules(iGameType);
+		var int iPrevRules=GetGameTypeRules(iPrevGameType);
+		m_iSilent++;
+		//MIRAGE: 1. The profile holds the user's own settings plus whatever the previous map / game type forced. If a custom
+		//map was active (on init: is active) or the game type switches away from Domination/Defender, bring the user's
+		//settings back from the backup; under plain Deathmatch rules the profile IS the user's settings and refreshes the
+		//backup; inside Domination/Defender (same type, e.g. on init) the profile holds that type's values: leave the
+		//backup alone. (Before, case 0 restored but then did not apply a new custom map when the type changed between
+		//Special Maps and Multiplayer Campaign, and relied on a second call from OnSelectMap.)
+		var bool bPrevForced = bPrevCustomLevelSettings || (bChangedType && iPrevRules!=0);
+		var array string asRestoreSettingNames;
+		if(bPrevForced)then
+			asRestoreSettingNames = CMirageClnMgr.Get().RestoreLevelSettings();
+			RestoreAllLevelSettingControls(asRestoreSettingNames);
+		elseif(iPrevRules==0)then
+			CMirageClnMgr.Get().BackupLevelSettings();
+		endif;
+		UnlockLevelSettingControls(true);
+		//MIRAGE: 2. Apply what the new game type and map force.
+		if(iRules==1)then //Kr1s1m: Domination
+			if(bChangedType)then
+				SetAndLockLevelSetting("CheckBox", "DisableWarpgate", 1, false);
+				SetAndLockLevelSetting("CheckBox", "ChooseHQ", 0, false);
+			endif;
+			SetAndLockLevelSetting("CheckBox", "LockDiplomacy", 1, true);
+		elseif(iRules==2)then //Kr1s1m: Defender
+			if(bChangedType)then
+				SetAndLockLevelSetting("CheckBox", "DisableWarpgate", 1, false);
+			endif;
+			SetAndLockLevelSetting("CheckBox", "LockDiplomacy", 1, true);
+			SetAndLockLevelSetting("CheckBox", "ChooseHQ", 1, true);
+		endif;
+		if(bCustomLevelSettings)then
+			SetAndLockCustomMapLevelSettings(p_sLevelName);
+			//Kr1s1m: Fetch custom points from prepared arrays, generated from user profile MultiplayerCampaign node
+			var int iCustomPoints=GetCustomMapPoints(p_sLevelName);
+			//Kr1s1m: If the fetch is successful set and lock the custom points
+			if(iCustomPoints!=-404)then SetAndLockLevelSetting("DropList", "Credits", iCustomPoints, true); endif;
+		endif;
+		m_iSilent--;
 		//KLog.LogSpam("Kr1s1m", "LevelSettingsPage:UpdateCustomMapSettings end");
 	endproc;
 	

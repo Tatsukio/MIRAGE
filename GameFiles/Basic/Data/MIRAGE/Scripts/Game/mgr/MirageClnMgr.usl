@@ -935,11 +935,17 @@ class CMirageClnMgr
 							asRestoreSettingNames.AddEntry(sSettingName);
 							//KLog.LogSpam("Kr1s1m", "UserProfile value " + sPath + " restored to " + sValue);
 							//Kr1s1m: Map some setting name values from their config names to their attrib names...
-							if(sSettingName=="ChooseColor")then sSettingName="RandomColor"; endif;
-							if(sSettingName=="DisableWarpgate")then sSettingName="DimGateForbidden"; endif;
-							if(sSettingName=="DisableFOW")then sSettingName="FOWEnabled"; endif;
-							if(sSettingName=="LockDiplomacy")then sSettingName="DiplomacyLocked"; endif;
-							CGameWrap.GetGame().SetAttrib(sSettingName, sValue);
+							//MIRAGE: RandomColor and FOWEnabled mean the opposite of ChooseColor and DisableFOW
+							//(CLevelSettingsPageHost: RandomColor = ChooseColor==0, FOWEnabled = DisableFOW==0)
+							if(sSettingName=="ChooseColor")then
+								CGameWrap.GetGame().SetAttrib("RandomColor", sValue.ToInt()==0);
+							elseif(sSettingName=="DisableFOW")then
+								CGameWrap.GetGame().SetAttrib("FOWEnabled", sValue.ToInt()==0);
+							else
+								if(sSettingName=="DisableWarpgate")then sSettingName="DimGateForbidden"; endif;
+								if(sSettingName=="LockDiplomacy")then sSettingName="DiplomacyLocked"; endif;
+								CGameWrap.GetGame().SetAttrib(sSettingName, sValue);
+							endif;
 							//KLog.LogSpam("Kr1s1m", "CGameWrap.GetGame().SetAttrib("+sSettingName+", "+sValue+")");
 						else
 							bUpdateBackup=true;
@@ -985,6 +991,25 @@ class CMirageClnMgr
 	export proc array string BackupLevelSettings()
 		var bool bRestore = false;
 		return OperateLevelSettingsBackupDB(bRestore);
+	endproc;
+	
+	//MIRAGE: sets ONE value of the level settings backup (the user's own, non-custom settings), for a setting the user
+	//changed by hand (CLevelSettingsPage.StoreUserLevelSetting). Only values the backup already has are written:
+	//p_sPath = "Multiplayer/<Name>" or "Server/GameplayOptions/DiploLocked".
+	export proc void UpdateLevelSettingsBackupValue(string p_sPath, string p_sValue)
+		if(m_pxLevelSettingsBackupDB==null)then return; endif;
+		var ^CPropDB.CNode pxRootNode = ^(m_pxLevelSettingsBackupDB^.GetRoot());
+		if(pxRootNode==null)then return; endif;
+		var int iSep = p_sPath.FindRev('/');
+		if(iSep<=0)then return; endif;
+		var ^CPropDB.CNode pxParentNode = pxRootNode^.FindNode("LevelSettingsBackup/"+p_sPath.Left(iSep), false);
+		if(pxParentNode==null)then return; endif;
+		var string sName = p_sPath.Mid(iSep+1);
+		var ^CPropDB.CNode pxNode = pxParentNode^.Get(sName);
+		if(pxNode==null)then return; endif;
+		if(pxNode^.Value()==p_sValue)then return; endif;
+		pxParentNode^.SetValue(sName, p_sValue);
+		m_pxLevelSettingsBackupDB^.Save(m_sSettingsBackupPath+"/level_settings_backup.txt");
 	endproc;
 	
 	export proc array string RestoreLevelSettings()
