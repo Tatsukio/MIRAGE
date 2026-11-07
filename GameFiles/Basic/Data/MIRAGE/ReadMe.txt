@@ -4,6 +4,9 @@ MIRAGE 2.6.8
 ------------------
 
 General:
+ - Fixed abandon game button not working after retry match
+ - Fixed phantom mode player state not being reset between matches
+ - Fixed game menu not opening in spectator (lurker) mode
  - Fixed freezing on in match menu opening menu if screen resolution was not 2560x1440
  - Fixed missing eighth player name in the statistics window - timeline tab
  - Fixed a bug with the build cursor that disappears if allied buildup option was disabled
