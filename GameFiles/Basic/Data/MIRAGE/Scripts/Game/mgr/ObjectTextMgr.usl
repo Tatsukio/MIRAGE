@@ -1,10 +1,10 @@
 class CObjectTextMgr inherit CWindow
 	
 	static var ^CObjectTextMgr	ms_pxInst;
-	var ^CObjMgr								m_pxObjMgr;
+	var ^CObjMgr						m_pxObjMgr;
 	var array ^CTextObj					m_apxTexts;
 	var ^CObjSelection					m_pxSelection;
-	var CObjList								m_xLastSelection;
+	var CObjList						m_xLastSelection;
 	var ^CLevelInfoClient				m_pxLevelInfo;
 	
 	export static proc ref CObjectTextMgr Get()
@@ -23,22 +23,29 @@ class CObjectTextMgr inherit CWindow
 	export proc void KillTextObj(^CObjectTextMgr.CTextObj p_pxText)
 		var int iIndex = m_apxTexts.FindEntry(p_pxText);
 		if(iIndex!=-1)then
-			m_apxTexts[iIndex]^.Destroy();
 			m_apxTexts.DeleteEntryUS(iIndex);
+			p_pxText^.Destroy();
 		endif;
+	endproc;
+	
+	export proc void RemoveTextObj(^CObjectTextMgr.CTextObj p_pxText)
+		var int iIndex = m_apxTexts.FindEntry(p_pxText);
+		if(iIndex!=-1)then m_apxTexts.DeleteEntryUS(iIndex); endif;
 	endproc;
 	
 	export proc void KillTextObjByIndex(int p_iIdx)
 		if(p_iIdx!=-1)then
-			m_apxTexts[p_iIdx]^.Destroy();
+			var ^CObjectTextMgr.CTextObj pxText = m_apxTexts[p_iIdx];
 			m_apxTexts.DeleteEntryUS(p_iIdx);
+			pxText^.Destroy();
 		endif;
 	endproc;
 	
 	export proc int FindTextObj(CClntHndl p_xHndl)
 		var int i, iC = m_apxTexts.NumEntries();
-		if(i == 0)then return -1; endif;
+		if(iC == 0)then return -1; endif;
 		for(i=0)cond(i<iC)iter(i++)do
+			if(m_apxTexts[i]==null)then continue; endif;
 			if(m_apxTexts[i]^.m_xHndl==p_xHndl)then
 				return i;
 			endif;
@@ -48,9 +55,11 @@ class CObjectTextMgr inherit CWindow
 	
 	proc void Clear()
 		var int i, iC = m_apxTexts.NumEntries();
-		if(i == 0)then return ; endif;
+		if(iC == 0)then return ; endif;
 		for(i=(iC-1))cond(i>=0)iter(i--)do
-			m_apxTexts[i]^.Destroy();
+			var ^CObjectTextMgr.CTextObj pxT = m_apxTexts[i];
+			m_apxTexts.DeleteEntryUS(i);
+			pxT^.Destroy();
 		endfor;
 		m_apxTexts = 0;
 	endproc;
@@ -75,7 +84,7 @@ class CObjectTextMgr inherit CWindow
 	
 	export proc void UpdateTextForObj(CClntHndl p_xHndl)
 		var int i, iC = m_apxTexts.NumEntries();
-		if(i == 0)then return; endif;
+		if(iC == 0)then return; endif;
 		for(i=0)cond(i<iC)iter(i++)do
 			if(m_apxTexts[i]^.m_xHndl==p_xHndl)then
 				m_apxTexts[i]^.UpdateObjectText();
@@ -84,9 +93,11 @@ class CObjectTextMgr inherit CWindow
 	endproc;
 	
 	export proc bool ObjectTextUpdate()
+		if(m_pxSelection==null)then return (false); endif;
+		m_pxLevelInfo=^(CGameWrap.GetClient().GetLevelInfo());
 		var int iPlayer = CGameWrap.GetClient().GetPlayer().GetID();
 		var int i, iC = m_pxSelection^.NumEntries();
-		if(i == 0)then return (false); endif;
+		if(iC == 0)then return (false); endif;
 		for(i=0)cond(i<iC)iter(i++)do
 			if(m_xLastSelection.FindEntry(m_pxSelection^[i])==-1)then
 				ActivateObjectText(m_pxSelection^[i],iPlayer);
@@ -97,7 +108,6 @@ class CObjectTextMgr inherit CWindow
 		endfor;
 		
 		iC = m_xLastSelection.NumEntries();
-		if(iC == 0)then return (false); endif;
 		for(i=0)cond(i<iC)iter(i++)do
 			KillTextObjByIndex(FindTextObj(m_xLastSelection[i]));
 //			m_pxObjMgr^.DeleteInfoTextsForObj(m_xLastSelection[i].GetObj());
@@ -105,7 +115,6 @@ class CObjectTextMgr inherit CWindow
 		
 		iC = m_pxSelection^.NumEntries();
 		m_xLastSelection.Clear();
-		if(iC == 0)then return (false); endif;
 		for(i=0)cond(i<iC)iter(i++)do
 			m_xLastSelection.Include(m_pxSelection^[i]);
 		endfor;
@@ -124,11 +133,11 @@ class CObjectTextMgr inherit CWindow
 	
 	class CTextObj inherit CWindow
 		
-		export var CClntHndl			m_xHndl;
-		export var int						m_iPID;
-		var ^CObjMgr							m_pxObjMgr;
+		export var CClntHndl		m_xHndl;
+		export var int				m_iPID;
+		var ^CObjMgr				m_pxObjMgr;
 		var ^CObjMgr.CInfoText		m_pxInfoText;
-		var color									m_xColor;
+		var color					m_xColor;
 		
 		export constructor(CClntHndl p_xHndl, int p_iPID, color p_xColor)
 			SetSize(0,0);
@@ -158,7 +167,7 @@ class CObjectTextMgr inherit CWindow
 //				m_pxObjMgr^.DeleteInfoTextsForObj(pxObj);
 //			endif;
 			CGameWrap.GetSubscriptionMgr().UnsubscribeObjChanges(this, CSubscriptionMgr.CT_LostPlayerUnit, "");
-			CObjectTextMgr.Get().KillTextObj(this);
+			CObjectTextMgr.Get().RemoveTextObj(this);
 		enddestructor;
 		
 		proc bool HandleMessage(ref CEvtPointer p_rxEvt)
