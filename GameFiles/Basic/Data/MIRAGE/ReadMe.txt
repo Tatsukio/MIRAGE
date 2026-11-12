@@ -4,6 +4,7 @@ MIRAGE 2.6.8
 ------------------
 
 General:
+ - Various bugs in the load and save functions have been fixed, which should reduce the number of crashes when loading and saving
  - Fixed abandon game button not working after retry match
  - Fixed phantom mode player state not being reset between matches
  - Fixed game menu not opening in spectator (lurker) mode
