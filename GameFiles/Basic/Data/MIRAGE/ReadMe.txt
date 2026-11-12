@@ -171,6 +171,7 @@ Maps:
  - Heilige Stage's production buildings always visible in FOW for all players from now on
 
 Multiplayer campaign and maps with custom gameplay:
+ - Skipping sequence is not allowed in multiplayer from now on
  - Multiple custom maps game mechanic were improved and reworked
  - Custom settings ​​will affect lobby creation window ui and lobby ui from now on
  - Lobby settings ​​will affect gameplay from now on
