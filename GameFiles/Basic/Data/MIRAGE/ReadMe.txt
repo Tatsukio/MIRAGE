@@ -95,6 +95,7 @@ SEAS:
  - Added reactor core for steelwork
 
 AI:
+ - Fixed a bug that prevented Dragon Clan AI from lock picking gates.
  - You can ask AI player for help by writing "help" or "Help" in the dm or allies chat
  - AI players can read group chats from now on
 
