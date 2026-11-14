@@ -83,6 +83,7 @@ Norsemen:
  - Stone guardian from now on has build shortcut
 
 SEAS:
+ - New models added: rally point and harbour rally point
  - New buildings textures for jungle setting added
  - Seas scorpion HP during the build procces reduced to 7000
  - Seas scorpion skulls during the build process reduced to 250
