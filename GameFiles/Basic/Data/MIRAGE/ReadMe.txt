@@ -83,6 +83,8 @@ Norsemen:
  - Stone guardian from now on has build shortcut
 
 SEAS:
+ - New animation added: jail buildup
+ - Jail model now has all the necessary links and selection volume
  - New models added: rally point and harbour rally point
  - New buildings textures for jungle setting added
  - Seas scorpion HP during the build procces reduced to 7000
