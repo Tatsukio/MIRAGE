@@ -697,7 +697,7 @@ class CAttribIcon
 				SetSpeedInfo(sTTAddon, pxA);
 				var string sCurWpn = pxA^.GetValue("Cur_Weapon");
 				if(sCurWpn!="")then
-					AddAdditionalInfos(sCurWpn, sTTAddon, xTT, true, true);
+					AddAdditionalInfos(sCurWpn, sTTAddon, xTT, true, true, GetDefenseModPath(p_pxObj, pxA, "RangedDef_"));
 				endif;
 			endif;
 		elseif(p_sAttribType=="armor")then
@@ -707,7 +707,7 @@ class CAttribIcon
 				SetSpeedInfo(sTTAddon, pxA);
 				var string sCurWpn = pxA^.GetValue("Cur_Weapon");
 				if(sCurWpn!="")then
-					AddAdditionalInfos(sCurWpn, sTTAddon, xTT, true, false);
+					AddAdditionalInfos(sCurWpn, sTTAddon, xTT, true, false, GetDefenseModPath(p_pxObj, pxA, "Defence_"));
 				endif;
 			endif;
 		elseif(p_sAttribType=="range")then
@@ -786,7 +786,18 @@ class CAttribIcon
 		endif;
 	endproc;
 	
+	static proc string GetDefenseModPath(^CObj p_pxObj, ^CAttribs p_pxA, string p_sKind)
+		if(p_pxObj==null||p_pxA==null)then return ""; endif;
+		var string sTribe=p_pxA^.GetValue("tribe");
+		if(sTribe.IsEmpty())then return ""; endif;
+		return "/Modifications/"+sTribe+"/"+p_pxObj^.GetType().AsString()+"/"+p_sKind;
+	endproc;
+	
 	static proc void AddAdditionalInfos(string p_sWeapon, ref string p_rsAddon, CTechTree p_xTT, bool p_bArmor, bool p_bRanged)
+		AddAdditionalInfos(p_sWeapon, p_rsAddon, p_xTT, p_bArmor, p_bRanged, "");
+	endproc;
+	
+	static proc void AddAdditionalInfos(string p_sWeapon, ref string p_rsAddon, CTechTree p_xTT, bool p_bArmor, bool p_bRanged, string p_sModPath)
 		var ^CTechTree.CNode pxWeapon = p_xTT.FindNode(p_sWeapon);
 		if(pxWeapon!=null)then
 			var array string asBonis;
@@ -836,9 +847,22 @@ class CAttribIcon
 				sBonus = p_sWeapon+"/RangedDefBonus";
 			endif;
 			var int i;
+			var array string asTypes;
+			asTypes.AddEntry("ANML"); asTypes.AddEntry("BLDG"); asTypes.AddEntry("CHTR");
+			asTypes.AddEntry("NEST"); asTypes.AddEntry("SHIP"); asTypes.AddEntry("VHCL");
+			var array real afBase;
+			afBase=asTypes.NumEntries();
 			for(i=0)cond(i<p_xTT.NumSubs(sBonus+"/Type"))iter(i++)do
-				var string sPath = p_xTT.GetSubAbsPath(sBonus+"/Type",i),sBoni;
-				var real fBonus = p_xTT.GetValueR(sPath,0.0);
+				var string sTPath = p_xTT.GetSubAbsPath(sBonus+"/Type",i);
+				var int iT=asTypes.FindEntry(sTPath.Mid(sTPath.FindRev('/')+1));
+				if(iT!=-1)then afBase[iT]=p_xTT.GetValueR(sTPath,0.0); endif;
+			endfor;
+			for(i=0)cond(i<asTypes.NumEntries())iter(i++)do
+				var string sPath = asTypes[i], sBoni;
+				var real fBonus = afBase[i];
+				if(!p_sModPath.IsEmpty())then
+					fBonus = fBonus*p_xTT.GetValueR(p_sModPath+sPath+"/tec_rel",1.0)+p_xTT.GetValueR(p_sModPath+sPath+"/tec_abs",0.0);
+				endif;
 				if(fBonus==0.0f)then
 					continue;
 				elseif(fBonus>0.0f)then
@@ -846,8 +870,6 @@ class CAttribIcon
 				else
 					sBoni=fBonus.ToInt().ToString();
 				endif;
-				sPath = sPath.Mid(sPath.FindRev('/')+1);
-				if(sPath!="ANML"&&sPath!="BLDG"&&sPath!="CHTR"&&sPath!="NEST"&&sPath!="SHIP"&&sPath!="VHCL")then continue; endif;
 				sPath.MakeLower();
 				p_rsAddon += " %"+"/wpnbns"+ sPath +": "+CLocalizer.Get().Translate("_MIRAGE_Bns_"+sPath)+sBoni+"%";
 			endfor;
@@ -925,6 +947,50 @@ class CAttribIcon
 		m_pxBonus^.SetVisible(p_bVis);
 	endproc;
 	
+	static proc real GetSkullRewardBonus(^CObj p_pxObj, int p_iSkulls, real p_fUnitBonus)
+		if(p_pxObj==null)then return 0.0f; endif;
+		var int iPct=GetLocalSkullModifierPct();
+		if(iPct<=0||iPct==100)then return 0.0f; endif;
+		var int iOwner=p_pxObj^.GetOwner();
+		var int iMe=CGameWrap.GetClient().GetPlayerID();
+		if(iOwner==iMe)then return 0.0f; endif;
+		if(iOwner>=0&&CGameWrap.GetDiplomacyMgr().GetMyOpinion(iOwner)==2&&CGameWrap.GetDiplomacyMgr().GetTheirOpinion(iOwner)==2)then return 0.0f; endif;
+		var real fBase=p_iSkulls.ToReal()+p_fUnitBonus;
+		var int iReward=(fBase*iPct.ToReal()/100.0f+0.5f).ToInt();
+		return iReward.ToReal()-fBase;
+	endproc;
+	
+	export static proc int GetLocalSkullModifierPct()
+		var ^CPlayer pxPlayer=^(CGameWrap.GetClient().GetPlayer());
+		if(pxPlayer==null)then return 100; endif;
+		var ^CAttribs pxPA=pxPlayer^.GetAttribs();
+		if(pxPA!=null)then
+			var int iPct=pxPA^.GetValueInt("scalps_modifier_pct");
+			if(iPct>0)then return iPct; endif;
+		endif;
+		var CObjList xUnits=pxPlayer^.GetCharacters();
+		xUnits.Include(pxPlayer^.GetAnimals());
+		xUnits.Include(pxPlayer^.GetVehicles());
+		xUnits.Include(pxPlayer^.GetShips());
+		var int i,iC=xUnits.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(!xUnits[i].IsValid())then continue; endif;
+			var ^CObj pxUnit=xUnits[i].GetObj();
+			if(pxUnit==null)then continue; endif;
+			var ^CClientInventory pxInv=pxUnit^.GetInventory();
+			if(pxInv==null)then continue; endif;
+			var int j,iJC=pxInv^.Count();
+			for(j=0)cond(j<iJC)iter(j++)do
+				var CClntHndl xItem=pxInv^.GetItem(j);
+				if(!xItem.IsValid())then continue; endif;
+				if(xItem.GetObj()^.GetClassName()!="item_flowerpot_of_insanity")then continue; endif;
+				var real fMod=pxPlayer^.GetPlayerTechTree().GetValueR("Items/Objects/item_flowerpot_of_insanity/bonus",1.5);
+				return (fMod*100.0f+0.5f).ToInt();
+			endfor;
+		endfor;
+		return 100;
+	endproc;
+	
 	export proc void Update(^CObj p_pxObj, bool p_bShow)
 		SetVisible(p_bShow);
 		if(!p_bShow)then return; endif;
@@ -984,6 +1050,14 @@ class CAttribIcon
 		//endif;
 		if(!sVal2.IsEmpty())then
 			iVal2 = pxA^.GetValueInt(sVal2);
+		endif;
+		if(m_sAttrib=="skulls" && iVal>0)then
+			var real fExtra=GetSkullRewardBonus(p_pxObj, iVal, fBonus);
+			if(fExtra>=0.0f)then
+				iVal += (fExtra+0.5f).ToInt();
+			else
+				iVal -= (0.5f-fExtra).ToInt();
+			endif;
 		endif;
 		if(iVal2>0)then
 			m_pxText^.SetText(iVal2.ToString()+" - "+iVal.ToString());
@@ -1463,6 +1537,9 @@ class CInfo inherit CAlphaMaskedStaticCtrl
 	var ^CItemIcon			m_pxItemslot;
 	var ^CProdQueue			m_pxProdQueue;
 	var ^CObjSelection	m_pxObjSelection;
+	var int					m_iStateTimer;
+	var string				m_sStateSig;
+	var CClntHndl			m_xShownObj;
 
 	static var string ms_sSelectedTribe;
 
@@ -1575,6 +1652,7 @@ class CInfo inherit CAlphaMaskedStaticCtrl
 
 		ms_sSelectedTribe = "Hu";
 		m_pxObjSelection=^(CClientWrap.GetSelection());
+		m_iStateTimer=SetTimer(1000,true);
 
 		m_pxProdQueue^.SetPos(m_iUNIT_BASE_X, 144 * CGameInst.ms_iUIScaleFactor);
 
@@ -1643,6 +1721,27 @@ class CInfo inherit CAlphaMaskedStaticCtrl
 		return ms_sSelectedTribe;
 	endproc;
 
+	proc string GetStateSig()
+		var string sSig=CAttribIcon.GetLocalSkullModifierPct().ToString();
+		var ^CObj pxObj=m_xShownObj.GetObj();
+		if(pxObj==null)then return sSig; endif;
+		var ^CAttribs pxA=pxObj^.GetAttribs();
+		if(pxA==null)then return sSig; endif;
+		var string sTribe=pxA^.GetValue("tribe");
+		if(sTribe.IsEmpty())then return sSig; endif;
+		var CTechTree xTT=pxObj^.GetTechTree();
+		var string sBase="/Modifications/"+sTribe+"/"+pxObj^.GetType().AsString()+"/";
+		var array string asTypes;
+		asTypes.AddEntry("ANML"); asTypes.AddEntry("BLDG"); asTypes.AddEntry("CHTR");
+		asTypes.AddEntry("NEST"); asTypes.AddEntry("SHIP"); asTypes.AddEntry("VHCL");
+		var int i, iC=asTypes.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			sSig+="|"+(xTT.GetValueR(sBase+"Defence_"+asTypes[i]+"/tec_rel",1.0)*1000.0f).ToInt().ToString()+","+(xTT.GetValueR(sBase+"Defence_"+asTypes[i]+"/tec_abs",0.0)*1000.0f).ToInt().ToString();
+			sSig+=","+(xTT.GetValueR(sBase+"RangedDef_"+asTypes[i]+"/tec_rel",1.0)*1000.0f).ToInt().ToString()+","+(xTT.GetValueR(sBase+"RangedDef_"+asTypes[i]+"/tec_abs",0.0)*1000.0f).ToInt().ToString();
+		endfor;
+		return sSig;
+	endproc;
+	
 	proc bool HandleMessage(ref CEvtPointer p_rxEvt)
 		if(p_rxEvt.GetClass()==CSubscriptionMgr.GetEvtClass_ObjChange())then
 			var CClntHndl xObjHandle;
@@ -1714,6 +1813,10 @@ class CInfo inherit CAlphaMaskedStaticCtrl
 						m_pxProdQueue^.SetVisible(false);
 					endif;
 					CGameWrap.GetSubscriptionMgr().SubscribeObjChanges(this,m_pxObjSelection^[iSelectedObj],CSubscriptionMgr.CT_ObjAttribs, "Info");
+					if(m_xShownObj!=m_pxObjSelection^[iSelectedObj])then
+						m_xShownObj=m_pxObjSelection^[iSelectedObj];
+						m_sStateSig=GetStateSig();
+					endif;
 					var ^CAttribs pxAttr = pxObj^.GetAttribs();
 					if ((pxAttr==null) && (sUnitClass.Find("Stina")!=-1)) then
 						// get pxAttr from her animal
@@ -2110,6 +2213,15 @@ class CInfo inherit CAlphaMaskedStaticCtrl
 	endproc;
 
 	proc bool OnTimer(int p_iID)
+		if(p_iID==m_iStateTimer)then
+			var string sSig=GetStateSig();
+			if(sSig!=m_sStateSig)then
+				m_sStateSig=sSig;
+				if(m_pxObjSelection!=null && m_pxObjSelection^.NumEntries()>0)then
+					Update(false);
+				endif;
+			endif;
+		endif;
 		return true;
 	endproc;
 

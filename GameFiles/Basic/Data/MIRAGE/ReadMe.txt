@@ -30,6 +30,8 @@ General:
  - The pre-lobby window height has been increased
  - Newly respawned nest from now on inherits from parent's nest the count of how many times full breed of animals will be spawned, before this count was infinity for respawned nests
  - Aggressive water animals count in nests are no longer infinity, if the max respawn count is infinity then only 2 times all animals will be respawned
+ - Flowerpot of insanity skull bonus effect from now on displayed in unit info window. Affects only enemy units. Works both for owner and allied players
+ - Bony amulet melee defense bonus against animal class attacker from now on displayed in weapon description window
 
 Multiplayer campaign and maps with custom gameplay:
  - Fixed crash during CrashRPG and BFPW Highland maps loading
