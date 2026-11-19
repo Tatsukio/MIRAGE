@@ -14,6 +14,7 @@ General:
  - Fixed a bug where a unit queued at an unbuilt SEAS or dustriders port was showing production progress same as that ports construction progress
  - Fixed a bug which was displaying incorrect wild animal's nest HealthBar color if the nest was respawned after death on non aggressive animal nests with aggressive animals in it
  - Fixed a bug where the corpse vanishing effect worked correctly only at zero world coordinates
+ - Fixed issue when Buildup turrets wont detect enemy near its owner unit, even if the enemy very close to it and not attack enemy as result
  - Chat window has been increased and now uses multiline
  - Added chat player colors to the recipient selection dropdown menu (in match only)
  - Added multiplayer campaign and custom maps sorting in map list
@@ -94,6 +95,7 @@ SEAS:
  - Taslow machine now correctly appears when Taslow reaches tier 4 instead of incorrectly requiring him to be tier 5
  - Fixed bug when unupgraded bunker were showing alarm sign when the enemy unit was nearby
  - Fixed spawn of addons while the epoch 6 was researched on still unbuilded fireplace
+ - Seas carrier autoattack from now on works properly
  - MGwalker from now on has build shortcut
  - Mobile suit 2 hidden passive abilities are from now on work correctly and requiring an upgrades to be invented in garage, similiar like for dragon clan archer multishot
  - Added reactor core for steelwork
