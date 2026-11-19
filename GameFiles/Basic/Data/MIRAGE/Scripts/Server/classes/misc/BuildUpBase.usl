@@ -1545,7 +1545,6 @@ class CBuildUpWeapon inherit CBuildUpBase
 		if(!GetAdditionalWeapon()&&pxParent^.IsReallyInFight())then return false; endif;
 		var CObjList xList = m_xEnemies;
 		pxParent^.SortEnemyList(xList, GetAttackRange(), false, false);
-		if(xList.NumEntries()<=0)then return false; endif;
 		var ^CFightingObj pxObj=null;
 		while(xList.NumEntries()>0)do
 			if(!xList[0].IsValid())then
@@ -1585,6 +1584,9 @@ class CBuildUpWeapon inherit CBuildUpBase
 			endif;
 			break;
 		endwhile;
+		if(pxObj==null)then
+			pxObj=FindAutoTarget();
+		endif;
 		var bool bTmp;
 		var vec3 vTarget;
 		var bool bReturn=false;
@@ -1620,7 +1622,6 @@ class CBuildUpWeapon inherit CBuildUpBase
 		xList.Include(m_xEnemies);
 //		var CObjList xList = m_xEnemies;
 		pxParent^.SortEnemyList(xList, GetAttackRange(), false, false);
-		if(xList.NumEntries()<=0)then return false; endif;
 		var ^CFightingObj pxObj=null;
 		while(xList.NumEntries()>0)do
 			if(!xList[0].IsValid())then
@@ -1660,6 +1661,9 @@ class CBuildUpWeapon inherit CBuildUpBase
 			endif;
 			break;
 		endwhile;
+		if(pxObj==null)then
+			pxObj=FindAutoTarget();
+		endif;
 //		if(p_bUseCurEnemy && xList[0]==m_xCurEnemy)then
 //			return true;
 //		endif;
@@ -1675,6 +1679,78 @@ class CBuildUpWeapon inherit CBuildUpBase
 	
 	export proc void SetCurEnemy(CObjHndl p_xHndl)
 		m_xCurEnemy=p_xHndl;
+	endproc;
+	
+	export proc ^CFightingObj FindAutoTarget()
+		if(m_bFake)then return null; endif;
+		if(!GetAutoAttack())then return null; endif;
+		if(m_iAggressionState==1||m_iAggressionState==-1||m_iAggressionState==3)then return null; endif;
+		var ^CFightingObj pxParent=cast<CFightingObj>(m_xParent.GetObj());
+		if(pxParent==null)then return null; endif;
+		var int iStance=pxParent^.GetAggressionState();
+		if(iStance==1||iStance==-1||iStance==3)then return null; endif;
+		if(pxParent^.GetTransportObj().IsValid())then return null; endif;
+		if(pxParent^.InvalidFighter()||(pxParent^.IsTrapped()&&!pxParent^.ExcludeBuildUp()))then return null; endif;
+		if(!GetAdditionalWeapon()&&pxParent^.IsReallyInFight())then return null; endif;
+		var ^CProduct pxTurretObj=cast<CProduct>(GetPrimaryLinkedObjFight().GetObj());
+		if(pxTurretObj==null)then return null; endif;
+		if(cast<CBuildUpFight>(pxTurretObj^.GetCurTask())!=null)then return null; endif;
+		var vec3 vMe=pxTurretObj^.GetPos();
+		var real fRange=GetAttackRange();
+		var real fMinRange=GetMinAttackRange();
+		var int iOwner=pxParent^.GetOwner();
+		var CObjQuery xQuery;
+		xQuery.SetType("CHTR");
+		xQuery.SetType("ANML",true);
+		xQuery.SetType("VHCL",true);
+		xQuery.SetType("SHIP",true);
+		xQuery.SetType("BLDG",true);
+		xQuery.RegionCircle(vMe,fRange+20.0);
+		var CObjList xList;
+		if(!xQuery.Execute(xList))then return null; endif;
+		var CObjHndl xLast=pxParent^.GetLastEnemy();
+		var ^CFightingObj pxBest=null;
+		var int iBestTier=99;
+		var real fBestDist=0.0;
+		var int i, iC=xList.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(xList[i]==m_xParent)then continue; endif;
+			var ^CFightingObj pxObj=cast<CFightingObj>(xList[i].GetObj());
+			if(pxObj==null)then continue; endif;
+			var int iObjOwner=pxObj^.GetOwner();
+			if(iObjOwner==iOwner)then continue; endif;
+			if(iObjOwner!=-1&&iOwner!=-1&&!CSrvWrap.GetDiplomacyMgr().GetIsEnemy(iOwner,iObjOwner))then continue; endif;
+			if(pxObj^.IsMarkedForDelete()||pxObj^.InvalidEnemy()||pxObj^.HidingEnemy())then continue; endif;
+			if(pxObj^.GetNeutralObject()||pxObj^.PeaceTime())then continue; endif;
+			if(pxObj^.GetTransportObj().IsValid())then continue; endif;
+			if(pxObj^.IsFlyingUnit()&&!CanShootAir())then continue; endif;
+			if(cast<CWall>(pxObj)!=null||cast<CGate>(pxObj)!=null)then continue; endif;
+			if(iOwner>-1&&(pxObj^.GetVisibleMask()&(01b<<iOwner))==00b)then continue; endif;
+			if(CSrvWrap.GetObjMgr()^.IsInFOW(pxObj,iOwner))then continue; endif;
+			var real fDist=(pxObj^.GetPos()-vMe).Abs2()-pxObj^.GetCollisionRadius();
+			if(fDist>fRange||fDist<fMinRange)then continue; endif;
+			var int iTier=2;
+			var ^CGameObj pxTheirTarget=pxObj^.GetCurEnemy().GetObj();
+			var int iTheirOwner=-2;
+			if(pxTheirTarget!=null)then iTheirOwner=pxTheirTarget^.GetOwner(); endif;
+			if(iTheirOwner==iOwner||(iOwner!=-1&&iTheirOwner>=0&&CSrvWrap.GetDiplomacyMgr().GetIsFriend(iTheirOwner,iOwner)))then
+				iTier=0;
+			elseif(xList[i]==xLast)then
+				iTier=1;
+			elseif(iObjOwner==-1)then
+				if(pxObj^.GetAggressive()!=1)then continue; endif;
+				if(iOwner>-1&&CMirageSrvMgr.Get().GetNeutralToWildAnimals(iOwner))then continue; endif;
+				iTier=2;
+			elseif(pxObj^.GetType()=="BLDG")then
+				iTier=3;
+			endif;
+			if(pxBest==null||iTier<iBestTier||(iTier==iBestTier&&fDist<fBestDist))then
+				pxBest=pxObj;
+				iBestTier=iTier;
+				fBestDist=fDist;
+			endif;
+		endfor;
+		return pxBest;
 	endproc;
 	
 	proc bool OnObjRem(CObjHndl p_xHndl)
@@ -1851,6 +1927,9 @@ class CBuildUpWeapon inherit CBuildUpBase
 		if(pxObj==null)then return false; endif;
 		var bool bShoot, bAdditional=GetAdditionalWeapon();
 		p_rfDuration = GetWeaponDuration();
+		if(cast<CTransportObj>(pxParent)==null)then
+			p_rfDuration=pxParent^.GetWeaponDuration();
+		endif;
 		if(p_rfDuration<=0.0f)then
 			p_rfDuration=pxParent^.GetWeaponDuration();
 			if(p_rfDuration<=0.0f)then
@@ -1872,7 +1951,7 @@ class CBuildUpWeapon inherit CBuildUpBase
 		endfor;
 		if(!bShoot)then return false; endif;
 		var ^CTransportObj pxTOParent = cast<CTransportObj>(m_xParent.GetObj());
-		if(pxTOParent==null)then return false; endif;
+		if(pxTOParent==null)then return true; endif;
 		if(!GetAdditionalWeapon())then
 			pxTOParent^.DoBuildUpCaptainAttackAnim();
 		else
