@@ -5,6 +5,7 @@ MIRAGE 2.6.8
 
 General:
  - Various bugs in the load and save functions have been fixed, which should reduce the number of crashes when loading and saving
+ - Fixed a crash when changing the game type in the lobby
  - Fixed abandon game button not working after retry match
  - Fixed phantom mode player state not being reset between matches
  - Fixed game menu not opening in spectator (lurker) mode
@@ -90,6 +91,7 @@ SEAS:
  - Jail model now has all the necessary links and selection volume
  - New models added: rally point and harbour rally point
  - New buildings textures for jungle setting added
+ - Fixed a bug that caused parasite effects to never end.
  - Seas scorpion HP during the build procces reduced to 7000
  - Seas scorpion skulls during the build process reduced to 250
  - Taslow machine now correctly appears when Taslow reaches tier 4 instead of incorrectly requiring him to be tier 5
@@ -101,7 +103,10 @@ SEAS:
  - Added reactor core for steelwork
 
 AI:
+ - Fixed a bug that prevented Norsemen AI from using corn fields.
  - Fixed a bug that prevented Dragon Clan AI from lock picking gates.
+ - Fixed a bug that prevented AI from attacking Dragon Clan minelayers.
+ - Fixed a bug where AI units on an island would try to attack an enemy on another island, causing the units to remain on the shore.
  - You can ask AI player for help by writing "help" or "Help" in the dm or allies chat
  - AI players can read group chats from now on
  - AI players can no longer produce seas_hovercraft on non qater maps
@@ -113,17 +118,18 @@ SDK:
  - pirate_captain buildup from now on skipped fro ninigi_warrior in various triggers
 
 Launcher:
- - Version changed to .NET 8.0
- - CFGEditor now uses CP1251 encoding, which fixes the hGetContents error when starting the game
+ - Version changed to .NET 10.0
+ - The launcher has been completely refactored
+ - CFGEditor rewritten to c#
  - The message about necessary but missing addons is now more informative
  - Pop-up windows are now translated when you change the language
- - LauncherDB.xml is divided into two separate Settings.xml and Locale.xml files
- - Launcher music can be disabled via Settings.xml file with bMusicOnStartup bool
- - DiscordStatus launch can be disabled via Settings.xml file with bEnableDiscordStatus bool
+ - LauncherDB.xml is divided into two separate Settings.json and Locale.json files
+ - Launcher music can be disabled via Settings.json file with bMusicOnStartup bool
+ - DiscordStatus launch can be disabled via Settings.json file with bEnableDiscordStatus bool
  - If the selected localization has no translated videos, a warning will be displayed
  - Restoring game settings also restores the launcher settings now
  - Added shadows for text as in the game itself
- - Log messages are now also broadcast to the UDP port from Settings.xml
+ - Log messages are now also broadcast to the UDP port from Settings.json
  - .info "excludes" tag support added
  - Various fixes
 
