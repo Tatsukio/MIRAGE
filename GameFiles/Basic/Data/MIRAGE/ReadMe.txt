@@ -69,6 +69,7 @@ Dustriders:
  - Floating harbour's turtles from now on playing death animation when harbour is destroyed
 
 Dragon Clan:
+ - Fixed a bug because of which the mortar tower's selection circle was missing
  - Harvester will play unique voicelines when attacking
  - Water turret's ghost from now on has turret
  - Fixed dilophosaurus nest and palisade wall disappearing from build menu under certain conditions
