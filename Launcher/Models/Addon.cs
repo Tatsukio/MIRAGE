@@ -1,34 +1,22 @@
-﻿using System.Collections.Generic;
-using System.ComponentModel;
+using System.Collections.Generic;
 
-namespace MIRAGE_Launcher.Models
+namespace MIRAGE_Launcher.Models;
+
+/// <summary>An add-on from Data\Info\&lt;name&gt;.info.</summary>
+public sealed class Addon
 {
-    public class Addon : INotifyPropertyChanged
-    {
-        private bool isEnabled;
-        public bool IsEnabled
-        {
-            get => isEnabled;
-            set
-            {
-                if (isEnabled != value)
-                {
-                    isEnabled = value;
-                    OnPropertyChanged(nameof(IsEnabled));
-                }
-            }
-        }
+    public required string Id { get; init; }
 
-        public string Id { get; set; }
-        public string Type { get; set; }
-        public string Version { get; set; }
-        public List<string> Requires { get; set; }
-        public List<string> Excludes { get; set; }
+    public string Type { get; init; } = string.Empty;
 
-        public event PropertyChangedEventHandler PropertyChanged;
-        protected virtual void OnPropertyChanged(string p_name)
-        {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(p_name));
-        }
-    }
+    public string Version { get; init; } = string.Empty;
+
+    public IReadOnlyList<string> Requires { get; init; } = [];
+
+    public IReadOnlyList<string> Excludes { get; init; } = [];
+
+    public bool IsEnabled { get; set; }
+
+    /// <summary>Locale add-ons are passed to the game when joining a server through the Discord status.</summary>
+    public bool IsLocale => Type == "locale";
 }

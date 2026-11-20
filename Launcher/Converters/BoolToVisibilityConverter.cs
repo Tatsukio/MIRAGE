@@ -1,25 +1,22 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
 
-namespace MIRAGE_Launcher.Converters
+namespace MIRAGE_Launcher.Converters;
+
+/// <summary>true -> Visible, false -> Collapsed. With ConverterParameter=false the other way round.</summary>
+public sealed class BoolToVisibilityConverter : IValueConverter
 {
-    public sealed class BoolToVisibilityConverter : IValueConverter
+    public object Convert(object p_Value, Type p_TargetType, object p_Parameter, CultureInfo p_Culture)
     {
-        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        bool flag = p_Value is true;
+        if ((p_Parameter is string text) && bool.TryParse(text, out bool parameter) && !parameter)
         {
-            bool flag = value is bool boolean ? boolean : (value as bool?) ?? false;
-
-            if (parameter is string param && bool.TryParse(param, out bool par) && !par)
-                flag = !flag;
-
-            return flag ? Visibility.Visible : Visibility.Collapsed;
+            flag = !flag;
         }
-
-        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-        {
-            return value is Visibility visibility && visibility == Visibility.Visible;
-        }
+        return flag ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    public object ConvertBack(object p_Value, Type p_TargetType, object p_Parameter, CultureInfo p_Culture) => p_Value is Visibility.Visible;
 }
