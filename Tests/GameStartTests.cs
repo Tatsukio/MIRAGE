@@ -20,13 +20,12 @@ internal static class GameStartTests
     }
 
     [Test]
-    private static void WinFixMismatchAsks()
+    private static void PEST_ControlMismatchAsks()
     {
         using Setup setup = new();
-        setup.Settings.Settings.WinFix.Hashes["PWClient.exe"] = ["0000"];
-        setup.Dialogs.Answer = false;
+        setup.Settings.Settings.PEST_Control.Hashes["PWClient.exe"] = ["0000"];
         Assert.False(setup.Start.Start(GameMode.Game));
-        Assert.True(setup.Dialogs.Messages.Single().StartsWith("ASK LogMessage#16", System.StringComparison.Ordinal));
+        Assert.True(setup.Dialogs.Messages.Single().StartsWith("ERROR LogMessage#16", System.StringComparison.Ordinal));
         Assert.Equal("1", setup.UseUslCpp);
     }
 
@@ -45,7 +44,7 @@ internal static class GameStartTests
     private static void FailedStartResetsUseUslCpp()
     {
         using Setup setup = new();
-        setup.Settings.Settings.WinFix.Hashes["Paraworld.exe"] = [FakeGame.Sha256("Paraworld exe")];
+        setup.Settings.Settings.PEST_Control.Hashes["Paraworld.exe"] = [FakeGame.Sha256("Paraworld exe")];
         _ = setup.Game.Dir.File("Temp/old.bin", "x");
         Assert.False(setup.Start.Start(GameMode.MapEditor));
         Assert.True(setup.Dialogs.Messages[0].StartsWith("WARN LogMessage#17", System.StringComparison.Ordinal), "no translated videos: shown once");

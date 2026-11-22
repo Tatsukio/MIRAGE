@@ -19,14 +19,14 @@ internal static class LauncherTests
         store.Load();
         Assert.True(File.Exists(file), "defaults are written");
         store.Settings.Launcher.ModVersion = "2.7.0";
-        store.Settings.WinFix.Hashes["PWClient.exe"] = ["ABC"];
+        store.Settings.PEST_Control.Hashes["PWClient.exe"] = ["ABC"];
         Assert.True(store.Save());
 
         LauncherSettingsStore again = new(file, dir.File("Settings.xml"), new ListLog());
         again.Load();
         Assert.Equal("2.7.0", again.Settings.Launcher.ModVersion);
-        Assert.Equal("ABC", again.Settings.WinFix.GetHashes("pwclient.EXE").Single(), "file names are not case sensitive");
-        Assert.Equal(0, again.Settings.WinFix.GetHashes("PWServer.exe").Count);
+        Assert.Equal("ABC", again.Settings.PEST_Control.GetHashes("pwclient.EXE").Single(), "file names are not case sensitive");
+        Assert.Equal(0, again.Settings.PEST_Control.GetHashes("PWServer.exe").Count);
         Assert.Null(again.LoadProblem);
     }
 
@@ -36,10 +36,10 @@ internal static class LauncherTests
         string? file = RepoPaths.Find("Launcher/Settings.json");
         Assert.NotNull(file, "Launcher/Settings.json");
         LauncherSettings settings = JsonFile.Load<LauncherSettings>(file!);
-        Assert.Equal(2, settings.WinFix.GetHashes("Paraworld.exe").Count);
-        Assert.Equal(2, settings.WinFix.GetHashes("PWClient.exe").Count);
-        Assert.Equal(1, settings.WinFix.GetHashes("PWServer.exe").Count);
-        Assert.True(settings.WinFix.Hashes.Values.SelectMany(static h => h).All(static h => h.Length == 64));
+        Assert.Equal(1, settings.PEST_Control.GetHashes("Paraworld.exe").Count);
+        Assert.Equal(1, settings.PEST_Control.GetHashes("PWClient.exe").Count);
+        Assert.Equal(1, settings.PEST_Control.GetHashes("PWServer.exe").Count);
+        Assert.True(settings.PEST_Control.Hashes.Values.SelectMany(static h => h).All(static h => h.Length == 64));
         Assert.Equal("BoosterPack3,MIRAGE", string.Join(',', settings.Addons.Enabled));
     }
 
@@ -145,7 +145,7 @@ internal static class LauncherTests
         using FakeGame game = new();
         LauncherSettingsStore settings = new(game.Paths.LauncherSettingsFile, game.Paths.LegacyLauncherSettingsFile, game.Log);
         settings.Load();
-        settings.Settings.WinFix.Hashes = new()
+        settings.Settings.PEST_Control.Hashes = new()
         {
             ["Paraworld.exe"] = [FakeGame.Sha256("Paraworld exe").ToUpperInvariant()],
             ["PWClient.exe"] = ["0000"],

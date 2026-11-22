@@ -39,7 +39,7 @@ Before every start the launcher checks, in this order:
 
 1. no game is running (unless `MultipleGameCopiesAllowed`); otherwise it offers PWKiller;
 2. `bin/Paraworld.exe`, `PWClient.exe`, `PWServer.exe` exist;
-3. **WinFix check:** their SHA-256 hashes are in `Settings.json` → `WinFix.Hashes`; otherwise it lists the files and
+3. **PEST-Control check:** their SHA-256 hashes are in `Settings.json` → `PEST-Control.Hashes`; otherwise it lists the files and
    asks whether to start anyway;
 4. the `requires` / `excludes` rules of the enabled add-ons;
 5. translated videos for the language (a note, once);
@@ -54,7 +54,7 @@ Then it starts the game, the PWKiller window and a hidden PWKiller (`--watch`) t
 | Folder | Contents | WPF? |
 |---|---|---|
 | `Models` | `LauncherSettings` (Settings.json), `Addon`, `UpdateInfo`, `GameMode`, `ExeCheckResult` | no |
-| `Services` | One class per job: `GameStartService` (the checks above), `GameConfigService` (Settings.cfg), `AddonService`, `ExeIntegrityService` (WinFix check), `LauncherSettingsStore`, `Localization`, `UpdateService`, `CacheService`, `MediaCatalog`, `ToolsService` (PWKiller, Discord status), `ShellService`, `HealthCheckService`; `IPlatform.cs` has the interfaces for message boxes, music and shutdown | no |
+| `Services` | One class per job: `GameStartService` (the checks above), `GameConfigService` (Settings.cfg), `AddonService`, `ExeIntegrityService` (PEST-Control check), `LauncherSettingsStore`, `Localization`, `UpdateService`, `CacheService`, `MediaCatalog`, `ToolsService` (PWKiller, Discord status), `ShellService`, `HealthCheckService`; `IPlatform.cs` has the interfaces for message boxes, music and shutdown | no |
 | `ViewModels` | `MainViewModel` (all properties and commands of the window), `AddonViewModel`, `RelayCommand` / `AsyncRelayCommand`, `ViewModelBase` | no |
 | `Views` | `MainWindow.xaml` with bindings only; the code-behind only drags the window | yes |
 | `Wpf` | The WPF side of the interfaces: `WpfDialogService` (MessageBox), `WpfAudioPlayer` (MediaPlayer), `WpfAppLifetime` | yes |
@@ -86,14 +86,14 @@ property in the view model and every key exists in `Locale.json`.
 | `Launcher.EnableDiscordStatus`, `MusicOnStartup`, `MultipleGameCopiesAllowed` | Options |
 | `Launcher.SkipVideoCheck` | Set after the video note was shown once |
 | `Addons.Enabled` | Enabled add-on ids |
-| `WinFix.CheckHashes` | false: no WinFix check |
-| `WinFix.Hashes` | `{ "PWClient.exe": ["<sha256>", ...], ... }`; a file without hashes isn't checked |
+| `PEST-Control.CheckHashes` | false: no PEST-Control check |
+| `PEST-Control.Hashes` | `{ "PWClient.exe": ["<sha256>", ...], ... }`; a file without hashes isn't checked |
 
 An old `Settings.xml` in the launcher folder is read once: the player's choices (add-ons, music, Discord, video
 note) go into `Settings.json`, then it is renamed to `Settings.xml.imported`. "Restore Game Settings" copies
 `Settings_backup.cfg` over Settings.cfg and puts these choices back to the defaults.
 
-**New WinFix version:** add the hashes of its exes to `WinFix.Hashes` (PowerShell:
+**New PEST-Control version:** add the hashes of its exes to `PEST-Control.Hashes` (PowerShell:
 `Get-FileHash bin\PWClient.exe -Algorithm SHA256`). The health check also lists the current hashes.
 
 ### Command line
