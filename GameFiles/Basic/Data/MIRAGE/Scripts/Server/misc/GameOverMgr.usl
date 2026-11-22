@@ -385,6 +385,11 @@ class CGameOverMgr inherit CEvtSink
 	endproc;
 	
 	proc int GetNumUnits(int p_iOwner)
+		return GetNumUnits(p_iOwner,-1);
+	endproc;
+	
+	//MIRAGE perf: p_iStopAt>0 stops counting when that many units are found (CheckUnits only needs "any unit left?")
+	proc int GetNumUnits(int p_iOwner, int p_iStopAt)
 		var int iNumUnits=0;
 		var ^CPlayer pxPlayer=m_pxLevel^.GetPlayer(p_iOwner);
 		if(pxPlayer!=null)then
@@ -397,6 +402,7 @@ class CGameOverMgr inherit CEvtSink
 				endif;
 				if(pxUnit^.DoesCountInUnitLimit())then
 					iNumUnits++;
+					if(p_iStopAt>0&&iNumUnits>=p_iStopAt)then break; endif;
 				endif;
 			endfor;
 		endif;
@@ -434,7 +440,12 @@ class CGameOverMgr inherit CEvtSink
 		if(pxPlayerState^.m_bLostUnit==false)then
 			return; 
 		endif;
-		var int iNumUnits=GetNumUnits(p_iOwner);
+		var int iNumUnits=GetNumUnits(p_iOwner,1); //MIRAGE perf: stop at the first unit
+		if(iNumUnits>0)then
+			//MIRAGE perf: checked. The next lost unit sets the flag again. Before, it stayed set after the first lost unit, so
+			//from then on every unit lost by any player counted all units of this player again.
+			pxPlayerState^.m_bLostUnit=false;
+		endif;
 		if(iNumUnits==0)then
 			if(HasProducedBuilding(p_iOwner)==false)then
 				var ^CBasePlayer pxTemp=cast<CBasePlayer>(pxPlayer);
@@ -580,7 +591,7 @@ class CGameOverMgr inherit CEvtSink
 		endif;
 		if((m_dwCheckStates&CHECK_WARPGATE)!=0h)then
 			var ^CWarpGate pxWarpGate=cast<CWarpGate>(p_pxBuilding);
-			if(pxWarpGate!=null && pxWarpGate^.GetOwner()>=0 && pxWarpGate^.GetOwner()<m_axPlayerStates.NumEntries())then
+			if(pxWarpGate!=null && pxWarpGate^.GetOwner()>=0 && pxWarpGate^.GetOwner()<m_axPlayerStates.NumEntries())then //MIRAGE: a world-owned warp gate (-1)
 				var int iOwner=pxWarpGate^.GetOwner();
 				var ^CPlayerState pxPS=^(m_axPlayerStates[iOwner]);
 				var ^CObjTime pxWarpGateTimer=cast<CObjTime>(pxPS^.m_xWarpGateTimer.GetObj());
@@ -714,7 +725,7 @@ class CGameOverMgr inherit CEvtSink
 		endif;
 		var int i,iC=m_axPlayerStates.NumEntries();
 		if(CMirageSrvMgr.Get().PhantomMode()&&CMirageSrvMgr.ms_pxPoolMixer!=null&&CMirageSrvMgr.ms_pxPoolMixer^.IsTheReapingOver())then
-			var bool bGoodSideVictory=m_axPlayerStates[iOwner].m_bGoodSide;
+			var bool bGoodSideVictory=m_axPlayerStates[iOwner].m_bGoodSide; //MIRAGE: the dominating player, not the timer ID (always 0)
 			for(i=0)cond(i<iC)iter(i++)do
 				var ^CPlayerState pxPS=^(m_axPlayerStates[i]);
 				if(pxPS^.m_iState==CPlayerState.STATE_ALIVE || pxPS^.m_iState==CPlayerState.STATE_SLAVE)then
@@ -830,7 +841,7 @@ class CGameOverMgr inherit CEvtSink
 					OnSlaveDie(j);
 					pxPlrStt^.m_iState=CPlayerState.STATE_INVALID;
 					aiSlaves.DeleteEntry(i);
-					i--; iK--;
+					i--; iK--; //MIRAGE: the next slave moved to index i; iK was the old count
 				endif;
 			endfor;
 			if(aiAlivePlayers.NumEntries()==1)then
@@ -1138,7 +1149,7 @@ class CGameOverMgr inherit CEvtSink
 			for(i=0)cond(i<iC)iter(i++)do
 				if(aiOwnerMap[i]>iTmp)then
 					iMostOwner=i;
-					iTmp=aiOwnerMap[i];
+					iTmp=aiOwnerMap[i]; //MIRAGE: was never updated, so the last owner with any point won
 				endif;
 			endfor;
 			var string sMostOwnerName;
@@ -1199,7 +1210,7 @@ class CGameOverMgr inherit CEvtSink
 					var real fMin=CMirageSrvMgr.ms_fDFTimer;
 					var CGameTimeSpan xInterval=(CGameTimeSpan.OneSecond()*60.0f)*fMin;
 					pxDominationTimer^.Start(xInterval,false,true);
-					pxDominationTimer^.SetID(0);
+					pxDominationTimer^.SetID(0); //MIRAGE: as the first timer; FindTimerObj("GameOverMgr/Domination",0) finds it after loading
 					pxDominationTimer^.SetOccupant("GameOverMgr/Domination");
 					pxDominationTimer^.SetOwner(iMostOwner);
 					pxDominationTimer^.SetIcon("domination");

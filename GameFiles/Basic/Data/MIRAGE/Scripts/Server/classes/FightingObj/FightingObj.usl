@@ -3997,8 +3997,10 @@ class CFightingObj inherit CGameObj
 				m_bAI=pxAiPlayer!=null;
 			endif;
 		endif;
+		//MIRAGE perf: no 1 s TIMER_FLAGS per unit any more. It only called HandleHealing(), which is empty in every class, so it
+		//was one script event per unit and second for nothing. DeleteTimer also removes it from units in older saves.
+		DeleteTimer(TIMER_FLAGS);
 		if(!p_bLoad)then
-			CreateTimer(TIMER_FLAGS, CGameTimeSpan.OneSecond() * 1.0, true);
 			CreateTimer(TIMER_FLAGS2, CGameTimeSpan.OneSecond() * 20.0, true);
 			if(GetClassName()=="aje_poisoner" && !m_bAI)then
 //				SetAggressionState(5);
@@ -6565,8 +6567,17 @@ class CFightingObj inherit CGameObj
 			fRange=GetAttackRange();
 		endif;
 		fRange+=50.0f;
+		var CObjList xNear; //MIRAGE perf v2: see FillEnemyList
+		if(FastEnemySearch())then
+			GetEnemyCandidates(fRange, xNear);
+			pxEnemies=^(xNear);
+		endif;
 		var CObjList xEnemies;
 		pxEnemies^.CopySorted(xEnemies,GetPos(),fRange);
+		var bool bIgnoreWild=(GetClassName()=="darwin_s0"||GetEffectFlag(EFFECT_NO_ANIMAL_AGGRO)||CMirageSrvMgr.Get().GetNeutralToWildAnimals(GetOwner()));
+		var bool bNoAirTargets=(!m_bAirWeapon&&!m_bBUAirAttack);
+		var bool bAirTargetsOnly=(m_bFlyingUnit&&GetProjectile().IsEmpty()&&!m_bWildPtera);
+		var CObjList xValid;
 		var ^CFightingObj pxEnemy=null;
 		var ^CAttribs pxAttribs=null;
 		var int i, iC=xEnemies.NumEntries();
@@ -6577,24 +6588,21 @@ class CFightingObj inherit CGameObj
 				pxAttribs=pxEnemy^.GetAttribs();
 				if(pxAttribs!=null)then
 					if(pxAttribs^.GetValueBool("active_disguise")||pxAttribs^.GetValueBool("active_camouflage")||pxEnemy^.GetNeutralObject())then
-						xEnemies.DeleteEntry(i);
-						i--;iC--;
-					elseif((GetClassName()=="darwin_s0"||GetEffectFlag(EFFECT_NO_ANIMAL_AGGRO)||CMirageSrvMgr.Get().GetNeutralToWildAnimals(GetOwner()))&&(pxEnemy^.GetType()=="ANML"||pxEnemy^.GetType()=="NEST")&&pxEnemy^.GetOwner()==-1)then
-						xEnemies.DeleteEntry(i);
-						i--;iC--;
-					elseif((pxEnemy^.IsFlyingUnit()&&!m_bAirWeapon&&!m_bBUAirAttack)||(m_bFlyingUnit&&!pxEnemy^.IsFlyingUnit()&&GetProjectile().IsEmpty()&&!m_bWildPtera))then
-						xEnemies.DeleteEntry(i);
-						i--;iC--;
+						continue;
+					elseif(bIgnoreWild&&(pxEnemy^.GetType()=="ANML"||pxEnemy^.GetType()=="NEST")&&pxEnemy^.GetOwner()==-1)then
+						continue;
+					elseif((bNoAirTargets&&pxEnemy^.IsFlyingUnit())||(bAirTargetsOnly&&!pxEnemy^.IsFlyingUnit()))then
+						continue;
 					elseif(pxEnemy^.PeaceTime())then
-						xEnemies.DeleteEntry(i);
-						i--;iC--;
+						continue;
 					endif;
 				endif;
 			endif;
+			xValid.AddEntry(xEnemies[i]);
 		endfor;
-		if(xEnemies.NumEntries()<1)then return; endif;
-		var int iNearest=xEnemies.FindNearest(GetPos(),fRange);
-		var int iFOWNearest=xEnemies.FindNearest(GetPos(),GetFOWRange());
+		if(xValid.NumEntries()<1)then return; endif;
+		var int iNearest=xValid.FindNearest(GetPos(),fRange);
+		var int iFOWNearest=xValid.FindNearest(GetPos(),GetFOWRange());
 		if(iNearest!=-1 /*AI:||/* m_xPriorityList.NumEntries()>0*/)then
 			ActivateAggroTimer();
 		else
@@ -6858,6 +6866,35 @@ class CFightingObj inherit CGameObj
 	//	FillEnemyList()
 	///////
 	
+	//MIRAGE perf v2: Settings.cfg Server/GameplayOptions/FastEnemySearch (default 0 = off). Read once per server start.
+	static var int ms_iFastEnemySearch;		// 0 not read yet, 1 off, 2 on
+	export static proc bool FastEnemySearch()
+		if(ms_iFastEnemySearch==0)then
+			var CConfig xConf;
+			if(xConf.GetSetB("Server/GameplayOptions/FastEnemySearch",false))then ms_iFastEnemySearch=2; else ms_iFastEnemySearch=1; endif;
+		endif;
+		return ms_iFastEnemySearch==2;
+	endproc;
+
+	//MIRAGE perf v2: the fighting objects of enemy players and of the world (owner -1) within p_fRange of this unit (2D).
+	//CObjList.CopySorted on GetOwnerEnemyList checks EVERY enemy object of the map (PWServer 0x4b8af0: one handle lookup and
+	//one distance per entry), while CObjQuery.RegionCircle + Execute only looks at the map cells around the circle
+	//(0x4bbe10 -> grid query 0x7f3a50). Same filter as SEK's own InvokeAreaThrow: AddMyEnemiesToSearch + owner -1.
+	proc void GetEnemyCandidates(real p_fRange, ref CObjList po_rxList)
+		var CObjQuery xQuery;
+		CSrvWrap.GetDiplomacyMgr().AddMyEnemiesToSearch(GetOwner(), xQuery, false);
+		xQuery.SetOwner(-1, true);
+		xQuery.RegionCircle(GetPos(), p_fRange);
+		var CObjList xAll;
+		xQuery.Execute(xAll);
+		var int i, iC=xAll.NumEntries();
+		for(i=0)cond(i<iC)iter(i++)do
+			if(cast<CFightingObj>(xAll[i].GetObj())!=null)then
+				po_rxList.AddEntry(xAll[i]);
+			endif;
+		endfor;
+	endproc;
+
 	export proc void FillEnemyList(ref CObjList p_rxDirectList, ref CObjList p_rxAlarmList)
 		var string sString;
 		var int iOwner=GetOwner();
@@ -6866,7 +6903,6 @@ class CFightingObj inherit CGameObj
 		if(pxEnemies==null)then return; endif;
 		// TODO:
 		CSrvWrap.GetObjMgr()^.FilterOwnerEnemyList(pxEnemies);
-		FilterEnemyListCustom(pxEnemies^);
 		/*
 		var int i, iC=pxEnemies^.NumEntries();
 		for(i=0) cond(i<iC) iter(++i)do
@@ -6878,6 +6914,13 @@ class CFightingObj inherit CGameObj
 		*/
 		var real fMaxRange = GetAttackRange();
 		var real fAlarmRange = GetAlarmRange();
+		//MIRAGE perf v2: optional (Settings.cfg Server/GameplayOptions/FastEnemySearch = 1): take the enemies near this unit from
+		//the engine's map grid instead of copying from the list of all enemies on the map (see GetEnemyCandidates).
+		var CObjList xNear;
+		if(FastEnemySearch())then
+			GetEnemyCandidates(Math.Max(Math.Max(fAlarmRange,fMaxRange),30.0f)+15.0f, xNear);
+			pxEnemies=^(xNear);
+		endif;
 		//Dump("GetRightHandWeapon()="+GetRightHandWeapon());
 		//Dump("fMaxRange="+fMaxRange.ToString());
 		//Dump("fAlarmRange="+fAlarmRange.ToString());
@@ -6886,14 +6929,17 @@ class CFightingObj inherit CGameObj
 			if(fAlarmRange > fMaxRange)then
 				var real fFallOff=GetProjectileFallOffCone(fAlarmRange);
 				pxEnemies^.CopySortedCone(p_rxAlarmList,vCenter,fFallOff,Math.Max(fAlarmRange,30.0f));
+				FilterEnemyListCustom(p_rxAlarmList); //MIRAGE perf: on the own copy (see above)
 				p_rxAlarmList.CopySortedCone(p_rxDirectList,vCenter,fFallOff,fMaxRange);
 			else
 				var real fFallOff =GetProjectileFallOffCone(fMaxRange);
 				pxEnemies^.CopySortedCone(p_rxDirectList,vCenter,fFallOff,Math.Max(fMaxRange,30.0f));
+				FilterEnemyListCustom(p_rxDirectList); //MIRAGE perf: on the own copy (see above)
 				p_rxDirectList.CopySortedCone(p_rxAlarmList,vCenter,fFallOff,fAlarmRange);
 			endif;
 		else
 			pxEnemies^.CopySorted2D(p_rxAlarmList,GetPos(),fAlarmRange);
+			FilterEnemyListCustom(p_rxAlarmList); //MIRAGE perf: on the own copy (see above)
 			p_rxAlarmList.CopySorted2D(p_rxDirectList,GetPos(),Math.Max(fMaxRange,30.0f));
 		endif;
 		if((m_bFlyingUnit&&GetProjectile().IsEmpty()&&!m_bWildPtera)||!m_bAirWeapon)then
