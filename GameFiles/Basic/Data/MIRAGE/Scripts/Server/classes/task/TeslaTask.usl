@@ -1,0 +1,241 @@
+class CTeslaTask inherit CTask
+
+	var CObjHndl 		m_xHandle;
+	var string 			m_sState;
+	var CObjList		m_xStations;
+	var vec3			m_vCurTarget;
+	var Quat			m_qCurRot;
+	var CGameTime		m_xAnimStart;
+	var bool			m_bPos;
+
+	
+	static var array string	ms_asAnims;
+
+	export constructor()
+		SetName("TeslaTask");
+		ms_asAnims.AddEntry("scorpion_tesla_bow_left");
+		ms_asAnims.AddEntry("scorpion_tesla_think");
+		ms_asAnims.AddEntry("scorpion_tesla_listen");
+		ms_asAnims.AddEntry("scorpion_tesla_wipe");
+		ms_asAnims.AddEntry("scorpion_tesla_kneel");
+
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="TeTa";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());		
+		m_xHandle.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		m_xStations.DoKArc(pxArc^);
+		(pxArc^) << m_qCurRot;
+		m_xAnimStart.DoKArc(pxArc^);
+		(pxArc^) << m_bPos;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="TeTa")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xHandle.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			m_xStations.DoKArc(pxArc^);
+			(pxArc^) << m_qCurRot;
+			m_xAnimStart.DoKArc(pxArc^);
+			(pxArc^) << m_bPos;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xHandle)
+
+		m_sState="EndTask";
+
+		if(!p_xHandle.IsValid())then return false; endif;
+
+		var CObjList xList;
+		var CObjQuery xQuery;
+
+		m_xStations.Clear();
+
+		xQuery.SetClass("scorpion_panel_a");
+		xQuery.Execute(xList);
+		if(xList.NumEntries()>0)then
+			m_xStations.AddEntry(xList[0]);
+		endif;
+
+		xQuery.SetClass("scorpion_panel_b");
+		xQuery.Execute(xList);
+		if(xList.NumEntries()>0)then
+			m_xStations.AddEntry(xList[0]);
+		endif;
+
+		xQuery.SetClass("scorpion_panel_c");
+		xQuery.Execute(xList);
+		if(xList.NumEntries()>0)then
+			m_xStations.AddEntry(xList[0]);
+		endif;
+
+		if(m_xStations.NumEntries()!=3)then
+			return false;
+		endif;
+		
+		m_sState="start_a";
+		m_xHandle=p_xHandle;
+		
+		return true;
+
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		
+		var ^CCharacter pxActor=cast<CCharacter>(m_xHandle.GetObj());
+		if(pxActor==null)then EndTask(); return; endif;
+		
+		if(m_sState=="start_a")then
+			var ^CGameObj pxObj=m_xStations[0].GetObj();
+			if(pxObj==null)then
+				m_sState="start_b";
+				return;
+			endif;
+			var CFourCC xLink="Spwn";
+			if(!pxObj^.GetLinkPosRotWorld(xLink,m_vCurTarget,m_qCurRot))then
+				if(CSrvWrap.GetObjMgr()^.GetFreePos(m_vCurTarget,pxActor,pxObj^.GetPos()))then EndTask(); return; endif;
+			endif;
+			m_sState="goto_a";
+		elseif(m_sState=="goto_a")then
+			if((pxActor^.GetPos()-m_vCurTarget).AbsSquare()>1.0)then
+				pxActor^.WalkAction(m_vCurTarget,pxActor^.GetDefaultSpeed(),true);
+			else
+				pxActor^.RotateAction(m_qCurRot);
+				m_sState="handle_a";
+				m_xAnimStart=CTimeMgr.Get().GetTime();
+			endif;
+		elseif(m_sState=="handle_a")then
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			if((xNow-m_xAnimStart).GetSecondsF()<45.0)then
+				pxActor^.HideWeapons();
+				if(m_bPos)then
+					var int iRandom=Random.GetInt()%ms_asAnims.NumEntries();
+					pxActor^.AnimAction(ms_asAnims[iRandom]);
+				else
+					m_bPos=true;
+					pxActor^.AnimAction("scorpion_tesla_stand",1,true,false);
+				endif;
+			else
+				var CObjQuery xQuery;
+				xQuery.SetClass("scorpion");
+				var CObjList xList;
+				xQuery.Execute(xList);
+				if(xList.NumEntries()>0)then
+					var ^CFightingObj pxScorpion=cast<CFightingObj>(xList[0].GetObj());
+					if(pxScorpion!=null)then
+						pxScorpion^.HandleGamePlayCommand("Action",null,{0.0,0.0,0.0},"/JumpOffWall");
+					endif;
+					m_bPos=false;
+					m_sState="start_b";
+				else
+					EndTask();
+					return;
+				endif;
+			endif;
+		elseif(m_sState=="start_b")then
+			var ^CGameObj pxObj=m_xStations[1].GetObj();
+			if(pxObj==null)then
+				m_sState="start_c";
+				return;
+			endif;
+			var CFourCC xLink="Spwn";
+			if(!pxObj^.GetLinkPosRotWorld(xLink,m_vCurTarget,m_qCurRot))then
+				if(CSrvWrap.GetObjMgr()^.GetFreePos(m_vCurTarget,pxActor,pxObj^.GetPos()))then EndTask(); return; endif;
+			endif;
+			m_sState="goto_b";
+		elseif(m_sState=="goto_b")then
+			if((pxActor^.GetPos()-m_vCurTarget).AbsSquare()>1.0)then
+				pxActor^.WalkAction(m_vCurTarget,pxActor^.GetDefaultSpeed(),true);
+			else
+				pxActor^.RotateAction(m_qCurRot);
+				m_sState="handle_b";
+				m_xAnimStart=CTimeMgr.Get().GetTime();
+			endif;
+		elseif(m_sState=="handle_b")then
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			if(m_xStations[0].IsValid())then
+				pxActor^.HideWeapons();
+				if(m_bPos)then
+					var int iRandom=Random.GetInt()%ms_asAnims.NumEntries();
+					pxActor^.AnimAction(ms_asAnims[iRandom]);
+				else
+					m_bPos=true;
+					pxActor^.AnimAction("scorpion_tesla_stand",1,true,false);
+				endif;
+			else
+				m_bPos=false;
+				m_sState="start_c";
+			endif;
+		elseif(m_sState=="start_c")then
+			var ^CGameObj pxObj=m_xStations[2].GetObj();
+			if(pxObj==null)then
+				m_sState="endtask";
+				return;
+			endif;
+			var CFourCC xLink="Spwn";
+			if(!pxObj^.GetLinkPosRotWorld(xLink,m_vCurTarget,m_qCurRot))then
+				if(CSrvWrap.GetObjMgr()^.GetFreePos(m_vCurTarget,pxActor,pxObj^.GetPos()))then EndTask(); return; endif;
+			endif;
+			m_sState="goto_c";
+		elseif(m_sState=="goto_c")then
+			if((pxActor^.GetPos()-m_vCurTarget).AbsSquare()>1.0)then
+				pxActor^.WalkAction(m_vCurTarget,pxActor^.GetDefaultSpeed(),true);
+			else
+				pxActor^.RotateAction(m_qCurRot);
+				m_sState="handle_c";
+				m_xAnimStart=CTimeMgr.Get().GetTime();
+			endif;
+		elseif(m_sState=="handle_c")then
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			if(m_xStations[1].IsValid())then
+				pxActor^.HideWeapons();
+				if(m_bPos)then
+					var int iRandom=Random.GetInt()%ms_asAnims.NumEntries();
+					pxActor^.AnimAction(ms_asAnims[iRandom]);
+				else
+					m_bPos=true;
+					pxActor^.AnimAction("scorpion_tesla_stand",1,true,false);
+				endif;
+			else
+				m_bPos=false;
+				m_sState="endtask";
+			endif;
+		elseif(m_sState=="endtask")then
+			EndTask();
+			return;
+		endif;
+		
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+	endproc;
+
+	export proc bool OnActionEnd(bool p_bBroken)
+		return false;
+	endproc;
+
+	export proc bool Break()
+		return false;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+endclass;
