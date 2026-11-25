@@ -145,7 +145,7 @@ public sealed partial class GameStartService(
             return false;
         }
 
-        // 2. Game exes, and the WinFix check.
+        // 2. Game exes, and the PEST-Control check.
         List<ExeCheckResult> exes = m_exeCheck.IsEnabled ? m_exeCheck.Check() : [];
         var missing = ExeIntegrityService.FileNames.Where(p_F => !File.Exists(Path.Combine(m_paths.BinDir, p_F))).ToList();
         if (missing.Count > 0)
@@ -156,11 +156,9 @@ public sealed partial class GameStartService(
         var mismatched = exes.Where(static p_R => p_R.Status == ExeCheckStatus.Mismatch).Select(static p_R => p_R.FileName).ToList();
         if (mismatched.Count > 0)
         {
-            m_log.Warn($"WinFix check: {string.Join(", ", exes.Select(static p_R => $"{p_R.FileName} {p_R.Status} {p_R.Hash}"))}");
-            if (!m_dialogs.AskYesNo(m_text.Message(16, "ExeHashMismatch") + FormatList(mismatched) + "\n" + m_text["ExeHashHint"]))
-            {
-                return false;
-            }
+            m_log.Warn($"PEST-Control check: {string.Join(", ", exes.Select(static p_R => $"{p_R.FileName} {p_R.Status} {p_R.Hash}"))}");
+            m_dialogs.ShowError(m_text.Message(16, "ExeHashMismatch", m_settings.Settings.PEST_Control.RequiredVersion));
+            return false;
         }
 
         // 3. Add-on rules.

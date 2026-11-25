@@ -82,8 +82,8 @@ public sealed class LauncherSettingsStore(string p_FilePath, string p_LegacyXmlP
         Settings.Launcher ??= new LauncherOptions();
         Settings.Addons ??= new AddonOptions();
         Settings.Addons.Enabled ??= [.. AddonOptions.DefaultEnabled];
-        Settings.WinFix ??= new WinFixOptions();
-        Settings.WinFix.Hashes ??= [];
+        Settings.PEST_Control ??= new PEST_ControlOptions();
+        Settings.PEST_Control.Hashes ??= [];
         Settings.Addons.Enabled = [.. Settings.Addons.Enabled
             .Where(static p_Id => !string.IsNullOrWhiteSpace(p_Id))
             .Select(static p_Id => p_Id.Trim())

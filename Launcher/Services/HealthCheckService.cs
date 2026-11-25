@@ -13,7 +13,7 @@ using System.Text;
 namespace MIRAGE_Launcher.Services;
 
 /// <summary>
-/// Writes PWHealthCheck.txt to the desktop (right click on "Exit Launcher"): admin rights, the WinFix check with
+/// Writes PWHealthCheck.txt to the desktop (right click on "Exit Launcher"): admin rights, the PEST-Control check with
 /// the hashes, the Tages drivers, Settings.cfg, and every config file of the game that can't be parsed.
 /// </summary>
 public sealed class HealthCheckService(GamePaths p_Paths, ExeIntegrityService p_ExeCheck, ILog p_Log)
@@ -35,7 +35,7 @@ public sealed class HealthCheckService(GamePaths p_Paths, ExeIntegrityService p_
         _ = sb.AppendLine($"Launcher admin rights are{(IsRunAsAdmin() ? string.Empty : " not")} granted");
 
         _ = sb.AppendLine();
-        _ = sb.AppendLine("WinFix check (SHA-256 of bin\\*.exe):");
+        _ = sb.AppendLine("PEST-Control check (SHA-256 of bin\\*.exe):");
         foreach (ExeCheckResult result in m_exeCheck.Check(true))
         {
             _ = sb.AppendLine($"  {result.FileName}: {result.Status} {result.Hash}");

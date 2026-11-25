@@ -11,7 +11,7 @@ public sealed class LauncherSettings
 
     public AddonOptions Addons { get; set; } = new();
 
-    public WinFixOptions WinFix { get; set; } = new();
+    public PEST_ControlOptions PEST_Control { get; set; } = new();
 
     /// <summary>Puts the options a player can change back to the defaults; keeps the release data (version, URLs, hashes).</summary>
     public void ResetUserOptions()
@@ -58,8 +58,10 @@ public sealed class AddonOptions
     public List<string> Enabled { get; set; } = [.. DefaultEnabled];
 }
 
-public sealed class WinFixOptions
+public sealed class PEST_ControlOptions
 {
+    public string RequiredVersion { get; set; } = string.Empty;
+
     /// <summary>Check the game exes before every start.</summary>
     public bool CheckHashes { get; set; } = true;
 

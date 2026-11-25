@@ -5,7 +5,7 @@ public enum ExeCheckStatus
     /// <summary>The hash is one of the accepted ones.</summary>
     Ok,
 
-    /// <summary>The file has another hash: not the expected WinFix version.</summary>
+    /// <summary>The file has another hash: not the expected PEST-Control version.</summary>
     Mismatch,
 
     Missing,

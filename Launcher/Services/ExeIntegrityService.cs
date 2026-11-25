@@ -10,8 +10,8 @@ using System.Security.Cryptography;
 namespace MIRAGE_Launcher.Services;
 
 /// <summary>
-/// The WinFix check: compares the SHA-256 of Paraworld.exe, PWClient.exe and PWServer.exe with the hashes in
-/// Settings.json (WinFix.Hashes).
+/// The PEST-Control check: compares the SHA-256 of Paraworld.exe, PWClient.exe and PWServer.exe with the hashes in
+/// Settings.json (PEST-Control.Hashes).
 /// </summary>
 public sealed class ExeIntegrityService(GamePaths p_Paths, LauncherSettingsStore p_Settings)
 {
@@ -20,7 +20,7 @@ public sealed class ExeIntegrityService(GamePaths p_Paths, LauncherSettingsStore
 
     public static IReadOnlyList<string> FileNames { get; } = [.. GameProcesses.All.Select(static p_P => p_P + ".exe")];
 
-    public bool IsEnabled => m_settings.Settings.WinFix.CheckHashes;
+    public bool IsEnabled => m_settings.Settings.PEST_Control.CheckHashes;
 
     public static string ComputeHash(string p_FilePath)
     {
@@ -46,7 +46,7 @@ public sealed class ExeIntegrityService(GamePaths p_Paths, LauncherSettingsStore
         {
             return new ExeCheckResult(p_FileName, ExeCheckStatus.Missing, null);
         }
-        IReadOnlyList<string> expected = m_settings.Settings.WinFix.GetHashes(p_FileName);
+        IReadOnlyList<string> expected = m_settings.Settings.PEST_Control.GetHashes(p_FileName);
         if ((expected.Count == 0) && !p_HashAll)
         {
             return new ExeCheckResult(p_FileName, ExeCheckStatus.NotChecked, null);
