@@ -17,6 +17,7 @@ General:
  - Fixed a bug where a unit queued at an unbuilt SEAS or dustriders port was showing production progress same as that ports construction progress
  - Fixed a bug which was displaying incorrect wild animal's nest HealthBar color if the nest was respawned after death on non aggressive animal nests with aggressive animals in it
  - Fixed a bug where the corpse vanishing effect worked correctly only at zero world coordinates
+ - Fixed a bug that caused lobby settings to reset every time the map changed and other lobby bugs
  - Fixed issue when Buildup turrets wont detect enemy near its owner unit, even if the enemy very close to it and not attack enemy as result
  - Chat window has been increased and now uses multiline
  - Added chat player colors to the recipient selection dropdown menu (in match only)
@@ -37,6 +38,7 @@ General:
  - Flowerpot of insanity skull bonus effect from now on displayed in unit info window. Affects only enemy units. Works both for owner and allied players
  - Bony amulet melee defense bonus against animal class attacker from now on displayed in weapon description window
  - Skipping sequence is not allowed in multiplayer from now on
+ - Added missing text lines in localization files. Translated untranslated English text to Locale language, fixed bugs
 
 Multiplayer campaign and maps with custom gameplay:
  - Fixed crash during CrashRPG and BFPW Highland maps loading
@@ -110,6 +112,7 @@ AI:
  - Fixed a bug that prevented Norsemen AI from using corn fields.
  - Fixed a bug that prevented Dragon Clan AI from lock picking gates.
  - Fixed a bug that prevented AI from attacking Dragon Clan minelayers.
+ - Fixed a bug that allowed Dragon Clan AI to mining unbuilt buildings
  - Fixed a bug where AI units on an island would try to attack an enemy on another island, causing the units to remain on the shore.
  - You can ask AI player for help by writing "help" or "Help" in the dm or allies chat
  - AI players can read group chats from now on
