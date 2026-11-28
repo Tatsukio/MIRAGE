@@ -1945,6 +1945,10 @@ class CAjePteranodon inherit CAnimal
 		SetCanWalk(false);
 		SetCanSwim(false);
 		SetCanFly(true);
+		if(CFlyerCtrl.Get().IsGroundMode(this))then //MIRAGE v4: loaded on the ground (ground model): walks, doesn't fly
+			SetCanWalk(true);
+			SetCanFly(false);
+		endif;
 //		m_fCollisionRadius=GetCollisionRadius()+0.5f;
 		m_fCollisionRadius = 3.5f;
 		if(!p_bLoad)then
@@ -2034,6 +2038,11 @@ class CAjePteranodon inherit CAnimal
 	endproc;
 
 	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass() == CActFlight.ms_xAttackEvt)then
+			//MIRAGE: the dive passed the target: hit (CFlyerCtrl)
+			CFlyerCtrl.Get().OnDiveEvent(this);
+			return;
+		endif;
 		if(p_rxEvtPtr.GetClass() == ms_xTimerClass)then
 			var int iTimerID = p_rxEvtPtr.GetInt(0);
 			if(iTimerID == TIMER_COLLISION_HANDLER)then
@@ -2047,23 +2056,18 @@ class CAjePteranodon inherit CAnimal
 	endproc;
 
 	export proc void Disengage()
-		var string sAct = GetActionDesc();
-		if(sAct != "CActWalk" && sAct != "CActFlight" && !HasSecondaryAction())then
-			Random.MTRandF(Math.Pi() * 2.0f);
-			var vec3 vOffset, vNew;
-			vOffset.SetX(m_fCollisionRadius + COLLISION_PLUS);
-			vOffset.RotZ((Random.GetInt() % 628).ToReal() / 100.0);
-//			vOffset.SetXYZ(Math.Sin(fD),Math.Cos(fD),0.0f);
-			vNew = GetPosInMap(GetPos() + vOffset);
-			vNew.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vNew.GetX(),vNew.GetY()),m_fWaterLevel) + FLYING_HEIGHT);
-			SecondaryMoveAction(vNew,COLLISION_FIX);
-			UpdateAggressionPos(vNew);
-		endif;
+		//MIRAGE: flyers keep apart with CFlyerCtrl: an idle flyer checks its spot again, moves apart and lands
+		CFlyerCtrl.Get().Nudge(this);
 	endproc;
 
 	export proc bool AttackEnemy(^CFightingObj p_pxEnemy, vec3 p_vTarget, ref bool p_rbRotated)
 		if(p_pxEnemy != null)then
 			if(p_pxEnemy^.IsFlyingUnit() && !CanShootAir())then return false; endif;
+		endif;
+		//MIRAGE: dive attacks (engine FM_DiveCombat); the hits come with CActFlight.ms_xAttackEvt (HandleEvent)
+		if(p_pxEnemy != null && CFlyerCtrl.Get().StartDive(this,p_pxEnemy))then
+			p_rbRotated = true;
+			return false;
 		endif;
 		var string sProj = GetProjectile();
 //		var string sFAnim=GetNextFightAnim();
@@ -2149,6 +2153,10 @@ class CAjePteranodon inherit CAnimal
 	endproc;
 
 	export proc void SetIdleAnim()
+		if(CFlyerCtrl.Get().IsGroundMode(this))then //MIRAGE v4: on the ground: the ground model's stand animation
+			if(HasAnim("standanim") && GetCurrentAnimName() != "standanim")then SetAnim("standanim",3); endif;
+			return;
+		endif;
 		DoCaptainAnim();
 		if(HasAnim("idle") && GetCurrentAnimName() != "idle")then
 			SetAnim("idle",3);
@@ -2156,14 +2164,29 @@ class CAjePteranodon inherit CAnimal
 		return;
 	endproc;
 
+	//MIRAGE v3: abilities "Land" and "Take off" (tech tree Moves/VHCL|ANML/fly_land, fly_takeoff; CFlyerCtrl)
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		if(CFlyerCtrl.Get().HandleAbility(this,p_sCommand,p_vPos,p_sMiscParams))then return; endif;
+		super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+	endproc;
+
 	export proc void OnIdleEnter(^CState p_pxFrom, ^CState p_pxTo)
 //		Flight();
 		super.OnIdleEnter(p_pxFrom,p_pxTo);
+		CFlyerCtrl.Get().OnIdleEnter(this);
+	endproc;
+
+	export proc void OnIdleTick(int p_iTime)
+		super.OnIdleTick(p_iTime);
+		//MIRAGE: idle flyers move apart and land (CFlyerCtrl)
+		CFlyerCtrl.Get().OnIdleTick(this);
 	endproc;
 
 	export proc void Flight()
 		var string sAct = GetActionDesc();
-		if(sAct != "CActFlight")then
+		//MIRAGE v5: CheckPatrol calls this on every idle tick; it gave the flyer a new flight to a random point 1 m from
+		//its aggression position each time, so an idle flyer kept turning on the spot (also alone). Off (CFlyerCtrl).
+		if(CFlyerCtrl.Get().IdleHover() && sAct != "CActFlight")then
 			var ^CAttribs pxAttr = GetAttribs();
 			if(pxAttr != null)then
 				if(pxAttr^.GetValue("CurTask") != "Idle")then
@@ -2199,6 +2222,11 @@ class CAjePteranodon inherit CAnimal
 
 	export proc void AdvanceAction(CObjHndl p_xGoalObj , ref CGameObj.CAdvanceActionParams p_rxParams)
 		if(!p_xGoalObj.IsValid())then return; endif;
+		//MIRAGE: in a fight the dive (FM_DiveCombat) flies to the target itself
+		if(GetCurTaskName() == "Fight")then
+			var ^CFightingObj pxDiveGoal = cast<CFightingObj>(p_xGoalObj.GetObj());
+			if(pxDiveGoal != null && !(pxDiveGoal^.IsFlyingUnit() && !CanShootAir()) && CFlyerCtrl.Get().StartDive(this,pxDiveGoal))then return; endif;
+		endif;
 		var vec3 vObj = p_xGoalObj.GetObj()^.GetPos(), vOwn = GetPos(),vNew;
 		var real fScape = Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vOwn.GetX(),vOwn.GetY()),m_fWaterLevel);
 		var real fRange = GetAttackRange()/*+fHeight-GetRadius()*/;
@@ -2210,6 +2238,11 @@ class CAjePteranodon inherit CAnimal
 	endproc;
 
 	export proc void WalkAction(vec3 p_vDest, int p_iPrefSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, ^CGameObj p_pxGoalObj, CFourCC p_xWalkSet, bool p_bUseMaterial)
+		if(CFlyerCtrl.Get().IsGroundMode(this))then //MIRAGE v4: landed: walk on the ground (ground model, walk set def = walk_1), no take-off
+			return super.WalkAction(p_vDest, p_iPrefSpeed, true, true, p_pxGoalObj, p_xWalkSet, p_bUseMaterial);
+		endif;
+		//MIRAGE: engine flight at 15 m (follows the terrain), own target apart from the other flyers (CFlyerCtrl)
+		if(CFlyerCtrl.Get().FlyTo(this,p_vDest,p_iPrefSpeed,true))then return; endif;
 		var vec3 vPosition = GetPosInMap(p_vDest);
 //		vPosition.SetZ(p_vDest.GetZ()+FLYING_HEIGHT);
 		vPosition.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vPosition.GetX(),vPosition.GetY()),m_fWaterLevel) + FLYING_HEIGHT);
@@ -2242,6 +2275,11 @@ class CAjePteranodon inherit CAnimal
 
 	export proc void AdvanceAction(CObjHndl p_xGoalObj, real p_fMinDistance, int p_iPrefSpeed, CFourCC p_xWalkSet, real p_fMaxRange, ref vec3 p_rvRootPos, ref vec3 p_rvGoalOffset)
 		if(!p_xGoalObj.IsValid())then return; endif;
+		//MIRAGE: in a fight the dive (FM_DiveCombat) flies to the target itself
+		if(GetCurTaskName() == "Fight")then
+			var ^CFightingObj pxDiveGoal = cast<CFightingObj>(p_xGoalObj.GetObj());
+			if(pxDiveGoal != null && !(pxDiveGoal^.IsFlyingUnit() && !CanShootAir()) && CFlyerCtrl.Get().StartDive(this,pxDiveGoal))then return; endif;
+		endif;
 		var vec3 vObj = p_xGoalObj.GetObj()^.GetPos(), vOwn = GetPos(),vNew;
 		var real fScape = Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vOwn.GetX(),vOwn.GetY()),m_fWaterLevel);
 		var real fRange = GetAttackRange()/*+fHeight-GetRadius()*/;
@@ -2711,6 +2749,10 @@ class CHuPteranodon inherit CAnimal
 		SetCanWalk(false);
 		SetCanSwim(false);
 		SetCanFly(true);
+		if(CFlyerCtrl.Get().IsGroundMode(this))then //MIRAGE v4: loaded on the ground (ground model): walks, doesn't fly
+			SetCanWalk(true);
+			SetCanFly(false);
+		endif;
 //		m_fCollisionRadius=GetCollisionRadius()+0.5f;
 		m_fCollisionRadius = 3.5f;
 		if(!p_bLoad)then
@@ -2813,6 +2855,11 @@ class CHuPteranodon inherit CAnimal
 	endproc;
 
 	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass() == CActFlight.ms_xAttackEvt)then
+			//MIRAGE: the dive passed the target: hit (CFlyerCtrl)
+			CFlyerCtrl.Get().OnDiveEvent(this);
+			return;
+		endif;
 		if(p_rxEvtPtr.GetClass() == ms_xTimerClass)then
 			var int iTimerID = p_rxEvtPtr.GetInt(0);
 			if(iTimerID == TIMER_COLLISION_HANDLER)then
@@ -2826,18 +2873,8 @@ class CHuPteranodon inherit CAnimal
 	endproc;
 
 	export proc void Disengage()
-		var string sAct = GetActionDesc();
-		if(sAct != "CActWalk" && sAct != "CActFlight" && !HasSecondaryAction())then
-			Random.MTRandF(Math.Pi() * 2.0f);
-			var vec3 vOffset, vNew;
-			vOffset.SetX(m_fCollisionRadius + COLLISION_PLUS);
-			vOffset.RotZ((Random.GetInt() % 628).ToReal() / 100.0);
-//			vOffset.SetXYZ(Math.Sin(fD),Math.Cos(fD),0.0f);
-			vNew = GetPosInMap(GetPos() + vOffset);
-			vNew.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vNew.GetX(),vNew.GetY()),m_fWaterLevel) + FLYING_HEIGHT);
-			SecondaryMoveAction(vNew,COLLISION_FIX);
-			UpdateAggressionPos(vNew);
-		endif;
+		//MIRAGE: flyers keep apart with CFlyerCtrl: an idle flyer checks its spot again, moves apart and lands
+		CFlyerCtrl.Get().Nudge(this);
 	endproc;
 
 //	export proc void RotateToEnemy(^CFightingObj p_pxEnemy, vec3 p_vPos, string p_sOverlayAnim, real p_fOverlayRatio)
@@ -2871,14 +2908,28 @@ class CHuPteranodon inherit CAnimal
 		return;
 	endproc;
 
+	//MIRAGE v3: abilities "Land" and "Take off" (tech tree Moves/VHCL|ANML/fly_land, fly_takeoff; CFlyerCtrl)
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		if(CFlyerCtrl.Get().HandleAbility(this,p_sCommand,p_vPos,p_sMiscParams))then return; endif;
+		super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+	endproc;
+
 	export proc void OnIdleEnter(^CState p_pxFrom, ^CState p_pxTo)
 //		Flight();
 		super.OnIdleEnter(p_pxFrom,p_pxTo);
+		CFlyerCtrl.Get().OnIdleEnter(this);
+	endproc;
+
+	export proc void OnIdleTick(int p_iTime)
+		super.OnIdleTick(p_iTime);
+		CFlyerCtrl.Get().OnIdleTick(this);
 	endproc;
 
 	export proc void Flight()
 		var string sAct = GetActionDesc();
-		if(sAct != "CActFlight")then
+		//MIRAGE v5: CheckPatrol calls this on every idle tick; it gave the flyer a new flight to a random point 1 m from
+		//its aggression position each time, so an idle flyer kept turning on the spot (also alone). Off (CFlyerCtrl).
+		if(CFlyerCtrl.Get().IdleHover() && sAct != "CActFlight")then
 			var ^CAttribs pxAttr = GetAttribs();
 			if(pxAttr != null)then
 				if(pxAttr^.GetValue("CurTask") != "Idle")then
@@ -2910,6 +2961,11 @@ class CHuPteranodon inherit CAnimal
 	export proc bool AttackEnemy(^CFightingObj p_pxEnemy, vec3 p_vTarget, ref bool p_rbRotated)
 		if(p_pxEnemy != null)then
 			if(p_pxEnemy^.IsFlyingUnit() && !CanShootAir())then return false; endif;
+		endif;
+		//MIRAGE: dive attacks (engine FM_DiveCombat); the hits come with CActFlight.ms_xAttackEvt (HandleEvent)
+		if(p_pxEnemy != null && CFlyerCtrl.Get().StartDive(this,p_pxEnemy))then
+			p_rbRotated = true;
+			return false;
 		endif;
 		var string sProj = GetProjectile();
 //		var string sFAnim=GetNextFightAnim();
@@ -2987,6 +3043,10 @@ class CHuPteranodon inherit CAnimal
 	endproc;
 
 	export proc void SetIdleAnim()
+		if(CFlyerCtrl.Get().IsGroundMode(this))then //MIRAGE v4: on the ground: the ground model's stand animation
+			if(HasAnim("standanim") && GetCurrentAnimName() != "standanim")then SetAnim("standanim",3); endif;
+			return;
+		endif;
 		DoCaptainAnim();
 		if(HasAnim("idle") && GetCurrentAnimName() != "idle")then
 			SetAnim("idle",3);
@@ -2996,6 +3056,11 @@ class CHuPteranodon inherit CAnimal
 
 	export proc void AdvanceAction(CObjHndl p_xGoalObj , ref CGameObj.CAdvanceActionParams p_rxParams)
 		if(!p_xGoalObj.IsValid())then return; endif;
+		//MIRAGE: in a fight the dive (FM_DiveCombat) flies to the target itself
+		if(GetCurTaskName() == "Fight")then
+			var ^CFightingObj pxDiveGoal = cast<CFightingObj>(p_xGoalObj.GetObj());
+			if(pxDiveGoal != null && !(pxDiveGoal^.IsFlyingUnit() && !CanShootAir()) && CFlyerCtrl.Get().StartDive(this,pxDiveGoal))then return; endif;
+		endif;
 		var vec3 vObj = p_xGoalObj.GetObj()^.GetPos(), vOwn = GetPos(),vNew;
 		var real fScape = Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vOwn.GetX(),vOwn.GetY()),m_fWaterLevel);
 		var real fRange = GetAttackRange()/*+fHeight-GetRadius()*/;
@@ -3007,6 +3072,10 @@ class CHuPteranodon inherit CAnimal
 	endproc;
 
 	export proc void WalkAction(vec3 p_vDest, int p_iPrefSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, ^CGameObj p_pxGoalObj, CFourCC p_xWalkSet, bool p_bUseMaterial)
+		if(CFlyerCtrl.Get().IsGroundMode(this))then //MIRAGE v4: landed: walk on the ground (ground model, walk set def = walk_1), no take-off
+			return super.WalkAction(p_vDest, p_iPrefSpeed, true, true, p_pxGoalObj, p_xWalkSet, p_bUseMaterial);
+		endif;
+		if(CFlyerCtrl.Get().FlyTo(this,p_vDest,p_iPrefSpeed,true))then return; endif;
 		var vec3 vPosition = GetPosInMap(p_vDest);
 //		vPosition.SetZ(p_vDest.GetZ()+FLYING_HEIGHT);
 		vPosition.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vPosition.GetX(),vPosition.GetY()),m_fWaterLevel) + FLYING_HEIGHT);
@@ -3039,6 +3108,11 @@ class CHuPteranodon inherit CAnimal
 
 	export proc void AdvanceAction(CObjHndl p_xGoalObj, real p_fMinDistance, int p_iPrefSpeed, CFourCC p_xWalkSet, real p_fMaxRange, ref vec3 p_rvRootPos, ref vec3 p_rvGoalOffset)
 		if(!p_xGoalObj.IsValid())then return; endif;
+		//MIRAGE: in a fight the dive (FM_DiveCombat) flies to the target itself
+		if(GetCurTaskName() == "Fight")then
+			var ^CFightingObj pxDiveGoal = cast<CFightingObj>(p_xGoalObj.GetObj());
+			if(pxDiveGoal != null && !(pxDiveGoal^.IsFlyingUnit() && !CanShootAir()) && CFlyerCtrl.Get().StartDive(this,pxDiveGoal))then return; endif;
+		endif;
 		var vec3 vObj = p_xGoalObj.GetObj()^.GetPos(), vOwn = GetPos(),vNew;
 		var real fScape = Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vOwn.GetX(),vOwn.GetY()),m_fWaterLevel);
 		var real fRange = GetAttackRange()/*+fHeight-GetRadius()*/;
@@ -4935,18 +5009,8 @@ class CNinigiCargoLifter inherit CVehicle
 	endproc;
 
 	export proc void Disengage()
-		var string sAct = GetActionDesc();
-		if(sAct != "CActWalk" && sAct != "CActFlight" && !HasSecondaryAction())then
-			Random.MTRandF(Math.Pi() * 2.0f);
-			var vec3 vOffset, vNew;
-			vOffset.SetX(m_fCollisionRadius + COLLISION_PLUS);
-			vOffset.RotZ((Random.GetInt() % 628).ToReal() / 100.0);
-//			vOffset.SetXYZ(Math.Sin(fD),Math.Cos(fD),0.0f);
-			vNew = GetPosInMap(GetPos() + vOffset);
-			vNew.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vNew.GetX(),vNew.GetY()),m_fWaterLevel) + FLYING_HEIGHT);
-			SecondaryMoveAction(vNew,COLLISION_FIX);
-			UpdateAggressionPos(vNew);
-		endif;
+		//MIRAGE: flyers keep apart with CFlyerCtrl: an idle flyer checks its spot again, moves apart and lands
+		CFlyerCtrl.Get().Nudge(this);
 	endproc;
 
 	export proc bool IsAbleToWalk()
@@ -4996,6 +5060,7 @@ class CNinigiCargoLifter inherit CVehicle
 	endproc;
 
 	export proc void WalkAction(vec3 p_vDest, int p_iPrefSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, ^CGameObj p_pxGoalObj, CFourCC p_xWalkSet, bool p_bUseMaterial)
+		if(CFlyerCtrl.Get().FlyTo(this,p_vDest,p_iPrefSpeed,true))then return; endif;
 //		var vec3 vPosition=p_vDest;
 //		vPosition.SetZ(p_vDest.GetZ()+FLYING_HEIGHT);
 		var vec3 vPosition = GetPosInMap(p_vDest);
@@ -5093,6 +5158,10 @@ class CNinigiCargoLifter inherit CVehicle
 	endproc;
 
 	export proc bool AttackEnemy(^CFightingObj p_pxEnemy, vec3 p_vTarget, ref bool p_rbRotated)
+		if(CFlyerCtrl.Get().TakeOff(this,p_vTarget))then
+			p_rbRotated = true;
+			return false;
+		endif;
 		if(p_pxEnemy != null)then
 			if(p_pxEnemy^.IsFlyingUnit() && !CanShootAir())then return false; endif;
 		endif;
@@ -5212,12 +5281,23 @@ class CNinigiCargoLifter inherit CVehicle
 		endif;
 	endproc;
 
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		if(CFlyerCtrl.Get().HandleAbility(this,p_sCommand,p_vPos,p_sMiscParams))then return; endif;
+		super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+	endproc;
+
 	export proc void OnIdleEnter(^CState p_pxFrom, ^CState p_pxTo)
 //		Flight();
 		super.OnIdleEnter(p_pxFrom,p_pxTo);
+		CFlyerCtrl.Get().OnIdleEnter(this);
 		if(!IsDead() && m_fHitpoints > 0.0f && !m_bRotateSLEAction && !IsGroupWalkPending())then
 			SetIdleAnim();
 		endif;
+	endproc;
+
+	export proc void OnIdleTick(int p_iTime)
+		super.OnIdleTick(p_iTime);
+		CFlyerCtrl.Get().OnIdleTick(this);
 	endproc;
 
 	export proc string GetReportCode()
@@ -5236,7 +5316,7 @@ endclass;
 
 class CNinigiDirigible inherit CVehicle
 
-	const real			FLYING_HEIGHT = 18.5f;
+	const real			FLYING_HEIGHT = 15.0f; //MIRAGE: was 18.5f, the engine flight (CActFlight) flies at 15 m
 	const real			COLLISION_FIX = 4.0f;
 	const real			COLLISION_CHECK = 3.5f;
 	const real			COLLISION_PLUS = 0.5f;
@@ -5397,18 +5477,7 @@ class CNinigiDirigible inherit CVehicle
 	endproc;
 
 	export proc void Disengage()
-		var string sAct = GetActionDesc();
-		if(sAct != "CActWalk" && sAct != "CActFlight" && !HasSecondaryAction())then
-			Random.MTRandF(Math.Pi() * 2.0f);
-			var vec3 vOffset, vNew;
-			vOffset.SetX(m_fCollisionRadius + COLLISION_PLUS);
-			vOffset.RotZ((Random.GetInt() % 628).ToReal() / 100.0);
-//			vOffset.SetXYZ(Math.Sin(fD),Math.Cos(fD),0.0f);
-			vNew = GetPosInMap(GetPos() + vOffset);
-			vNew.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vNew.GetX(),vNew.GetY()),m_fWaterLevel) + FLYING_HEIGHT);
-			SecondaryMoveAction(vNew,COLLISION_FIX);
-			UpdateAggressionPos(vNew);
-		endif;
+		CFlyerCtrl.Get().Nudge(this);
 	endproc;
 
 	export proc bool IsAbleToWalk()
@@ -5458,6 +5527,7 @@ class CNinigiDirigible inherit CVehicle
 	endproc;
 
 	export proc void WalkAction(vec3 p_vDest, int p_iPrefSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, ^CGameObj p_pxGoalObj, CFourCC p_xWalkSet, bool p_bUseMaterial)
+		if(CFlyerCtrl.Get().FlyTo(this,p_vDest,p_iPrefSpeed,true))then return; endif;
 //		var vec3 vPosition=p_vDest;
 //		vPosition.SetZ(p_vDest.GetZ()+FLYING_HEIGHT);
 		var vec3 vPosition = GetPosInMap(p_vDest);
@@ -5555,6 +5625,10 @@ class CNinigiDirigible inherit CVehicle
 	endproc;
 
 	export proc bool AttackEnemy(^CFightingObj p_pxEnemy, vec3 p_vTarget, ref bool p_rbRotated)
+		if(CFlyerCtrl.Get().TakeOff(this,p_vTarget))then
+			p_rbRotated = true;
+			return false;
+		endif;
 		if(p_pxEnemy != null)then
 			if(p_pxEnemy^.IsFlyingUnit() && !CanShootAir())then return false; endif;
 		endif;
@@ -5674,12 +5748,23 @@ class CNinigiDirigible inherit CVehicle
 		endif;
 	endproc;
 
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		if(CFlyerCtrl.Get().HandleAbility(this,p_sCommand,p_vPos,p_sMiscParams))then return; endif;
+		super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+	endproc;
+
 	export proc void OnIdleEnter(^CState p_pxFrom, ^CState p_pxTo)
 //		Flight();
 		super.OnIdleEnter(p_pxFrom,p_pxTo);
+		CFlyerCtrl.Get().OnIdleEnter(this);
 		if(!IsDead() && m_fHitpoints > 0.0f && !m_bRotateSLEAction && !IsGroupWalkPending())then
 			SetIdleAnim();
 		endif;
+	endproc;
+
+	export proc void OnIdleTick(int p_iTime)
+		super.OnIdleTick(p_iTime);
+		CFlyerCtrl.Get().OnIdleTick(this);
 	endproc;
 
 	export proc string GetReportCode()
@@ -6648,7 +6733,7 @@ endclass;
 
 class CZeppelin inherit CTradeTransporter
 
-	const real			FLYING_HEIGHT = 3.5f;
+	const real			FLYING_HEIGHT = 15.0f; //MIRAGE: was 3.5f, the engine flight (CActFlight) flies at 15 m
 	const real			COLLISION_FIX = 4.0f;
 	const real			COLLISION_CHECK = 3.5f;
 	const real			COLLISION_PLUS = 0.5f;
@@ -6824,18 +6909,24 @@ class CZeppelin inherit CTradeTransporter
 	endproc;
 
 	export proc void Disengage()
-		var string sAct = GetActionDesc();
-		if(sAct != "CActWalk" && sAct != "CActFlight" && !HasSecondaryAction())then
-			Random.MTRandF(Math.Pi() * 2.0f);
-			var vec3 vOffset, vNew;
-			vOffset.SetX(m_fCollisionRadius + COLLISION_PLUS);
-			vOffset.RotZ((Random.GetInt() % 628).ToReal() / 100.0);
-//			vOffset.SetXYZ(Math.Sin(fD),Math.Cos(fD),0.0f);
-			vNew = GetPosInMap(GetPos() + vOffset);
-			vNew.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vNew.GetX(),vNew.GetY()),m_fWaterLevel) + FLYING_HEIGHT);
-			SecondaryMoveAction(vNew,COLLISION_FIX);
-			UpdateAggressionPos(vNew);
-		endif;
+		//MIRAGE: flyers keep apart with CFlyerCtrl: an idle flyer checks its spot again, moves apart and lands
+		if(!m_bFlying)then return; endif;
+		CFlyerCtrl.Get().Nudge(this);
+	endproc;
+
+	export proc void ReactToGamePlayCommand(string p_sCommand, ^CGameObj p_pxObject, vec3 p_vPos, string p_sMiscParams, bool p_bQ, bool p_bS, bool p_bA)
+		if(m_bFlying && CFlyerCtrl.Get().HandleAbility(this,p_sCommand,p_vPos,p_sMiscParams))then return; endif;
+		super.ReactToGamePlayCommand(p_sCommand,p_pxObject,p_vPos,p_sMiscParams,p_bQ,p_bS,p_bA);
+	endproc;
+
+	export proc void OnIdleEnter(^CState p_pxFrom, ^CState p_pxTo)
+		super.OnIdleEnter(p_pxFrom,p_pxTo);
+		if(m_bFlying)then CFlyerCtrl.Get().OnIdleEnter(this); endif;
+	endproc;
+
+	export proc void OnIdleTick(int p_iTime)
+		super.OnIdleTick(p_iTime);
+		if(m_bFlying)then CFlyerCtrl.Get().OnIdleTick(this); endif;
 	endproc;
 
 	export proc void SetIced(real p_fDuration,real p_fResistStart)
@@ -6862,6 +6953,7 @@ class CZeppelin inherit CTradeTransporter
 			vObj = p_xGoalObj.GetObj()^.GetPos();
 		endif;
 		var real fScape = Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vOwn.GetX(),vOwn.GetY()),m_fWaterLevel);
+		var real fHeight = vOwn.GetZ() - fScape;
 		var real fRange = GetAttackRange() + GetRadius();
 		vOwn.SetZ(fScape);
 		var vec3 vDirection = vOwn - vObj;
@@ -6872,6 +6964,8 @@ class CZeppelin inherit CTradeTransporter
 
 	export proc void WalkAction(vec3 p_vDest, int p_iPrefSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, ^CGameObj p_pxGoalObj, CFourCC p_xWalkSet, bool p_bUseMaterial)
 		if(!m_bFlying)then return super.WalkAction(p_vDest, p_iPrefSpeed, p_bUsePathfinder, p_bHeightAdaption, p_pxGoalObj, p_xWalkSet, p_bUseMaterial); endif;
+		//trade trips fly to the market exactly (the trade task checks the distance)
+		if(CFlyerCtrl.Get().FlyTo(this,p_vDest,p_iPrefSpeed,GetCurTaskName() != "Trade"))then return; endif;
 		var vec3 vPosition = GetPosInMap(p_vDest);
 		vPosition.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(p_vDest.GetX(),p_vDest.GetY()),m_fWaterLevel) + FLYING_HEIGHT);
 		return super.WalkAction(vPosition, p_iPrefSpeed, false, false, p_pxGoalObj, p_xWalkSet, p_bUseMaterial);
@@ -6992,6 +7086,10 @@ class CZeppelin inherit CTradeTransporter
 
 	export proc bool AttackEnemy(^CFightingObj p_pxEnemy, vec3 p_vTarget, ref bool p_rbRotated)
 		if(!m_bFlying)then return super.AttackEnemy(p_pxEnemy, p_vTarget, p_rbRotated); endif;
+		if(CFlyerCtrl.Get().TakeOff(this,p_vTarget))then
+			p_rbRotated = true;
+			return false;
+		endif;
 		if(p_pxEnemy != null)then
 			if(p_pxEnemy^.IsFlyingUnit() && !CanShootAir())then return false; endif;
 		endif;
@@ -19006,6 +19104,823 @@ class CSkullDistributer inherit CGameObj
 			iStep += 3;
 			jC += iStep;
 		endfor;
+	endproc;
+
+endclass;
+
+//MIRAGE: engine flight for the flying units (not the CrashRPG ones).
+//- Moves use the engine's CActFlight (FlightAction ... FM_Flight): 15 m above ground or water, following the terrain.
+//  The engine has no other height: Server/StdFlightHeight is never read.
+//- A move order first gives every flyer its own target, at least one unit size away from the targets of the others.
+//  Flyers ordered together to one point keep their formation (moved to the point, squeezed to FORMATION_RADIUS), so
+//  their straight routes don't cross.
+//- An idle flyer in the air moves away from other flyers and stays in the air (v3: no idle landing), once per order
+//  (v4: no repeated checks, so it doesn't keep turning on the spot).
+//- v4: "land" / "take_off" animations around landing and take-off (if the model has them). Pteranodons switch to their
+//  ground model "<gfx>_boden" on the ground and walk there (move orders don't take off); attacks take off first.
+//- Landing and take-off are abilities (v3, tech tree Moves .../fly_land and .../fly_takeoff, HandleAbility): "Land" with
+//  a target point flies there and lands (FM_Land), "Take off" rises on the spot. A landed flyer stays landed until an
+//  order or the take-off ability; a move order takes it up again (FM_Flight climbs from the ground over 90 % of the
+//  route), a landed flyer that has to attack takes off first.
+//- Pteranodons attack with FM_DiveCombat: the engine flies dive after dive at the target and sends
+//  CActFlight.ms_xAttackEvt near the target point; OnDiveEvent deals the damage.
+//The registry below is only for the running game; nothing is saved.
+class CFlyerCtrl
+
+	export const real	FLIGHT_HEIGHT = 15.0f;      //height of FM_Flight, fixed in PWServer.exe
+	const real			UNIT_RADIUS_MIN = 3.0f;            //smallest radius used for spacing (the old collision regions were 3.5 m)
+	const real			UNIT_GAP = 1.0f;                   //free space between two flyers
+	const real			GROUP_WINDOW = 1.0f;               //seconds: orders to one point within this time form one group
+	const real			GROUP_CLICK_DIST = 1.0f;           //m: order points closer than this are the same point
+	const real			FORMATION_RADIUS = 30.0f;          //m: largest distance from the order point that a group keeps
+	const real			ORDER_KEEP = 30.0f;                //seconds: an order target keeps others away this long
+	const real			IDLE_LAND_DELAY = 1.5f;            //seconds of idle before a flyer in the air moves apart
+	const int			IDLE_LANDING = 0;                  //v3: 0 = idle flyers only move apart and stay in the air (1 = old idle landing)
+	const real			LAND_APPROACH = 12.0f;             //m: a landing ordered from farther away flies at 15 m to this distance first
+	const real			REISSUE_MIN = 4.0f;                //m (v4): a new move to within this of the running flight's order point keeps that flight
+	const real			LANDED_HEIGHT = 2.5f;              //m above ground or water that counts as landed (v5: was 1.0)
+	const real			LAND_ACCEPT = 6.0f;                //m (v5): a landing flight that ended lower than this counts as landed
+	const int			OVERLAY_ON = 46;                   //v5: generic SC events (client Game.usl): "fly" as a looping overlay on / off
+	const int			OVERLAY_OFF = 47;
+	const real			APPROACH_MIN = 4.0f;               //m: horizontal leg of a landing or a takeoff on the spot
+	const real			DIVE_HEIGHT_MELEE = 3.0f;          //m above ground at the target, dives without a projectile
+	const real			DIVE_HEIGHT_RANGED = 8.0f;         //m, dives of pteranodons with a projectile (riders with bows)
+	const real			DIVE_HEIGHT_BUILDING = 12.0f;      //m, dives at buildings
+	const real			DIVE_HEIGHT_AIR = 14.5f;           //m, dives at flying units (the engine allows at most 14.5)
+	const real			DIVE_LEASH = 60.0f;                //m: a target farther than this ends the dive, the fight task decides
+	const real			DIVE_MAX_HITS = 3.0f;              //one pass deals up to this many swings (a pass is longer than a swing)
+	const real			DIVE_MIN_INTERVAL = 1.5f;          //seconds: the engine sends the event on every tick within 2 m; one hit per pass
+
+	const bitset	FM_LAND = 00b;                   //CActFlight.FM_Land
+	const bitset	FM_FLIGHT = 01b;                 //CActFlight.FM_Flight
+	const bitset	FM_DIVE = 011b;                  //CActFlight.FM_DiveCombat
+
+	const int	KIND_ORDER = 1;
+	const int	KIND_SETTLE = 2;
+	const int	KIND_DIVE = 3;
+
+	static var ^CFlyerCtrl	ms_pxInst;
+
+	var CGameTime		m_xStart;
+	var array CObjHndl	m_axUnit;
+	var array int		m_aiKind;
+	var array vec3		m_avClick;
+	var array vec3		m_avDest;
+	var array vec3		m_avAnchor;
+	var array real		m_afOrderTime;
+	var array real		m_afIdleSince;
+	var array bool		m_abIdleDone;
+	var array CObjHndl	m_axDiveEnemy;
+	var array bool		m_abLandPending;             //the land ability: first leg flown, FM_Land to m_avLandSpot when idle
+	var array vec3		m_avLandSpot;
+	var array bool		m_abLanding;                 //v4: FM_Land running; when it ends: "land" animation, then the ground model
+	var array bool		m_abLandAnim;                //v4: the "land" animation runs
+	var array bool		m_abTakeoffReady;            //v4: the "take_off" animation was played, the next TakeOff flies
+	var array bool		m_abTakeoffPending;          //v4: after the "take_off" animation, fly up when idle (ability)
+	var array vec3		m_avTakeoffToward;
+	var array real		m_afLastHit;
+	var array bool		m_abGround;                  //v5: in ground mode (set by EnterGround; the model name is checked too)
+	var array bool		m_abOverlay;                 //v5: the client plays "fly" as a looping overlay
+
+	var array vec3	m_avObs;
+	var array real	m_afObsRad;
+	var vec3		m_vLimitCenter;
+	var real		m_fLimitRadius;
+
+	constructor()
+		m_xStart = CTimeMgr.Get().GetTime();
+	endconstructor;
+
+	destructor()
+	enddestructor;
+
+	export static proc ref CFlyerCtrl Get()
+		if(ms_pxInst == null)then
+			ms_pxInst = new CFlyerCtrl;
+		endif;
+		return(ms_pxInst^);
+	endproc;
+
+	proc real Now()
+		return (CTimeMgr.Get().GetTime() - m_xStart).GetSecondsF();
+	endproc;
+
+	//v5: false = the flyers' Flight() (called by CheckPatrol on every idle tick) doesn't move them
+	export proc bool IdleHover()
+		return false;
+	endproc;
+
+	//v5: log channel "MIRAGE.Flyer" (landing problems, ground mode)
+	proc void Log(^CFightingObj p_pxUnit, string p_sText)
+		if(p_pxUnit == null)then return; endif;
+		KLog.LogWarn("MIRAGE.Flyer",p_pxUnit^.GetClassName() + " " + p_pxUnit^.GetHandle().AsInt().ToString() + ": " + p_sText);
+	endproc;
+
+	proc real HeightAboveFloor(^CFightingObj p_pxUnit)
+		var vec3 vP = p_pxUnit^.GetPos();
+		return vP.GetZ() - GetFloor(vP);
+	endproc;
+
+	//v5: the client plays "fly" as a looping blend overlay while the unit flies (client Game.usl, events 46 / 47).
+	//The overlay runs on its own clock, so a new flight (next order, next dive) doesn't restart the visible wing beat.
+	proc void SetOverlay(^CFightingObj p_pxUnit, bool p_bOn)
+		if(p_pxUnit == null || !HasGroundModel(p_pxUnit))then return; endif;
+		var int iE = FindEntry(p_pxUnit^.GetHandle(),true);
+		if(m_abOverlay[iE] == p_bOn)then return; endif;
+		if(p_bOn && !p_pxUnit^.HasAnim("fly"))then return; endif;
+		m_abOverlay[iE] = p_bOn;
+		if(p_bOn)then
+			p_pxUnit^.InvokeGenericSCEvent(OVERLAY_ON,1.0f);
+		else
+			p_pxUnit^.InvokeGenericSCEvent(OVERLAY_OFF,1.0f);
+		endif;
+	endproc;
+
+	proc int FindEntry(CObjHndl p_xUnit, bool p_bAdd)
+		var int i, iC = m_axUnit.NumEntries();
+		for(i = 0)cond(i < iC)iter(i++)do
+			if(m_axUnit[i] == p_xUnit)then return i; endif;
+		endfor;
+		if(!p_bAdd)then return -1; endif;
+		Purge();
+		var vec3 vZero;
+		var CObjHndl xNone;
+		m_axUnit.AddEntry(p_xUnit);
+		m_aiKind.AddEntry(0);
+		m_avClick.AddEntry(vZero);
+		m_avDest.AddEntry(vZero);
+		m_avAnchor.AddEntry(vZero);
+		m_afOrderTime.AddEntry(-1000.0f);
+		m_afIdleSince.AddEntry(-1.0f);
+		m_abIdleDone.AddEntry(false);
+		m_axDiveEnemy.AddEntry(xNone);
+		m_abLandPending.AddEntry(false);
+		m_avLandSpot.AddEntry(vZero);
+		m_abLanding.AddEntry(false);
+		m_abLandAnim.AddEntry(false);
+		m_abTakeoffReady.AddEntry(false);
+		m_abTakeoffPending.AddEntry(false);
+		m_avTakeoffToward.AddEntry(vZero);
+		m_afLastHit.AddEntry(-1000.0f);
+		m_abGround.AddEntry(false);
+		m_abOverlay.AddEntry(false);
+		return m_axUnit.NumEntries() - 1;
+	endproc;
+
+	proc void Purge()
+		var int i;
+		for(i = (m_axUnit.NumEntries() - 1))cond(i >= 0)iter(i--)do
+			if(m_axUnit[i].GetObj() == null)then
+				m_axUnit.DeleteEntry(i);
+				m_aiKind.DeleteEntry(i);
+				m_avClick.DeleteEntry(i);
+				m_avDest.DeleteEntry(i);
+				m_avAnchor.DeleteEntry(i);
+				m_afOrderTime.DeleteEntry(i);
+				m_afIdleSince.DeleteEntry(i);
+				m_abIdleDone.DeleteEntry(i);
+				m_axDiveEnemy.DeleteEntry(i);
+				m_abLandPending.DeleteEntry(i);
+				m_avLandSpot.DeleteEntry(i);
+				m_abLanding.DeleteEntry(i);
+				m_abLandAnim.DeleteEntry(i);
+				m_abTakeoffReady.DeleteEntry(i);
+				m_abTakeoffPending.DeleteEntry(i);
+				m_avTakeoffToward.DeleteEntry(i);
+				m_afLastHit.DeleteEntry(i);
+				m_abGround.DeleteEntry(i);
+				m_abOverlay.DeleteEntry(i);
+			endif;
+		endfor;
+	endproc;
+
+	export proc real GetUnitRadius(^CGameObj p_pxUnit)
+		if(p_pxUnit == null)then return UNIT_RADIUS_MIN; endif;
+		return Math.Max(p_pxUnit^.GetRadius(),UNIT_RADIUS_MIN);
+	endproc;
+
+	export proc real GetFloor(vec3 p_vPos)
+		return Math.Max(CSrvWrap.GetScapeMgr().GetHeight(p_vPos.GetX(),p_vPos.GetY()),CSrvWrap.GetScapeMgr().GetSeaLevel());
+	endproc;
+
+	export proc bool IsWater(vec3 p_vPos)
+		return CSrvWrap.GetScapeMgr().GetHeight(p_vPos.GetX(),p_vPos.GetY()) < CSrvWrap.GetScapeMgr().GetSeaLevel();
+	endproc;
+
+	export proc bool IsLanded(^CFightingObj p_pxUnit)
+		if(p_pxUnit == null)then return false; endif;
+		var vec3 vP = p_pxUnit^.GetPos();
+		return (vP.GetZ() - GetFloor(vP)) < LANDED_HEIGHT;
+	endproc;
+
+	proc real SpreadAngle(^CFightingObj p_pxUnit, int p_iTry)
+		var int iH = p_pxUnit^.GetHandle().AsInt();
+		if(iH < 0)then iH = -iH; endif;
+		return ((iH * 37 + p_iTry * 101) % 628).ToReal() / 100.0f;
+	endproc;
+
+	///////
+	//	Obstacles: targets of running orders of other flyers, and the other flyers where they are.
+	//	p_bAllUnits: also units on the ground (for a landing spot).
+	///////
+	proc void CollectObstacles(^CFightingObj p_pxUnit, vec3 p_vAround, real p_fRange, bool p_bAllUnits)
+		m_avObs = 0;
+		m_afObsRad = 0;
+		var CObjHndl xSelf = p_pxUnit^.GetHandle();
+		var real fNow = Now();
+		var int i, iC = m_axUnit.NumEntries();
+		for(i = 0)cond(i < iC)iter(i++)do
+			if(m_axUnit[i] == xSelf)then continue; endif;
+			if(m_aiKind[i] == KIND_DIVE)then continue; endif;
+			if(fNow < m_afOrderTime[i] || fNow - m_afOrderTime[i] > ORDER_KEEP)then continue; endif;
+			var ^CFightingObj pxO = cast<CFightingObj>(m_axUnit[i].GetObj());
+			if(pxO == null || pxO^.IsDead())then continue; endif;
+			if((m_avDest[i] - p_vAround).Abs2() > p_fRange)then continue; endif;
+			m_avObs.AddEntry(m_avDest[i]);
+			m_afObsRad.AddEntry(GetUnitRadius(pxO));
+		endfor;
+		var CObjQuery xQ;
+		xQ.SetType("ANML",false);
+		xQ.SetType("VHCL",true);
+		xQ.SetType("CHTR",true);
+		xQ.RegionCircle(p_vAround,p_fRange);
+		var CObjList xL;
+		xQ.Execute(xL);
+		iC = xL.NumEntries();
+		for(i = 0)cond(i < iC)iter(i++)do
+			if(xL[i] == xSelf)then continue; endif;
+			var ^CFightingObj pxO = cast<CFightingObj>(xL[i].GetObj());
+			if(pxO == null || pxO^.IsDead() || pxO^.GetTransportObj().IsValid())then continue; endif;
+			var bool bFlyer = pxO^.CanFly() || pxO^.IsFlyingUnit();
+			if(!bFlyer && !p_bAllUnits)then continue; endif;
+			if(bFlyer)then
+				//a flyer on its way is counted by its target (above), not where it is now
+				var int iE = FindEntry(xL[i],false);
+				if(iE >= 0 && m_aiKind[iE] != KIND_DIVE && pxO^.HasAction() && fNow >= m_afOrderTime[iE] && fNow - m_afOrderTime[iE] <= ORDER_KEEP)then continue; endif;
+			endif;
+			m_avObs.AddEntry(pxO^.GetPos());
+			m_afObsRad.AddEntry(GetUnitRadius(pxO));
+		endfor;
+	endproc;
+
+	proc int FindConflict(vec3 p_vSpot, real p_fR)
+		var int iBest = -1;
+		var real fBest = 0.0f;
+		var int i, iC = m_avObs.NumEntries();
+		for(i = 0)cond(i < iC)iter(i++)do
+			var real fNeed = p_fR + m_afObsRad[i] + UNIT_GAP;
+			var real fDist = (m_avObs[i] - p_vSpot).Abs2();
+			if(fDist < fNeed)then
+				if(iBest < 0 || fDist < fBest)then
+					iBest = i;
+					fBest = fDist;
+				endif;
+			endif;
+		endfor;
+		return iBest;
+	endproc;
+
+	//v5: why a point can't be landed on ("" = it can)
+	proc string LandProblem(vec3 p_vSpot)
+		if(IsWater(p_vSpot))then return "water"; endif;
+		var ^CPathfinder pxPF = ^(CSrvWrap.GetPathfinder());
+		if(pxPF != null)then
+			var vec3 vG = p_vSpot;
+			vG.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vG.GetX(),vG.GetY()));
+			if(!pxPF^.IsPassable(vG))then return "not passable"; endif;
+		endif;
+		return "";
+	endproc;
+
+	proc bool IsSpotOk(vec3 p_vSpot, real p_fR, bool p_bGround)
+		if(FindConflict(p_vSpot,p_fR) >= 0)then return false; endif;
+		if(m_fLimitRadius > 0.0f && (p_vSpot - m_vLimitCenter).Abs2() > m_fLimitRadius)then return false; endif;
+		if(p_bGround)then
+			if(IsWater(p_vSpot))then return false; endif;
+			var ^CPathfinder pxPF = ^(CSrvWrap.GetPathfinder());
+			if(pxPF != null)then
+				var vec3 vG = p_vSpot;
+				vG.SetZ(CSrvWrap.GetScapeMgr().GetHeight(vG.GetX(),vG.GetY()));
+				if(!pxPF^.IsPassable(vG))then return false; endif;
+			endif;
+		endif;
+		return true;
+	endproc;
+
+	///////
+	//	A free spot near p_vWanted: at least one unit size from the obstacles; p_bGround: a free land spot to land on.
+	///////
+	proc bool FindFreeSpot(^CFightingObj p_pxUnit, vec3 p_vWanted, bool p_bGround, ref vec3 po_rvSpot)
+		var real fR = GetUnitRadius(p_pxUnit);
+		var real fStep = fR * 2.0f + UNIT_GAP;
+		CollectObstacles(p_pxUnit,p_vWanted,fStep * 7.0f + 20.0f,p_bGround);
+		var vec3 vSpot = p_pxUnit^.GetPosInMap(p_vWanted);
+		var int iTry;
+		for(iTry = 0)cond(iTry < 8)iter(iTry++)do
+			var int iHit = FindConflict(vSpot,fR);
+			if(iHit < 0)then break; endif;
+			var vec3 vAway = vSpot - m_avObs[iHit];
+			vAway.SetZ(0.0f);
+			if(vAway.Abs2() < 0.1f)then
+				vAway.SetXYZ(1.0f,0.0f,0.0f);
+				vAway.RotZ(SpreadAngle(p_pxUnit,iTry));
+			endif;
+			vAway.Normalize();
+			vSpot = p_pxUnit^.GetPosInMap(m_avObs[iHit] + vAway * (fR + m_afObsRad[iHit] + UNIT_GAP + 0.1f));
+		endfor;
+		if(IsSpotOk(vSpot,fR,p_bGround))then
+			po_rvSpot = vSpot;
+			return true;
+		endif;
+		//crowded, or no land there: rings around the wanted point
+		var int iRing, iA;
+		for(iRing = 1)cond(iRing <= 6)iter(iRing++)do
+			var real fDist = fStep * iRing.ToReal();
+			var int iN = 6 * iRing;
+			for(iA = 0)cond(iA < iN)iter(iA++)do
+				var vec3 vO;
+				vO.SetXYZ(fDist,0.0f,0.0f);
+				vO.RotZ(Math.Pi() * 2.0f * iA.ToReal() / iN.ToReal() + SpreadAngle(p_pxUnit,0));
+				var vec3 vC = p_pxUnit^.GetPosInMap(p_vWanted + vO);
+				if(IsSpotOk(vC,fR,p_bGround))then
+					po_rvSpot = vC;
+					return true;
+				endif;
+			endfor;
+		endfor;
+		if(p_bGround)then return false; endif;
+		if(m_fLimitRadius > 0.0f)then
+			po_rvSpot = p_pxUnit^.GetPosInMap(p_vWanted);
+		else
+			po_rvSpot = vSpot;
+		endif;
+		return true;
+	endproc;
+
+	///////
+	//	StartFlight: FlightAction returns nothing (void). It makes the CActFlight the unit's action; when the engine refuses
+	//	("FlightAction needs visible Object"), the unit has no CActFlight afterwards. True if the flight runs.
+	///////
+	proc bool StartFlight(^CFightingObj p_pxUnit, vec3 p_vDest, int p_iSpeed, bitset p_dwMode, real p_fCombatHeight)
+		if(p_dwMode == FM_DIVE)then
+			p_pxUnit^.FlightAction(p_vDest,p_iSpeed,p_pxUnit^.GetWalkSet(),p_dwMode,p_fCombatHeight);
+		else
+			p_pxUnit^.FlightAction(p_vDest,p_iSpeed,p_pxUnit^.GetWalkSet(),p_dwMode);
+		endif;
+		var bool bOk = p_pxUnit^.GetActionDesc() == "CActFlight";
+		if(bOk)then SetOverlay(p_pxUnit,p_dwMode != FM_LAND); endif; //v5
+		return bOk;
+	endproc;
+
+	proc void SetOrder(int p_iE, int p_iKind, vec3 p_vClick, vec3 p_vDest, vec3 p_vAnchor)
+		m_aiKind[p_iE] = p_iKind;
+		m_avClick[p_iE] = p_vClick;
+		m_avDest[p_iE] = p_vDest;
+		m_avAnchor[p_iE] = p_vAnchor;
+		m_afOrderTime[p_iE] = Now();
+		m_abLanding[p_iE] = false; //v4: a new flight ends a landing / take-off in progress (set again by the caller)
+		m_abLandAnim[p_iE] = false;
+		m_abTakeoffPending[p_iE] = false;
+	endproc;
+
+	//	v4: ground mode. The pteranodons have a ground model "<gfx>_boden" (walk set def = walk_1, "standanim"): on the
+	//	ground they use it and walk (their WalkAction); TakeOff switches back to the flying model.
+	export proc bool HasGroundModel(^CFightingObj p_pxUnit)
+		if(p_pxUnit == null)then return false; endif;
+		var string sC = p_pxUnit^.GetClassName();
+		return sC == "aje_pteranodon" || sC == "hu_pteranodon";
+	endproc;
+
+	export proc bool IsGroundMode(^CFightingObj p_pxUnit)
+		if(!HasGroundModel(p_pxUnit))then return false; endif;
+		var int iE = FindEntry(p_pxUnit^.GetHandle(),false);
+		if(iE >= 0 && m_abGround[iE])then return true; endif; //v5: also if the model couldn't be switched
+		var string sG = p_pxUnit^.GetGfxName();
+		sG.MakeLower();
+		return sG.Find("_boden") != -1;
+	endproc;
+
+	proc void EnterGround(^CFightingObj p_pxUnit)
+		if(!HasGroundModel(p_pxUnit) || IsGroundMode(p_pxUnit))then return; endif;
+		var int iE = FindEntry(p_pxUnit^.GetHandle(),true);
+		SetOverlay(p_pxUnit,false);
+		var string sOld = p_pxUnit^.GetGfxName();
+		p_pxUnit^.SetGFX(sOld + "_boden");
+		var string sNew = p_pxUnit^.GetGfxName();
+		var string sLow = sNew;
+		sLow.MakeLower();
+		if(sLow.Find("_boden") == -1)then
+			Log(p_pxUnit,"ground model '" + sOld + "_boden' not set (model is '" + sNew + "'); ground mode without it");
+		else
+			Log(p_pxUnit,"landed, ground model '" + sNew + "'");
+		endif;
+		m_abGround[iE] = true;
+		p_pxUnit^.SetCanWalk(true);
+		p_pxUnit^.SetCanFly(false);
+		if(p_pxUnit^.HasAnim("standanim"))then p_pxUnit^.SetAnim("standanim",3); endif;
+	endproc;
+
+	proc void LeaveGround(^CFightingObj p_pxUnit)
+		if(!IsGroundMode(p_pxUnit))then return; endif;
+		var int iE = FindEntry(p_pxUnit^.GetHandle(),true);
+		m_abGround[iE] = false;
+		var string sG = p_pxUnit^.GetGfxName();
+		var string sLow = sG;
+		sLow.MakeLower();
+		if(sLow.Find("_boden") != -1)then p_pxUnit^.SetGFX(sG.Left(sLow.Find("_boden"))); endif;
+		p_pxUnit^.SetCanWalk(false);
+		p_pxUnit^.SetCanFly(true);
+	endproc;
+
+	///////
+	//	FlyTo: the move of a flyer (from its WalkAction). p_bSpread: own target, apart from the others.
+	//	Returns false if the engine refused the flight (no CActFlight afterwards); the caller then walks as before.
+	///////
+	export proc bool FlyTo(^CFightingObj p_pxUnit, vec3 p_vDest, int p_iSpeed, bool p_bSpread)
+		if(p_pxUnit == null)then return false; endif;
+		var int iE = FindEntry(p_pxUnit^.GetHandle(),true);
+		var real fNow = Now();
+		var vec3 vPos = p_pxUnit^.GetPos();
+		var vec3 vClick = p_pxUnit^.GetPosInMap(p_vDest);
+		//v4: a repeated order to (almost) the same point (chasing in a fight, a second click) keeps the running flight,
+		//so the flight animation doesn't start over
+		if(p_pxUnit^.GetActionDesc() == "CActFlight" && m_aiKind[iE] == KIND_ORDER && (vClick - m_avClick[iE]).Abs2() < REISSUE_MIN)then return true; endif;
+		var vec3 vDest = vClick;
+		var vec3 vAnchor = vPos;
+		m_fLimitRadius = 0.0f;
+		if(p_bSpread && p_pxUnit^.GetCurTaskName() == "Fight")then
+			//approach in a fight: stay within the same distance to the enemy, else the unit is out of range
+			var ^CGameObj pxEnemy = p_pxUnit^.GetCurEnemy().GetObj();
+			if(pxEnemy != null)then
+				m_vLimitCenter = pxEnemy^.GetPos();
+				m_fLimitRadius = (vClick - m_vLimitCenter).Abs2() + 0.5f;
+			endif;
+		endif;
+		if(p_bSpread)then
+			var int i, iC = m_axUnit.NumEntries();
+			for(i = 0)cond(i < iC)iter(i++)do
+				if(i == iE || m_aiKind[i] != KIND_ORDER)then continue; endif;
+				if(Math.Abs(fNow - m_afOrderTime[i]) > GROUP_WINDOW)then continue; endif;
+				if((m_avClick[i] - vClick).Abs2() > GROUP_CLICK_DIST)then continue; endif;
+				var ^CGameObj pxO = m_axUnit[i].GetObj();
+				if(pxO == null || pxO^.GetOwner() != p_pxUnit^.GetOwner())then continue; endif;
+				vAnchor = m_avAnchor[i];
+				break;
+			endfor;
+			var vec3 vOff = vPos - vAnchor;
+			vOff.SetZ(0.0f);
+			var real fLen = vOff.Abs2();
+			if(fLen > FORMATION_RADIUS)then
+				vOff = vOff * (FORMATION_RADIUS / fLen);
+			endif;
+			if(m_fLimitRadius > 0.0f)then
+				FindFreeSpot(p_pxUnit,vClick,false,vDest);
+			else
+				FindFreeSpot(p_pxUnit,vClick + vOff,false,vDest);
+			endif;
+			m_fLimitRadius = 0.0f;
+		endif;
+		var int iSpeed = p_iSpeed;
+		if(iSpeed <= 0)then iSpeed = p_pxUnit^.GetMaxSpeed(); endif;
+		if(!StartFlight(p_pxUnit,vDest,iSpeed,FM_FLIGHT,0.0f))then return false; endif;
+		SetOrder(iE,KIND_ORDER,vClick,vDest,vAnchor);
+		m_abLandPending[iE] = false;
+		m_afIdleSince[iE] = -1.0f;
+		m_abIdleDone[iE] = false;
+		m_axDiveEnemy[iE] = CObjHndl.Invalid();
+		return true;
+	endproc;
+
+	///////
+	//	Idle: after IDLE_LAND_DELAY seconds move apart and land (or only move apart over water / with IDLE_LANDING 0)
+	///////
+	export proc void OnIdleEnter(^CFightingObj p_pxUnit)
+		if(p_pxUnit == null)then return; endif;
+		var int iE = FindEntry(p_pxUnit^.GetHandle(),true);
+		m_afIdleSince[iE] = Now();
+		m_abIdleDone[iE] = false;
+		m_axDiveEnemy[iE] = CObjHndl.Invalid();
+		SetOverlay(p_pxUnit,false); //v5: the idle / hover animation shows again
+		//v5: the guard position is where the flyer is now. CheckPatrol compares the 3D distance to it, so a flyer 15 m above
+		//its order point "was away" and got sent back to it on every idle tick.
+		if(!p_pxUnit^.IsDead() && !p_pxUnit^.GetTransportObj().IsValid())then p_pxUnit^.UpdateAggressionPos(p_pxUnit^.GetPos()); endif;
+	endproc;
+
+	export proc void OnIdleTick(^CFightingObj p_pxUnit)
+		if(p_pxUnit == null || p_pxUnit^.IsDead() || p_pxUnit^.HasAction())then return; endif;
+		if(p_pxUnit^.GetTransportObj().IsValid())then return; endif;
+		var int iE = FindEntry(p_pxUnit^.GetHandle(),true);
+		if(m_abLandPending[iE])then //v3: the land ability flew its first leg, now land
+			m_abLandPending[iE] = false;
+			m_abIdleDone[iE] = true;
+			var int iSpeed = p_pxUnit^.GetDefaultSpeed();
+			if(iSpeed <= 0)then iSpeed = p_pxUnit^.GetMaxSpeed(); endif;
+			if(StartFlight(p_pxUnit,m_avLandSpot[iE],iSpeed,FM_LAND,0.0f))then
+				SetOrder(iE,KIND_SETTLE,m_avLandSpot[iE],m_avLandSpot[iE],p_pxUnit^.GetPos());
+				m_abLanding[iE] = true;
+				p_pxUnit^.UpdateAggressionPos(m_avLandSpot[iE]);
+			endif;
+			return;
+		endif;
+		if(m_abLanding[iE])then //v4: the landing flight ended: "land" animation, then the ground model
+			m_abLanding[iE] = false;
+			m_abIdleDone[iE] = true;
+			if(!IsLanded(p_pxUnit))then
+				var real fH = HeightAboveFloor(p_pxUnit);
+				if(fH > LAND_ACCEPT)then //v5: log why the landing failed
+					Log(p_pxUnit,"landing flight ended " + fH.ToString() + " m above the ground, no landing");
+					return;
+				endif;
+				Log(p_pxUnit,"landing flight ended " + fH.ToString() + " m above the ground, counts as landed");
+			endif;
+			SetOverlay(p_pxUnit,false);
+			if(p_pxUnit^.HasAnim("land"))then
+				p_pxUnit^.AnimAction("land");
+				m_abLandAnim[iE] = true;
+				return;
+			endif;
+			Log(p_pxUnit,"model has no 'land' animation");
+			EnterGround(p_pxUnit);
+			return;
+		endif;
+		if(m_abLandAnim[iE])then //v4: the "land" animation ended
+			m_abLandAnim[iE] = false;
+			EnterGround(p_pxUnit);
+			return;
+		endif;
+		if(m_abTakeoffPending[iE])then //v4: the "take_off" animation ended (take-off ability): now fly up
+			m_abTakeoffPending[iE] = false;
+			TakeOff(p_pxUnit,m_avTakeoffToward[iE]);
+			return;
+		endif;
+		if(m_abIdleDone[iE])then return; endif;
+		if(IDLE_LANDING == 0 && IsLanded(p_pxUnit))then //v3: landed by the ability: stays on the ground
+			m_abIdleDone[iE] = true;
+			return;
+		endif;
+		var real fNow = Now();
+		if(m_afIdleSince[iE] < 0.0f || fNow < m_afIdleSince[iE])then
+			m_afIdleSince[iE] = fNow;
+			return;
+		endif;
+		if(fNow - m_afIdleSince[iE] < IDLE_LAND_DELAY)then return; endif;
+		m_abIdleDone[iE] = true;
+		Settle(p_pxUnit,false);
+	endproc;
+
+	//from the old collision regions (Disengage): an idle flyer checks its spot again at the next idle tick
+	export proc void Nudge(^CFightingObj p_pxUnit)
+		if(p_pxUnit == null)then return; endif;
+		var int iE = FindEntry(p_pxUnit^.GetHandle(),false);
+		if(iE < 0)then return; endif;
+		if(m_afIdleSince[iE] < 0.0f)then return; endif;
+		m_abIdleDone[iE] = false;
+	endproc;
+
+	//land now on a free spot near by (helicopter leaving its flying mode); false if it is landed already
+	export proc bool LandNow(^CFightingObj p_pxUnit)
+		if(p_pxUnit == null || IsLanded(p_pxUnit))then return false; endif;
+		return Settle(p_pxUnit,true);
+	endproc;
+
+	proc bool Settle(^CFightingObj p_pxUnit, bool p_bForceLand)
+		var vec3 vPos = p_pxUnit^.GetPos();
+		var bool bLanded = IsLanded(p_pxUnit);
+		var bool bLand = (IDLE_LANDING == 1 || p_bForceLand);
+		var vec3 vSpot;
+		if(bLand)then
+			var vec3 vWanted = vPos;
+			if(!bLanded)then
+				//the landing approach needs a horizontal leg
+				var vec3 vO;
+				vO.SetXYZ(APPROACH_MIN,0.0f,0.0f);
+				vO.RotZ(SpreadAngle(p_pxUnit,0));
+				vWanted = vPos + vO;
+			endif;
+			bLand = FindFreeSpot(p_pxUnit,vWanted,true,vSpot);
+		endif;
+		if(!bLand)then
+			FindFreeSpot(p_pxUnit,vPos,false,vSpot);
+		endif;
+		var bool bMove = (vSpot - vPos).Abs2() > 0.5f;
+		if(!bMove && (bLanded || !bLand))then return false; endif;
+		var bitset dwMode = FM_FLIGHT;
+		if(bLand)then dwMode = FM_LAND; endif;
+		var int iSpeed = p_pxUnit^.GetDefaultSpeed();
+		if(iSpeed <= 0)then iSpeed = p_pxUnit^.GetMaxSpeed(); endif;
+		if(!StartFlight(p_pxUnit,vSpot,iSpeed,dwMode,0.0f))then return false; endif;
+		var int iE = FindEntry(p_pxUnit^.GetHandle(),true);
+		SetOrder(iE,KIND_SETTLE,vSpot,vSpot,vPos);
+		p_pxUnit^.UpdateAggressionPos(vSpot);
+		return true;
+	endproc;
+
+	///////
+	//	TakeOff: a landed flyer that must attack climbs first (the fight task tries again after it)
+	///////
+	export proc bool TakeOff(^CFightingObj p_pxUnit, vec3 p_vToward)
+		if(p_pxUnit == null || !IsLanded(p_pxUnit))then return false; endif;
+		var int iE = FindEntry(p_pxUnit^.GetHandle(),true);
+		LeaveGround(p_pxUnit); //v4: back to the flying model
+		if(!m_abTakeoffReady[iE] && p_pxUnit^.HasAnim("take_off"))then
+			//v4: the "take_off" animation first; the next TakeOff (fight task, or OnIdleTick for the ability) flies
+			SetOverlay(p_pxUnit,false);
+			p_pxUnit^.AnimAction("take_off");
+			m_abLanding[iE] = false;
+			m_abLandAnim[iE] = false;
+			m_abTakeoffReady[iE] = true;
+			m_abTakeoffPending[iE] = true;
+			m_avTakeoffToward[iE] = p_vToward;
+			return true;
+		endif;
+		m_abTakeoffReady[iE] = false;
+		var vec3 vPos = p_pxUnit^.GetPos();
+		var vec3 vDir = p_vToward - vPos;
+		vDir.SetZ(0.0f);
+		if(vDir.Abs2() < 0.1f)then
+			vDir.SetXYZ(1.0f,0.0f,0.0f);
+			vDir.RotZ(SpreadAngle(p_pxUnit,0));
+		endif;
+		vDir.Normalize();
+		var vec3 vDest = p_pxUnit^.GetPosInMap(vPos + vDir * APPROACH_MIN);
+		if(!StartFlight(p_pxUnit,vDest,p_pxUnit^.GetMaxSpeed(),FM_FLIGHT,0.0f))then return false; endif;
+		SetOrder(iE,KIND_SETTLE,vDest,vDest,vPos);
+		m_abLandPending[iE] = false;
+		m_afIdleSince[iE] = -1.0f;
+		m_abIdleDone[iE] = false;
+		return true;
+	endproc;
+
+	//	v3: the abilities "Land" (Moves/<TYPE>/fly_land, target point from the secondary controller) and "Take off"
+	//	(Moves/<TYPE>/fly_takeoff). Called first by the flyers' ReactToGamePlayCommand; true = handled.
+	//	Both act at once (a queued order with shift is not supported): the unit's tasks are stopped first.
+	export proc bool HandleAbility(^CFightingObj p_pxUnit, string p_sCommand, vec3 p_vPos, string p_sMiscParams)
+		if(p_pxUnit == null || p_sCommand != "Action")then return false; endif;
+		if(p_sMiscParams.Find("/fly_land") != -1)then
+			if(!p_pxUnit^.IsDead() && !p_pxUnit^.GetTransportObj().IsValid())then LandAt(p_pxUnit,p_vPos); endif;
+			return true;
+		elseif(p_sMiscParams.Find("/fly_takeoff") != -1)then
+			if(!p_pxUnit^.IsDead() && !p_pxUnit^.GetTransportObj().IsValid() && IsLanded(p_pxUnit))then
+				p_pxUnit^.StopEverything();
+				TakeOff(p_pxUnit,p_pxUnit^.GetPos());
+			endif;
+			return true;
+		endif;
+		return false;
+	endproc;
+
+	//	Land at (or next to) p_vWanted: a free, passable spot on land, one unit size from other units (FindFreeSpot).
+	//	Farther than 2 x LAND_APPROACH: fly at 15 m to LAND_APPROACH before the spot first, then FM_Land (OnIdleTick).
+	export proc bool LandAt(^CFightingObj p_pxUnit, vec3 p_vWanted)
+		if(p_pxUnit == null)then return false; endif;
+		if(p_vWanted == {0.0,0.0,0.0})then p_vWanted = p_pxUnit^.GetPos(); endif;
+		var vec3 vSpot;
+		if(!FindFreeSpot(p_pxUnit,p_vWanted,true,vSpot))then
+			//v5: no free spot one unit size from the others: land on the point itself if it is dry, passable land
+			var vec3 vW = p_pxUnit^.GetPosInMap(p_vWanted);
+			var string sWhy = LandProblem(vW);
+			if(!sWhy.IsEmpty())then
+				Log(p_pxUnit,"can't land at " + vW.ToString() + ": " + sWhy + ", and no free land spot within " + (GetUnitRadius(p_pxUnit) * 12.0f + 6.0f).ToString() + " m");
+				return false;
+			endif;
+			Log(p_pxUnit,"no free spot near " + vW.ToString() + " (crowded), lands on the point itself");
+			vSpot = vW;
+		endif;
+		p_pxUnit^.StopEverything();
+		if(IsGroundMode(p_pxUnit))then //v4: already on the ground: walk there
+			p_pxUnit^.WalkAction(vSpot);
+			return true;
+		endif;
+		var int iE = FindEntry(p_pxUnit^.GetHandle(),true);
+		if(IsLanded(p_pxUnit) && (vSpot - p_pxUnit^.GetPos()).Abs2() < APPROACH_MIN)then
+			//v5: on the ground already but not in ground mode (e.g. after a failed landing): "land" animation, ground model
+			m_abLanding[iE] = true;
+			m_abLandPending[iE] = false;
+			m_afIdleSince[iE] = -1.0f;
+			m_abIdleDone[iE] = false;
+			return true;
+		endif;
+		var vec3 vPos = p_pxUnit^.GetPos();
+		var vec3 vDir = vSpot - vPos;
+		vDir.SetZ(0.0f);
+		var real fDist = vDir.Abs2();
+		var int iSpeed = p_pxUnit^.GetMaxSpeed();
+		m_axDiveEnemy[iE] = CObjHndl.Invalid();
+		m_afIdleSince[iE] = -1.0f;
+		m_abIdleDone[iE] = false;
+		if(fDist > LAND_APPROACH * 2.0f && !IsLanded(p_pxUnit))then
+			vDir.Normalize();
+			var vec3 vPre = p_pxUnit^.GetPosInMap(vSpot - (vDir * LAND_APPROACH));
+			if(StartFlight(p_pxUnit,vPre,iSpeed,FM_FLIGHT,0.0f))then
+				SetOrder(iE,KIND_SETTLE,vSpot,vSpot,vPos);
+				m_abLandPending[iE] = true;
+				m_avLandSpot[iE] = vSpot;
+				p_pxUnit^.UpdateAggressionPos(vSpot);
+				return true;
+			endif;
+		endif;
+		if(fDist < 0.5f && IsLanded(p_pxUnit))then return true; endif;
+		if(fDist < APPROACH_MIN && !IsLanded(p_pxUnit))then
+			//FM_Land spreads the descent over the route: give it a short approach instead of a vertical drop
+			if(fDist < 0.1f)then
+				vDir.SetXYZ(1.0f,0.0f,0.0f);
+				vDir.RotZ(SpreadAngle(p_pxUnit,0));
+			else
+				vDir.Normalize();
+			endif;
+			var vec3 vAlt;
+			if(FindFreeSpot(p_pxUnit,vPos + vDir * APPROACH_MIN,true,vAlt))then vSpot = vAlt; endif;
+		endif;
+		m_abLandPending[iE] = false;
+		var int iLandSpeed = p_pxUnit^.GetDefaultSpeed();
+		if(iLandSpeed <= 0)then iLandSpeed = iSpeed; endif;
+		if(!StartFlight(p_pxUnit,vSpot,iLandSpeed,FM_LAND,0.0f))then return false; endif;
+		SetOrder(iE,KIND_SETTLE,vSpot,vSpot,vPos);
+		m_abLanding[iE] = true;
+		p_pxUnit^.UpdateAggressionPos(vSpot);
+		return true;
+	endproc;
+
+	///////
+	//	Dive attacks (pteranodons)
+	///////
+	export proc bool StartDive(^CFightingObj p_pxUnit, ^CFightingObj p_pxEnemy)
+		if(p_pxUnit == null || p_pxEnemy == null || p_pxEnemy^.IsDead())then return false; endif;
+		if(IsLanded(p_pxUnit))then return TakeOff(p_pxUnit,p_pxEnemy^.GetPos()); endif; //v4: take off (with animation) first
+		var int iE = FindEntry(p_pxUnit^.GetHandle(),true);
+		if(m_axDiveEnemy[iE] == p_pxEnemy^.GetHandle() && p_pxUnit^.GetActionDesc() == "CActFlight")then return true; endif;
+		var real fHeight = DIVE_HEIGHT_MELEE;
+		if((p_pxEnemy^.IsFlyingUnit() || p_pxEnemy^.CanFly()) && !IsLanded(p_pxEnemy))then
+			fHeight = DIVE_HEIGHT_AIR;
+		elseif(p_pxEnemy^.GetType() == "BLDG" || p_pxEnemy^.GetType() == "NEST")then
+			fHeight = DIVE_HEIGHT_BUILDING;
+		elseif(!p_pxUnit^.GetProjectile().IsEmpty())then
+			fHeight = DIVE_HEIGHT_RANGED;
+		endif;
+		var vec3 vTarget = p_pxEnemy^.GetPos();
+		var bool bChain = m_axDiveEnemy[iE].IsValid();
+		if(!StartFlight(p_pxUnit,vTarget,p_pxUnit^.GetMaxSpeed(),FM_DIVE,fHeight))then return false; endif;
+		SetOrder(iE,KIND_DIVE,vTarget,vTarget,p_pxUnit^.GetPos());
+		m_abLandPending[iE] = false;
+		m_axDiveEnemy[iE] = p_pxEnemy^.GetHandle();
+		if(!bChain)then m_afLastHit[iE] = Now(); endif;
+		m_afIdleSince[iE] = -1.0f;
+		m_abIdleDone[iE] = false;
+		return true;
+	endproc;
+
+	proc void EndDive(^CFightingObj p_pxUnit, int p_iE)
+		m_axDiveEnemy[p_iE] = CObjHndl.Invalid();
+		m_aiKind[p_iE] = 0;
+		p_pxUnit^.TerminateAction();
+	endproc;
+
+	//CActFlight.ms_xAttackEvt: the dive passed the target point. Returns the damage factor dealt (0: no hit).
+	export proc real OnDiveEvent(^CFightingObj p_pxUnit)
+		if(p_pxUnit == null)then return 0.0f; endif;
+		var int iE = FindEntry(p_pxUnit^.GetHandle(),true);
+		var ^CFightingObj pxEnemy = cast<CFightingObj>(m_axDiveEnemy[iE].GetObj());
+		if(pxEnemy == null || pxEnemy^.IsDead() || pxEnemy^.GetHitpoints() <= 0.0f || p_pxUnit^.IsDead())then
+			EndDive(p_pxUnit,iE);
+			return 0.0f;
+		endif;
+		var real fNow = Now();
+		if(fNow >= m_afLastHit[iE] && fNow - m_afLastHit[iE] < DIVE_MIN_INTERVAL)then return 0.0f; endif;
+		var vec3 vEnemy = pxEnemy^.GetPos();
+		var real fDist = (vEnemy - p_pxUnit^.GetPos()).Abs2();
+		var real fReach = Math.Max(p_pxUnit^.GetAttackRange(),3.0f) + pxEnemy^.GetRadius() + 2.0f;
+		if(fDist > fReach)then
+			//the target has moved: next dive at its new place, or leave it to the fight task if it is far
+			if(fDist > Math.Max(p_pxUnit^.GetAttackRange() * 2.0f,DIVE_LEASH))then
+				EndDive(p_pxUnit,iE);
+			else
+				var real fLast = m_afLastHit[iE];
+				m_axDiveEnemy[iE] = CObjHndl.Invalid();
+				if(StartDive(p_pxUnit,pxEnemy))then
+					m_afLastHit[iE] = fLast;
+				else
+					EndDive(p_pxUnit,iE);
+				endif;
+			endif;
+			return 0.0f;
+		endif;
+		var real fDur = Math.Max(p_pxUnit^.GetWeaponDuration(),0.5f);
+		var real fFactor = Math.Clamp(Math.Floor((fNow - m_afLastHit[iE]) / fDur),1.0f,DIVE_MAX_HITS);
+		m_afLastHit[iE] = fNow;
+		if(!p_pxUnit^.GetProjectile().IsEmpty())then
+			var int j, iK = p_pxUnit^.GetProjectilesNumber() * fFactor.ToInt();
+			for(j = 0)cond(j < iK)iter(j++)do
+				p_pxUnit^.CreateProjectileAndShoot(pxEnemy,vEnemy);
+			endfor;
+		else
+			p_pxUnit^.SetReaction(pxEnemy^.TakeDmg(p_pxUnit,false,p_pxUnit^.GetAttackFactor() * fFactor));
+		endif;
+		p_pxUnit^.DoCaptainAttackAnim();
+		if(pxEnemy^.IsDead() || pxEnemy^.GetHitpoints() <= 0.0f)then
+			//killed: stop, so the fight task takes the next target
+			EndDive(p_pxUnit,iE);
+		endif;
+		return fFactor;
 	endproc;
 
 endclass;
