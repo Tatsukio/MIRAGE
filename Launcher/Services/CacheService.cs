@@ -7,10 +7,10 @@ using System.Linq;
 
 namespace MIRAGE_Launcher.Services;
 
-/// <summary>Deletes the game's cache files (*.bin, *.ubc, *.swd in %TEMP%\SpieleEntwicklungsKombinat\Paraworld).</summary>
+/// <summary>Deletes the game's cache files (*.bin, *.swd in %TEMP%\SpieleEntwicklungsKombinat\Paraworld).</summary>
 public sealed class CacheService(GamePaths p_Paths, ILog p_Log)
 {
-    private static readonly string[] s_extensions = [".bin", ".ubc", ".swd"];
+    private static readonly string[] s_extensions = [".bin", ".swd"];
 
     private readonly GamePaths m_paths = p_Paths;
     private readonly ILog m_log = p_Log;

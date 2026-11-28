@@ -1,8 +1,8 @@
-using System;
-using System.IO;
 using MIRAGE.Shared;
 using MIRAGE.Shared.Cfg;
 using MIRAGE.Shared.Logging;
+using System;
+using System.IO;
 
 namespace MIRAGE_Launcher.Services;
 
@@ -41,6 +41,8 @@ public sealed class GameConfigService(GamePaths p_Paths, ILog p_Log)
 
     /// <summary>false: the server runs the .usl files (MIRAGE); true: the compiled scripts (original game).</summary>
     public bool SetUseUslCpp(bool p_UseCompiled) => SetValue(GameSettings.UseUslCpp, p_UseCompiled ? "1" : "0");
+
+    public bool SetAutoKillCache(bool p_AutoKill) => SetValue(GameSettings.AutoKillCache, p_AutoKill ? "1" : "0");
 
     public bool CreateBackup() => Copy(m_paths.SettingsCfg, m_paths.SettingsCfgBackup);
 
