@@ -92,10 +92,8 @@ class CHu inherit CCharacter
 				pxProduct^.LinkAction(GetHandle(), xT);
 			endif;
 		endif;
-		var vec3 vPos = GetPos();
-//		vPos.SetZ(vPos.GetZ()+FLYING_HEIGHT);
-		vPos.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vPos.GetX(),vPos.GetY()),CSrvWrap.GetScapeMgr().GetSeaLevel()) + FLYING_HEIGHT);
-		MoveAction(vPos, 5.0f);
+		//MIRAGE: no rise here: like every flyer the warrior is landed while idle and takes off with its next order
+		//(CFlyerCtrl, engine flight at 15 m)
 		GetBestWeapon(null, true);
 	endproc;
 
@@ -130,8 +128,31 @@ class CHu inherit CCharacter
 		return m_bJetChange;
 	endproc;
 
+	export proc void OnIdleEnter(^CState p_pxFrom, ^CState p_pxTo)
+		super.OnIdleEnter(p_pxFrom,p_pxTo);
+		//MIRAGE: idle flyers move apart and land (CFlyerCtrl)
+		if(m_bJetFlying && !m_bJetChange)then CFlyerCtrl.Get().OnIdleEnter(this); endif;
+	endproc;
+
+	export proc void OnIdleTick(int p_iTime)
+		super.OnIdleTick(p_iTime);
+		//MIRAGE: idle flyers move apart and land (CFlyerCtrl)
+		if(m_bJetFlying && !m_bJetChange)then CFlyerCtrl.Get().OnIdleTick(this); endif;
+	endproc;
+
+	export proc bool AttackEnemy(^CFightingObj p_pxEnemy, vec3 p_vTarget, ref bool p_rbRotated)
+		if(m_bJetFlying)then
+			//MIRAGE: a landed jetpack warrior takes off first, the fight task attacks after it (CFlyerCtrl)
+			if(CFlyerCtrl.Get().TakeOff(this,p_vTarget))then
+				p_rbRotated = true;
+				return false;
+			endif;
+		endif;
+		return super.AttackEnemy(p_pxEnemy,p_vTarget,p_rbRotated);
+	endproc;
+
 	export proc void SetIdleAnim()
-		if(m_bJetFlying && HasAnim(JETPACK_ANIM) && GetCurrentAnimName() != JETPACK_ANIM)then
+		if(m_bJetFlying && !CFlyerCtrl.Get().IsLanded(this) && HasAnim(JETPACK_ANIM) && GetCurrentAnimName() != JETPACK_ANIM)then
 			SetSLEAnim(JETPACK_ANIM,99999,false,false);
 			return;
 		endif;
@@ -140,7 +161,7 @@ class CHu inherit CCharacter
 
 	export proc void OnActionEnd(bool p_bBroken)
 		super.OnActionEnd(p_bBroken);
-		if(m_bJetFlying && HasAnim(JETPACK_ANIM) && GetCurrentAnimName() != JETPACK_ANIM)then
+		if(m_bJetFlying && !CFlyerCtrl.Get().IsLanded(this) && HasAnim(JETPACK_ANIM) && GetCurrentAnimName() != JETPACK_ANIM)then
 			SetSLEAnim(JETPACK_ANIM,99999,false,false);
 		endif;
 	endproc;
@@ -203,6 +224,8 @@ class CHu inherit CCharacter
 			var int iTimerID = p_rxEvtPtr.GetInt(0);
 			if(iTimerID == TIMER_JETPACK_RISE)then
 				m_bJetChange = false;
+				//MIRAGE: still on the ground (no rise any more): normal idle animation
+				if(CFlyerCtrl.Get().IsLanded(this) && !HasAction())then SetIdleAnim(); endif;
 				var CFourCC xLink = "Back";
 				SetLinkGFX(xLink,"Hu_Steam_Jet_Pack"); //Henry: this is redundant, but sometimes jetpack didn't appear...
 			elseif(iTimerID == TIMER_JETPACK_SINK)then
@@ -277,6 +300,8 @@ class CHu inherit CCharacter
 
 	export proc void WalkAction(vec3 p_vDest, int p_iPrefSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, ^CGameObj p_pxGoalObj, CFourCC p_xWalkSet, bool p_bUseMaterial)
 		if(!m_bJetFlying)then return super.WalkAction(p_vDest, p_iPrefSpeed, p_bUsePathfinder, p_bHeightAdaption, p_pxGoalObj, p_xWalkSet, p_bUseMaterial); endif;
+		//MIRAGE: engine flight at 15 m (follows the terrain), own target apart from the other flyers (CFlyerCtrl)
+		if(CFlyerCtrl.Get().FlyTo(this,p_vDest,p_iPrefSpeed,true))then return; endif;
 		var vec3 vPosition = GetPosInMap(p_vDest);
 		vPosition.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(p_vDest.GetX(),p_vDest.GetY()),CSrvWrap.GetScapeMgr().GetSeaLevel()) + FLYING_HEIGHT);
 		return super.WalkAction(vPosition, p_iPrefSpeed, false, false, p_pxGoalObj, p_xWalkSet, p_bUseMaterial);

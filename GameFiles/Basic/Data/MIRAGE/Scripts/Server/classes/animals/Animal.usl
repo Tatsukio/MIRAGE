@@ -5719,6 +5719,11 @@ class CFlyingAnimal inherit CAnimal
 
 	export proc void AdvanceAction(CObjHndl p_xGoalObj , ref CGameObj.CAdvanceActionParams p_rxParams)
 		if(!p_xGoalObj.IsValid())then return; endif;
+		//MIRAGE: in a fight the dive (FM_DiveCombat) flies to the target itself
+		if(GetClassName() == "Pteranodon" && GetCurTaskName() == "Fight")then
+			var ^CFightingObj pxDiveGoal = cast<CFightingObj>(p_xGoalObj.GetObj());
+			if(pxDiveGoal != null && !(pxDiveGoal^.IsFlyingUnit() && !CanShootAir()) && CFlyerCtrl.Get().StartDive(this,pxDiveGoal))then return; endif;
+		endif;
 		var vec3 vObj = p_xGoalObj.GetObj()^.GetPos(), vOwn = GetPos(),vNew;
 		var real fScape = Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vOwn.GetX(),vOwn.GetY()),m_fWaterLevel);
 //		var real fHeight=vOwn.GetZ()-fScape, fRange=GetAttackRange()/*+fHeight-GetRadius()*/;
@@ -5731,6 +5736,9 @@ class CFlyingAnimal inherit CAnimal
 	endproc;
 
 	export proc void WalkAction(vec3 p_vDest, int p_iPrefSpeed, bool p_bUsePathfinder, bool p_bHeightAdaption, ^CGameObj p_pxGoalObj, CFourCC p_xWalkSet, bool p_bUseMaterial)
+		//MIRAGE: engine flight at 15 m (follows the terrain), own target apart from the other flyers (CFlyerCtrl);
+		//the Archaeopteryx still approaches its enemy low, as before
+		if(!m_xCurEnemy.IsValid() && CFlyerCtrl.Get().FlyTo(this,p_vDest,p_iPrefSpeed,true))then return; endif;
 		var vec3 vPosition = GetPosInMap(p_vDest);
 		vPosition.SetZ(Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vPosition.GetX(),vPosition.GetY()),m_fWaterLevel) + GetFlyingHeight());
 		return super.WalkAction(vPosition, p_iPrefSpeed, false, false, p_pxGoalObj, p_xWalkSet, p_bUseMaterial);
@@ -5762,6 +5770,11 @@ class CFlyingAnimal inherit CAnimal
 
 	export proc void AdvanceAction(CObjHndl p_xGoalObj, real p_fMinDistance, int p_iPrefSpeed, CFourCC p_xWalkSet, real p_fMaxRange, ref vec3 p_rvRootPos, ref vec3 p_rvGoalOffset)
 		if(!p_xGoalObj.IsValid())then return; endif;
+		//MIRAGE: in a fight the dive (FM_DiveCombat) flies to the target itself
+		if(GetClassName() == "Pteranodon" && GetCurTaskName() == "Fight")then
+			var ^CFightingObj pxDiveGoal = cast<CFightingObj>(p_xGoalObj.GetObj());
+			if(pxDiveGoal != null && !(pxDiveGoal^.IsFlyingUnit() && !CanShootAir()) && CFlyerCtrl.Get().StartDive(this,pxDiveGoal))then return; endif;
+		endif;
 		var vec3 vObj = p_xGoalObj.GetObj()^.GetPos(), vOwn = GetPos(),vNew;
 		var real fScape = Math.Max(CSrvWrap.GetScapeMgr().GetHeight(vOwn.GetX(),vOwn.GetY()),m_fWaterLevel);
 //		var real fHeight=vOwn.GetZ()-fScape, fRange=GetAttackRange()/*+fHeight-GetRadius()*/;
@@ -5803,6 +5816,42 @@ class CFlyingAnimal inherit CAnimal
 		endif;
 		m_fFlyingHeight = Math.Clamp((m_fFlyingHeight - Random.MTRandF((-2.5),2.5)),m_fFlyingMin,m_fFlyingMax);
 		return m_fFlyingHeight;
+	endproc;
+
+	export proc bool AttackEnemy(^CFightingObj p_pxEnemy, vec3 p_vTarget, ref bool p_rbRotated)
+		if(GetClassName() == "Pteranodon")then
+			//MIRAGE: dive attacks (engine FM_DiveCombat); the hits come with CActFlight.ms_xAttackEvt (HandleEvent)
+			if(p_pxEnemy != null && !(p_pxEnemy^.IsFlyingUnit() && !CanShootAir()) && CFlyerCtrl.Get().StartDive(this,p_pxEnemy))then
+				p_rbRotated = true;
+				return false;
+			endif;
+		elseif(CFlyerCtrl.Get().TakeOff(this,p_vTarget))then
+			//MIRAGE: a landed flyer takes off first
+			p_rbRotated = true;
+			return false;
+		endif;
+		return super.AttackEnemy(p_pxEnemy,p_vTarget,p_rbRotated);
+	endproc;
+
+	export proc void HandleEvent(ref CGameEvtPtr p_rxEvtPtr)
+		if(p_rxEvtPtr.GetClass() == CActFlight.ms_xAttackEvt)then
+			//MIRAGE: the dive passed the target: hit (CFlyerCtrl)
+			CFlyerCtrl.Get().OnDiveEvent(this);
+			return;
+		endif;
+		super.HandleEvent(p_rxEvtPtr);
+	endproc;
+
+	export proc void OnIdleEnter(^CState p_pxFrom, ^CState p_pxTo)
+		super.OnIdleEnter(p_pxFrom,p_pxTo);
+		//MIRAGE: idle flyers move apart and land (CFlyerCtrl)
+		CFlyerCtrl.Get().OnIdleEnter(this);
+	endproc;
+
+	export proc void OnIdleTick(int p_iTime)
+		super.OnIdleTick(p_iTime);
+		//MIRAGE: idle flyers move apart and land (CFlyerCtrl)
+		CFlyerCtrl.Get().OnIdleTick(this);
 	endproc;
 
 	export proc void Die()
