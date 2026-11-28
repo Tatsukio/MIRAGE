@@ -116,7 +116,8 @@ AI:
  - Fixed a bug where AI units on an island would try to attack an enemy on another island, causing the units to remain on the shore.
  - You can ask AI player for help by writing "help" or "Help" in the dm or allies chat
  - AI players can read group chats from now on
- - AI players can no longer produce seas_hovercraft on non qater maps
+ - AI players can no longer produce seas_hovercraft on non water maps
+ - Dustrider AI players can no longer produce brachiosaurus ladder
 
 SDK:
  - "Export to .obj" button will also export objects AABBs as separate .obj file from now on
