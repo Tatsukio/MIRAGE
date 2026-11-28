@@ -6,6 +6,7 @@ MIRAGE 2.6.8
 General:
  - Various bugs in the load and save functions have been fixed, which should reduce the number of crashes when loading and saving
  - Fixed a crash when changing the game type in the lobby
+ - Fixed a bug that caused an overlay image to appear above the menu
  - Fixed abandon game button not working after retry match
  - Fixed phantom mode player state not being reset between matches
  - Fixed game menu not opening in spectator (lurker) mode
@@ -34,6 +35,7 @@ General:
  - Aggressive water animals count in nests are no longer infinity, if the max respawn count is infinity then only 2 times all animals will be respawned
  - Flowerpot of insanity skull bonus effect from now on displayed in unit info window. Affects only enemy units. Works both for owner and allied players
  - Bony amulet melee defense bonus against animal class attacker from now on displayed in weapon description window
+ - Skipping sequence is not allowed in multiplayer from now on
 
 Multiplayer campaign and maps with custom gameplay:
  - Fixed crash during CrashRPG and BFPW Highland maps loading
@@ -70,6 +72,7 @@ Dustriders:
  - Floating harbour's turtles from now on playing death animation when harbour is destroyed
 
 Dragon Clan:
+ - Fixed a bug because of which the mortar tower's selection circle was missing
  - Harvester will play unique voicelines when attacking
  - Water turret's ghost from now on has turret
  - Fixed dilophosaurus nest and palisade wall disappearing from build menu under certain conditions
@@ -187,7 +190,6 @@ Maps:
  - Heilige Stage's production buildings always visible in FOW for all players from now on
 
 Multiplayer campaign and maps with custom gameplay:
- - Skipping sequence is not allowed in multiplayer from now on
  - Multiple custom maps game mechanic were improved and reworked
  - Custom settings ​​will affect lobby creation window ui and lobby ui from now on
  - Lobby settings ​​will affect gameplay from now on

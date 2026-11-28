@@ -44,20 +44,24 @@ class CLevelSettingsPage inherit CWindow
 	var array int		m_aiCustomPoints;
 
 	//Kr1s1m: DB to retrieve custom map level settings
-	var ^CPropDB.CNode	m_pxCustomMapSettingsDB;
-
-	var int		m_iGameType;
-	var string	m_sUserName;
-
-	var bool	m_bShowPassword;
-	var bool	m_bInit;
-
-
+	var ^CPropDB.CNode			m_pxCustomMapSettingsDB;
+	
+	var int 					m_iGameType;
+	var string					m_sUserName;
+	
+	var bool					m_bShowPassword;
+	var bool 					m_bInit;
+	var bool					m_bChangedGameType;
+	var int						m_iCommands;
+	
+	
 	export constructor()
 		//System.Assert(false,"invalid constructor");
 		m_iGameType = 0;
 		m_bInit = false;
+		m_bChangedGameType = false;
 		m_bShowPassword = false;
+		m_iCommands = 0;
 	endconstructor;
 
 	export constructor(^CMapListWindow p_pxOwner,bool p_bShowPassword)
@@ -72,7 +76,8 @@ class CLevelSettingsPage inherit CWindow
 			KLog.LogError("CLevelSettingsPage","InitFromResource failed");
 			return;
 		endif;
-
+		m_iCommands++;
+		
 		//Kr1s1m: Custom map settings DB init
 		var ^CPropDB pxCustomMapSettingsDB = new CPropDB();
 		if(pxCustomMapSettingsDB^.Load(CClientWrap.GetUrsRelPath()+"/data/base/scripts/game/misc/CustomMapSettings.txt"))then
@@ -125,8 +130,7 @@ class CLevelSettingsPage inherit CWindow
 
 		OnChangePlayers();//WT#1315
 		//CheckNumTeams(iNumPlayers);
-		OnChangeTeams();
-
+		
 		InitPoints();
 
 		InitDisableWarpgate();
@@ -141,7 +145,10 @@ class CLevelSettingsPage inherit CWindow
 		OnChangeGameType();
 
 		m_bInit = true;
-
+		
+		UpdateCustomMapSettings(GetSelectedLevelName(GetSelectedLevelCheckSumme()),GetSelectedLevelName(CClientWrap.GetUserProfileValue("Multiplayer/LastSelectedMap","")));
+		if(m_iCommands>0)then m_iCommands--; endif;
+		
 	endproc;
 
 	export destructor()
@@ -265,6 +272,7 @@ class CLevelSettingsPage inherit CWindow
 		for(i=(iMinPlayers-1))cond(i<iC)iter(i++)do
 			m_pxMaxPlayers^.AddItem((i+1).ToString());
 		endfor;
+		if(iNumPlayers>iC)then iNumPlayers=iC; endif;
 		var int iIdx=Math.Max(m_pxMaxPlayers^.FindItem(iNumPlayers.ToString()),0);
 		m_pxMaxPlayers^.Select(iIdx);
 		m_pxMaxPlayers^.SetDisabled(false);
@@ -436,7 +444,7 @@ class CLevelSettingsPage inherit CWindow
 			endif;
 			var int iMaxPlayers=CMirageClnMgr.Get().GetPlayers(pxMapInfo^.GetMapName(),pxMapInfo^.GetMaxPlayers());
 			var string sMapName=CLocalizer.Get().Translate(pxMapInfo^.GetMapName());
-			var string sSortText=iMaxPlayers.ToString()+sMapName;//temporär nur zum sortieren
+			var string sSortText=iMaxPlayers.ToString()+sMapName;//temporÃ¤r nur zum sortieren
 			var int iIdx=m_pxHostMapList^.AddItem(sSortText,new CHostListEntry(iMaxPlayers,sMapName));
 			var string sCheckSumme=pxMapInfo^.GetLevelInfo().GetLevelCheckSumme();
 			KLog.LogSpam("ParaworldFan","LevelSettingsPage: ReloadHostMapList() sCheckSumme=="+sCheckSumme);
@@ -469,22 +477,24 @@ class CLevelSettingsPage inherit CWindow
 			return false;
 		endif;
 		m_iGameType=iGameType;
-		var string sLevelName=GetSelectedLevelName(GetSelectedLevelCheckSumme());
-		var string sPrevLevelName=GetSelectedLevelName(CClientWrap.GetUserProfileValue("Multiplayer/LastSelectedMap",""));
+		m_iCommands++;
 		//KLog.LogSpam("Kr1s1m", "LevelSettingsPage:OnChangeGameType(): UpdateCustomMapSettings called.");
+		m_pxMaxPlayers^.m_xOnChange.Clear();
 		OnChangeMaxPlayers();
-		UpdateCustomMapSettings(sLevelName, sPrevLevelName); //Kr1s1m: Handle settings in relation to GameType and sLevelName
+		if(m_bInit)then ReloadHostMapList(); endif;
+		CheckNumTeams(m_pxMaxPlayers^.GetSelectedItemAsString().ToInt());
+		m_pxMaxPlayers^.m_xOnChange=OnChangePlayers;
 		CClientWrap.SetUserProfileValue("Multiplayer/GameType",iGameType); //Kr1s1m: Update GameType with selected in dropdown
 		m_pxDefenderTimer^.SetDisabled(iGameType!=2); //Kr1s1m: Disable defender timer if GameType is not Defender
 		m_pxDefenderTimerStat^.SetDisabled(iGameType!=2);
-		ReloadHostMapList();
-		OnSelectMap();
+		if(m_iCommands>0)then m_iCommands--; endif;
 		return true;
 	endproc;
 
 	export proc bool OnChangeDefenderTimer()
 		var int iValue=m_pxDefenderTimer^.GetValueInt();
 		CClientWrap.SetUserProfileValue("Multiplayer/DefenderTimer",iValue);
+		CMirageClnMgr.Get().SetBackupSettingsValue("LevelSettingsBackup/Multiplayer/DefenderTimer",iValue,m_bInit&&m_iCommands<=0);
 		return true;
 	endproc;
 
@@ -495,6 +505,7 @@ class CLevelSettingsPage inherit CWindow
 
 	export proc bool OnChangePassword()
 		CClientWrap.SetUserProfileValue("Multiplayer/Password",m_pxPassword^.GetText());
+		CMirageClnMgr.Get().SetBackupSettingsValue("LevelSettingsBackup/Multiplayer/Password",m_pxPassword^.GetText(),m_bInit&&m_iCommands<=0);
 		return true;
 	endproc;
 
@@ -504,7 +515,9 @@ class CLevelSettingsPage inherit CWindow
 		if(iLength>0)then
 			if(sPort.GetAt(iLength-1)!='0' && sPort.GetAt(iLength-1)!='1' && sPort.GetAt(iLength-1)!='2' && sPort.GetAt(iLength-1)!='3' && sPort.GetAt(iLength-1)!='4' && sPort.GetAt(iLength-1)!='5' && sPort.GetAt(iLength-1)!='6' && sPort.GetAt(iLength-1)!='7' && sPort.GetAt(iLength-1)!='8' && sPort.GetAt(iLength-1)!='9')then
 				sPort.Delete(iLength-1);
+				m_iCommands++;
 				m_pxPort^.SetText(sPort);
+				if(m_iCommands>0)then m_iCommands--; endif;
 			endif;
 		endif;
 		return true;
@@ -518,27 +531,34 @@ class CLevelSettingsPage inherit CWindow
 			iPort=1905;
 		endif;
 		CClientWrap.SetUserProfileValue("Multiplayer/Port",iPort);
+		CMirageClnMgr.Get().SetBackupSettingsValue("LevelSettingsBackup/Multiplayer/Port",iPort,m_bInit&&m_iCommands<=0);
+		m_iCommands++;
 		m_pxPort^.SetText(iPort.ToString());
+		if(m_iCommands>0)then m_iCommands--; endif;
 		return true;
 	endproc;
 
 	export proc bool OnChangeChooseHQ()
 		CClientWrap.SetUserProfileValue("Multiplayer/ChooseHQ",m_pxChooseHQ^.GetChecked());
+		CMirageClnMgr.Get().SetBackupSettingsValue("LevelSettingsBackup/Multiplayer/ChooseHQ",m_pxChooseHQ^.GetChecked(),m_bInit&&m_iCommands<=0);
 		return true;
 	endproc;
 
 	export proc bool OnChangeChooseColor()
 		CClientWrap.SetUserProfileValue("Multiplayer/ChooseColor",m_pxChooseColor^.GetChecked());
+		CMirageClnMgr.Get().SetBackupSettingsValue("LevelSettingsBackup/Multiplayer/ChooseColor",m_pxChooseColor^.GetChecked(),m_bInit&&m_iCommands<=0);
 		return true;
 	endproc;
 
 	export proc bool OnChangeDisableWarpgate()
 		CClientWrap.SetUserProfileValue("Multiplayer/DisableWarpgate",m_pxDisableWarpgate^.GetChecked());
+		CMirageClnMgr.Get().SetBackupSettingsValue("LevelSettingsBackup/Multiplayer/DisableWarpgate",m_pxDisableWarpgate^.GetChecked(),m_bInit&&m_iCommands<=0);
 		return true;
 	endproc;
 
 	export proc bool OnChangeDisableFOW()
 		CClientWrap.SetUserProfileValue("Multiplayer/DisableFOW",m_pxDisableFOW^.GetChecked());
+		CMirageClnMgr.Get().SetBackupSettingsValue("LevelSettingsBackup/Multiplayer/DisableFOW",m_pxDisableFOW^.GetChecked(),m_bInit&&m_iCommands<=0);
 		return true;
 	endproc;
 
@@ -546,6 +566,8 @@ class CLevelSettingsPage inherit CWindow
 		CClientWrap.SetUserProfileValue("Multiplayer/LockDiplomacy",m_pxLockDiplomacy^.GetChecked());
 		var CConfig xConf;
 		xConf.SetB("Server/GameplayOptions/DiploLocked",m_pxLockDiplomacy^.GetCheckMark());
+		CMirageClnMgr.Get().SetBackupSettingsValue("LevelSettingsBackup/Multiplayer/LockDiplomacy",m_pxLockDiplomacy^.GetChecked(),m_bInit&&m_iCommands<=0);
+		CMirageClnMgr.Get().SetBackupSettingsValue("LevelSettingsBackup/Server/GameplayOptions/DiploLocked",m_pxLockDiplomacy^.GetChecked(),m_bInit&&m_iCommands<=0);
 		var int iPlayers=m_pxMaxPlayers^.GetSelectedItemAsString().ToInt();
 		CheckNumTeams(iPlayers);
 		return true;
@@ -553,12 +575,14 @@ class CLevelSettingsPage inherit CWindow
 
 	export proc bool OnChangeAllowHandicap()
 		CClientWrap.SetUserProfileValue("Multiplayer/AllowHandicap",m_pxAllowHandicap^.GetChecked());
+		CMirageClnMgr.Get().SetBackupSettingsValue("LevelSettingsBackup/Multiplayer/AllowHandicap",m_pxAllowHandicap^.GetChecked(),m_bInit&&m_iCommands<=0);
 		return true;
 	endproc;
 
 	export proc bool OnChangeTeams()
 		var int iTeams=m_pxTeams^.GetSelectedItemAsString().ToInt();
 		CClientWrap.SetUserProfileValue("Multiplayer/NumTeams",iTeams);
+		CMirageClnMgr.Get().SetBackupSettingsValue("LevelSettingsBackup/Multiplayer/NumTeams",iTeams,m_bInit&&m_iCommands<=0);
 		//Kr1s1m: [Optimization] ReloadHostMapList call not needed - function logic does not depend on teams
 		//ReloadHostMapList();
 		//Kr1s1m: Disabled and unchecked diplomacy if teams dropdown is currently set to 1
@@ -584,6 +608,7 @@ class CLevelSettingsPage inherit CWindow
 			endif;
 		endif;
 		CClientWrap.SetUserProfileValue("Multiplayer/Credits",iCredits);
+		CMirageClnMgr.Get().SetBackupSettingsValue("LevelSettingsBackup/Multiplayer/Credits",iCredits,m_bInit&&m_iCommands<=0);
 		//KLog.LogSpam("Kr1s1m-ALERT", "===S==E==T======> OnChangePoints(): Multiplayer/Credits set to "+iCredits.ToString());
 		return(true);
 	endproc;
@@ -598,9 +623,11 @@ class CLevelSettingsPage inherit CWindow
 				//m_pxLockDiplomacy^.SetChecked(0);
 			//endif;
 		//endif;
-		ReloadHostMapList();
+		m_iCommands++;
+		if(m_bInit)then ReloadHostMapList(); endif;
 		CheckNumTeams(iPlayers);
 		OnChangeTeams();
+		if(m_iCommands>0)then m_iCommands--; endif;
 		var int iTeams=m_pxTeams^.GetSelectedItemAsString().ToInt();
 		if(iTeams==1)then //Kr1s1m: TODO: Add Custom map check if needed in the future. Nothing special needed for multicampaign.
 			m_pxLockDiplomacy^.SetDisabled(true);
@@ -610,6 +637,7 @@ class CLevelSettingsPage inherit CWindow
 
 	export proc bool OnChangeMaxPlayers()
 		var int iNumPlayers=CClientWrap.GetUserProfileValueI("Multiplayer/NumPlayers",2);
+		m_iCommands++;
 		m_pxMaxPlayers^.Clear();
 		var int k,kC=GetAvailableMaxPlayers();
 		for(k=0)cond(k<kC)iter(k++)do
@@ -620,6 +648,7 @@ class CLevelSettingsPage inherit CWindow
 		endif;
 		var int iIdx=Math.Max(m_pxMaxPlayers^.FindItem(iNumPlayers.ToString()),0);
 		m_pxMaxPlayers^.Select(iIdx);
+		if(m_iCommands>0)then m_iCommands--; endif;
 		return true;
 	endproc;
 
@@ -664,7 +693,8 @@ class CLevelSettingsPage inherit CWindow
 		var string sLevelName = GetSelectedLevelName(GetSelectedLevelCheckSumme());
 		//Kr1s1m: If the map is custom skip this procedure to enforce a particular custom entry inside dropdown menu
 		if(CMirageClnMgr.Get().IsCustomMapSetting(sLevelName, "NumTeams"))then return; endif;
-		m_pxTeams^.NumItems();
+		m_iCommands++;
+		var int iNumItems=m_pxTeams^.NumItems();
 		//if(iNumItems!=p_iMaxTeams)then
 		var int iNumTeams=CClientWrap.GetUserProfileValueI("Multiplayer/NumTeams",2);
 		m_pxTeams^.m_xOnChange.Clear();
@@ -676,16 +706,16 @@ class CLevelSettingsPage inherit CWindow
 			if(p_iMaxTeams==1)then
 				m_pxLockDiplomacy^.SetChecked(0);
 			endif;
-		endif;
-		for(i=iMinTeams)cond(i<iC)iter(i++)do
-			m_pxTeams^.AddItem((i+1).ToString());
-		endfor;
-		m_pxTeams^.m_xOnChange=OnChangeTeams;
-		var int iItemIdx=m_pxTeams^.FindItem(iNumTeams.ToString());
-		if(iItemIdx==-1)then
-			iItemIdx=p_iMaxTeams-1;
-		endif;
-		m_pxTeams^.Select(iItemIdx);
+			for(i=iMinTeams)cond(i<iC)iter(i++)do
+				m_pxTeams^.AddItem((i+1).ToString());
+			endfor;
+			m_pxTeams^.m_xOnChange=OnChangeTeams;
+			var int iItemIdx=m_pxTeams^.FindItem(iNumTeams.ToString());
+			if(iItemIdx==-1)then
+				iItemIdx=p_iMaxTeams-1;
+			endif;
+			m_pxTeams^.Select(iItemIdx);
+			if(m_iCommands>0)then m_iCommands--; endif;
 		//endif;
 	endproc;
 
@@ -694,14 +724,19 @@ class CLevelSettingsPage inherit CWindow
 			var string sLevelCheckSumme=GetSelectedLevelCheckSumme();
 			var string sTmp=CClientWrap.GetUserProfileValue("Multiplayer/LastSelectedMap","");
 			CMultiPlayerClientMgr.Get().SetMap(sLevelCheckSumme);
-			if(sLevelCheckSumme!=sTmp)then
-				CClientWrap.SetUserProfileValue("Multiplayer/LastSelectedMap",sLevelCheckSumme);
+			var int iGameType=m_pxGameType^.GetSelectedItem();
+			var int iPrevGameType=CClientWrap.GetUserProfileValueI("Multiplayer/GameType",iGameType);
+			m_bChangedGameType=iPrevGameType!=iGameType;
+			if(sLevelCheckSumme!=sTmp || m_bChangedGameType)then
+				CClientWrap.SetUserProfileValue("Multiplayer/LastSelectedMap",sLevelCheckSumme); 
 				m_pxOwner^.UpdateGameInfoWindow();
 				var string sLevelName=GetSelectedLevelName(sLevelCheckSumme);
 				var string sPrevLevelName=GetSelectedLevelName(sTmp);
 				if(sLevelName!="?" && m_bInit)then
 					//KLog.LogSpam("Kr1s1m", "LevelSettingsPage:OnSelectMap(): UpdateCustomMapSettings called.");
+					m_iCommands++;
 					UpdateCustomMapSettings(sLevelName, sPrevLevelName);
+					if(m_iCommands>0)then m_iCommands--; endif;
 				endif;
 				return true;
 			endif;
@@ -735,6 +770,7 @@ class CLevelSettingsPage inherit CWindow
 	endproc;
 
 	proc int GetCustomMapPoints(string p_sLevelName)
+		if(p_sLevelName.IsEmpty())then return -404; endif;
 		var int iL = m_asCustomLevels.NumEntries();
 		var int iP = m_aiCustomPoints.NumEntries();
 		if(iL>0 && iL == iP)then//Kr1s1m: if the arrays are not empty and of the same size...
@@ -750,6 +786,7 @@ class CLevelSettingsPage inherit CWindow
 
 	proc void RestoreLevelSettingControls(array string p_asRestoreSettingNames)
 		//KLog.LogSpam("Kr1s1m-ALERT", "LevelSettingsPage:RestoreLevelSettingControls begin");
+		m_iCommands++;
 		var int i, iS=p_asRestoreSettingNames.NumEntries();
 		for(i=0)cond(i<iS)iter(i++)do
 			var string sSettingName = p_asRestoreSettingNames[i];
@@ -786,6 +823,7 @@ class CLevelSettingsPage inherit CWindow
 			endif;
 			//KLog.LogSpam("Kr1s1m", "LevelSettingsPage:RestoreLevelSettingControls p_asRestoreSettingNames[i] ===> "+p_asRestoreSettingNames[i]);
 		endfor;
+		if(m_iCommands>0)then m_iCommands--; endif;
 		//KLog.LogSpam("Kr1s1m-ALERT", "LevelSettingsPage:RestoreLevelSettingControls end");
 	endproc;
 
@@ -810,8 +848,8 @@ class CLevelSettingsPage inherit CWindow
 		else
 			var string sLevelName = GetSelectedLevelName(GetSelectedLevelCheckSumme());
 			//var int iTeams=m_pxTeams^.GetSelectedItemAsString().ToInt();
-			var int iTeams=CClientWrap.GetUserProfileValueI("Multiplayer/NumTeams",2);
-			m_pxLockDiplomacy^.SetDisabled(iTeams==1 || CMirageClnMgr.Get().IsCustomMapSetting(sLevelName, "LockDiplomacy") || iGameType!=0);
+			var int iTeams=CClientWrap.GetUserProfileValueI("Multiplayer/NumTeams",2); 
+			m_pxLockDiplomacy^.SetDisabled(iTeams==1 || CMirageClnMgr.Get().IsCustomMapSetting(sLevelName, "LockDiplomacy") || iGameType==1 || iGameType==2);
 		endif;
 		m_pxPoints^.SetDisabled(false);
 		m_pxDisableWarpgate^.SetDisabled(false);
@@ -822,6 +860,8 @@ class CLevelSettingsPage inherit CWindow
 
 	proc void SetAndLockLevelSetting(string p_sSettingType, string p_sSettingName, int p_iValue, bool p_bLock);
 		//KLog.LogSpam("Kr1s1m", "LevelSettingsPage:SetAndLockLevelSetting begin");
+		if(p_sSettingType.IsEmpty()||p_sSettingName.IsEmpty())then return; endif;
+		m_iCommands++;
 		var int iOldValue = CClientWrap.GetUserProfileValueI("Multiplayer/"+p_sSettingName,0);
 		var string sValue=p_iValue.ToString();
 		if(p_sSettingType=="CheckBox")then
@@ -830,10 +870,10 @@ class CLevelSettingsPage inherit CWindow
 			pxCheckBox^.SetDisabled(p_bLock);
 		elseif(p_sSettingType=="DropList")then
 			var string sControlName = p_sSettingName;
-			//Kr1s1m: Map some setting name values from their config names to their control names...
-			if(p_sSettingName=="NumPlayers")then sControlName="Players"; endif;
-			if(p_sSettingName=="NumTeams")then sControlName="Teams"; endif;
-			if(p_sSettingName=="Credits")then sControlName="Points"; endif;
+			//Kr1s1m: Map some setting name values from their config names to their control names... 
+			if(p_sSettingName=="NumPlayers")then sControlName="Players";
+			elseif(p_sSettingName=="NumTeams")then sControlName="Teams";
+			elseif(p_sSettingName=="Credits")then sControlName="Points"; endif;
 			var ^CDropList pxDrop = cast<CDropList>(GetControl(sControlName+"DropList"));
 			pxDrop^.Clear();
 			if(p_sSettingName=="Credits")then
@@ -850,6 +890,12 @@ class CLevelSettingsPage inherit CWindow
 			var ^CSpinCtrlNumber pxSpinCtrl = cast<CSpinCtrlNumber>(GetControl(p_sSettingName));
 			pxSpinCtrl^.SetValue(p_iValue);
 			pxSpinCtrl^.SetDisabled(p_bLock);
+		elseif(p_sSettingType=="Edit")then
+			var string sControlName = p_sSettingName+"Edit";
+			//if(p_sSettingName=="GameName")then sControlName="NameEdit"; endif;
+			var ^CEdit pxEdit = cast<CEdit>(GetControl(sControlName));
+			m_pxGameName^.SetText(sValue);
+			m_pxGameName^.SetDisabled(p_bLock);
 		endif;
 		if(p_iValue!=iOldValue)then
 			CClientWrap.SetUserProfileValue("Multiplayer/"+p_sSettingName, p_iValue);
@@ -865,11 +911,12 @@ class CLevelSettingsPage inherit CWindow
 //		if(p_bLock)then sLocked = "(locked)"; endif;
 		//KLog.LogSpam("Kr1s1m", "p_sSettingType: "+p_sSettingType+" p_sSettingName: "+p_sSettingName+" ====> "+sValue+sLocked);
 		//KLog.LogSpam("Kr1s1m", "LevelSettingsPage:SetAndLockLevelSetting end");
+		if(m_iCommands>0)then m_iCommands--; endif;
 	endproc;
 
 	proc void SetAndLockCustomMapLevelSettings(string p_sLevelName)
 		//KLog.LogSpam("Kr1s1m", "LevelSettingsPage:SetAndLockCustomMapLevelSettings begin");
-		if(m_pxCustomMapSettingsDB==null)then return; endif;
+		if(m_pxCustomMapSettingsDB==null||p_sLevelName.IsEmpty())then return; endif;
 		var ^CPropDB.CNode pxLevelsNode = m_pxCustomMapSettingsDB^.Get("Levels");
 		if(pxLevelsNode!=null)then
 			p_sLevelName.Replace(" ", "_");
@@ -901,51 +948,25 @@ class CLevelSettingsPage inherit CWindow
 
 	proc void UpdateCustomMapSettings(string p_sLevelName, string p_sPrevLevelName)
 		//KLog.LogSpam("Kr1s1m", "LevelSettingsPage:UpdateCustomMapSettings begin");
+		if(p_sLevelName.IsEmpty()||p_sPrevLevelName.IsEmpty())then return; endif;
 		UpdateCustomMapMirageSettings(p_sLevelName, p_sPrevLevelName);
 		var int iGameType=m_pxGameType^.GetSelectedItem();
 		var int iPrevGameType=CClientWrap.GetUserProfileValueI("Multiplayer/GameType",iGameType);
-		var bool bChangedType=iPrevGameType!=iGameType;
-		var bool bCustomLevelSettings = CMirageClnMgr.Get().IsCustomMapSetting(p_sLevelName, "LevelSettings");
-		var bool bPrevCustomLevelSettings = CMirageClnMgr.Get().IsCustomMapSetting(p_sPrevLevelName, "LevelSettings");
-		var bool bRestoreLevelSettins=(bPrevCustomLevelSettings && !bCustomLevelSettings) || (bChangedType && iPrevGameType!=0);
 		var array string asRestoreSettingNames;
-		if(!bCustomLevelSettings && !bPrevCustomLevelSettings && !bChangedType && m_bInit)then
-			//KLog.LogSpam("Kr1s1m", "UpdateCustomMapSettings: (!bCustom && !bPrevCustom && !bChangedType && m_bInit) => nothing was updated");
-			return;//Kr1s1m: Skip updating level settings after Init if non-custom status and game type remain the same
-		endif;
-		if(iGameType>2)then iGameType=0; endif; //Kr1s1m: Map Campaign and Custom game types to Deathmatch
 		//Kr1s1m: Used switch statement to optimise check performance
 		switch(iGameType)
 			case(0)do //Kr1s1m: iGameType 0 ===> Deathmatch ================================================================
-				if(bCustomLevelSettings!=bPrevCustomLevelSettings || bChangedType)then//Kr1s1m: If != custom OR gametype...
-					//Kr1s1m: ...backup or restore depending on bRestoreLevelSettins value
-					asRestoreSettingNames = CMirageClnMgr.Get().OperateLevelSettingsBackupDB(bRestoreLevelSettins);
-				elseif(bCustomLevelSettings)then//Kr1s1m: if switching between two custom maps or during init...
-					//Kr1s1m: ...always restore to non-custom backup before applying new custom settings
-					asRestoreSettingNames = CMirageClnMgr.Get().RestoreLevelSettings();
-					RestoreLevelSettingControls(asRestoreSettingNames);
-				endif;
-				if(bRestoreLevelSettins)then//Kr1s1m: If going from custom to non-custom OR switching gametype...
+				asRestoreSettingNames = CMirageClnMgr.Get().OperateLevelSettingsBackupDB(m_bChangedGameType);
+				UnlockLevelSettingControls(true);
+				if(m_bChangedGameType)then//Kr1s1m: If going from custom to non-custom OR switching gametype...
 					//Kr1s1m: ...then re-initialize only the level setting controls not matching the config backup
 					RestoreLevelSettingControls(asRestoreSettingNames);
-					//Kr1s1m: Unlock all level settings which should be unlocked
-					UnlockLevelSettingControls(true);
-				else//Kr1s1m: Else if switching from custom to custom OR from non-custom to custom...
-					//Kr1s1m: ...unlock all which should be unlocked only when switching between two custom maps
-					UnlockLevelSettingControls(bCustomLevelSettings==bPrevCustomLevelSettings);
-					SetAndLockCustomMapLevelSettings(p_sLevelName);
-					//Kr1s1m: Fetch custom points from prepared arrays, generated from user profile MultiplayerCampaign node
-					var int iCustomPoints=GetCustomMapPoints(p_sLevelName);
-					//Kr1s1m: If the fetch is successful set and lock the custom points
-					if(iCustomPoints!=-404)then SetAndLockLevelSetting("DropList", "Credits", iCustomPoints, true); endif;
 				endif;
 			endcase;
 			case(1)do //Kr1s1m: iGameType 1 ===> Domination ================================================================
-				if(bChangedType)then
-					if(!bPrevCustomLevelSettings && iPrevGameType==0)then
-						CMirageClnMgr.Get().BackupLevelSettings();
-					else
-						asRestoreSettingNames = CMirageClnMgr.Get().RestoreLevelSettings();
+				if(m_bChangedGameType)then
+					asRestoreSettingNames = CMirageClnMgr.Get().OperateLevelSettingsBackupDB(iPrevGameType!=0);
+					if(iPrevGameType!=0)then
 						RestoreLevelSettingControls(asRestoreSettingNames);
 						UnlockLevelSettingControls(true);
 					endif;
@@ -956,11 +977,9 @@ class CLevelSettingsPage inherit CWindow
 				//KLog.LogSpam("Kr1s1m", "map: "+p_sLevelName+" ===> (1)?1?(0)?, where: (1)/(0) - set/unset & free, 1/0 - set/unset & locked, ? - unchanged free");
 			endcase;
 			case(2)do //Kr1s1m: iGameType 2 ===> Defender ==================================================================
-				if(bChangedType)then
-					if(!bPrevCustomLevelSettings && iPrevGameType==0)then
-						CMirageClnMgr.Get().BackupLevelSettings();
-					else
-						asRestoreSettingNames = CMirageClnMgr.Get().RestoreLevelSettings();
+				if(m_bChangedGameType)then
+					asRestoreSettingNames = CMirageClnMgr.Get().OperateLevelSettingsBackupDB(iPrevGameType!=0);
+					if(iPrevGameType!=0)then
 						RestoreLevelSettingControls(asRestoreSettingNames);
 						UnlockLevelSettingControls(true);
 					endif;
@@ -968,7 +987,29 @@ class CLevelSettingsPage inherit CWindow
 				endif;
 				SetAndLockLevelSetting("CheckBox", "LockDiplomacy", 1, true);
 				SetAndLockLevelSetting("CheckBox", "ChooseHQ", 1, true);
-				//KLog.LogSpam("Kr1s1m", "map: "+p_sLevelName+" ===> (1)?1?1?, where: (1)/(0) - set/unset & free, 1/0 - set/unset & locked, ? - unchanged free);
+				//KLog.LogSpam("Kr1s1m", "map: "+p_sLevelName+" ===> (1)?1?1?, where: (1)/(0) - set/unset & free, 1/0 - set/unset & locked, ? - unchanged free");
+			endcase;
+			case(3)do //Kr1s1m: iGameType 3 ===> Special ==================================================================
+				asRestoreSettingNames = CMirageClnMgr.Get().OperateLevelSettingsBackupDB(iPrevGameType!=0);
+				RestoreLevelSettingControls(asRestoreSettingNames);
+				//Kr1s1m: Unlock all level settings which should be unlocked
+				UnlockLevelSettingControls(true);
+				SetAndLockCustomMapLevelSettings(p_sLevelName);
+				//Kr1s1m: Fetch custom points from prepared arrays, generated from user profile MultiplayerCampaign node
+				var int iCustomPoints=GetCustomMapPoints(p_sLevelName);
+				//Kr1s1m: If the fetch is successful set and lock the custom points
+				if(iCustomPoints!=-404)then SetAndLockLevelSetting("DropList", "Credits", iCustomPoints, true); endif;
+			endcase;
+			case(4)do //Kr1s1m: iGameType 4 ===> Campaign ==================================================================
+				asRestoreSettingNames = CMirageClnMgr.Get().OperateLevelSettingsBackupDB(iPrevGameType!=0);
+				RestoreLevelSettingControls(asRestoreSettingNames);
+				//Kr1s1m: Unlock all level settings which should be unlocked
+				UnlockLevelSettingControls(true);
+				SetAndLockCustomMapLevelSettings(p_sLevelName);
+				//Kr1s1m: Fetch custom points from prepared arrays, generated from user profile MultiplayerCampaign node
+				var int iCustomPoints=GetCustomMapPoints(p_sLevelName);
+				//Kr1s1m: If the fetch is successful set and lock the custom points
+				if(iCustomPoints!=-404)then SetAndLockLevelSetting("DropList", "Credits", iCustomPoints, true); endif;
 			endcase;
 			case default do
 				//KLog.LogSpam("Kr1s1m", "iGameType did not match any valid case - nothing was updated");
@@ -979,7 +1020,8 @@ class CLevelSettingsPage inherit CWindow
 	endproc;
 
 	export proc void UpdateCustomMapMirageSettings(string p_sLevelName, string p_sPrevLevelName)
-		//KLog.LogSpam("Kr1s1m", "CLevelSettingsPage::UpdateCustomMapMirageSettings begin");
+		//KLog.LogSpam("Kr1s1m", "CLevelSettingsPage:UpdateCustomMapMirageSettings begin");
+		if(p_sLevelName.IsEmpty()||p_sPrevLevelName.IsEmpty())then return; endif;
 		var bool bCustomMirageSettings = CMirageClnMgr.Get().IsCustomMapSetting(p_sLevelName, "MirageSettings");
 		var bool bPrevCustomMirageSettings = CMirageClnMgr.Get().IsCustomMapSetting(p_sPrevLevelName, "MirageSettings");
 		var bool bRestoreMirageSettings=(bPrevCustomMirageSettings && !bCustomMirageSettings);
@@ -997,10 +1039,11 @@ class CLevelSettingsPage inherit CWindow
 			if(bCustomMirageSettings)then
 				CMirageClnMgr.Get().RestoreMirageServerSettings();
 				//KLog.LogSpam("Kr1s1m",  "-------------> [Mirage Server settings] backup restored <-------------");
-			endif;
-			if(bCustomMirageSettings)then
 				CMirageClnMgr.Get().UpdateCustomMapAttribs(p_sLevelName);
 				//KLog.LogSpam("Kr1s1m",  "-------------> Custom [Mirage Server settings] applied <--------------");
+			else
+				CMirageClnMgr.Get().BackupMirageServerSettings();
+				//KLog.LogSpam("Kr1s1m",  "-------------> [Mirage Server settings] backup complete <-------------");
 			endif;
 		endif;
 		//========================================================================================================
@@ -1009,6 +1052,7 @@ class CLevelSettingsPage inherit CWindow
 
 	export proc void UpdateCustomPointBuyUI(string p_sLevelName, string p_sPrevLevelName)
 		//Kr1s1m: ParaworldFan's CUSTOM PointBuy Difficulty switch UI
+		if(p_sLevelName.IsEmpty()||p_sPrevLevelName.IsEmpty())then return; endif;
 		var bool bPrevCustomPointBuy = CMirageClnMgr.Get().IsCustomMapSetting(p_sPrevLevelName, "PointBuy/MapDifficulty");
 		var bool bCustomPointBuy = CMirageClnMgr.Get().IsCustomMapSetting(p_sLevelName, "PointBuy/MapDifficulty");
 		if(bPrevCustomPointBuy != bCustomPointBuy)then
@@ -1025,18 +1069,14 @@ class CLevelSettingsPage inherit CWindow
 endclass;
 
 class CLevelSettingsPageHost inherit CLevelSettingsPage
-
-	var bool	m_bHostInit;
-
+	
 	export constructor()
-		m_bHostInit = false;
 		//System.Assert(false,"invalid constructor");
 	endconstructor;
 
 	export constructor(^CMapListWindow p_pxOwner,bool p_bShowPassword)
 		//KLog.LogSpam("ParaworldFan", "Constructor: LevelSettingsPageHost being created");
 		Init(p_pxOwner,p_bShowPassword);
-		OnSelectMap();
 		CGameWrap.GetGame().SetAttrib("Password",CClientWrap.GetUserProfileValue("Multiplayer/Password",""));
 		var int iGameType=CClientWrap.GetUserProfileValueI("Multiplayer/GameType",0);
 		if(iGameType>2)then iGameType=0; endif;
@@ -1059,7 +1099,6 @@ class CLevelSettingsPageHost inherit CLevelSettingsPage
 		endif;
 		CGameWrap.GetClient().GetLevelPreview().SetNumPlayers(iNumPlayers);
 		CMultiPlayerClientMgr.Get().SetNumPlayers(iNumPlayers);
-		m_bHostInit = true;
 	endconstructor;
 
 	proc bool OnSelectMap()

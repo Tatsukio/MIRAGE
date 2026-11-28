@@ -184,34 +184,15 @@ class CMirageClnMgr
 
 		m_sSettingsBackupTemplatePath=CClientWrap.GetUrsRelPath()+"/Data/MIRAGE/Scripts/Game/misc";
 		m_sSettingsBackupPath=CSettings.GetUserSettingsDir();
-		m_sSettingsBackupPath+=CMirageClnMgr.MODNAME+"_"+(CMirageClnMgr.VERSION).ToString()+"_Settings_backup";
+		m_sSettingsBackupPath+=CMirageClnMgr.MODNAME+"_Settings_backup";
 		if(!Filesystem.DirExists(m_sSettingsBackupPath))then
 			Filesystem.MkDir(m_sSettingsBackupPath);
 			//KLog.LogSpam("Kr1s1m",  "=========> Mirage/Level settings backup path created. <=========");
 		endif;
-
-		//Kr1s1m: Mirage settings backup DB init
-		m_pxMirageSettingsBackupDB = new CPropDB();
-		//Kr1s1m: Attempt to load mirage settings backup db from user settings in Roaming folder...
-		if(m_pxMirageSettingsBackupDB^.Load(m_sSettingsBackupPath+"/mirage_settings_backup.txt"))then
-			//KLog.LogSpam("Kr1s1m",  "-------------> mirage settings backup db ready <--------------");
-		//Kr1s1m: ...and if that fails attempt loading from the db template inside MIRAGE/Scripts/Game/misc
-		elseif(m_pxMirageSettingsBackupDB^.Load(m_sSettingsBackupTemplatePath+"/MirageSettingsBackup.txt"))then
-			//KLog.LogSpam("Kr1s1m",  "----------> mirage settings backup template loaded <----------");
-		else//Kr1s1m: The two loading attempts have failed, so set the value to null to signal that.
-			m_pxMirageSettingsBackupDB = null;
-		endif;
-
-		//Kr1s1m: Level settings backup DB init
-		m_pxLevelSettingsBackupDB = new CPropDB();
-		if(m_pxLevelSettingsBackupDB^.Load(m_sSettingsBackupPath+"/level_settings_backup.txt"))then
-			//KLog.LogSpam("Kr1s1m",  "-------------> level settings backup db ready <--------------");
-		elseif(m_pxLevelSettingsBackupDB^.Load(m_sSettingsBackupTemplatePath+"/LevelSettingsBackup.txt"))then
-			//KLog.LogSpam("Kr1s1m",  "----------> level settings backup template loaded <----------");
-		else
-			m_pxLevelSettingsBackupDB = null;
-		endif;
-
+		
+		CreateMirageSettingsBackupFile();
+		CreateLevelSettingsBackupFile();
+		
 		m_abFeedbacks=FEEDBACK_TYPES;
 		m_bSupChecked = false;
 		m_bResLimitChecked = false;
@@ -871,6 +852,7 @@ class CMirageClnMgr
 	export proc string GetCustomMapPlayerSetting(string p_sLevelName, int p_iPlayerID, string p_sKey)
 		//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomMapPlayerSetting("+p_sLevelName+", "+p_sKey+") begin");
 		var string sValue;
+		if(p_sLevelName.IsEmpty()||p_sKey.IsEmpty())then return sValue; endif;
 		if(m_pxCustomMapSettingsDB!=null)then
 			//KLog.LogSpam("ParaworldFan-ALERT", "root node != null");
 			var ^CPropDB.CNode pxLevelsNode=m_pxCustomMapSettingsDB^.Get("Levels");
@@ -911,7 +893,47 @@ class CMirageClnMgr
 		//KLog.LogSpam("ParaworldFan-ALERT", "MirageClnMgr:GetCustomMapPlayerSetting("+p_sLevelName+", "+p_sKey+") end");
 		return sValue;
 	endproc;
-
+	
+	proc bool CreateLevelSettingsBackupFile()
+		//Kr1s1m: Level settings backup DB init
+		m_pxLevelSettingsBackupDB = new CPropDB();
+		//Kr1s1m: Attempt to load level settings backup db from user settings in Roaming folder...
+		if(m_pxLevelSettingsBackupDB^.Load(m_sSettingsBackupPath+"/level_settings_backup.txt"))then
+			//KLog.LogSpam("Kr1s1m",  "-------------> level settings backup db ready <--------------");
+			return true;
+		//Kr1s1m: ...and if that fails attempt loading from the db template inside MIRAGE/Scripts/Game/misc
+		elseif(m_pxLevelSettingsBackupDB^.Load(m_sSettingsBackupTemplatePath+"/LevelSettingsBackup.txt"))then
+			BackupLevelSettings();
+			m_pxLevelSettingsBackupDB^.Save(m_sSettingsBackupPath+"/level_settings_backup.txt");
+			//KLog.LogSpam("Kr1s1m",  "----------> level settings backup template loaded <----------");
+			return true;
+		else//Kr1s1m: The two loading attempts have failed, so set the value to null to signal that.
+			m_pxLevelSettingsBackupDB = null;
+			return false;
+		endif;
+	endproc;
+	
+	proc bool CreateMirageSettingsBackupFile()
+		//Kr1s1m: Mirage settings backup DB init
+		m_pxMirageSettingsBackupDB = new CPropDB();
+		//Kr1s1m: Attempt to load mirage settings backup db from user settings in Roaming folder...
+		if(m_pxMirageSettingsBackupDB^.Load(m_sSettingsBackupPath+"/mirage_settings_backup.txt"))then
+			//KLog.LogSpam("Kr1s1m",  "-------------> mirage settings backup db ready <--------------");
+			return true;
+		//Kr1s1m: ...and if that fails attempt loading from the db template inside MIRAGE/Scripts/Game/misc
+		elseif(m_pxMirageSettingsBackupDB^.Load(m_sSettingsBackupTemplatePath+"/MirageSettingsBackup.txt"))then
+			//MIRAGE: a new backup starts with the user's current settings, not the template's defaults (the options menu
+			//restores the backup into the config, which would otherwise reset them once after the update)
+			BackupMirageServerSettings();
+			m_pxMirageSettingsBackupDB^.Save(m_sSettingsBackupPath+"/mirage_settings_backup.txt");
+			//KLog.LogSpam("Kr1s1m",  "----------> mirage settings backup template loaded <----------");
+			return true;
+		else//Kr1s1m: The two loading attempts have failed, so set the value to null to signal that.
+			m_pxMirageSettingsBackupDB = null;
+			return false;
+		endif;
+	endproc;
+	
 	export proc array string OperateLevelSettingsBackupDB(bool p_bRestore)
 		//KLog.LogSpam("Kr1s1m", "MirageClnMgr:OperateLevelSettingsBackupDB begin");
 		var array string asRestoreSettingNames;
@@ -940,10 +962,10 @@ class CMirageClnMgr
 							asRestoreSettingNames.AddEntry(sSettingName);
 							//KLog.LogSpam("Kr1s1m", "UserProfile value " + sPath + " restored to " + sValue);
 							//Kr1s1m: Map some setting name values from their config names to their attrib names...
-							if(sSettingName=="ChooseColor")then sSettingName="RandomColor"; endif;
-							if(sSettingName=="DisableWarpgate")then sSettingName="DimGateForbidden"; endif;
-							if(sSettingName=="DisableFOW")then sSettingName="FOWEnabled"; endif;
-							if(sSettingName=="LockDiplomacy")then sSettingName="DiplomacyLocked"; endif;
+							if(sSettingName=="ChooseColor")then sSettingName="RandomColor";
+							elseif(sSettingName=="DisableWarpgate")then sSettingName="DimGateForbidden";
+							elseif(sSettingName=="DisableFOW")then sSettingName="FOWEnabled";
+							elseif(sSettingName=="LockDiplomacy")then sSettingName="DiplomacyLocked"; endif;
 							CGameWrap.GetGame().SetAttrib(sSettingName, sValue);
 							//KLog.LogSpam("Kr1s1m", "CGameWrap.GetGame().SetAttrib("+sSettingName+", "+sValue+")");
 						else
@@ -1094,10 +1116,54 @@ class CMirageClnMgr
 		var bool bRestore = true;
 		OperateMirageServerSettingsBackupDB(bRestore);
 	endproc;
-
+	
+	export proc bool SetBackupSettingsValue(string p_sKeyPath, int p_iValue, bool p_bUserCommand)
+		if(!p_bUserCommand)then return false; endif;
+		return SetBackupSettingsValue(p_sKeyPath,p_iValue.ToString(),p_bUserCommand);
+	endproc;
+	
+	export proc bool SetBackupSettingsValue(string p_sKeyPath, string p_sValue, bool p_bUserCommand)
+		if(!p_bUserCommand)then return false; endif;
+		if(p_sKeyPath.IsEmpty()||m_sSettingsBackupPath.IsEmpty())then return false; endif;
+		//KLog.LogSpam("ParaworldFan", "MirageClnMgr:SetBackupSettingsValue p_sKeyPath=="+p_sKeyPath);
+		//KLog.LogSpam("ParaworldFan", "MirageClnMgr:SetBackupSettingsValue p_sValue=="+p_sValue);
+		var array string asKey; p_sKeyPath.Split(asKey,"/",true);
+		var string sRoot=asKey[0],sKey=asKey[asKey.NumEntries()-1],sFile=m_sSettingsBackupPath;
+		//KLog.LogSpam("ParaworldFan", "MirageClnMgr:SetBackupSettingsValue sRoot=="+sRoot);
+		//KLog.LogSpam("ParaworldFan", "MirageClnMgr:SetBackupSettingsValue sKey=="+sKey);
+		var ^CPropDB pxDB;
+		if(sRoot=="LevelSettingsBackup")then
+			sFile+="/level_settings_backup.txt";
+			pxDB=m_pxLevelSettingsBackupDB;
+		elseif(sRoot=="MirageSettingsBackup")then
+			sFile+="/mirage_settings_backup.txt";
+			pxDB=m_pxMirageSettingsBackupDB;
+		else
+			return false;
+		endif;
+		//KLog.LogSpam("ParaworldFan", "MirageClnMgr:SetBackupSettingsValue sFile=="+sFile);
+		if(!Filesystem.FileExists(sFile)||pxDB==null)then
+			if(sRoot=="LevelSettingsBackup")then
+				if(!CreateLevelSettingsBackupFile())then return false; endif;
+				pxDB=m_pxLevelSettingsBackupDB;
+			elseif(sRoot=="MirageSettingsBackup")then
+				if(!CreateMirageSettingsBackupFile())then return false; endif;
+				pxDB=m_pxMirageSettingsBackupDB;
+			endif;
+		endif;
+		var ^CPropDB.CNode pxRoot=^(pxDB^.GetRoot());
+		var ^CPropDB.CNode pxSettingNode=pxRoot^.FindNode(p_sKeyPath.Left(p_sKeyPath.GetLength()-(sKey.GetLength()+1)),false);
+		if(pxSettingNode!=null)then
+			//KLog.LogSpam("ParaworldFan", "MirageClnMgr:SetBackupSettingsValue pxSettingNode Name=="+pxSettingNode^.Name());
+			pxSettingNode^.SetValue(sKey,p_sValue);
+			pxDB^.Save(sFile);
+		endif;
+		return true;
+	endproc;
+	
 	export proc void UpdateCustomMapAttribs(string p_sLevelName)
 		//KLog.LogSpam("Kr1s1m", "MirageClnMgr:UpdateCustomMapAttribs("+p_sLevelName+") begin");
-		if(m_pxCustomMapMirageSettingsDB==null)then return; endif;
+		if(m_pxCustomMapMirageSettingsDB==null||p_sLevelName.IsEmpty())then return; endif;
 		var ^CPropDB.CNode pxLevelsNode = m_pxCustomMapMirageSettingsDB^.Get("Levels");
 		if(pxLevelsNode!=null)then
 			p_sLevelName.Replace(" ", "_");
@@ -1139,6 +1205,7 @@ class CMirageClnMgr
 	export static proc void UpdateCustomMapBoniTotal(string p_sCurLevel)
 		//KLog.LogSpam("Kr1s1m", "MirageClnMgr:UpdateCustomMapBoniTotal begin");
 		//KLog.LogSpam("Kr1s1m", "-------> Custom Multiplayer Campaign "+p_sCurLevel+" completed <--------");
+		if(p_sCurLevel.IsEmpty())then return; endif;
 		p_sCurLevel.Replace(" ","_");
 		p_sCurLevel.MakeLower();
 		if(p_sCurLevel=="single_b43")then return; endif; //Kr1s1m: ... single_04, [single_b41, ... , single_b43], single_05 ...
@@ -1492,7 +1559,7 @@ class CMirageClnMgr
 					m_asClasses.DeleteEntry(i); i--; iC--;
 				endif;
 			endfor;
-			if(m_asClasses.FindEntry(m_sFocusClass)==-1||m_sFocusClass=="")then
+			if(m_asClasses.FindEntry(m_sFocusClass)==-1||m_sFocusClass.IsEmpty())then
 				bKeep = false;
 			endif;
 			bUpdate = true;
@@ -1646,8 +1713,8 @@ class CMirageClnMgr
 	export proc CObjList GetFocusList(CObjList p_xList)
 //		if(true)then return p_xList; endif;
 		//Henry: will later on continue...
-		ChangeFocus();
-		if(m_sFocusClass=="")then return p_xList; endif;
+		var bool bUpdate = ChangeFocus();
+		if(m_sFocusClass.IsEmpty())then return p_xList; endif;
 		var CObjList xFilteredList;
 		var int i,iC = p_xList.NumEntries();
 		for(i=0)cond(i<iC)iter(i++)do
@@ -1677,11 +1744,12 @@ class CMirageClnMgr
 	endproc;
 
 	export static proc string GetPreviewImageDataFromDB(string p_sLevelName)
+		var string sImagePath;
+		if(p_sLevelName.IsEmpty())then return sImagePath; endif;
 		p_sLevelName.Replace(" ", "_");
 		p_sLevelName.MakeLower();
 		var CPropDB xPreviewImageDB;
 		xPreviewImageDB.Load(CClientWrap.GetUrsRelPath()+"/data/base/scripts/game/misc/PreviewImages.txt");
-		var string sImagePath;
 		var ^CPropDB.CNode pxLevelsNode = xPreviewImageDB.GetRoot().Get("Levels");
 		if(pxLevelsNode!=null)then
 			var ^CPropDB.CNode pxLevelNode = pxLevelsNode^.Get(p_sLevelName);
