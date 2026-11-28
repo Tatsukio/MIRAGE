@@ -43,7 +43,7 @@ Before every start the launcher checks, in this order:
    asks whether to start anyway;
 4. the `requires` / `excludes` rules of the enabled add-ons;
 5. translated videos for the language (a note, once);
-6. it clears the cache (`*.bin`, `*.ubc`, `*.swd` in `%TEMP%\SpieleEntwicklungsKombinat\Paraworld`);
+6. it clears the cache (`*.bin`, `*.swd` in `%TEMP%\SpieleEntwicklungsKombinat\Paraworld`);
 7. it sets `Root/Pest/Server/UseUslCPP = '0'` in Settings.cfg, so the server runs the MIRAGE `.usl` scripts.
 
 Then it starts the game, the PWKiller window and a hidden PWKiller (`--watch`) that sets `UseUslCPP` back to

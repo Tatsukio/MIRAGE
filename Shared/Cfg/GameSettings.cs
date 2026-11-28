@@ -12,6 +12,8 @@ public static class GameSettings
     /// </summary>
     public const string UseUslCpp = "Root/Pest/Server/UseUslCPP";
 
+    public const string AutoKillCache = "Root/Global/AutoKillCache";
+
     /// <summary>Loads the file, sets one value and saves the file if the value changed.</summary>
     public static bool SetValue(string p_CfgFile, string p_Path, string p_Value)
     {

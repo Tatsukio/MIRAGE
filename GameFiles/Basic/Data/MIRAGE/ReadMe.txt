@@ -4,6 +4,7 @@ MIRAGE 2.6.8
 ------------------
 
 General:
+ - The loading speed of the lobby and editor has been increased by 3 times thanks to script caching (but the first launch on PC will still take the same amount of time as before due to the cache creation)
  - Various bugs in the load and save functions have been fixed, which should reduce the number of crashes when loading and saving
  - Fixed a bug that caused an overlay image to appear above the menu
  - Fixed abandon game button not working after retry match

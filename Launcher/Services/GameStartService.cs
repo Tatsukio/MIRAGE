@@ -198,6 +198,13 @@ public sealed partial class GameStartService(
             return false;
         }
 
+        // 7. Disable deleting all usl cache every time the game starts (update only)
+        if (!m_config.SetAutoKillCache(false))
+        {
+            ShowConfigError();
+            return false;
+        }
+
         if (options.EnableDiscordStatus)
         {
             m_tools.RestartDiscordStatus();

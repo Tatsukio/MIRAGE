@@ -166,7 +166,7 @@ internal static class LauncherTests
     private static void CacheClear()
     {
         using FakeGame game = new();
-        string[] cache = ["a.bin", "b.UBC", "c.swd"];
+        string[] cache = ["a.bin", "b.SWD"];
         string[] keep = ["paraworld_ip.txt", "robin", "x.binx"];
         foreach (string name in cache.Concat(keep))
         {
