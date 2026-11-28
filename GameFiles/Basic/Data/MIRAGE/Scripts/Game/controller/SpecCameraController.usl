@@ -1,0 +1,167 @@
+// [PaHa] This file is unused and should be deleted soon.
+
+/*
+class CSpecCameraController inherit CInputController
+	
+	var ^CCamera m_pxCurCamera;			///< pointer to the camera currently controlled
+
+	var real m_fSpeedScale;
+	var real m_fKeyScale;
+
+	var point				m_xLastMousePos;
+
+	var int					m_iLastX;
+	var int					m_iLastY;
+
+	var bool				m_bRMB;
+	var bool				m_bLMB;
+	var bool				m_bMMB;
+
+	var ^CDesktop			m_pxDesktop;	
+
+	var CClntHndl			m_xPathObj;
+
+	var vec3				m_vTargetEye;
+	var vec3				m_vTargetLookAt;
+	var vec3				m_vObjDir;
+	var vec3				m_vObjPos;
+	var real				m_fObjRot;
+	var real				m_fHorizDist;
+	var real				m_fHRotationOffset;
+	var real				m_fVRotationOffset;
+
+	//Options
+
+	export constructor()
+		m_iLastX=0;
+		m_iLastY=0;
+		m_bRMB=false;
+		m_bLMB=false;
+		m_pxDesktop=CClientWrap.GetDesktop();
+		m_vObjDir.SetXYZ(1.0,0.0,0.0);
+		m_fHorizDist=25.0f;
+		m_fHRotationOffset=0.0f;
+		m_fVRotationOffset=0.7f;
+		m_fObjRot=0.0f;
+	endconstructor;
+
+	export destructor () 
+	enddestructor;
+
+	proc vec3 SnapToGround(vec3 p_vPos)
+		var real fH=CClientWrap.GetScapeMgr().GetHeight(p_vPos.GetX(),p_vPos.GetY());
+		var real fH1=CClientWrap.GetScapeMgr().GetHeight(p_vPos.GetX()-8.0f,p_vPos.GetY());
+		var real fH2=CClientWrap.GetScapeMgr().GetHeight(p_vPos.GetX()+8.0f,p_vPos.GetY());
+		var real fH3=CClientWrap.GetScapeMgr().GetHeight(p_vPos.GetX(),p_vPos.GetY()-8.0f);
+		var real fH4=CClientWrap.GetScapeMgr().GetHeight(p_vPos.GetX(),p_vPos.GetY()+8.0f);
+		fH1=Math.Max(fH1,fH2);
+		fH3=Math.Max(fH3,fH4);
+		fH1=Math.Max(fH1,fH3);
+		fH=Math.Max(fH,fH1);
+		var vec3 vRet=p_vPos;
+		vRet.SetZ(Math.Max(fH+2.0f,vRet.GetZ()));
+		return vRet;
+	endproc
+
+	proc void CalcTargetPositions()
+		if(!m_xPathObj.IsValid())then
+			return;
+		endif;
+		var ^CObj pxObj=m_xPathObj.GetObj();
+		var vec3 vPos=pxObj^.GetPos();
+		var vec3 vRot=pxObj^.GetRotation();
+		var vec3 vDir;
+		m_fVRotationOffset=Math.Clamp(m_fVRotationOffset,-1.5f,1.5f);	
+		var real fRot=vRot.GetZ();
+		if(Math.Abs(fRot-m_fObjRot)>1.4f)then
+			m_fObjRot=fRot;
+		else
+			m_fObjRot=m_fObjRot*0.95f+fRot*0.05f;
+		endif
+		vPos.SetX(vPos.GetX()+Math.Sin(m_fObjRot)*(0.5f+(0.2f*m_fHorizDist)));
+		vPos.SetY(vPos.GetY()+Math.Cos(m_fObjRot)*(0.5f+(0.2f*m_fHorizDist)));
+		vPos.SetZ(vPos.GetZ()+2.0f);
+		m_vObjPos=m_vObjPos*0.9f+vPos*0.1f;
+		vDir={0.0,1.0,0.0};
+		vDir.RotX(m_fVRotationOffset);
+		vDir.RotZ(m_fHRotationOffset+m_fObjRot);
+		var vec3 vLookAt=m_vObjPos+vDir*(10.0f+0.5*m_fHorizDist);
+		var vec3 vEye=m_vObjPos-(vDir*m_fHorizDist);
+		m_vTargetLookAt=m_vTargetLookAt*0.5f+vLookAt*0.5f;
+		m_vTargetEye=SnapToGround(m_vTargetEye*0.7f+vEye*0.3f);
+	endproc
+
+	export proc void Render()
+		CalcTargetPositions();
+		m_pxCurCamera^.LookAt()=m_vTargetLookAt;
+		m_pxCurCamera^.Eye()=m_vTargetEye;
+	endproc
+
+	export proc bool HandleMsg(bitset p_dwType, bitset p_dwFlags, int p_iKey, int p_iX, int p_iY)
+		var bool bRet=false;
+		if(p_dwType==CInputController.MT_MouseMove)then
+			var int iDiffX=0;
+			var int iDiffY=0;
+			var bool bDoAction=false;
+			if(m_iLastX!=-1000)then
+				if( (p_dwFlags&0001b) == 0001b )then
+					bDoAction=true;
+				endif;
+			endif
+			iDiffX=p_iX-m_iLastX;
+			iDiffY=p_iY-m_iLastY;
+			if(!m_bLMB && !m_bRMB && !m_bMMB)then
+				m_iLastX=p_iX;
+				m_iLastY=p_iY;
+			else
+				m_iLastX = m_xLastMousePos.GetX();
+				m_iLastY = m_xLastMousePos.GetY();
+			endif;
+			if(bDoAction)then
+				m_fHRotationOffset=m_fHRotationOffset+iDiffX.ToReal()*0.02f;
+				m_fVRotationOffset=m_fVRotationOffset+iDiffY.ToReal()*0.01f;
+			endif;
+		elseif(p_dwType==CInputController.MT_MouseLBtnDown)then
+			m_bLMB=true;
+			CClientWrap.GetSelection().Clear();
+		elseif(p_dwType==CInputController.MT_MouseLBtnUp)then m_bLMB=false;
+		elseif((p_dwType==CInputController.MT_MouseRBtnDown)||(p_dwType==CInputController.MT_MouseRBtnDoubleClick))then m_bRMB=true;
+		elseif(p_dwType==CInputController.MT_MouseRBtnUp)then m_bRMB=false;
+		elseif(p_dwType==CInputController.MT_MouseMBtnDown)then m_bMMB=true;
+		elseif(p_dwType==CInputController.MT_MouseMBtnUp)then m_bMMB=false;
+		elseif(p_dwType==077d)then
+		elseif(p_dwType==CInputController.MT_MouseWheel)then
+			if(p_iX>0)then
+				m_fHorizDist=m_fHorizDist*0.9f-1.0f;
+			elseif(p_iX<0)then
+				m_fHorizDist=m_fHorizDist*1.1f+1.0f;
+			endif;
+			m_fHorizDist=Math.Max(2.0f,m_fHorizDist);
+			m_fHorizDist=Math.Min(100.0f,m_fHorizDist);
+			bRet=true;
+		endif;
+	
+		return(true);
+	endproc;
+
+	export proc void Control(^CCamera p_pxCamera)
+		m_pxCurCamera= p_pxCamera;
+		m_iLastX=-1000;
+		var ^CObjSelection pxSel=^(CClientWrap.GetSelection());
+		if(pxSel^.NumEntries()>0)then
+			m_xPathObj=pxSel^[0];
+			var ^CObj pxObj=m_xPathObj.GetObj();
+			var vec3 vPos=pxObj^.GetPos();
+			var vec3 vRot=pxObj^.GetRotation();
+			m_vObjPos=vPos;
+			m_vObjPos=m_vObjPos*0.8f+vPos*0.2f;
+			m_fObjRot=vRot.GetZ();
+			m_vObjDir.SetX(Math.Sin(vRot.GetZ()));
+			m_vObjDir.SetY(Math.Cos(vRot.GetZ()));
+		endif;
+		m_vTargetLookAt=m_pxCurCamera^.LookAt();
+		m_vTargetEye=m_pxCurCamera^.Eye();
+	endproc;
+
+endclass;
+*/

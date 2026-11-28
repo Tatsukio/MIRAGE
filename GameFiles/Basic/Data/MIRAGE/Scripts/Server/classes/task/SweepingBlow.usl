@@ -1,0 +1,97 @@
+class CSweepingBlow inherit CTask
+
+	var CObjHndl 		m_xCharacter;
+	var CObjHndl		m_xTarget;
+	var CGameTimeSpan	m_xDuration;
+	var CGameTime		m_xStart;
+	var string 			m_sState;
+	var string			m_sNode;
+	var int				m_iOwner;
+
+	export constructor()
+		SetName("SwpBlow");
+		SetCivil(false);
+	endconstructor;
+	
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="SwBl";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());		
+		m_xCharacter.DoKArc(pxArc^);
+		m_xTarget.DoKArc(pxArc^);
+		m_xDuration.DoKArc(pxArc^);
+		m_xStart.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_sNode;
+		(pxArc^) << m_iOwner;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="SwBl")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xCharacter.DoKArc(pxArc^);
+			m_xTarget.DoKArc(pxArc^);
+			m_xDuration.DoKArc(pxArc^);
+			m_xStart.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_sNode;
+			(pxArc^) << m_iOwner;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc bool Init(CObjHndl p_xCharacter)
+		if(!p_xCharacter.IsValid())then
+			m_sState="EndTask";
+			return false;
+		endif;
+		m_xCharacter=p_xCharacter;
+		m_sState="start_kick";
+		return true;
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="EndTask")then
+			EndTask();
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		var ^CCharacter pxCharacter=cast<CCharacter>(m_xCharacter.GetObj());
+		if(pxCharacter==null) then return();endif;
+		if(m_sState=="start_kick")then
+			pxCharacter^.SetAnim("nat_sm_matrix",1);
+			m_xStart=CTimeMgr.Get().GetTime();
+			m_xDuration=1.5f;
+			m_sState="do_damage";
+		elseif(m_sState=="do_damage")then
+			var CGameTime xNow=CTimeMgr.Get().GetTime();
+			if((xNow-m_xStart)>=m_xDuration)then	
+				new CAreaDamage(7.5f,100.0f,10.0f,pxCharacter^.GetOwner(),pxCharacter^.GetPos(),7);
+				m_sState="EndTask";
+				return;
+			endif;					
+		elseif(m_sState=="EndTask")then
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+		
+	endproc;
+
+	export proc bool Break()
+		if (m_xCharacter.IsValid()) then
+			m_xCharacter.GetObj()^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+endclass;

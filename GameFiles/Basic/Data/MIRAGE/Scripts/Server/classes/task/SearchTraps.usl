@@ -1,0 +1,154 @@
+// NOT USED ANYMORE
+class CSearchTraps inherit CTask
+
+	var CObjHndl	m_xCharacter;
+	var CGameTime	m_xLastTick;
+	var string		m_sState;
+	var real		m_fDuration;
+	var real		m_fProgress;
+
+	export constructor()
+		SetName("SearchT");
+		m_fDuration = 5.0f;
+		SetCivil(false);
+	endconstructor;
+
+	export proc void Save(^CUOFWriterNode p_pxWriterNode)
+		super.Save(p_pxWriterNode);
+		var CFourCC xType="SeTr";
+		var ^CUOFWriterNode pxWalk=p_pxWriterNode^.AddSubChunk(xType,1);
+		var ^CArc pxArc=^(pxWalk^.GetArc());
+		m_xActor.DoKArc(pxArc^);
+		m_xLastTick.DoKArc(pxArc^);
+		(pxArc^) << m_sState;
+		(pxArc^) << m_fDuration;
+		(pxArc^) << m_fProgress;
+		pxWalk^.Close();
+	endproc;
+
+	export proc void Load(^CUOFReaderNode p_pxReaderNode)
+		if(p_pxReaderNode^.GetType()=="SeTr")then
+			var ^CArc pxArc=^(p_pxReaderNode^.GetArc());
+			m_xActor.DoKArc(pxArc^);
+			m_xLastTick.DoKArc(pxArc^);
+			(pxArc^) << m_sState;
+			(pxArc^) << m_fDuration;
+			(pxArc^) << m_fProgress;
+		else
+			super.Load(p_pxReaderNode);
+		endif;
+	endproc;
+
+	export proc void Init(CObjHndl p_xWorker)
+		//L CSrvWrap.LogSpam("SearchTraps","Init() entered.");
+
+		if (!p_xWorker.IsValid()) then m_sState="end_task"; return; endif;
+
+		m_xCharacter = p_xWorker;
+
+		var ^CGameObj pxWorker = m_xCharacter.GetObj();
+		if(pxWorker==null) then m_sState="end_task"; return; endif;
+		var ^CCharacter pxChar = cast<CCharacter>(pxWorker);
+		if (pxChar == null) then m_sState="end_task"; return; endif;
+		if (pxChar^.GetCaste() != "tec") then
+			m_sState="end_task";
+			return;
+		endif;
+
+		m_sState="search_for_traps";
+
+		m_fProgress = 100.0f;
+		m_xLastTick = CTimeMgr.Get().GetTime();
+	endproc;
+
+	proc void USLOnEnter(^CState p_pxFrom, ^CState p_pxTo)
+		if(m_sState=="end_task") then
+			EndTask();
+		endif;
+	endproc;
+
+	proc void USLOnTick(int p_iTime)
+		//L CSrvWrap.LogSpam("SearchTraps","state: " + m_sState);
+		var ^CGameObj pxWorker	=	m_xCharacter.GetObj();
+
+		if(pxWorker==null) then EndTask(); return; endif;
+
+		if(m_sState=="search_for_traps") then
+			var ^CCharacter pxChar = cast<CCharacter>(pxWorker);
+			if (pxChar == null) then EndTask();return; endif;
+
+			m_xLastTick = xNow;
+
+			var int iLevel = pxChar^.GetLevel();
+			//L CSrvWrap.LogSpam("SearchTraps","level: " + iLevel.ToString());
+
+			var real fProgressStep = 100.0;
+			if (iLevel==2) then
+				fProgressStep = 25.0f;
+			elseif (iLevel==3) then
+				fProgressStep = 50.0f;
+			elseif (iLevel==4) then
+				fProgressStep = 100.0f;
+			endif;
+			m_fProgress -= fProgressStep;
+
+			pxChar^.AnimAction("look_around_careful");
+
+			if (m_fProgress <= 0.0f) then
+				m_sState="End";
+			endif;
+
+
+		elseif(m_sState=="End")then
+
+			var ^CCharacter pxChar = cast<CCharacter>(pxWorker);
+			if (pxChar == null) then EndTask();return; endif;
+
+			var int iDayNightFactor;
+			if (!CTimeMgr.Get().IsVirtualDay()) then
+				iDayNightFactor = 7;
+			else
+				iDayNightFactor = 10;
+			endif;
+
+			var CObjQuery xSearch;
+			xSearch.Clear();
+			xSearch.SetType("BLDG");
+			xSearch.RegionCircle(pxChar^.GetPos(), (pxChar^.GetLevel() * iDayNightFactor).ToReal());
+			//L CSrvWrap.LogSpam("SearchTraps","Search radius: " + (pxChar^.GetLevel() * iDayNightFactor).ToReal().ToString());
+
+			var CObjList xList;
+			if (xSearch.Execute(xList)) then
+				var int i;
+				for (i=0) cond (i<xList.NumEntries()) iter (++i) do
+					if (xList[i].IsValid()) then
+						//L CSrvWrap.LogSpam("SearchTraps","Found: " + xList[i].GetObj()^.GetClassName());
+						var ^CTrap pxTrap = cast<CTrap>(xList[i].GetObj());
+						if (pxTrap != null) then
+							//L CSrvWrap.LogSpam("SearchTraps","Is trap!");
+							pxTrap^.TrapFound( pxChar^.GetOwner() );
+						endif;
+					endif;
+				endfor;
+			endif;
+
+			EndTask();
+			return;
+		endif;
+	endproc;
+
+	proc void USLOnLeave(^CState p_pxFrom, ^CState p_pxTo)
+	endproc;
+
+	export proc bool Break()
+		var ^CGameObj pxWorker=m_xCharacter.GetObj();
+		if(pxWorker!=null)then
+			pxWorker^.TerminateAction();
+		endif;
+		return true;
+	endproc;
+
+	export proc void Skip()
+	endproc;
+
+endclass;
